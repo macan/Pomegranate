@@ -1,0 +1,36 @@
+Writter: Ma Can <macan@ncic.ac.cn>
+Time-stamp: <2009-11-26 14:46:33 macan>
+
+1. HVFS architecture
+
+   HVFS is divided into four parts: client, metadata server, metadata storage
+   server, low level file systems.
+
+   Client is the interface for POSIX access.
+
+   Metadata server is the memory cached metadata service, supporting excellent
+   scalability and metadata performance. 
+
+   Metadata storage server is the stable storage service of the metadata.
+
+   Low level file systems are the non-metadata storage service of the HVFS.
+
+2. Directories
+
+   include/ : common header files
+
+   mds/ : metadata server
+
+   mdsl/ : metadata storage layer
+
+   kc/ : kernel-level client
+
+   xnet/ : communication layer
+
+   lib/ : library for ring and other things
+
+   r/ : ring and root manager
+
+   api/ : API for userspace direct access
+
+   
