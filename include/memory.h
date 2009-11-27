@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-26 19:54:15 macan>
+ * Time-stamp: <2009-11-27 09:38:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 
 #define MEM_OVERFLOW_MAGIC 0xf0d0000000000000
 
-#ifdef HVFS_DEBUG
+#ifdef HVFS_DEBUG_MEMORY
 #define MEM_OVERFLOW_CHECK(ptr) do {                                    \
         if (ptr) {                                                      \
             u64 size = *(u64 *)(ptr - sizeof(u64));                     \
@@ -41,9 +41,9 @@
 #define MEM_OVERFLOW_CHECK(ptr)
 #endif
     
-static inline void *xzmalloc(size_t size) 
+static inline void *xzalloc(size_t size) 
 {
-    void *m = malloc(size);
+    void *m = xmalloc(size);
     memset(m, 0, size);
     return m;
 }
@@ -99,7 +99,7 @@ static inline void *xrealloc(void *ptr, size_t size)
 }
 
 #else  /* !__KERNEL */
-static inline void *xzmalloc(size_t size)
+static inline void *xzalloc(size_t size)
 {
     void *m = malloc(size);
     memset(m, 0, size);

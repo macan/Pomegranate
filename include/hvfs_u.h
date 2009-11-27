@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-26 18:48:05 macan>
+ * Time-stamp: <2009-11-27 09:41:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,14 @@
 
 #ifndef __HVFS_U_H__
 #define __HVFS_U_H__
+
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <errno.h>
+#include <time.h>
 
 typedef unsigned long u64;
 typedef signed long s64;
@@ -69,5 +77,7 @@ static inline u64 hash_64(u64 val, unsigned int bits)
 	/* High bits are more random, so use them. */
 	return hash >> (64 - bits);
 }
+
+#include "err.h"
 
 #endif  /* !__HVFS_U_H__ */

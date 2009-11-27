@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-26 18:48:48 macan>
+ * Time-stamp: <2009-11-27 08:19:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@
 #endif
 
 #include "tracing.h"
-#include "malloc.h"
+#include "memory.h"
+#include "xlock.h"
 
 #endif

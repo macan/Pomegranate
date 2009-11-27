@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-26 20:40:30 macan>
+ * Time-stamp: <2009-11-27 09:47:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@
  *
  */
 
-#include "hvfs.h"
+#include "lib.h"
 
 /* point on the consistent hash ring */
 struct chp 
@@ -39,7 +39,7 @@ struct chring
     u32 alloc;                  /* point allocated */
     u32 used;                   /* point used */
     u32 group;
-    struct xrwlock rwlock;      /* protect the array */
+    xrwlock_t rwlock;      /* protect the array */
     struct chp *array;          /* array of struct chp, sorted by `point' */
 };
 
@@ -52,11 +52,13 @@ struct chring *ring_alloc(int alloc, u32 gid);
 /* Free a ring */
 void ring_free(struct chring *r);
 
-int ring_resort(struct chring *r);
+void ring_resort_nolock(struct chring *r);
+void ring_resort_locked(struct chring *r);
 int ring_add_point(struct chp *p, struct chring *r);
 
 /* Get the point in the ring */
 struct chp *ring_get_point(u64 key, u64 salt, struct chring *r);
+struct chp *ring_get_point2(u64 point, struct chring *r);
 
 /* Dump the consistent hash ring */
 void ring_dump(struct chring *r);
@@ -64,3 +66,20 @@ void ring_dump(struct chring *r);
 /* Ring Hash function, using what? */
 u64 ring_hash(u64 key, u64 salt);
 
+/* fast init ring, the caller should provide the lock */
+#define ring_mem_prepare(r, newsize, ret) do {                          \
+        if (r->alloc < newsize) {                                       \
+            r->array = xrealloc(r->array, newsize * sizeof(struct chp)); \
+            if (!r->array) {                                            \
+                hvfs_debug(lib, "xrealloc failed\n");                   \
+                ret = -ENOMEM;                                          \
+                break;                                                  \
+            }                                                           \
+            r->alloc = newsize;                                         \
+        }                                                               \
+    } while (0)
+
+#define ring_add_blob(r, i, p) do { \
+        r->array[i] = *(p);         \
+        r->used++;                  \
+    } while (0)

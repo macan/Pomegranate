@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-26 21:17:45 macan>
+ * Time-stamp: <2009-11-27 09:05:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -41,6 +41,7 @@
 #define PRINTK printk
 #else  /* !__KERNEL__ */
 #define PRINTK printf
+#define KERN_INFO       "[INFO] "
 #define KERN_ERR        "[ERR ] "
 #define KERN_WARNING    "[WARN] "
 #define KERN_DEBUG      "[DBG ] "
@@ -106,5 +107,16 @@
     hvfs_tracing((HVFS_ERR | HVFS_PRECISE),     \
                  hvfs_##module##_tracing_flags, \
                  KERN_ERR, f, ##a)
+
+#ifdef __KERNEL__
+#define ASSERT(i, m) BUG_ON(!(i))
+#else  /* !__KERNEL__ */
+#define ASSERT(i, m) do {                               \
+        if (!(i)) {                                     \
+            hvfs_err(m, "Assertion " #i "failed!\n");   \
+            exit(-EINVAL);                              \
+        }                                               \
+    } while (0)
+#endif
 
 #endif  /* !__TRACING_H__ */
