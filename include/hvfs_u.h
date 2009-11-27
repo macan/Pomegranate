@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 09:41:33 macan>
+ * Time-stamp: <2009-11-27 17:13:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,5 +79,6 @@ static inline u64 hash_64(u64 val, unsigned int bits)
 }
 
 #include "err.h"
+#include "xlist.h"
 
 #endif  /* !__HVFS_U_H__ */

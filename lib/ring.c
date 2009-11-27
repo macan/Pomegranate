@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 09:49:21 macan>
+ * Time-stamp: <2009-11-27 15:24:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -153,7 +153,7 @@ struct chp *ring_get_point2(u64 point, struct chring *r)
     u64 midval, midval1;
     struct chp *p;
     
-    if (!r)
+    if (!r || !r->used)
         return ERR_PTR(-EINVAL);
 
     xrwlock_rlock(&r->rwlock);
@@ -261,6 +261,7 @@ int main(int argc, char *argv[])
     /* get the point */
     point = 2134132413;
     x = ring_get_point2(point, r);
+    if (!IS_ERR(x))
     hvfs_info(lib, "%ld in R:  %50ld\n", point, x->point);
 
     ring_free(r);
