@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 16:06:52 macan>
+ * Time-stamp: <2009-11-30 16:15:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -86,6 +86,9 @@ struct mds_conf
     int profiling_thread_interval;
     int txg_interval;
 };
+
+extern struct hvfs_mds_info hmi;
+extern struct hvfs_mds_object hmo;
 
 #include "prof.h"
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 10:11:21 macan>
+ * Time-stamp: <2009-11-30 16:16:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,32 +21,13 @@
  *
  */
 
-#ifndef __HVFS_H__
-#define __HVFS_H__
+#include "hvfs.h"
+#include "mds.h"
 
-#ifdef __KERNEL__
-#include "hvfs_k.h"
-#else  /* !__KERNEL__ */
-#include "hvfs_u.h"
+#ifdef HVFS_TRACING
+u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG_ALL;
 #endif
 
-#include "tracing.h"
-#include "memory.h"
-#include "xlock.h"
-
-/* This section for HVFS cmds */
-/* Client to MDS */
-#define HVFS_CLT2_MDS_STATFS
-#define HVFS_CLT2_MDS_LOOKUP
-#define HVFS_CLT2_MDS_CREATE
-#define HVFS_CLT2_MDS_RELEASE
-#define HVFS_CLT2_MDS_UPDATE
-#define HVFS_CLT2_MDS_LINKADD
-#define HVFS_CLT2_MDS_UNLINK
-#define HVFS_CLT2_MDS_SYMLINK
-#define HVFS_CLT2_MDS_NODHLOOKUP (                              \
-        HVFS_CLT2_MDS_STATFS | #define HVFS_CLT2_MDS_RELEASE)
-#define HVFS_CLT2_MDS_NOCACHE (                             \
-        HVFS_CLT2_MDS_LOOKUP | HVFS_CLT2_MDS_NODHLOOKUP)
-
-#endif
+/* Global variable */
+struct hvfs_mds_info hmi;
+struct hvfs_mds_object hmo;

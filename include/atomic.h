@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 16:51:59 macan>
+ * Time-stamp: <2009-11-30 21:30:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,11 +97,35 @@ static __inline__ void atomic64_sub(long i, atomic64_t * v)
         :"Ir" (i), "m" (v->counter));
 }
 
+/**
+ * atomic64_add_return - add and return
+ * @i: integer value to add
+ * @v: pointer to type atomic64_t
+ *
+ * Atomically adds @i to @v and returns @i + @v
+ */
+static inline long atomic64_add_return(long i, atomic64_t *v)
+{
+    long __i = i;
+    asm volatile(LOCK_PREFIX "xaddq %0, %1;"
+                 : "+r" (i), "+m" (v->counter)
+                 : : "memory");
+    return i + __i;
+}
+
+static inline long atomic64_sub_return(long i, atomic64_t *v)
+{
+    return atomic64_add_return(-i, v);
+}
+
 #define atomic_inc(v) atomic_add(1,(v))
 #define atomic64_inc(v) atomic64_add(1,(v))
 
 #define atomic_dec(v) atomic_sub(1,(v))
 #define atomic64_dec(v) atomic64_sub(1,(v))
+
+#define atomic64_inc_return(v)  (atomic64_add_return(1, (v)))
+#define atomic64_dec_return(v)  (atomic64_sub_return(1, (v)))
 
 #endif  /* for user space only */
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 17:06:53 macan>
+ * Time-stamp: <2009-11-30 20:22:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,9 +24,15 @@
 #include "xtable.h"
 #include "hvfs.h"
 
+itb_add_ite();
+itb_search();
+get_free_itb();
+free_itb();
+
 struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
 {
     struct storage_index si;
+    struct storage_result *sr;
     struct xnet_msg *msg;
     struct chp *p;
     struct itb *i;
@@ -59,8 +65,12 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
         hvfs_err(mds, "xnet_send() failed with %d\n", ret);
         return ERR_PTR(ret);
     }
-    /* ok, we get the reply */
-    i = (struct itb *)(msg->pair->xm_data);
+    /* ok, we get the reply: ITB.len is the length */
+    sr = (struct storage_result *)(msg->pair->xm_data);
+    if (sr->src.err)
+        i = NULL;
+    else {
+        i = (struct itb *)(sr->data);
     xnet_free_msg(msg);
 
     return i;

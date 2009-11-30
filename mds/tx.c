@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 10:11:21 macan>
+ * Time-stamp: <2009-11-30 21:36:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,32 +21,37 @@
  *
  */
 
-#ifndef __HVFS_H__
-#define __HVFS_H__
+#include "hvfs.h"
+#include "xtable.h"
+#include "tx.h"
+#include "xnet.h"
 
-#ifdef __KERNEL__
-#include "hvfs_k.h"
-#else  /* !__KERNEL__ */
-#include "hvfs_u.h"
-#endif
+static inline u64 mds_rdtx()
+{
+    return atomic64_inc_return(&hmi.mi_tx);
+}
 
-#include "tracing.h"
-#include "memory.h"
-#include "xlock.h"
+struct hvfs_tx *mds_alloc_tx(u16 op, struct xnet_msg *req)
+{
+    struct hvfs_tx *tx;
+    
+    /* Step 1: try the fast allocation path */
+    /* FIXME */
+    /* fall back to slow path */
+    tx = zalloc(*tx);
+    if (!tx) {
+        hvfs_debug(mds, "zalloc() hvfs_tx failed\n");
+        return NULL;
+    }
+    
+    tx->op = op;
+    tx->state = HVFS_TX_PROCESSING;
+    tx->tx = mds_rdtx();
+    tx->reqno = req->tx.reqno;
+    tx->reqno_site = req->tx.ssite_id;
+    tx->req = req;
+    tx->txg = mds_get_open_txg();   /* get the current opened TXG */
+    /* FIXME: insert in the TXC */
+    /* FIXME: tx_list? */
+}
 
-/* This section for HVFS cmds */
-/* Client to MDS */
-#define HVFS_CLT2_MDS_STATFS
-#define HVFS_CLT2_MDS_LOOKUP
-#define HVFS_CLT2_MDS_CREATE
-#define HVFS_CLT2_MDS_RELEASE
-#define HVFS_CLT2_MDS_UPDATE
-#define HVFS_CLT2_MDS_LINKADD
-#define HVFS_CLT2_MDS_UNLINK
-#define HVFS_CLT2_MDS_SYMLINK
-#define HVFS_CLT2_MDS_NODHLOOKUP (                              \
-        HVFS_CLT2_MDS_STATFS | #define HVFS_CLT2_MDS_RELEASE)
-#define HVFS_CLT2_MDS_NOCACHE (                             \
-        HVFS_CLT2_MDS_LOOKUP | HVFS_CLT2_MDS_NODHLOOKUP)
-
-#endif

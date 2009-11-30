@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 19:36:25 macan>
+ * Time-stamp: <2009-11-30 09:02:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,6 +27,8 @@
 #ifdef HVFS_TRACING
 extern u32 hvfs_mdsl_tracing_flags;
 #endif
+
+#define HVFS_HOME "/tmp/hvfs"
 
 /* mmap window */
 struct mmap_window 

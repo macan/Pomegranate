@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 12:43:13 macan>
+ * Time-stamp: <2009-11-30 20:16:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,23 +37,25 @@ struct column                   /* 24B */
 
 struct sdt_md                   /* 340B */
 {
-    char name[HVFS_MAX_NAME_LEN]; /* 256B */
     union 
     {
         struct mdu mdu;         /* 84B */
         struct link_source ls;
     };
+    char name[HVFS_MAX_NAME_LEN]; /* 256B */
 };
 
 struct gdt_md
 {
-    u64 puuid;
     union 
     {
         struct mdu mdu;
         struct link_source ls;
     };
+    u64 puuid;
 };
+
+#define HVFS_MDU_SIZE   (sizeof(struct mdu) + u64) /* include GDT.puuid */
 
 /* ITB index table entry */
 struct ite 

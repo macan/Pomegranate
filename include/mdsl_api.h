@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 14:51:21 macan>
+ * Time-stamp: <2009-11-30 19:24:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -134,12 +134,6 @@ struct storage_result
 {
     struct storage_result_core src;
     void *data;
-};
-
-struct storage_result_tx 
-{
-    struct storage_result_core src;
-    char data[0];
 };
 
 #endif

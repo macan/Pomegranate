@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 17:13:09 macan>
+ * Time-stamp: <2009-11-30 09:16:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@
 #include <sys/types.h>
 #include <errno.h>
 #include <time.h>
+#include <sys/vfs.h>
 
 typedef unsigned long u64;
 typedef signed long s64;
@@ -80,5 +81,7 @@ static inline u64 hash_64(u64 val, unsigned int bits)
 
 #include "err.h"
 #include "xlist.h"
+
+#define PATH_MAX 4096
 
 #endif  /* !__HVFS_U_H__ */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 12:53:55 macan>
+ * Time-stamp: <2009-11-30 19:21:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,7 +50,8 @@ struct itbh
 #define ITB_STATE_COWED 0x03
     u8 state;
     u8 depth;                   /* local depth, true depth */
-    u8 adepth;                  /* allocated depth, or size of ITB */
+    u8 adepth;                  /* allocated depth, or size of ITB, original
+                                 * length */
     u16 entries;                /* current used entries */
     u16 max_offset;             /* the max offset of ITE, for snip */
     u16 conflicts;              /* current conflict entries */
@@ -62,7 +63,7 @@ struct itbh
 
     /* section for TXG */
     u64 txg;                    /* txg of the latest update */
-    xlock_t lock;
+    xrwlock_t lock;
 
     /* section for searching in ITB */
     u64 puuid;
@@ -101,6 +102,7 @@ struct itb_lock
 /* ITB defination */
 struct itb 
 {
+    /* NOTE: do NOT move the struct itbh! */
     struct itbh h;
     u8 bitmap[2 << (ITB_DEPTH - 3)];
     struct itb_lock lock[(2 << ITB_DEPTH) / ITB_LOCK_GRANULARITY];
