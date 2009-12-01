@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 17:04:33 macan>
+ * Time-stamp: <2009-12-01 10:45:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,6 +54,7 @@ struct xnet_msg_tx
     u64 cmd;                    /* please refer to the cmd list of
                                  * REQ/RPY/CMD */
     u64 arg0;
+    u64 reqno;
     u64 len;                    /* total data len */
 };
 
@@ -79,7 +80,6 @@ struct xnet_msg
     struct xnet_context *xc;
     struct xnet_msg *pair;
     struct list_head list;
-    u64 reqno;
     void *private;
 };
 

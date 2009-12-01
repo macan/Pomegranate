@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-01 12:58:42 macan>
+ * Time-stamp: <2009-12-01 08:49:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,12 +21,18 @@
  *
  */
 
-#ifndef __HVFS_CONST_H__
-#define __HVFS_CONST_H__
+#ifndef __XHASH_H__
+#define __XHASH_H__
 
-#define HVFS_MAX_NAME_LEN       256
+#ifndef __KERNEL__
+#include "xlist.h"
+#endif
+#include "xlock.h"
 
-#define ETXCED  1025            /* TXC Evicted */
-#define ECHP    1026            /* Consistent Hash Point error */
-#define ERINGCHG        1027    /* Ring Changed */
+struct regular_hash 
+{
+    struct hlist_head h;
+    xlock_t lock;
+};
+
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 21:27:48 macan>
+ * Time-stamp: <2009-12-01 15:02:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,24 +32,31 @@ struct hvfs_tx
 #define HVFS_TX_FORGET          0x02
     u16 op;
 #define HVFS_TX_PROCESSING      0x01
-#define HVFS_TX_ACKED           0x02
-#define HVFS_TX_COMMITED        0x03
+#define HVFS_TX_DONE            0x02
+#define HVFS_TX_ACKED           0x03
+#define HVFS_TX_COMMITED        0x04
     u16 state;                  /* PROCESSING, ACKED, COMMITED */
+    atomic_t ref;               /* reference count */
     u64 tx;                     /* this transaction id */
     u64 reqno;                  /* the reqno in the client side */
-    u64 reqno_site;
+    u64 reqin_site;
     struct xnet_msg *req, *rpy;
     struct hvfs_txg *txg;
     struct list_head tx_list;   /* tx list for current session */
     struct list_head lru;       /* linked in the LRU list */
-    struct list_head hlist;     /* linked in the txc */
+    struct hlist_node hlist;     /* linked in the txc */
 };
 
 struct hvfs_txc 
 {
     struct regular_hash *txht;
     struct list_head lru;       /* only for commited TX */
-    int size;
+    xlock_t lock;               /* protect lru list */
+    int hsize;                  /* hash table size */
+    int ftx;                    /* free TXs */
 };
+
+#define MDS_TXC_DEFAULT_SIZE    (1024 * 8)
+#define HVFS_TX_PRE_FREE_HINT   (16)
 
 #endif

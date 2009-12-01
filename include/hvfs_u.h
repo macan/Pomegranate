@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 09:16:53 macan>
+ * Time-stamp: <2009-12-01 10:07:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
 #define __HVFS_U_H__
 
 #include <pthread.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,5 +84,7 @@ static inline u64 hash_64(u64 val, unsigned int bits)
 #include "xlist.h"
 
 #define PATH_MAX 4096
+
+#define xsleep usleep
 
 #endif  /* !__HVFS_U_H__ */

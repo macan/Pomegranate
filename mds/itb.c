@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 20:22:00 macan>
+ * Time-stamp: <2009-12-01 16:23:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -69,10 +69,70 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
     sr = (struct storage_result *)(msg->pair->xm_data);
     if (sr->src.err)
         i = NULL;
-    else {
+    else
         i = (struct itb *)(sr->data);
     xnet_free_msg(msg);
 
     return i;
 }
 
+/*
+ * Search ITE in the ITB, matched by hvfs_index
+ *
+ * Err Convention: ERR_PTR, can never be NULL!
+ */
+struct ite *itb_search(struct hvfs_index *hi, struct itb* itb, void *data)
+{
+    u64 offset = hi->hash & ((1 << itb->h.adepth) - 1);
+    struct itb_index *ii;
+    struct itb_lock *l;
+    int ret = 0;
+
+    /* get the lock */
+    l = &itb->lock[offset / ITB_LOCK_GRANULARITY];
+    if (hi->flag & INDEX_LOOKUP)
+        itb_index_rlock(&l);
+    else
+        itb_index_wlock(&l);
+    
+    while (offset < (1 << (itb->h.adepth + 1))) {
+        ii = &itb->index[offset];
+        if (ii->flag == ITB_INDEX_FREE)
+            break;
+        ret = ite_match(&itb->ite[ii->entry], hi);
+
+        if (ii->flag == ITB_INDEX_UNIQUE) {
+            if (ret == ITE_MATCH_MISS) {
+                ret = -ENOENT;
+                goto out;
+            }
+        } else {
+            /* CONFLICT & OVERFLOW */
+            if (ret == ITE_MATCH_MISS) {
+                offset = ii->conflict;
+                continue;
+            }
+        }
+        /* OK, found it, already lock it then do xxx on it */
+        if (hi->flag & INDEX_LOOKUP) {
+            /* read MDU to buffer */
+            memcpy(data, itb->ite[ii->entry].g, HVFS_MDU_SIZE);
+        } else if (hi->flag & INDEX_CREATE) {
+            /* already exist, so... */
+            if (!hi->flag & INDEX_CREATE_FORCE) {
+                /* should return -EEXIST */
+                ret = -EEXIST;
+                goto out;
+            }
+            /* ok, forcely do it */
+            if (hi->flag & INDEX_CREATE_DIR) {
+            } else if (hi->flag & INDEX_CREATE_COPY) {
+            } else if (hi->flag & INDEX_CREATE_LINK) {
+            }
+        } else if (hi->flag & INDEX_MDU_UPDATE) {
+        } else if (hi->flag & INDEX_UNLINK) {
+        } else if (hi->flag & INDEX_LINK_ADD) {
+        } else if (hi->flag & INDEX_SYMLINK) {
+        }
+    }
+}

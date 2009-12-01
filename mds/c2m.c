@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 13:26:12 macan>
+ * Time-stamp: <2009-12-01 16:23:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,7 +33,7 @@ static inline void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr,
     if (!tx->rpy) {
         hvfs_err(mds, "xnet_alloc_msg() failed\n");
         /* do not retry myself */
-        hvfs_tx_done(tx);
+        mds_free_tx(tx);
         return;
     }
 
@@ -51,15 +51,16 @@ static inline void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr,
     xnet_msg_fill_reqno(tx->rpy, tx->req->tx.reqno);
     xnet_msg_fill_cmd(tx->rpy, XNET_RPY_ACK | XNET_PRY_DATA);
 
+    mds_txc_add(&hmo.txc, tx);
     xnet_wait_group_add(mds_gwg, tx->rpy);
     if (xnet_isend(tx->rpy)) {
         hvfs_err(mds, "xnet_isend() failed\n");
         /* do not retry myself, client is forced to retry */
         xnet_wait_group_del(mds_gwg, tx->rpy);
         /* FIXME: free the tx->rpy! */
-        hvfs_tx_done(tx);
     }
     /* FIXME: state machine of TX, MSG */
+    mds_tx_done(tx);
 }
 
 /* STATFS */
@@ -69,7 +70,7 @@ void mds_statfs(struct hvfs_tx *tx)
 
     if (!s) {
         hvfs_err(mds, "zalloc() failed\n");
-        hvfs_tx_done(tx);
+        mds_free_tx(tx);
         return;
     }
     s->f_files = hmi.mi_dnum = hmi.mi_fnum;
@@ -80,7 +81,7 @@ void mds_statfs(struct hvfs_tx *tx)
     if (!tx->rpy) {
         hvfs_err(mds, "xnet_alloc_msg() failed\n");
         /* do not retry myself */
-        hvfs_tx_done(tx);
+        mds_free_tx(tx);
         return;
     }
     
@@ -92,14 +93,15 @@ void mds_statfs(struct hvfs_tx *tx)
     xnet_msg_fill_reqno(tx->rpy, tx->req->tx.reqno);
     xnet_msg_fill_cmd(tx->rpy, XNET_RPY_ACK | XNET_RPY_DATA);
 
+    mds_txc_add(&hmo.txc, tx);
     xnet_wait_group_add(mds_gwg, tx->rpy);
     if (xnet_isend(tx->rpy)) {
         hvfs_err(mds, "xnet_isend() failed\n");
         /* do not retry myself, client is forced to retry */
         xnet_wait_group_del(mds_gwg, tx->rpy);
-        hvfs_tx_done(tx);
     }
     /* FIXME: state machine of TX, MSG */
+    mds_tx_done(tx);
 }
 
 /* LOOKUP */
@@ -123,7 +125,7 @@ void mds_lookup(struct hvfs_tx *tx)
     if (!hmr) {
         hvfs_err(mds, "get_hmr() failed\n");
         /* do not retry myself */
-        hvfs_tx_done(tx);
+        mds_free_tx(tx);
         return;
     }
 
@@ -156,7 +158,7 @@ void mds_create(struct hvfs_tx *tx)
     if (!hmr) {
         hvfs_err(mds, "get_hmr() failed\n");
         /* do not retry myself */
-        hvfs_tx_done(tx);
+        mds_free_tx(tx);
         return;
     }
 
@@ -196,7 +198,7 @@ void mds_update(struct hvfs_tx *tx)
     if (!hmr) {
         hvfs_err(mds, "get_hmr() failed\n");
         /* do not retry myself */
-        hvfs_tx_done(tx);
+        mds_free_tx(tx);
         return;
     }
 
@@ -230,12 +232,12 @@ void mds_linkadd(struct hvfs_tx *tx)
     if (!hmr) {
         hvfs_err(mds, "get_hmr() failed\n");
         /* do not retry myself */
-        hvfs_tx_done(tx);
+        mds_free_tx(tx);
         return;
     }
 
     /* search in the CBHT */
-    hi->flag |= (INDEX_LOOKUP | INDEX_LINK_ADD);
+    hi->flag |= INDEX_LINK_ADD;
     err = mds_cbht_search(hi, hmr);
 
 send_rpy:
@@ -263,7 +265,7 @@ void mds_unlink(struct hvfs_tx *tx)
     if (!hmr) {
         hvfs_err(mds, "get_hmr() failed\n");
         /* do not retry myself */
-        hvfs_tx_done(tx);
+        mds_free_tx(tx);
         return;
     }
 
@@ -296,7 +298,7 @@ void mds_symlink(struct hvfs_tx *tx)
     if (!hmr) {
         hvfs_err(mds, "get_hmr() failed\n");
         /* do not retry myself */
-        hvfs_tx_done(tx);
+        mds_free_tx(tx);
         return;
     }
 

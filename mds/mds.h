@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 16:15:16 macan>
+ * Time-stamp: <2009-12-01 13:50:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -85,11 +85,22 @@ struct mds_conf
     /* intervals */
     int profiling_thread_interval;
     int txg_interval;
+
+    /* conf */
+#define HVFS_MDS_CHRECHK        0x01 /* recheck CH ring in fe dispatch */
+    u64 option;
 };
 
 extern struct hvfs_mds_info hmi;
 extern struct hvfs_mds_object hmo;
 
 #include "prof.h"
+
+/* APIs */
+void mds_client_dispatch(struct xnet_msg *msg);
+void mds_mds_dispatch(struct xnet_msg *msg);
+void mds_mdsl_dispatch(struct xnet_msg *msg);
+void mds_ring_dispatch(struct xnet_msg *msg);
+void mds_root_dispatch(struct xnet_msg *msg);
 
 #endif

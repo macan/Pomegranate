@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 20:16:47 macan>
+ * Time-stamp: <2009-12-01 16:05:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,5 +79,12 @@ struct ite
     /* section for padding to 512B: 8B */
     char padding[8];
 };
+
+#define ITE_MATCH_HIT   0
+#define ITE_MATCH_MISS  1
+/*
+ * 
+ */
+int ite_match(struct ite *ite, struct hvfs_index *hi);
 
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 19:21:43 macan>
+ * Time-stamp: <2009-12-01 15:42:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -75,6 +75,10 @@ struct itbh
 };
 
 /* ITB index entry */
+#define ITB_INDEX_FREE          0x00
+#define ITB_INDEX_UNIQUE        0x01
+#define ITB_INDEX_CONFLICT      0x02
+#define ITB_INDEX_OVERFLOW      0x03
 #if ITB_DEPTH <= 16
 struct itb_index 
 {

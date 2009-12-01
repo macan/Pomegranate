@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 10:11:21 macan>
+ * Time-stamp: <2009-12-01 13:41:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,17 +36,39 @@
 
 /* This section for HVFS cmds */
 /* Client to MDS */
-#define HVFS_CLT2_MDS_STATFS
-#define HVFS_CLT2_MDS_LOOKUP
-#define HVFS_CLT2_MDS_CREATE
-#define HVFS_CLT2_MDS_RELEASE
-#define HVFS_CLT2_MDS_UPDATE
-#define HVFS_CLT2_MDS_LINKADD
-#define HVFS_CLT2_MDS_UNLINK
-#define HVFS_CLT2_MDS_SYMLINK
-#define HVFS_CLT2_MDS_NODHLOOKUP (                              \
-        HVFS_CLT2_MDS_STATFS | #define HVFS_CLT2_MDS_RELEASE)
-#define HVFS_CLT2_MDS_NOCACHE (                             \
-        HVFS_CLT2_MDS_LOOKUP | HVFS_CLT2_MDS_NODHLOOKUP)
+#define HVFS_CLT2MDS_BASE       0x8000000000000000
+#define HVFS_CLT2MDS_STATFS     0x8001000000000000
+#define HVFS_CLT2MDS_LOOKUP     0x8002000000000000
+#define HVFS_CLT2MDS_CREATE     0x8004000000000000
+#define HVFS_CLT2MDS_RELEASE    0x8008000000000000
+#define HVFS_CLT2MDS_UPDATE     0x8010000000000000
+#define HVFS_CLT2MDS_LINKADD    0x8020000000000000
+#define HVFS_CLT2MDS_UNLINK     0x8040000000000000
+#define HVFS_CLT2MDS_SYMLINK    0x8080000000000000
+#define HVFS_CLT2MDS_NODHLOOKUP (                                       \
+        (HVFS_CLT2MDS_STATFS | HVFS_CLT2MDS_RELEASE) &                  \
+        ~HVFS_CLT2MDS_BASE)
+#define HVFS_CLT2MDS_NOCACHE (                              \
+        (HVFS_CLT2MDS_LOOKUP | HVFS_CLT2MDS_NODHLOOKUP) &   \
+        ~HVFS_CLT2MDS_BASE)
 
+/* MDS to MDS */
+#define HVFS_MDS2MDS_FWREQ      0x0000000080000000 /* forward req */
+#define HVFS_MDS2MDS_SPITB      0x0000000080000001 /* split itb */
+#define HVFS_MDS2MDS_AUPDATE    0x0000000080000002 /* async update */
+#define HVFS_MDS2MDS_REDODELTA  0x0000000080000003 /* redo delta */
+/* MDSL to MDS */
+/* RING/ROOT to MDS */
+
+/* MDS to MDSL */
+#define HVFS_MDS2MDSL_ITB       0x0000000080010000
+#define HVFS_MDS2MDSL_BITMAP    0x0000000080020000
+#define HVFS_MDS2MDSL_WBTXG     0x0000000080030000
+#define HVFS_MDS2MDSL_WDATA     0x0000000080040000
+
+/* Client to MDSL */
+#define HVFS_CLT2MDSL_READ      0x0000000080050000
+#define HVFS_CLT2MDSL_WRITE     0x0000000080060000
+#define HVFS_CLT2MDSL_SYNC      0x0000000080070000
+#define HVFS_CLT2MDSL_BGSEARCH  0x0000000080080000
 #endif

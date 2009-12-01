@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 21:26:01 macan>
+ * Time-stamp: <2009-12-01 13:51:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,7 +45,7 @@ void mds_client_dispatch(struct xnet_msg *msg)
         return;
     }
 
-    switch (msg->cmd) {
+    switch (msg->tx.cmd) {
     case HVFS_CLT2MDS_STATFS:
         mds_statfs(tx);
         break;
@@ -70,4 +70,29 @@ void mds_client_dispatch(struct xnet_msg *msg)
     default:
         hvfs_err(mds, "Invalid client2MDS command: %x%lx\n", req->cmd);
     }
+}
+
+void mds_mds_dispatch(struct xnet_msg *msg)
+{
+    if (msg->tx.cmd == HVFS_MDS2MDS_FWREQ) {
+        /* FIXME: forward request */
+    } else if (msg->tx.cmd == HVFS_MDS2MDS_SPITB) {
+        /* FIXME: split itb */
+    } else if (msg->tx.cmd == HVFS_MDS2MDS_AUPDATE) {
+        /* FIXME: async update */
+    } else if (msg->tx.cmd == HVFS_MDS2MDS_REDODELTA) {
+        /* FIXME: redo delta */
+    }
+}
+
+void mds_mdsl_dispatch(struct xnet_msg *msg)
+{
+}
+
+void mds_ring_dispatch(struct xnet_msg *msg)
+{
+}
+
+void mds_root_dispatch(struct xnet_msg *msg)
+{
 }

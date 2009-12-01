@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 08:35:29 macan>
+ * Time-stamp: <2009-12-01 10:08:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -59,5 +59,7 @@
 #include <linux/hash.h>
 #include <linux/sort.h>
 #include <linux/rwsem.h>
+
+#define xsleep(i)
 
 #endif  /* __HVFS_K_H__ */
