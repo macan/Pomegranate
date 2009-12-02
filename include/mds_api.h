@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 11:04:00 macan>
+ * Time-stamp: <2009-12-02 15:58:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -64,28 +64,80 @@ struct hvfs_index
 /* the general reply structure between HVFS client and MDS */
 struct hvfs_md_reply
 {
-    int err;
+    short err;
+    short mdu_no;               /* # of MDUs */
     int len;                    /* the data length */
 
 #define MD_REPLY_WITH_BITMAP    0x01 /* bitmap info in data area */
-#define MD_REPLY_HARD_LINK      0x02 /*  */
-#define MD_REPLY_DIR_SDT        0x04
-#define MD_REPLY_READDIR        0x08
+#define MD_REPLY_DIR_SDT        0x02 /* SDT result */
+#define MD_REPLY_READDIR        0x04 /* piggyback the ITB depth in h8 of flag */
 
 #define MD_REPLY_WITH_HI        0x10
 #define MD_REPLY_WITH_MDU       0x20
 #define MD_REPLY_WIHT_LS        0x40
-#define MD_REPLY_WITH_DATA      0x80
+#define MD_REPLY_WITH_BITMAP    0x80
     u64 flag;
     void *data;                 /* how to alloc data region more faster? */
+    /* Layout of data region
+     *
+     * |---HI---|---MDU---|---LS---|---BITMAP---|
+     */
+    /*
+     * Layout of the data region: low->high, selected by flags
+     *
+     * struct hvfs_index hi;
+     * struct mdu mdu;
+     * struct link_source ls;
+     * char data[*];
+     */
 };
 
-/* Layout of the data region: low->high, selected by flags
- *
- * struct hvfs_index hi;
- * struct mdu mdu;
- * struct link_source ls;
- * char data[*];
+/*
+ * used for setattr
  */
+struct mdu_update 
+{
+    /* flags for valid */
+#define MU_MODE         (1 << 0)
+#define MU_UID          (1 << 1)
+#define MU_GID          (1 << 2)
+#define MU_FLAG_ADD     (1 << 3)
+#define MU_ATIME        (1 << 4)
+#define MU_MTIME        (1 << 5)
+#define MU_CTIME        (1 << 6)
+#define MU_VERSION      (1 << 7)
+#define MU_SIZE         (1 << 8) /* for truncate? */
+#define MU_FLAG_CLR     (1 << 9)
+#define MU_COLUMN       (1 << 10) /* update column infomation? */
+
+    u64 atime;
+    u64 mtime;
+    u64 citme;
+    u64 size;                   /* for truncate? */
+
+    u32 valid;
+
+    u32 uid;
+    u32 gid;
+
+    u32 flags;
+
+    u32 version;
+    u16 mode;
+    u16 column_no;              /* # of columns */
+};
+
+struct __column                 /* the same as struct column */
+{
+    u64 stored_itbid;           /* for computing the location of dfile */
+    u64 len;
+    u64 offset;
+};
+
+struct mu_column
+{
+    u6 cno;
+    struct __column c;
+};
 
 #endif

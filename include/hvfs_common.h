@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 12:45:33 macan>
+ * Time-stamp: <2009-12-02 15:05:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,7 +43,7 @@ struct mdu
     /* section for general info: 32B */
     u64 size;
     u64 dev;
-    u16 mode;
+    u16 mode;                   /* the same as VFS */
     u16 nlink;
     u32 uid;
     u32 gid;
@@ -60,6 +60,8 @@ struct mdu
 #define HVFS_MDU_IF_NORMAL      0x08000000 /* normal file */
 #define HVFS_MDU_IF_LARGE       0x04000000 /* large file */
 #define HVFS_MDU_IF_SMALL       0x02000000 /* small file */
+
+#define HVFS_MDU_IF_LINKT       0x00800000 /* hard link target */
     u32 flags;
 
     /* section for time: 32B */

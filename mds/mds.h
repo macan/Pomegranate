@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-01 13:50:35 macan>
+ * Time-stamp: <2009-12-02 19:04:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,6 +65,7 @@ struct hvfs_mds_object
     struct mds_conf conf;
     struct mds_txg txg;
     struct hvfs_txc txc;
+    struct itb_cache ic;
 #define HMO_STATE_LAUNCH        0x00
 #define HMO_STATE_RUNNING       0x01
 #define HMO_STATE_PAUSE         0x02

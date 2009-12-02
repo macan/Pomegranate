@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-01 16:23:49 macan>
+ * Time-stamp: <2009-12-02 16:10:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -131,7 +131,7 @@ void mds_lookup(struct hvfs_tx *tx)
 
     /* search in the CBHT */
     hi->flag |= INDEX_LOOKUP;
-    err = mds_cbht_search(hi, hmr);
+    err = mds_cbht_search(hi, hmr, tx->txg);
 
 send_rpy:
     mds_send_reply(tx, hmr, err);
@@ -205,7 +205,7 @@ void mds_update(struct hvfs_tx *tx)
     /* search in the CBHT */
     hi->flag |= INDEX_MDU_UPDATE;
     hi->data = tx->req->xm_data + sizeof(*hi) + hi->len;
-    err = mds_cbht_search(hi, hmr);
+    err = mds_cbht_search(hi, hmr, tx->txg);
 
 send_rpy:
     mds_send_reply(tx, hmr, err);
@@ -238,7 +238,7 @@ void mds_linkadd(struct hvfs_tx *tx)
 
     /* search in the CBHT */
     hi->flag |= INDEX_LINK_ADD;
-    err = mds_cbht_search(hi, hmr);
+    err = mds_cbht_search(hi, hmr, tx->txg);
 
 send_rpy:
     mds_send_reply(tx, hmr, err);
@@ -271,7 +271,7 @@ void mds_unlink(struct hvfs_tx *tx)
 
     /* search in the CBHT */
     hi->flag |= INDEX_UNLINK;
-    err = mds_cbht_search(hi, hmr);
+    err = mds_cbht_search(hi, hmr, tx->txg);
 
 send_rpy:
     mds_send_reply(tx, hmr, err);
@@ -305,7 +305,7 @@ void mds_symlink(struct hvfs_tx *tx)
     /* search in the CBHT */
     hi->flag |= INDEX_SYMLINK;
     hi->data = tx->req->xm_data + sizeof(*hi) + hi->len; /* symname */
-    err = mds_cbht_search(hi, hmr);
+    err = mds_cbht_search(hi, hmr, tx->txg);
 
 send_rpy:
     mds_send_reply(tx, hmr, err);

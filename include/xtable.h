@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-01 15:42:52 macan>
+ * Time-stamp: <2009-12-02 20:31:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,10 +44,9 @@ struct itbh
 #define ITB_JUST_SPLIT  0x02
 #define ITB_SNAPSHOT    0x03
     u8 flag;
-#define ITB_STATE_FREE  0x00
-#define ITB_STATE_WB    0x01
+#define ITB_STATE_CLEAN 0x00
+#define ITB_STATE_DIRTY 0x01
 #define ITB_STATE_WBED  0x02
-#define ITB_STATE_COWED 0x03
     u8 state;
     u8 depth;                   /* local depth, true depth */
     u8 adepth;                  /* allocated depth, or size of ITB, original
@@ -63,15 +62,18 @@ struct itbh
 
     /* section for TXG */
     u64 txg;                    /* txg of the latest update */
-    xrwlock_t lock;
+    xrwlock_t lock;             /* access/evict lock */
 
     /* section for searching in ITB */
     u64 puuid;
     u64 itbid;
-    struct list_head cbht;
 
-    /* section for self index */
-    void *storage;
+    void *be;                   /* bucket_entry myself attatched to */
+    struct hlist_node cbht;
+    struct list_head lru;
+
+    u64 twin;                   /* twin ITB */
+    void *next, *prev;          /* overflow ITBs */
 };
 
 /* ITB index entry */
