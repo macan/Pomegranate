@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 23:38:24 macan>
+ * Time-stamp: <2009-12-04 23:43:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -700,7 +700,11 @@ int cbht_itb_miss(struct itb *i)
             i->h.itbid = hi->itbid;
             i->h.puuid = hi->puuid;
             mds_cbht_insert_bbrlocked(hi, i);
-            cbht_itb_hit();
+            err = cbht_itb_hit();
+            if (err == -EAGAIN) {
+                /* no need to release the be.rlock */
+                goto out;
+            }
             /* FIXME: */
         } else {
             /* return -ENOENT */
@@ -712,7 +716,10 @@ int cbht_itb_miss(struct itb *i)
         /* insert into the cbht */
         mds_cbht_insert_bbrlocked(hi, i);
         err = cbht_itb_hit();
-        
+        if (err == -EAGAIN) {
+            /* no need to release the be.rlock */
+            goto out;
+        }
     }
 out:
     return err;
@@ -762,6 +769,7 @@ retry_dir:
         }
     }
 
+    /* always holding the bucket.rlock */
 retry:
     if (!hlist_empty(&be->h)) {
         xrwlock_rlock(&be->lock);
@@ -780,6 +788,8 @@ retry:
     }
     /* Can not find it in CBHT */
     err = cbht_itb_miss((struct itb *)itb);
+    if (err == -EAGAIN)         /* with bucket.rlock holded */
+        goto retry;
 out:
     /* put the bucket lock */
     xrwlock_runlock(&b->lock);
