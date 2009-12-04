@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 21:30:49 macan>
+ * Time-stamp: <2009-12-03 09:00:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -127,6 +127,42 @@ static inline long atomic64_sub_return(long i, atomic64_t *v)
 #define atomic64_inc_return(v)  (atomic64_add_return(1, (v)))
 #define atomic64_dec_return(v)  (atomic64_sub_return(1, (v)))
 
+static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
+                                      unsigned long new, int size)
+{
+    unsigned long prev;
+    switch (size) {
+    case 1:
+        asm volatile(LOCK_PREFIX "cmpxchgb %b1,%2"
+                     : "=a"(prev)
+                     : "q"(new), "m"(*__xg(ptr)), "0"(old)
+                     : "memory");
+        return prev;
+    case 2:
+        asm volatile(LOCK_PREFIX "cmpxchgw %w1,%2"
+                     : "=a"(prev)
+                     : "r"(new), "m"(*__xg(ptr)), "0"(old)
+                     : "memory");
+        return prev;
+    case 4:
+        asm volatile(LOCK_PREFIX "cmpxchgl %k1,%2"
+                     : "=a"(prev)
+                     : "r"(new), "m"(*__xg(ptr)), "0"(old)
+                     : "memory");
+        return prev;
+    case 8:
+        asm volatile(LOCK_PREFIX "cmpxchgq %1,%2"
+                     : "=a"(prev)
+                     : "r"(new), "m"(*__xg(ptr)), "0"(old)
+                     : "memory");
+        return prev;
+    }
+    return old;
+}
+
+#define cmpxchg(ptr, o, n)                                              \
+	((__typeof__(*(ptr)))__cmpxchg((ptr), (unsigned long)(o),           \
+                                   (unsigned long)(n), sizeof(*(ptr))))
 #endif  /* for user space only */
 
 #endif

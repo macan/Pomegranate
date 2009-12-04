@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-02 16:10:52 macan>
+ * Time-stamp: <2009-12-03 08:27:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -303,7 +303,7 @@ void mds_symlink(struct hvfs_tx *tx)
     }
 
     /* search in the CBHT */
-    hi->flag |= INDEX_SYMLINK;
+    hi->flag |= (INDEX_CREATE | INDEX_SYMLINK);
     hi->data = tx->req->xm_data + sizeof(*hi) + hi->len; /* symname */
     err = mds_cbht_search(hi, hmr, tx->txg);
 

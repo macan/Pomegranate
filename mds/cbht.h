@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 19:06:45 macan>
+ * Time-stamp: <2009-12-03 15:43:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,7 +24,7 @@
 #ifndef __CBHT_H__
 #define __CBHT_H__
 
-/* one segment can hold 1M CBHT buckets */
+/* one segment can hold near 1M CBHT buckets */
 struct segment
 {
     struct list_head list;
@@ -32,7 +32,7 @@ struct segment
     u64 offset;
     u32 alen;                   /* allocated length */
     u32 len;                    /* current length */
-    void *seg[6];               /* allocate exponently, base is 128KB(16K
+    void *seg[1];               /* allocate exponently, base is 128KB(16K
                                  * entries) */
 };
 
@@ -44,18 +44,21 @@ struct bucket_entry
 
 struct bucket
 {
-    u32 active;
-    u32 conflicts;
-    u16 adepth;                 /* allocated depth */
-    u16 depth;                  /* current depth */
-    u32 pad2;
+    atomic_t active;
+    atomic_t conflicts;
+#define BUCKET_FREE     0x00
+#define BUCKET_SPLIT    0x01
+    u8 state;
+    u8 id;                        /* bucket id */
+    u16 adepth;                   /* allocated depth */
+    atomic_t depth;               /* current depth */
     struct bucket_entry *content; /* store of bucket_entry */
 };
 
 struct eh
 {
     struct list_head dir;       /* EH directory */
-    xlock_t lock;
+    xrwlock_t lock;             /* protect segment list */
     u32 dir_depth;              /* depth of the directory */
     u32 bucket_depth;           /* the size of each bucket */
 };

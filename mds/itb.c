@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-02 20:54:42 macan>
+ * Time-stamp: <2009-12-03 08:13:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,11 +23,6 @@
 
 #include "xtable.h"
 #include "hvfs.h"
-
-itb_add_ite();
-itb_search();
-get_free_itb();
-free_itb();
 
 struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
 {
@@ -139,7 +134,7 @@ struct itb *get_free_itb()
 
     if (l) {
         /* remove from the CBHT */
-        n = (struct itb *)(list_entry(l, struct itbh, lru));
+        n = (struct itb *)(list_entry(l, struct itbh, list));
         if (!hlist_unhashed(&n->h.cbht))
             mds_cbht_del(&hmo.cbht, n);
         memset(n, 0, sizeof(struct itb));
@@ -158,13 +153,16 @@ struct itb *get_free_itb()
     n->h.state = ITB_CLEAN;     /* 0 */
     xrwlock_init(&n->h.lock);
     INIT_LIST_HEAD(&n->h.cbht);
-    INIT_LIST_HEAD(&n->h.lru);
+    INIT_LIST_HEAD(&n->h.list);
 }
 
-/* itb_destroy()
+/* itb_free()
  */
-void itb_destroy(struct itb *i)
+void itb_free(struct itb *i)
 {
+    xlock_lock(&hmo.ic.lock);
+    list_add_tail(&i->h.list, &hmo.ic.lru);
+    xlock_unlock(&hmo.ic.lock);
 }
 
 /* ITB COW
@@ -180,7 +178,7 @@ struct itb *itb_cow(struct itb *itb)
     memcpy(n, itb, itb->h.len);
     xrwlock_init(&n->h.lock);
     INIT_LIST_HEAD(&n->h.cbht);
-    INIT_LIST_HEAD(&n->h.lru);
+    INIT_LIST_HEAD(&n->h.list);
     
     return n;
 }

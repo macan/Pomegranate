@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-02 20:31:40 macan>
+ * Time-stamp: <2009-12-03 09:19:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -67,10 +67,11 @@ struct itbh
     /* section for searching in ITB */
     u64 puuid;
     u64 itbid;
+    u64 hash;                   /* hash value of cbht */
 
     void *be;                   /* bucket_entry myself attatched to */
     struct hlist_node cbht;
-    struct list_head lru;
+    struct list_head list;
 
     u64 twin;                   /* twin ITB */
     void *next, *prev;          /* overflow ITBs */
