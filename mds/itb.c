@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 17:39:50 macan>
+ * Time-stamp: <2009-12-04 23:26:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -277,7 +277,7 @@ struct itb *itb_cow(struct itb *itb)
 }
 
 /**
- * ITB Dirty
+ * ITB Dirty, core function!
  *
  * @itb:ITB
  * @t:  TXG
@@ -311,35 +311,46 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t)
 
             n = itb_cow(itb);   /* itb_cow always success */
 
-            if (hlist_unhashed(&itb->h.cbht)) {
-                /* this ITB is stale */
-                itb_free(n);
-                xrwlock_runlock(&itb->h.lock);
-                return NULL;
+            /* MAGIC: exchange the old ITB with new ITB */
+            /* Step1: preserve the ITB.rlock, release BE.rlock */
+            xrwlock_runlock(&itb->h.be->lock);
+
+            /* Step2: get BE.wlock */
+            xrwlock_wlock(&itb->h.be->lock);
+
+            /* Step3: check the ITB txg */
+
+            /* Step3.0: is this ITB deleted or moved? */
+
+            if (itb->h.be != be) /* moved or deleted */
+                should_retry = 1;
+            else {
+                /* not moved/deleted, just COWed */
+                if (itb->h.txg == t->txg) {
+                /* somebody already do cow (win us), we need just retrieve itb */
+                    should_retry = 1;
+                } else {
+                    /* refresh the pointers, and atomic change the pprev */
+                    n->h.cbht = itb.h.cbht;
+                    *(n->h.cbht.pprev) = &(n->h.cbht);
+                }
             }
             
-            xrwlock_wlock(&be->lock);
-            /* unlock the original ITB */
-            xrwlock_runlock(&itb->h.lock);
-            xrwlock_wlock(&itb->h.lock); /* change to WLOCK */
+            /* Step4: release BE.wlock */
+            xrwlock_wunlock(&itb->h.be->lock);
 
-            if (!hlist_unhashed(&itb->h.cbht)) {
-                hlist_del_init(&itb->h.cbht);
-                hlist_add_head(&n->h.cbht, &be->h);
-                n->h.be = itb->h.be;
-            } else {
-                should_retry = 1;
-            }
-
-            xrwlock_wunlock(&itb->h.lock);
-            xrwlock_wunlock(&be->lock);
-
+            /* Step5: loser should retry the access */
             if (should_retry) {
                 itb_free(n);
                 return NULL;
             }
-            
+            /* Step6: get BE.rlock */
+            xrwlock_rlock(&n->h.be->lock);
+
+            /* Step7: winner get the new ITB.rlock, and release old ITB.rlock */
+            xrwlock_runlock(&itb->h.lock);
             xrwlock_rlock(&n->h.lock);
+
             n->h.txg = t->txg;
             n->h.state = ITB_STATE_DIRTY;
             txg_add_itb(t, n);
@@ -367,7 +378,7 @@ int itb_search(struct hvfs_index *hi, struct itb* itb, void *data,
     struct itb_lock *l;
     int ret = 0;
 
-    /* get the lock */
+    /* get the ITE lock */
     l = &itb->lock[offset / ITB_LOCK_GRANULARITY];
     if (hi->flag & INDEX_LOOKUP)
         itb_index_rlock(l);

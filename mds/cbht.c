@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 22:07:52 macan>
+ * Time-stamp: <2009-12-04 23:38:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -503,11 +503,11 @@ int mds_cbht_search(struct hvfs_index *hi, struct hvfs_md_reply *hmr,
 
     hash = hvfs_hash(hi->puuid, hi->itbid, sizeof(u64), HASH_SEL_CBHT);
 
-research:
+retry_dir:
     b = mds_cbht_search_dir(hash);
     if (IS_ERR(b)) {
         if (PTR_ERR(b) == -EAGAIN)
-            goto research;
+            goto retry_dir;
         else {
             hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
                      "internal error!\n", hi->itbid);
@@ -519,9 +519,6 @@ research:
      */
 
     /* check the bucket */
-    if (unlikely(b->state == BUCKET_SPLIT))
-        goto research;
-
     if (b->active) {
         offset = hash & ((1 << eh->bucket_depth) - 1);
         be = b->content + offset;
@@ -530,7 +527,8 @@ research:
         if (hi->flag & INDEX_CREATE) {
             /* FIXME: */
         } else {
-            return -ENOENT;
+            err = -ENOENT;
+            goto out;
         }
     }
 
@@ -540,9 +538,7 @@ retry:
         hlist_for_each_entry(ih, pos, &be->h, cbht) {
             if (ih->puuid == hi->puuid && ih->itbid == hi->itbid) {
                 found = 1;
-                err = xrwlock_tryrlock(&ih->lock); /* always get a read lock */
-                if (err == EBUSY)
-                    goto retry;
+                xrwlock_rlock(&ih->lock); /* always get a read lock */
                 break;
             }
         }
@@ -648,5 +644,144 @@ retry:
     } else
         memcpy(hmi->data + sizeof(*hi), mdu_rpy, HVFS_MDU_SIZE);
 out:
+    /* FIXME: unlock the bucket */
+    xrwlock_runlock(&b->lock);
+
+    return err;
+}
+
+/*
+ * Note: holding the bucket.rlock, be.rlock
+ */
+int cbht_itb_hit(struct itb *i, struct hvfs_index *hi, struct hvfs_md_reply *hmr)
+{
+    int err;
+
+    xrwlock_rlock(&i->h.lock);
+    if (unlikely(hi->flag & INDEX_BY_ITB)) {
+        /* readdir, read-only */
+        err = itb_readdir(i, hi, hmr);
+        return err;
+    }
+    err = itb_search(hi, i, mdu_rpy, txg);
+    if (err) {
+        hvfs_debug(mds, "Oh, itb_search() return %d.\n", err);
+        goto out;
+    }
+    /* FIXME: fill hmr with mdu_rpy */
+out:
+    xrwlock_runlock(&i->h.lock);
+    return err;
+}
+
+/*
+ * Note: holding the bucket.rlock
+ */
+int cbht_itb_miss(struct itb *i)
+{
+    int err;
+
+    /* FIXME::::::::::: */
+
+    /* Step1: release the bucket.rlock */
+    xrwlock_runlock(&b->lock);
+    i = mds_read_itb(hi->puuid, hi->psalt, hi->itbid);
+    if (IS_ERR(i)) {
+        /* read itb failed, for what? */
+        /* FIXME: why this happened? bitmap say this ITB exists! */
+        if (hi->flag & INDEX_CREATE || hi->flag & INDEX_SYMLINK) {
+            /* FIXME: create ITB and ITE */
+            i = get_free_itb();
+            if (!i) {
+                hvfs_debug(mds, "get_free_itb() failed\n");
+                err = -ENOMEM;
+                goto out;
+            }
+            i->h.itbid = hi->itbid;
+            i->h.puuid = hi->puuid;
+            mds_cbht_insert_bbrlocked(hi, i);
+            cbht_itb_hit();
+            /* FIXME: */
+        } else {
+            /* return -ENOENT */
+            err = -ENOENT;
+            goto out;
+        }
+    } else {
+        /* get it, do search on it */
+        /* insert into the cbht */
+        mds_cbht_insert_bbrlocked(hi, i);
+        err = cbht_itb_hit();
+        
+    }
+out:
+    return err;
+}
+
+int mds_cbht_search(struct hvfs_index *hi, struct hvfs_md_reply *hmr,
+                    struct hvfs_txg *txg)
+{
+    struct bucket *b;
+    struct bucket_entry *be;
+    struct itbh *ih;
+    struct itb *i;
+    struct mdu *m;
+    struct hlist_node *pos;
+    char mdu_rpy[HVFS_MDU_SIZE];
+    u64 hash;
+    int err = 0;
+
+    hash = hvfs_hash(hi->puuid, hi->itbid, sizeof(u64), HASH_SEL_CBHT);
+
+retry_dir:
+    b = mds_cbht_search_dir(hash);
+    if (IS_ERR(b)) {
+        if (PTR_ERR(b) == -EAGAIN)
+            goto retry_dir;
+        else {
+            hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
+                     "internal error!\n", hi->itbid);
+            return -ENOENT;
+        }
+    }
+    /* OK, we get the bucket, and holding the bucket.rlock, no bucket spliting
+     * can happen!
+     */
+
+    /* check the bucket */
+    if (b->active) {
+        offset = hash & ((1 << eh->bucket_depth) - 1);
+        be = b->content + offset;
+    } else {
+        /* the bucket is empty, you can do creating */
+        if (hi->flag & INDEX_CREATE) {
+            /* FIXME: */
+        } else {
+            err = -ENOENT;
+            goto out;
+        }
+    }
+
+retry:
+    if (!hlist_empty(&be->h)) {
+        xrwlock_rlock(&be->lock);
+        hlist_for_each_entry(ih, pos, &be->h, cbht) {
+            if (ih->puuid == hi->puuid && ih->itbid == hi->itbid) {
+                /* OK, find the itb in the CBHT */
+                err = cbht_itb_hit((struct itb *)ih);
+                if (err == -EAGAIN) {
+                    /* no need to release the be.rlock */
+                    goto retry;
+                }
+                goto out;
+            }
+        }
+        xrwlock_runlock(&be->lock);
+    }
+    /* Can not find it in CBHT */
+    err = cbht_itb_miss((struct itb *)itb);
+out:
+    /* put the bucket lock */
+    xrwlock_runlock(&b->lock);
     return err;
 }
