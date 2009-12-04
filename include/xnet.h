@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-01 10:45:17 macan>
+ * Time-stamp: <2009-12-04 11:06:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -93,5 +93,17 @@ void xnet_free_msg(struct xnet_msg *);
  * which means that the return value should be minus number!
  */
 int xnet_send(struct xnet_context *xc, struct xnet_msg *m);
+
+#define xnet_msg_set_site(m, id) ((m)->tx.dsite_id = id)
+
+#define xnet_msg_add_data(m, addr, len) do {    \
+    } while (0)
+
+inline void xnet_msg_fill_cmd(struct xnet_msg *m, u64 cmd, u64 arg) 
+{
+    m->tx.arg0 = arg;
+    m->tx.cmd = cmd;
+}
+
 
 #endif

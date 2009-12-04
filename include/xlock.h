@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 09:40:00 macan>
+ * Time-stamp: <2009-12-04 10:29:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 
 #ifdef __KERNEL__
 
+/* section for rwlock */
 typedef struct rw_semaphore xrwlock_t;
 #define xrwlock_rlock down_read
 #define xrwlock_runlock up_read
@@ -36,14 +37,23 @@ typedef struct rw_semaphore xrwlock_t;
 
 #else
 
+/* section for rwlock */
 typedef pthread_rwlock_t xrwlock_t;
 #define xrwlock_rlock pthread_rwlock_rdlock
+#define xrwlock_tryrlock pthread_rwlock_tryrdlock
 #define xrwlock_runlock pthread_rwlock_unlock
 #define xrwlock_wlock pthread_rwlock_wrlock
+#define xrwlock_trywlock pthread_rwlock_trywrlock
 #define xrwlock_wunlock pthread_rwlock_unlock
 #define xrwlock_init(l) pthread_rwlock_init(l, NULL)
 #define xrwlock_destroy pthread_rwlock_destroy
 
+/* section for lock */
+typedef pthread_mutex_t xlock_t;
+#define xlock_lock pthread_mutex_lock
+#define xlock_unlock pthread_mutex_unlock
+#define xlock_init(l) pthread_mutex_init(l, NULL)
+#define xlock_destroy pthread_mutex_destroy
 #endif
 
 #endif

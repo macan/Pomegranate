@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-01 15:26:58 macan>
+ * Time-stamp: <2009-12-04 11:18:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -66,7 +66,7 @@ init_tx:
 
 void mds_free_tx(struct hvfs_tx *tx)
 {
-    ASSERT(IS_EMPTY(&tx->lru));
+    ASSERT(IS_EMPTY(&tx->lru), mds);
     xlock_lock(&hmo.txc.lock);
     list_add_tail(&tx->lru, &hmo.txc.lru);
     xlock_unlock(&hmo.txc.lock);
@@ -154,7 +154,7 @@ struct hvfs_tx *mds_txc_alloc_tx(struct hvfs_txc *txc)
     if (ftx > 0) {
         ftx--;
         l = txc->lru.next;
-        ASSERT(l != &txc->lru);
+        ASSERT(l != &txc->lru, mds);
         list_del(l);
     }
     xlock_unlock(&txc->lock);
@@ -191,7 +191,7 @@ int mds_txc_add(struct hvfs_txc *txc, struct hvfs_tx *tx)
     if (tx->op == HVFS_TX_FORGET)
         return 0;
 
-    ASSERT(hlist_unhashed(&tx->hlist));
+    ASSERT(hlist_unhashed(&tx->hlist), mds);
 
     /* compute the hash value and select the RH entry */
     i = mds_txc_hash(tx->reqin_site, tx->reqno, txc);
@@ -251,7 +251,7 @@ int mds_txc_evict(struct hvfs_txc *txc, struct hvfs_tx *tx)
     xlock_unlock(&rh->lock);
 
     /* free all the TX resources */
-    ASSERT(tx->state >= HVFS_TX_DONE);
+    ASSERT(tx->state >= HVFS_TX_DONE, mds);
     xnet_free_msg(tx->req);
     if (tx->rpy)
         xnet_free_msg(tx->rpy);

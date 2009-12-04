@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-02 15:58:35 macan>
+ * Time-stamp: <2009-12-04 17:00:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,7 +27,7 @@
 /* the general index structure between HVFS client and MDS */
 struct hvfs_index
 {
-    int len;                    /* the data length */
+    int len;                    /* the name length */
 
 #define INDEX_BY_NAME           0x00000001 /* search by name */
 #define INDEX_BY_UUID_F         0x00000002 /* search by fuuid */
@@ -50,6 +50,9 @@ struct hvfs_index
 #define INDEX_MDU_UPDATE        0x00100000 /* setattr, TXC */
 #define INDEX_UNLINK            0x00200000 /* unlink, TXC */
 #define INDEX_SYMLINK           0x00400000 /* symlink, TXC */
+
+#define INDEX_ITE_ACTIVE        0x01000000 /* active ITE */
+#define INDEX_ITE_SHADOW        0x02000000 /* shadow/unlinked ITE */
 
 #define INDEX_ITB_LOAD          0x10000000 /* load ITB */
     u32 flag;
@@ -75,7 +78,7 @@ struct hvfs_md_reply
 #define MD_REPLY_WITH_HI        0x10
 #define MD_REPLY_WITH_MDU       0x20
 #define MD_REPLY_WIHT_LS        0x40
-#define MD_REPLY_WITH_BITMAP    0x80
+
     u64 flag;
     void *data;                 /* how to alloc data region more faster? */
     /* Layout of data region
@@ -112,7 +115,7 @@ struct mdu_update
 
     u64 atime;
     u64 mtime;
-    u64 citme;
+    u64 ctime;
     u64 size;                   /* for truncate? */
 
     u32 valid;
@@ -127,7 +130,7 @@ struct mdu_update
     u16 column_no;              /* # of columns */
 };
 
-struct __column                 /* the same as struct column */
+struct column                   /* 24B */
 {
     u64 stored_itbid;           /* for computing the location of dfile */
     u64 len;
@@ -136,8 +139,8 @@ struct __column                 /* the same as struct column */
 
 struct mu_column
 {
-    u6 cno;
-    struct __column c;
+    u64 cno;
+    struct column c;
 };
 
 #endif

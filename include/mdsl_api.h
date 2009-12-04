@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 19:24:27 macan>
+ * Time-stamp: <2009-12-04 10:13:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -100,13 +100,13 @@ struct storage_index_tx
     struct si_core sic;
     union 
     {
-        struct __si_client
+        struct ___si_client
         {
             struct si_client sc;
             char name[0];
             char data[0];
         } c;
-        struct __si_mds
+        struct ___si_mds
         {
             struct si_mds sm;
             char data[0];

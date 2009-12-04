@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-02 20:00:41 macan>
+ * Time-stamp: <2009-12-04 11:16:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,10 +24,12 @@
 #ifndef __HVFS_ITB_H__
 #define __HVFS_ITB_H__
 
+/* FIXME: we should implement a ARC/DULO cache */
 struct itb_cache 
 {
     struct list_head lru;
     int csize;                  /* current cache size */
+    xlock_t lock;
 };
 
 #endif

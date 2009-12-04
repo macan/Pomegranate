@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-03 15:54:54 macan>
+ * Time-stamp: <2009-12-04 11:31:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,12 +28,14 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 #include <sys/types.h>
 #include <errno.h>
 #include <time.h>
 #include <sys/vfs.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 
 typedef unsigned long u64;
 typedef signed long s64;
@@ -50,6 +52,9 @@ typedef signed char s8;
 #define likely(x)	__builtin_expect(!!(x), 1)
 #define unlikely(x)	__builtin_expect(!!(x), 0)
 
+#define container_of(ptr, type, member) ({			\
+	const typeof( ((type *)0)->member ) *__mptr = (ptr);	\
+	(type *)( (char *)__mptr - offsetof(type,member) );})
 
 /* 2^31 + 2^29 - 2^25 + 2^22 - 2^19 - 2^16 + 1 */
 #define GOLDEN_RATIO_PRIME_32 0x9e370001UL
@@ -83,6 +88,7 @@ static inline u64 hash_64(u64 val, unsigned int bits)
 
 #include "err.h"
 #include "xlist.h"
+#include "atomic.h"
 
 #define PATH_MAX 4096
 

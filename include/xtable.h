@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-03 09:19:42 macan>
+ * Time-stamp: <2009-12-04 10:56:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -115,6 +115,35 @@ struct itb
     struct itb_lock lock[(2 << ITB_DEPTH) / ITB_LOCK_GRANULARITY];
     struct itb_index index[2 << (ITB_DEPTH + 1)];
     struct ite ite[0];
+};
+
+struct checkpoint 
+{
+    u64 site_id;                /* remote site, virtual */
+    u64 txg;                    /* committed/acked remote txg */
+    u32 type;                   /* bitmap/metadata */
+};
+
+struct bce
+{
+    struct itbitmap *b;
+    u64 uuid;
+};
+
+struct bc
+{
+    struct regular_hash *bcht;
+    int size;                   /* size of the hash table */
+    int entries;                /* # of itbitmaps */
+};
+
+/* saved by changer to MDSL */
+struct bitmap_delta
+{
+    u64 site_id;
+    u64 uuid;
+    u64 oitb;                   /* piggyback SPLIT/MERGE info in low bits */
+    u64 nitb;
 };
 
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-03 15:57:16 macan>
+ * Time-stamp: <2009-12-04 22:07:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 
 #include "hvfs.h"
 #include "xtable.h"
+#include "mds.h"
 
 #define SEG_BASE (16 * 1024)
 #define SEG0_NO (SEG_BASE << 0)
@@ -40,77 +41,16 @@
 #define SEG4_TOTAL (SEG0_NO + SEG1_NO + SEG2_NO + SEG3_NO + SEG4_NO)
 #define SEG5_TOTAL (SEG0_NO + SEG1_NO + SEG2_NO + SEG3_NO + SEG4_NO + SEG5_NO)
 
-#define ALLOC_SEG(s, i, err) do {                   \
-        s->seg[i] = zalloc(SEG##i##_NO);            \
-        if (!s->seg[i]) {                           \
-            hvfs_err(mds, "zalloc() seg failed\n"); \
-            err = -ENOMEM;                          \
-        }                                           \
-        s->len += SEG##i##_NO;                      \
-    } while (0)
-
-#define VALUE_TO_SEG(v, seg, ioff)  do {         \
-        int seg = -1;                            \
-        if (v < SEG0_TOTAL) {                    \
-            seg = 0;                             \
-            ioff = 0;                            \
-        } else if (v < SEG1_TOTAL) {             \
-            seg = 1;                             \
-            ioff = SEG0_TOTAL;                   \
-        } else if (v < SEG2_TOTAL) {             \
-            seg = 2;                             \
-            ioff = SEG1_TOTAL;                   \
-        } else if (v < SEG3_TOTAL) {             \
-            seg = 3;                             \
-            ioff = SEG2_TOTAL;                   \
-        } else if (v < SEG4_TOTAL) {             \
-            seg = 4;                             \
-            ioff = SEG3_TOTAL;                   \
-        } else if (v < SEG5_TOTAL) {             \
-            seg = 5;                             \
-            ioff = SEG4_TOTAL;                   \
-        }                                        \
-    } while (0)
-
 int mds_seg_alloc(struct segment *s, struct eh *eh)
 {
     int err = 0;
-    
-    switch (s->len) {
-    case 0:
-        ALLOC_SEG(s, 0, err);
-        break;
-    case SEG0_NO:
-        ALLOC_SEG(s, 1, err);
-        break;
-    case SEG1_NO:
-        ALLOC_SEG(s, 2, err);
-        break;
-    case SEG2_NO:
-        ALLOC_SEG(s, 3, err);
-        break;
-    case SEG3_NO:
-        ALLOC_SEG(s, 4, err);
-        break;
-    case SEG4_NO:
-        ALLOC_SEG(s, 5, err);
-        break;
-    case SEG5_NO:
-        /* alloc another segment */
-        ns = mds_segment_alloc();
-        if (!ns) {
-            hvfs_err(mds, "mds_segment_alloc() failed\n");
-            return -ENOMEM;
-        }
-        mds_segment_init(s, s->alen, SEG_TOTAL, eh);
 
-        xlock_lock(&eh->lock);
-        list_add(&ns->list, &eh->dir);
-        xlock_unlock(&eh->lock);
-        break;
-    default:
-        hvfs_err(mds, "Invalid segment length %d\n", s->len);
+    s->seg[0] = xzalloc(s->alen);
+    if (!s->seg[0]) {
+        hvfs_err(mds, "xzalloc() seg failed\n");
+        err = -ENOMEM;
     }
+
     return 0;
 }
 
@@ -130,10 +70,10 @@ static inline struct segment *mds_segment_alloc()
 {
     struct segment *s;
     
-    s = zalloc(sizeof(struct segment));
+    s = xzalloc(sizeof(struct segment));
     if (s) {
         INIT_LIST_HEAD(&s->list);
-        xlock_init(&s->lock);
+        xrwlock_init(&s->lock);
     }
     return s;
 }
@@ -151,16 +91,18 @@ struct bucket *cbht_bucket_alloc(int depth)
     struct bucket *b;
     struct bucket_entry *be;
 
-    b = zalloc(struct bucket);
+    b = xzalloc(struct bucket);
     if (!b) {
         return NULL;
     }
-    b->content = zalloc(sizeof(struct bucket_entry) * (1 << depth));
+    b->content = xzalloc(sizeof(struct bucket_entry) * (1 << depth));
     if (!b->content) {
         return NULL;
     }
     /* init the bucket */
     b->adepth = depth;
+    xrwlock_init(&b->lock);
+
     be = (struct bucket_entry *)(b->content);
     for (i = 0; i < (1 << depth); i++) {
         INIT_HLIST_HEAD(&(be + i)->h);
@@ -169,6 +111,9 @@ struct bucket *cbht_bucket_alloc(int depth)
     return b;
 }
 
+/*
+ * Internal use, not export
+ */
 int cbht_bucket_init(struct eh *eh, struct segment *s)
 {
     int err;
@@ -269,6 +214,10 @@ int cbht_enlarge_dir(struct eh *eh)
             if (err)
                 return err;
             ss = s;
+            /* add to the dir list */
+            xrwlock_wlock(&eh->lock);
+            list_add_tail(&s->list, &eh->dir);
+            xrwlock_wunlock(&eh->lock);
         }
     }
     /* ok to change the depth */
@@ -413,7 +362,7 @@ int mds_cbht_init(struct eh *eh, int bdepth)
 
     /* add to the dir list */
     xlock_lock(&eh->lock);
-    list_add(&s->list, &eh->dir);
+    list_add_tail(&s->list, &eh->dir);
     xlock_unlock(&eh->lock);
 
     eh->dir_depth = 0;
@@ -425,7 +374,7 @@ int mds_cbht_init(struct eh *eh, int bdepth)
  *
  * @eh: 
  */
-void mds_cbht_destroy(struct *eh)
+void mds_cbht_destroy(struct eh *eh)
 {
     struct segment *s, *n;
     
@@ -441,7 +390,7 @@ void mds_cbht_destroy(struct *eh)
 
 /* CBHT insert
  */
-int mds_cbht_insert(struct *eh, struct itb *i)
+int mds_cbht_insert(struct eh *eh, struct itb *i)
 {
     u64 hash;
     struct bucket *b, *sb;
@@ -471,7 +420,10 @@ retry:
     }
     
     xrwlock_wlock(&be->lock);
+    xrwlock_wlock(&i->h.lock);
     hlist_add_head(&i->h.cbht, &be->h);
+    i->h.be = be;
+    xrwlock(wunlock(&i->h.lock));
     xrwlock_wunlock(&be->lock);
     atomic_inc(&b->active);
 
@@ -480,20 +432,26 @@ retry:
 
 /* CBHT del
  */
-void mds_cbht_del(struct *eh, struct itb *i)
+void mds_cbht_del(struct eh *eh, struct itb *i)
 {
+    struct bucket_entry *be = i->h.be;
+
+    xrwlock_wlock(&be->lock);
+    xrwlock_wlock(&i->h.lock);
+    hlist_del(&i->h.cbht, &be->h);
+    
 }
 
 /* CBHT dir search
  *
- *
+ * if return value is not null, then the bucket rlock is holding
  */
 struct bucket *mds_cbht_search_dir(u64 hash)
 {
     u64 offset, ioff;
     struct eh *eh = &hmo.eh;
     struct segment *s;
-    struct bucket *b = NULL;
+    struct bucket *b = ERR_PTR(-ENOENT); /* ENOENT means can not find it */
     int found = 0, seg;
     
     offset = (hash >> eh->bucket_depth) & ((1 << eh->dir_depth) - 1);
@@ -507,8 +465,14 @@ struct bucket *mds_cbht_search_dir(u64 hash)
     if (found) {
         offset -= s->offset;
         VALUE_TO_SEG(offset, seg, ioff);
-        if (s->seg[seg])
+        if (s->seg[seg]) {
             b = (struct bucket *)(*(s->seg[seg] + (offset - ioff)));
+            /* ok, holding the bucket rlock */
+            if (xrwlock_tryrlock(&b->lock) == EBUSY) {
+                /* somebody wlock the bucket for spliting? */
+                b = ERR_PTR(-EAGAIN);
+            }
+        }
     }
             
     xrwlock_runlock(eh->lock);
@@ -541,11 +505,18 @@ int mds_cbht_search(struct hvfs_index *hi, struct hvfs_md_reply *hmr,
 
 research:
     b = mds_cbht_search_dir(hash);
-    if (!b) {
-        hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
-                 "internal error!\n", hi->itbid);
-        return -ENOENT;
+    if (IS_ERR(b)) {
+        if (PTR_ERR(b) == -EAGAIN)
+            goto research;
+        else {
+            hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
+                     "internal error!\n", hi->itbid);
+            return -ENOENT;
+        }
     }
+    /* OK, we get the bucket, and holding the bucket.rlock, no bucket spliting
+     * can happen!
+     */
 
     /* check the bucket */
     if (unlikely(b->state == BUCKET_SPLIT))
@@ -585,7 +556,7 @@ retry:
             /* readdir */
             return itb_readdir(i, hi, hmr);
         }
-        err = itb_search(hi, i, mdu_rpy, txg, be);
+        err = itb_search(hi, i, mdu_rpy, txg);
         if (err == -EAGAIN) {
             goto retry;
         } else if (err) {
@@ -602,7 +573,7 @@ retry:
         hvfs_debug(mds, "Can not find ITB 0x%lx in CBHT, retrieve it ...\n", 
                    hi->itbid);
         i = mds_read_itb(hi->puuid, hi->psalt, hi->itbid);
-        if (!i) {
+        if (IS_ERR(i)) {
             hvfs_debug(mds, "Oh, this ITB do not exist, WHY?.\n");
             /* FIXME: why this happened? */
             if (hi->flag & INDEX_CREATE || hi->flag & INDEX_SYMLINK) {

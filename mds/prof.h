@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 16:51:25 macan>
+ * Time-stamp: <2009-12-04 10:31:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,7 +57,7 @@ struct mds_mds_prof
     atomic64_t bitmap_out;      /* # of bitmap lookup OUT */
 };
 
-struct ms_mdsl_prof
+struct mds_mdsl_prof
 {
     atomic64_t itb_load;        /* # of ITBs load from MDSL */
     atomic64_t itb_wb;          /* # of ITBs writed to MDSL */

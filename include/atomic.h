@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-03 09:00:08 macan>
+ * Time-stamp: <2009-12-04 10:23:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,6 +97,8 @@ static __inline__ void atomic64_sub(long i, atomic64_t * v)
         :"Ir" (i), "m" (v->counter));
 }
 
+#define LOCK_PREFIX "lock;"
+
 /**
  * atomic64_add_return - add and return
  * @i: integer value to add
@@ -126,6 +128,8 @@ static inline long atomic64_sub_return(long i, atomic64_t *v)
 
 #define atomic64_inc_return(v)  (atomic64_add_return(1, (v)))
 #define atomic64_dec_return(v)  (atomic64_sub_return(1, (v)))
+
+#define __xg(x) ((volatile long *)(x))
 
 static inline unsigned long __cmpxchg(volatile void *ptr, unsigned long old,
                                       unsigned long new, int size)

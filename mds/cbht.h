@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-03 15:43:31 macan>
+ * Time-stamp: <2009-12-04 21:59:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,6 +39,9 @@ struct segment
 struct bucket_entry 
 {
     struct hlist_head h;
+    /*
+     * Note: wlock for ITB add/del, rlock for other operations
+     */
     xrwlock_t lock;
 };
 
@@ -48,16 +51,23 @@ struct bucket
     atomic_t conflicts;
 #define BUCKET_FREE     0x00
 #define BUCKET_SPLIT    0x01
-    u8 state;
-    u8 id;                        /* bucket id */
+    u16 state;
     u16 adepth;                   /* allocated depth */
     atomic_t depth;               /* current depth */
+    u64 id;                       /* bucket id */
+    /*
+     * Note: wlock for bucket split, rlock for other operations
+     */
+    xrwlock_t lock;
     struct bucket_entry *content; /* store of bucket_entry */
 };
 
 struct eh
 {
     struct list_head dir;       /* EH directory */
+    /*
+     * Note: wlock for segment expanding, rlock for other operations
+     */
     xrwlock_t lock;             /* protect segment list */
     u32 dir_depth;              /* depth of the directory */
     u32 bucket_depth;           /* the size of each bucket */
