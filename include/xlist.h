@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 18:34:25 macan>
+ * Time-stamp: <2009-12-07 14:04:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -270,8 +270,7 @@ static inline void hlist_add_after(struct hlist_node *n,
 #define hlist_entry(ptr, type, member) container_of(ptr,type,member)
 
 #define hlist_for_each(pos, head)                                   \
-    for (pos = (head)->first; pos && ({ prefetch(pos->next); 1; }); \
-         pos = pos->next)
+    for (pos = (head)->first; pos; pos = pos->next)
 
 #define hlist_for_each_safe(pos, n, head)                       \
     for (pos = (head)->first; pos && ({ n = pos->next; 1; });   \
@@ -286,7 +285,7 @@ static inline void hlist_add_after(struct hlist_node *n,
  */
 #define hlist_for_each_entry(tpos, pos, head, member)                   \
     for (pos = (head)->first;                                           \
-         pos && ({ prefetch(pos->next); 1;}) &&                         \
+         pos &&                                                         \
              ({ tpos = hlist_entry(pos, typeof(*tpos), member); 1;});   \
          pos = pos->next)
 

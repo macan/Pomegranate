@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 21:59:01 macan>
+ * Time-stamp: <2009-12-07 11:35:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,7 +28,6 @@
 struct segment
 {
     struct list_head list;
-    xlock_t lock;
     u64 offset;
     u32 alen;                   /* allocated length */
     u32 len;                    /* current length */

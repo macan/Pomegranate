@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 17:00:32 macan>
+ * Time-stamp: <2009-12-07 14:00:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -60,6 +60,7 @@ struct hvfs_index
     u64 hash;                   /* hash value of the name, or manual set */
     u64 itbid;                  /* uuid computed by client, or true uuid by MDS */
     u64 puuid;                  /* parent uuid */
+    u64 psalt;
     void *data;                 /* MDS use: pointer to args */
     char name[0];
 };
@@ -77,8 +78,7 @@ struct hvfs_md_reply
 
 #define MD_REPLY_WITH_HI        0x10
 #define MD_REPLY_WITH_MDU       0x20
-#define MD_REPLY_WIHT_LS        0x40
-
+#define MD_REPLY_WITH_LS        0x40
     u64 flag;
     void *data;                 /* how to alloc data region more faster? */
     /* Layout of data region

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 10:33:14 macan>
+ * Time-stamp: <2009-12-07 11:49:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -73,4 +73,11 @@
 #define HVFS_CLT2MDSL_WRITE     0x0000000080060000
 #define HVFS_CLT2MDSL_SYNC      0x0000000080070000
 #define HVFS_CLT2MDSL_BGSEARCH  0x0000000080080000
+
+/* APIs */
+#define HASH_SEL_EH     0x00
+#define HASH_SEL_CBHT   0x01
+#define HASH_SEL_RING   0x02
+u64 hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel);
+
 #endif

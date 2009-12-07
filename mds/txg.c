@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 16:07:27 macan>
+ * Time-stamp: <2009-12-04 11:44:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,15 +21,9 @@
  *
  */
 
-#ifndef __HVFS_ITB_H__
-#define __HVFS_ITB_H__
+#include "hvfs.h"
+#include "mds.h"
 
-/* FIXME: we should implement a ARC/DULO cache */
-struct itb_cache 
+void txg_add_itb(struct hvfs_txg *txg, struct itb *i)
 {
-    struct list_head lru;
-    atomic_t csize;             /* current cache size */
-    xlock_t lock;
-};
-
-#endif
+}

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 23:26:38 macan>
+ * Time-stamp: <2009-12-07 17:10:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +26,8 @@
 #include "xtable.h"
 #include "xnet.h"
 #include "mds.h"
+#include "lib.h"
+#include "ring.h"
 
 void itb_index_rlock(struct itb_lock *l)
 {
@@ -100,6 +102,19 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
  */
 int itb_add_ite(struct itb *i, struct hvfs_index *hi)
 {
+    u64 offset;
+    struct itb_lock *l;
+
+    offset = hi->hash & ((1 << i->h.adepth) - 1);
+
+    /* lock the index/storage region */
+    l = &itb->lock[offset / ITB_LOCK_GRANULARITY];
+    itb_index_wlock(l);
+
+    
+
+    itb_index_wunlock(l);
+    
     return 0;
 }
 
@@ -208,6 +223,55 @@ inline int ite_match(struct ite *e, struct hvfs_index *hi)
     }
 }
 
+/* ITB Cache init
+ *
+ * There may be (< hint_size) memory allocated!
+ */
+int itb_cache_init(struct itb_cache *ic, int hint_size)
+{
+    struct itb *i;
+    int j;
+    
+    INIT_LIST_HEAD(&ic->lru);
+    atomic_set(&ic->csize, 0);
+    xlock_init(&ic->lock);
+    if (!hint_size)
+        return 0;
+    
+    /* pre-allocate the ITBs */
+    for (j = 0; j < hint_size; j++) {
+        i = xzalloc(sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE);
+        if (!i) {
+            hvfs_info(mds, "xzalloc() ITBs failed, continue ...\n");
+            continue;
+        }
+        i->h.len = sizeof(struct itb);
+        i->h.adepth = ITB_DEPTH;
+        i->h.flag = ITB_ACTIVE;
+        i->h.state = ITB_STATE_CLEAN;
+        xrwlock_init(&i->h.lock);
+        INIT_HLIST_NODE(&i->h.cbht);
+        INIT_LIST_HEAD(&i->h.list);
+        list_add_tail(&i->h.list, &ic->lru);
+        atomic_inc(&ic->csize);
+    }
+    return 0;
+}
+
+/* ITB Cache destroy
+ */
+int itb_cache_destroy(struct itb_cache *ic)
+{
+    struct itbh *pos, *n;
+
+    list_for_each_entry_safe(pos, n, &ic->lru, list) {
+        list_del(&pos->list);
+        xfree(pos);
+    }
+
+    return 0;
+}
+
 /* get_free_itb()
  */
 struct itb *get_free_itb()
@@ -236,6 +300,7 @@ struct itb *get_free_itb()
             hvfs_err(mds, "xzalloc() ITB failed\n");
             return NULL;
         }
+        atomic_inc(&hmo.ic.csize);
     }
 
     n->h.len = sizeof(struct itb);
@@ -284,6 +349,8 @@ struct itb *itb_cow(struct itb *itb)
  * @be: bucket_entry
  *
  * Note: dirty and cow the ITB as needed; return the dirtied ITB for using
+ *
+ * Note: holding the bucket.rlock and be.rlock and itb.rlock
  */
 struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t)
 {
@@ -313,10 +380,10 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t)
 
             /* MAGIC: exchange the old ITB with new ITB */
             /* Step1: preserve the ITB.rlock, release BE.rlock */
-            xrwlock_runlock(&itb->h.be->lock);
+            xrwlock_runlock(&((struct bucket_entry *)(itb->h.be))->lock);
 
             /* Step2: get BE.wlock */
-            xrwlock_wlock(&itb->h.be->lock);
+            xrwlock_wlock(&((struct bucket_entry *)(itb->h.be))->lock);
 
             /* Step3: check the ITB txg */
 
@@ -331,13 +398,14 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t)
                     should_retry = 1;
                 } else {
                     /* refresh the pointers, and atomic change the pprev */
-                    n->h.cbht = itb.h.cbht;
+                    n->h.cbht = itb->h.cbht;
                     *(n->h.cbht.pprev) = &(n->h.cbht);
+                    xrwlock_rlock(&n->h.lock);
                 }
             }
             
             /* Step4: release BE.wlock */
-            xrwlock_wunlock(&itb->h.be->lock);
+            xrwlock_wunlock(&((struct bucket_entry *)(itb->h.be))->lock);
 
             /* Step5: loser should retry the access */
             if (should_retry) {
@@ -345,11 +413,10 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t)
                 return NULL;
             }
             /* Step6: get BE.rlock */
-            xrwlock_rlock(&n->h.be->lock);
+            xrwlock_rlock(&((struct bucket_entry *)(n->h.be))->lock);
 
-            /* Step7: winner get the new ITB.rlock, and release old ITB.rlock */
+            /* Step7: winner got the new ITB.rlock, so release old ITB.rlock */
             xrwlock_runlock(&itb->h.lock);
-            xrwlock_rlock(&n->h.lock);
 
             n->h.txg = t->txg;
             n->h.state = ITB_STATE_DIRTY;
@@ -369,6 +436,8 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t)
  * Search ITE in the ITB, matched by hvfs_index
  *
  * Err Convention: 0 means no error, other MINUS number means error
+ *
+ * Note: holding the bucket.rlock and be.rlock and itb.rlock
  */
 int itb_search(struct hvfs_index *hi, struct itb* itb, void *data, 
                struct hvfs_txg *txg)
@@ -493,4 +562,9 @@ out:
     else
         itb_index_wunlock(l);
     return ret;
+}
+
+int itb_readdir(struct hvfs_index *hi, struct itb *i, struct hvfs_md_reply *hmr)
+{
+    return 0;
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 09:09:52 macan>
+ * Time-stamp: <2009-12-07 16:29:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,5 +29,10 @@
 #ifdef HVFS_TRACING
 extern u32 hvfs_lib_tracing_flags;
 #endif
+
+/* APIs */
+void lib_timer_start(struct timeval *begin);
+void lib_timer_stop(struct timeval *end);
+void lib_timer_echo(struct timeval *begin, struct timeval *end);
 
 #endif

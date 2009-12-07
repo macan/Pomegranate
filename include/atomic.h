@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 10:23:44 macan>
+ * Time-stamp: <2009-12-07 14:14:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,67 +37,63 @@ typedef struct { volatile long counter; } atomic64_t;
 #define atomic_set(v,i)		((v)->counter = (i))
 #define atomic64_set(v,i)	((v)->counter = (i))
 
-static __inline__ void atomic_add(int i, atomic_t * v)
-{
-    unsigned long temp;
-    __asm__ __volatile__(
-        "1:	ldl_l %0,%1\n"
-        "	addl %0,%2,%0\n"
-        "	stl_c %0,%1\n"
-        "	beq %0,2f\n"
-        ".subsection 2\n"
-        "2:	br 1b\n"
-        ".previous"
-        :"=&r" (temp), "=m" (v->counter)
-        :"Ir" (i), "m" (v->counter));
-}
-
-static __inline__ void atomic64_add(long i, atomic64_t * v)
-{
-    unsigned long temp;
-    __asm__ __volatile__(
-        "1:	ldq_l %0,%1\n"
-        "	addq %0,%2,%0\n"
-        "	stq_c %0,%1\n"
-        "	beq %0,2f\n"
-        ".subsection 2\n"
-        "2:	br 1b\n"
-        ".previous"
-        :"=&r" (temp), "=m" (v->counter)
-        :"Ir" (i), "m" (v->counter));
-}
-
-static __inline__ void atomic_sub(int i, atomic_t * v)
-{
-    unsigned long temp;
-    __asm__ __volatile__(
-        "1:	ldl_l %0,%1\n"
-        "	subl %0,%2,%0\n"
-        "	stl_c %0,%1\n"
-        "	beq %0,2f\n"
-        ".subsection 2\n"
-        "2:	br 1b\n"
-        ".previous"
-        :"=&r" (temp), "=m" (v->counter)
-        :"Ir" (i), "m" (v->counter));
-}
-
-static __inline__ void atomic64_sub(long i, atomic64_t * v)
-{
-    unsigned long temp;
-    __asm__ __volatile__(
-        "1:	ldq_l %0,%1\n"
-        "	subq %0,%2,%0\n"
-        "	stq_c %0,%1\n"
-        "	beq %0,2f\n"
-        ".subsection 2\n"
-        "2:	br 1b\n"
-        ".previous"
-        :"=&r" (temp), "=m" (v->counter)
-        :"Ir" (i), "m" (v->counter));
-}
-
 #define LOCK_PREFIX "lock;"
+
+/**
+ * atomic_add - add integer to atomic variable
+ * @i: integer value to add
+ * @v: pointer of type atomic_t
+ *
+ * Atomically adds @i to @v.
+ */
+static inline void atomic_add(int i, atomic_t *v)
+{
+    asm volatile(LOCK_PREFIX "addl %1,%0"
+                 : "=m" (v->counter)
+                 : "ir" (i), "m" (v->counter));
+}
+
+/**
+ * atomic_sub - subtract the atomic variable
+ * @i: integer value to subtract
+ * @v: pointer of type atomic_t
+ *
+ * Atomically subtracts @i from @v.
+ */
+static inline void atomic_sub(int i, atomic_t *v)
+{
+    asm volatile(LOCK_PREFIX "subl %1,%0"
+                 : "=m" (v->counter)
+                 : "ir" (i), "m" (v->counter));
+}
+
+/**
+ * atomic64_add - add integer to atomic64 variable
+ * @i: integer value to add
+ * @v: pointer to type atomic64_t
+ *
+ * Atomically adds @i to @v.
+ */
+static inline void atomic64_add(long i, atomic64_t *v)
+{
+    asm volatile(LOCK_PREFIX "addq %1,%0"
+                 : "=m" (v->counter)
+                 : "er" (i), "m" (v->counter));
+}
+
+/**
+ * atomic64_sub - subtract the atomic64 variable
+ * @i: integer value to subtract
+ * @v: pointer to type atomic64_t
+ *
+ * Atomically subtracts @i from @v.
+ */
+static inline void atomic64_sub(long i, atomic64_t *v)
+{
+    asm volatile(LOCK_PREFIX "subq %1,%0"
+                 : "=m" (v->counter)
+                 : "er" (i), "m" (v->counter));
+}
 
 /**
  * atomic64_add_return - add and return

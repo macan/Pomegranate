@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 14:16:34 macan>
+ * Time-stamp: <2009-12-07 14:48:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,46 +21,37 @@
  *
  */
 
-#ifndef __HVFS_TXG_H__
-#define __HVFS_TXG_H__
+#include "lib.h"
 
-#include "xtable.h"
-
-struct hvfs_dir_delta 
+static u64 hvfs_hash_eh(u64 key1, u64 key2, u64 key2len)
 {
-    u64 site_id;
-    u64 duuid;
-    s32 nlink;                  /* no enough? */
-    u64 atime;
-    u64 ctime;
-};
+    return 0;
+}
 
-struct hvfs_dir_delta_buf 
+static u64 hvfs_hash_cbht(u64 key1, u64 key2, u64 key2len)
 {
-    struct list_head list;
-    int psize, asize;
-    struct hvfs_dir_delta *buf;
-};
+    return 0;
+}
 
-struct hvfs_rmds_ckpt_buf 
+static u64 hvfs_hash_ring(u64 key1, u64 key2, u64 key2len)
 {
-    struct list_head list;
-    int psize, asize;
-    struct checkpoint buf;
-};
+    return 0;
+}
 
-struct hvfs_txg 
+u64 hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel)
 {
-    struct timeval open_time;
-    atomic64_t tx_pending;
-    u64 txg;
-    u64 txmax;
-    u16 state;
-    xlock_t ckpt_lock, delta_lock, itb_lock;
-    struct hvfs_rmds_ckpt_buf *ckpt; /* ckpt list */
-    struct hvfs_dir_delta_buf *delta; /* dir delta's list */
-    struct bitmap_delta *bda;         /* array of bitmap deltas */
-    struct list_head dirty_list;
-};
-
-#endif
+    switch (sel) {
+    case HASH_SEL_EH:
+        return hvfs_hash_eh(key1, key2, key2len);
+        break;
+    case HASH_SEL_CBHT:
+        return hvfs_hash_cbht(key1, key2, key2len);
+        break;
+    case HASH_SEL_RING:
+        return hvfs_hash_ring(key1, key2, key2len);
+        break;
+    default:
+        hvfs_err(lib, "Invalid hash function selector.\n");
+    }
+    return 0;
+}

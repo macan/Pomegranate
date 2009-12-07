@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 23:43:44 macan>
+ * Time-stamp: <2009-12-07 17:03:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -73,7 +73,6 @@ static inline struct segment *mds_segment_alloc()
     s = xzalloc(sizeof(struct segment));
     if (s) {
         INIT_LIST_HEAD(&s->list);
-        xrwlock_init(&s->lock);
     }
     return s;
 }
@@ -82,7 +81,7 @@ int mds_segment_init(struct segment *s, u64 offset, u32 alen, struct eh *eh)
 {
     s->offset = offset;
     s->alen = alen;
-    s->len = 1;
+    s->len = 0;
     return mds_seg_alloc(s, eh);
 }
 
@@ -90,11 +89,15 @@ struct bucket *cbht_bucket_alloc(int depth)
 {
     struct bucket *b;
     struct bucket_entry *be;
+    int i;
 
-    b = xzalloc(struct bucket);
+    b = xzalloc(sizeof(struct bucket));
     if (!b) {
         return NULL;
     }
+#ifdef UNIT_TEST
+    hvfs_info(mds, "alloc bucket %p\n", b);
+#endif
     b->content = xzalloc(sizeof(struct bucket_entry) * (1 << depth));
     if (!b->content) {
         return NULL;
@@ -108,6 +111,7 @@ struct bucket *cbht_bucket_alloc(int depth)
         INIT_HLIST_HEAD(&(be + i)->h);
         xrwlock_init(&(be + i)->lock);
     }
+
     return b;
 }
 
@@ -116,8 +120,6 @@ struct bucket *cbht_bucket_alloc(int depth)
  */
 int cbht_bucket_init(struct eh *eh, struct segment *s)
 {
-    int err;
-    struct segment *s;
     struct bucket *b;
 
     /* alloc bucket #0 */
@@ -128,41 +130,57 @@ int cbht_bucket_init(struct eh *eh, struct segment *s)
     }
 
     b->id = 0;                  /* set bucket id to 0 */
-    ((struct bucket *)(*(s->seg[0]))) = b;
+    *((struct bucket **)(s->seg[0])) = b;
+    s->len = 1;
     
     return 0;
 }
 
-inline segment_update_dir(struct eh *eh, u64 len, struct bucket *b)
+inline int segment_update_dir(struct eh *eh, u64 len, struct bucket *b)
 {
     /* follow the <b->id> to change all matched dir entries */
     struct segment *s;
-    u64 mask = 1 << atomic_read(&b->depth) - 1;
+    u64 mask = (1 << atomic_read(&b->depth)) - 1;
+    int i;
     
     xrwlock_rlock(&eh->lock);
-    hlist_for_each_entry(s, &eh->dir, list) {
-        int k = 0;
+    list_for_each_entry(s, &eh->dir, list) {
         for (i = 0; i < s->len; i++) {
-            if ((s->offset + i) & mask == b->id)
-                    *(s->seg[0]) = b;
+            if (((s->offset + i) & mask) == b->id)
+                *((struct bucket **)(s->seg[0] + i)) = b;
             if (!(--len))
                 break;
         }
     }
     xrwlock_runlock(&eh->lock);
+
+    return 0;
+}
+
+void cbht_print_dir(struct eh *eh)
+{
+    struct segment *s;
+    int i;
+
+    list_for_each_entry(s, &eh->dir, list) {
+        for (i = 0; i < s->len; i++) {
+            hvfs_info(mds, "offset %016d %p\n", i,
+                      *(struct bucket **)(s->seg[0] + i));
+        }
+    }
 }
 
 /* cbht_copy_dir()
  */
 void cbht_copy_dir(struct segment *s, u64 offset, u64 len, struct eh *eh)
 {
-    struct segment *s;
     u64 clen;
+    struct segment *pos;
     
     /* NOTE: have not check the arguments */
-    hlist_for_each_entry(s, &eh->dir, list) {
-        if (s->offset <= offset && offset < (s->offset + s->len)) {
-            clen = min((s->alen - s->len), len);
+    list_for_each_entry(pos, &eh->dir, list) {
+        if (pos->offset <= offset && offset < (pos->offset + pos->len)) {
+            clen = min(len, (pos->offset + pos->len - offset));
             memcpy(s->seg[0] + s->len, s->seg[0] + (offset - s->offset), clen);
             len -= clen;
             offset += clen;
@@ -181,9 +199,11 @@ int cbht_enlarge_dir(struct eh *eh)
     u32 olen = (1 << eh->dir_depth);
     u32 nlen = olen;
     struct segment *s, *ss = NULL;
+    u64 offset;
+    int err = 0;
 
     xrwlock_rlock(&eh->lock);
-    hlist_for_each_entry(s, &eh->dir, list) {
+    list_for_each_entry(s, &eh->dir, list) {
         if (olen == s->len) {
             /* enlarge from this segment */
             ss = s;
@@ -200,11 +220,12 @@ int cbht_enlarge_dir(struct eh *eh)
     offset = 0;
     while (nlen > 0) {
         olen = ss->alen - ss->len; /* writable region in this segment */
-        cbht_copy_dir(ss, offset, olen);
+        olen = min(olen, nlen);
+        cbht_copy_dir(ss, offset, olen, eh);
         nlen -= olen;
         offset += olen;
         /* next segment */
-        if (ss->next == &eh->dir) {
+        if (ss->list.next == &eh->dir) {
             /* should allocate a new segment */
             s = mds_segment_alloc();
             if (!s) {
@@ -222,14 +243,17 @@ int cbht_enlarge_dir(struct eh *eh)
     }
     /* ok to change the depth */
     eh->dir_depth++;
+
+    return err;
 }
 
 /* cbht_update_dir()
  */
 int cbht_update_dir(struct eh *eh, struct bucket *b)
 {
+    int err;
     /* enlarge dir? */
-    if (atomic_read(b->depth) > eh->dir_depth) {
+    if (atomic_read(&b->depth) > eh->dir_depth) {
         err = cbht_enlarge_dir(eh);
         if (err)
             return err;
@@ -239,29 +263,40 @@ int cbht_update_dir(struct eh *eh, struct bucket *b)
 }
 
 /* cbht_bucket_split()
+ *
+ * Note: holding the bucket.rlock
  */
 int cbht_bucket_split(struct eh *eh, struct bucket *ob, u64 criminal,
                       struct bucket **out)
 {
+#define IN_NEW 0
+#define IN_OLD 1
     /* Note that we do not know how many levels should we split, so just
      * repeat spliting until the bucket is all NOT full!
      */
     struct bucket *nb, *tb;
-#define IN_NEW  0x00
-#define IN_OLD  0x01
-    int in, err;
+    struct bucket_entry *obe, *nbe;
+    struct hlist_node *pos, *n;
+    struct itbh *ih;
+    int err = 0, i, in;
 
-    if (cmpxchg(&ob->state, BUCKET_FREE, BUCKET_SPLIT) == BUCKET_SPLIT) {
-        /* somebody is spliting now */
-        return -ELOCKED;
+    xrwlock_runlock(&ob->lock);
+    /* change it to wlock */
+    xrwlock_wlock(&ob->lock);
+    /* recheck if the bucket has been split */
+    if (atomic_read(&ob->active) < (2 << ob->adepth)) {
+        /* ok, this bucket has been split, release all the lock */
+        xrwlock_wunlock(&ob->lock);
+        return -EAGAIN;
     }
 
+    /* ok, we get the bucket.wlock, and the bucket should be split */
 retry:
     nb = cbht_bucket_alloc(eh->bucket_depth);
     if (!nb) {
         hvfs_err(mds, "cbht_bucket_alloc() failed\n");
-        ob->state = BUCKET_FREE;
-        return -ENOMEM;
+        err = -ENOMEM;
+        goto out;
     }
     atomic_inc(&ob->depth);
     atomic_set(&nb->depth, atomic_read(&ob->depth));
@@ -272,24 +307,22 @@ retry:
     obe = ob->content;
     nbe = nb->content;
 
+    /* we know that the bucket has been totally locked, so no be.*lock is
+     * needed */
     for (i = 0; i < (1 << eh->bucket_depth); i++) {
-        xrwlock_wlock(&(obe + i)->lock);
         hlist_for_each_entry_safe(ih, pos, n, &(obe + i)->h, cbht) {
             if (ih->hash & (1 << (atomic_read(&nb->depth) - 1))) {
                 /* move the new ITB */
                 hlist_del_init(pos);
                 hlist_add_head(pos, &(nbe + i)->h);
 
-                /* wlock the ITB for ih->be access */
-                xrwlock_wlock(&ih->lock);
+                /* no need to lock the itb */
                 ih->be = nbe + i;
-                xrwlock_wunlock(&ih->lock);
 
-                atomic_add(&nb->active);
+                atomic_inc(&nb->active);
                 atomic_dec(&ob->active);
             }
         }
-        xrwlock_wunlock(&(obe + i)->lock);
     }
     /* one-level split has completed, but ... */
     if (criminal & (1 << (atomic_read(&nb->depth) - 1)))
@@ -297,25 +330,29 @@ retry:
     else
         in = IN_OLD;
     
-    if (!atomic_read(&nb->active) && (in == IN_OLD)) {
-        /* old bucket need deeply split */
-        /* keep ob not changed and nb FREE */
-        tb = ob;
-    } else if (!atomic_read(&ob->active) && (in == IN_NEW)) {
-        /* new bucket need deeply split */
-        /* change ob->state to FREE and lock the new ITB */
-        ob->state = BUCKET_FREE;
-        nb->state = BUCKET_SPLIT;
-        tb = nb;
-    } else {
-        ob->state = BUCKET_FREE;
-        tb = NULL;
-    }
-
+    /* pre-locked new bucket, we know the two new buckets are all locked */
+    xrwlock_wlock(&nb->lock);
+    
     /* update the directory */
     err = cbht_update_dir(eh, nb);
-    if (err)
-        return err;
+    if (err) {
+        goto out;
+    }
+
+    if (!atomic_read(&nb->active) && (in == IN_OLD)) {
+        /* old bucket need deeply split */
+        /* keep ob not changed and nb unlocked */
+        tb = ob;
+        xrwlock_wunlock(&nb->lock);
+    } else if (!atomic_read(&ob->active) && (in == IN_NEW)) {
+        /* new bucket need deeply split */
+        /* keep nb locked */
+        tb = nb;
+        xrwlock_wunlock(&ob->lock);
+    } else {
+        /* ok, no one need deeply split */
+        tb = NULL;
+    }
 
     if (tb) {
         ob = tb;
@@ -327,7 +364,13 @@ retry:
     else
         *out = ob;
 
-    return 0;
+    err = 0;
+out:
+    xrwlock_wunlock(&ob->lock);
+    xrwlock_rlock(&ob->lock);
+    return err;
+#undef IN_NEW
+#undef IN_OLD
 }
 
 /* CBHT init
@@ -339,9 +382,10 @@ retry:
 int mds_cbht_init(struct eh *eh, int bdepth)
 {
     struct segment *s;
+    int err = 0;
     
-    INIT_LIST_HEAD(&eh->list);
-    xlock_init(&eh->lock);
+    INIT_LIST_HEAD(&eh->dir);
+    xrwlock_init(&eh->lock);
 
     /* allocate the EH directory */
     s = mds_segment_alloc();
@@ -361,9 +405,9 @@ int mds_cbht_init(struct eh *eh, int bdepth)
         return err;
 
     /* add to the dir list */
-    xlock_lock(&eh->lock);
+    xrwlock_wlock(&eh->lock);
     list_add_tail(&s->list, &eh->dir);
-    xlock_unlock(&eh->lock);
+    xrwlock_wunlock(&eh->lock);
 
     eh->dir_depth = 0;
     eh->bucket_depth = bdepth;
@@ -381,65 +425,157 @@ void mds_cbht_destroy(struct eh *eh)
     xrwlock_wlock(&eh->lock);
     list_for_each_entry_safe(s, n, &eh->dir, list) {
         list_del(&s->list);
-        xlock_destroy(&s->lock);
         mds_seg_free(s);
         xfree(s);
     }
     xrwlock_wunlock(&eh->lock);
 }
 
-/* CBHT insert
+/* CBHT insert with bucket/be rlocked at returning
+ *
+ * Note: holding nothing
  */
-int mds_cbht_insert(struct eh *eh, struct itb *i)
+int mds_cbht_insert_bbrlocked(struct eh *eh, struct itb *i, struct bucket **ob,
+                              struct bucket_entry **oe)
 {
-    u64 hash;
+    u64 hash, offset;
     struct bucket *b, *sb;
+    struct bucket_entry *be;
     u32 err;
 
-    hash = hvfs_hash(i->puuid, i->itbid, sizeof(u64), HASH_SEL_CBHT);
+    hash = hvfs_hash(i->h.puuid, i->h.itbid, sizeof(u64), HASH_SEL_CBHT);
     i->h.hash = hash;
     
 retry:
     b = mds_cbht_search_dir(hash);
     if (!b) {
         hvfs_err(mds, "Internal error, can not find 0x%lx in the EH dir\n", 
-                 i->itbid);
+                 i->h.itbid);
         return -EINVAL;
     }
     offset = hash & ((1 << eh->bucket_depth) - 1);
     be = b->content + offset;
 
+    /* holding the bucket.rlock now */
+
     /* is the bucket will overflow? */
     if (atomic_read(&b->active) >= (2 << b->adepth)) {
         err = cbht_bucket_split(eh, b, hash, &sb);
-        if (err == -ELOCKED)
+        if (err == -EAGAIN)     /* already release the bucket.rlock? */
             goto retry;
         else if (err)
-            return err;
-        b = *sb;
+            goto out;
+        b = sb;
     }
     
     xrwlock_wlock(&be->lock);
-    xrwlock_wlock(&i->h.lock);
+    xrwlock_rlock(&i->h.lock);
     hlist_add_head(&i->h.cbht, &be->h);
     i->h.be = be;
-    xrwlock(wunlock(&i->h.lock));
+    xrwlock_runlock(&i->h.lock);
     xrwlock_wunlock(&be->lock);
-    atomic_inc(&b->active);
 
+    atomic_inc(&b->active);
+    xrwlock_rlock(&be->lock);
+    *ob = b;
+    *oe = be;
     return 0;
+    
+out:
+    xrwlock_runlock(&b->lock);
+    return err;
+}
+
+/* CBHT insert without any lock preservated at returning
+ *
+ * Note: holding nothing
+ */
+int mds_cbht_insert(struct eh *eh, struct itb *i)
+{
+    u64 hash, offset;
+    struct bucket *b, *sb;
+    struct bucket_entry *be;
+    u32 err;
+    
+    hash = hvfs_hash(i->h.puuid, i->h.itbid, sizeof(u64), HASH_SEL_CBHT);
+    i->h.hash = hash;
+    
+retry:
+    b = mds_cbht_search_dir(hash);
+    if (!b) {
+        hvfs_err(mds, "Internal error, can not find 0x%lx in the EH dir\n", 
+                 i->h.itbid);
+        return -EINVAL;
+    }
+    offset = hash & ((1 << eh->bucket_depth) - 1);
+    be = b->content + offset;
+
+    /* holding the bucket.rlock now */
+
+    /* is the bucket will overflow? */
+    if (atomic_read(&b->active) >= (2 << b->adepth)) {
+        err = cbht_bucket_split(eh, b, hash, &sb);
+        if (err == -EAGAIN)     /* already release the bucket.rlock? */
+            goto retry;
+        else if (err)
+            goto out;
+        b = sb;
+    }
+    
+    xrwlock_wlock(&be->lock);
+    xrwlock_rlock(&i->h.lock);
+    hlist_add_head(&i->h.cbht, &be->h);
+    i->h.be = be;
+    xrwlock_runlock(&i->h.lock);
+    xrwlock_wunlock(&be->lock);
+
+    atomic_inc(&b->active);
+    err = 0;
+    
+out:
+    xrwlock_runlock(&b->lock);
+    return err;
 }
 
 /* CBHT del
+ *
+ * Note: holding nothing
  */
-void mds_cbht_del(struct eh *eh, struct itb *i)
+int mds_cbht_del(struct eh *eh, struct itb *i)
 {
-    struct bucket_entry *be = i->h.be;
+    struct bucket_entry *be;
+    struct bucket *b;
+    u64 offset;
 
+retry:
+    b = mds_cbht_search_dir(i->h.hash);
+    if (!b) {
+        hvfs_err(mds, "Internal error, can not find 0x%lx in the EH dir.\n",
+                 i->h.itbid);
+        return -EINVAL;
+    }
+    offset = i->h.hash & ((1 << eh->bucket_depth) - 1);
+    be = b->content +offset;
+
+    /* holding the bucket.rlock now */
+
+    /* is the bucket will underflow? FIXME: no underflow for now */
     xrwlock_wlock(&be->lock);
-    xrwlock_wlock(&i->h.lock);
-    hlist_del(&i->h.cbht, &be->h);
-    
+    xrwlock_rlock(&i->h.lock);
+    /* recheck whether this itb has been moved? */
+    if (i->h.be != be) {
+        xrwlock_runlock(&i->h.lock);
+        xrwlock_wunlock(&be->lock);
+        xrwlock_runlock(&b->lock);
+        goto retry;
+    }
+    hlist_del_init(&i->h.cbht);
+    i->h.be = NULL;
+    xrwlock_runlock(&i->h.lock);
+    xrwlock_wunlock(&be->lock);
+
+    xrwlock_runlock(&b->lock);
+    return 0;
 }
 
 /* CBHT dir search
@@ -448,14 +584,14 @@ void mds_cbht_del(struct eh *eh, struct itb *i)
  */
 struct bucket *mds_cbht_search_dir(u64 hash)
 {
-    u64 offset, ioff;
-    struct eh *eh = &hmo.eh;
+    struct eh *eh = &hmo.cbht;
     struct segment *s;
     struct bucket *b = ERR_PTR(-ENOENT); /* ENOENT means can not find it */
-    int found = 0, seg;
+    u64 offset;
+    int found = 0;
     
     offset = (hash >> eh->bucket_depth) & ((1 << eh->dir_depth) - 1);
-    xrwlock_rlock(eh->lock);
+    xrwlock_rlock(&eh->lock);
     list_for_each_entry(s, &eh->dir, list) {
         if (s->offset <= offset && offset < (s->offset + s->len)) {
             found = 1;
@@ -464,9 +600,8 @@ struct bucket *mds_cbht_search_dir(u64 hash)
     }
     if (found) {
         offset -= s->offset;
-        VALUE_TO_SEG(offset, seg, ioff);
-        if (s->seg[seg]) {
-            b = (struct bucket *)(*(s->seg[seg] + (offset - ioff)));
+        if (s->seg[0]) {
+            b = *((struct bucket **)(s->seg[0] + offset));
             /* ok, holding the bucket rlock */
             if (xrwlock_tryrlock(&b->lock) == EBUSY) {
                 /* somebody wlock the bucket for spliting? */
@@ -475,192 +610,25 @@ struct bucket *mds_cbht_search_dir(u64 hash)
         }
     }
             
-    xrwlock_runlock(eh->lock);
+    xrwlock_runlock(&eh->lock);
 
     return b;
-}
-
-/* General search in CBHT
- *
- * @hi: index to search, including flags, refer to "mds_api.h"
- * @hmr:should allocate the data region
- *
- * Search by key(puuid, itbid)
- * FIXME: how about LOCK!
- */
-int mds_cbht_search(struct hvfs_index *hi, struct hvfs_md_reply *hmr, 
-                    struct hvfs_txg *txg)
-{
-    struct bucket *b;
-    struct bucket_entry *be;
-    struct itbh *ih;
-    struct itb *i;
-    struct mdu *m;
-    struct hlist_node *pos;
-    char mdu_rpy[HVFS_MDU_SIZE];
-    u64 hash;
-    int err = 0;
-
-    hash = hvfs_hash(hi->puuid, hi->itbid, sizeof(u64), HASH_SEL_CBHT);
-
-retry_dir:
-    b = mds_cbht_search_dir(hash);
-    if (IS_ERR(b)) {
-        if (PTR_ERR(b) == -EAGAIN)
-            goto retry_dir;
-        else {
-            hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
-                     "internal error!\n", hi->itbid);
-            return -ENOENT;
-        }
-    }
-    /* OK, we get the bucket, and holding the bucket.rlock, no bucket spliting
-     * can happen!
-     */
-
-    /* check the bucket */
-    if (b->active) {
-        offset = hash & ((1 << eh->bucket_depth) - 1);
-        be = b->content + offset;
-    } else {
-        /* the bucket is empty, you can do creating */
-        if (hi->flag & INDEX_CREATE) {
-            /* FIXME: */
-        } else {
-            err = -ENOENT;
-            goto out;
-        }
-    }
-
-retry:
-    if (!hlist_empty(&be->h)) {
-        xrwlock_rlock(&be->lock);
-        hlist_for_each_entry(ih, pos, &be->h, cbht) {
-            if (ih->puuid == hi->puuid && ih->itbid == hi->itbid) {
-                found = 1;
-                xrwlock_rlock(&ih->lock); /* always get a read lock */
-                break;
-            }
-        }
-        xrwlock_runlock(&be->lock);
-    }
-    /* OK, we find the ITB or can find it */
-    if (found) {
-        hvfs_debug(mds, "Find ITB 0x%lx in CBHT.\n", hi->itbid);
-        i = (struct itb *)(ih);
-        if (unlikely(hi->flag & INDEX_BY_ITB)) {
-            /* readdir */
-            return itb_readdir(i, hi, hmr);
-        }
-        err = itb_search(hi, i, mdu_rpy, txg);
-        if (err == -EAGAIN) {
-            goto retry;
-        } else if (err) {
-            hvfs_debug(mds, "Oh, itb_search() return %d.\n", err);
-            goto out;
-        }
-        /* fill hmr with mdu_rpy, fall through */
-        xrwlock_runlock(&ih->lock);
-    } else {
-        if (unlikely(b->state == BUCKET_SPLIT)) {
-            /* spliting some time before, retry ourself? */
-            goto research;
-        }
-        hvfs_debug(mds, "Can not find ITB 0x%lx in CBHT, retrieve it ...\n", 
-                   hi->itbid);
-        i = mds_read_itb(hi->puuid, hi->psalt, hi->itbid);
-        if (IS_ERR(i)) {
-            hvfs_debug(mds, "Oh, this ITB do not exist, WHY?.\n");
-            /* FIXME: why this happened? */
-            if (hi->flag & INDEX_CREATE || hi->flag & INDEX_SYMLINK) {
-                /* FIXME: create ITB and ITE */
-                i = get_free_itb();
-                if (!i) {
-                    hvfs_debug(mds, "get_free_itb() failed\n");
-                    err = -ENOMEM;
-                    goto out;
-                }
-
-                i->h.itbid = hi->itbid;
-                i->h.puuid = hi->puuid;
-                mds_cbht_insert(hi, i);
-                itb_search(hi, i, mdu_rpy), ;
-                /* fall through */
-            } else {
-                /* return -ENOENT */
-                err = -ENOENT;
-                goto out;
-            }
-        } else {
-            /* get it, so find in ITB */
-            if (unlikely(hi->flag & INDEX_BY_ITB)) {
-                /* readdir */
-                return itb_readdir(i, hi, hmr);
-            }
-            xrwlock_rlock(&i->h.lock);
-            mds_cbht_insert(hi, i); /* alter? */
-            err = itb_search(hi, i, mdu_rpy, txg, be);
-            if (err == -EAGAIN) {
-                goto retry;
-            } else if (err) {
-                hvfs_debug(mds, "Oh, itb_search() return %d.\n", err);
-                goto out;
-            }
-            /* fall through */
-            xrwlock_runlock(&i->h.lock);
-        }
-    }
-    /* fill hmr with mdu_rpy */
-    if (err)
-        goto out;
-    /* determine the flags */
-    m = (struct mdu *)(mdu_rpy);
-    if (S_ISDIR(m->mode) && hi->puuid != hmo.gdt_uuid)
-        hmr->flag |= MD_REPLY_DIR_SDT;
-    if (hi->flag & INDEX_BY_ITB)
-        hmr->flag |= MD_REPLY_READDIR;
-    if (m->flags & HVFS_MDU_IF_LINKT) {
-        hmr->flag |= MD_REPLY_WITH_LS;
-        hmr->len += sizeof(struct link_source);
-    } else {
-        hmr->flag |= MD_REPLY_WIHT_MDU;
-        hmr->len += HVFS_MDU_SIZE;
-        hmr->mdu_no = 1;        /* only ONE mdu */
-    }
-    
-    hmr->flag |= MD_REPLY_WITH_HI;
-    hmr->len += sizeof(*hi);
-
-    hmr->data = xalloc(hmr->len);
-    if (!hmr->data) {
-        hvfs_err(mds, "xalloc() hmr->data failed\n");
-        /* do not retry myself */
-        err = -ENOMEM;
-        goto out;
-    }
-    memcpy(hmr->data, hi, sizeof(*hi));
-    if (m->flags & HVFS_MDU_IF_LINKT) {
-        memcpy(hmi->data + sizeof(*hi), mdu_rpy, sizeof(struct link_source));
-    } else
-        memcpy(hmi->data + sizeof(*hi), mdu_rpy, HVFS_MDU_SIZE);
-out:
-    /* FIXME: unlock the bucket */
-    xrwlock_runlock(&b->lock);
-
-    return err;
 }
 
 /*
  * Note: holding the bucket.rlock, be.rlock
  */
-int cbht_itb_hit(struct itb *i, struct hvfs_index *hi, struct hvfs_md_reply *hmr)
+int cbht_itb_hit(struct itb *i, struct hvfs_index *hi, 
+                 struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
 {
+    struct mdu *m;
     int err;
+    char mdu_rpy[HVFS_MDU_SIZE];
 
     xrwlock_rlock(&i->h.lock);
     if (unlikely(hi->flag & INDEX_BY_ITB)) {
         /* readdir, read-only */
-        err = itb_readdir(i, hi, hmr);
+        err = itb_readdir(hi, i, hmr);
         return err;
     }
     err = itb_search(hi, i, mdu_rpy, txg);
@@ -669,6 +637,36 @@ int cbht_itb_hit(struct itb *i, struct hvfs_index *hi, struct hvfs_md_reply *hmr
         goto out;
     }
     /* FIXME: fill hmr with mdu_rpy */
+    /* determine the flags */
+    m = (struct mdu *)(mdu_rpy);
+    if (S_ISDIR(m->mode) && hi->puuid != hmi.gdt_uuid)
+        hmr->flag |= MD_REPLY_DIR_SDT;
+    if (hi->flag & INDEX_BY_ITB)
+        hmr->flag |= MD_REPLY_READDIR;
+    if (m->flags & HVFS_MDU_IF_LINKT) {
+        hmr->flag |= MD_REPLY_WITH_LS;
+        hmr->len += sizeof(struct link_source);
+    } else {
+        hmr->flag |= MD_REPLY_WITH_MDU;
+        hmr->len += HVFS_MDU_SIZE;
+        hmr->mdu_no = 1;        /* only ONE mdu */
+    }
+    
+    hmr->flag |= MD_REPLY_WITH_HI;
+    hmr->len += sizeof(*hi);
+
+    hmr->data = xmalloc(hmr->len);
+    if (!hmr->data) {
+        hvfs_err(mds, "xalloc() hmr->data failed\n");
+        /* do not retry myself */
+        err = -ENOMEM;
+        goto out;
+    }
+    memcpy(hmr->data, hi, sizeof(*hi));
+    if (m->flags & HVFS_MDU_IF_LINKT) {
+        memcpy(hmr->data + sizeof(*hi), mdu_rpy, sizeof(struct link_source));
+    } else
+        memcpy(hmr->data + sizeof(*hi), mdu_rpy, HVFS_MDU_SIZE);
 out:
     xrwlock_runlock(&i->h.lock);
     return err;
@@ -677,14 +675,15 @@ out:
 /*
  * Note: holding the bucket.rlock
  */
-int cbht_itb_miss(struct itb *i)
+int cbht_itb_miss(struct hvfs_index *hi, 
+                  struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
 {
-    int err;
+    struct itb *i;
+    struct bucket *b;
+    struct bucket_entry *e;
+    int err = 0;
 
-    /* FIXME::::::::::: */
-
-    /* Step1: release the bucket.rlock */
-    xrwlock_runlock(&b->lock);
+    /* Step1: read the itb from mdsl */
     i = mds_read_itb(hi->puuid, hi->psalt, hi->itbid);
     if (IS_ERR(i)) {
         /* read itb failed, for what? */
@@ -699,10 +698,15 @@ int cbht_itb_miss(struct itb *i)
             }
             i->h.itbid = hi->itbid;
             i->h.puuid = hi->puuid;
-            mds_cbht_insert_bbrlocked(hi, i);
-            err = cbht_itb_hit();
+            err = mds_cbht_insert_bbrlocked(&hmo.cbht, i, &b, &e);
+            if (err) {
+                goto out;
+            }
+            err = cbht_itb_hit(i, hi, hmr, txg);
             if (err == -EAGAIN) {
-                /* no need to release the be.rlock */
+                /* release all the locks */
+                xrwlock_runlock(&b->lock);
+                xrwlock_runlock(&e->lock);
                 goto out;
             }
             /* FIXME: */
@@ -714,10 +718,15 @@ int cbht_itb_miss(struct itb *i)
     } else {
         /* get it, do search on it */
         /* insert into the cbht */
-        mds_cbht_insert_bbrlocked(hi, i);
-        err = cbht_itb_hit();
+        err = mds_cbht_insert_bbrlocked(&hmo.cbht, i, &b, &e);
+        if (err) {
+            goto out;
+        }
+        err = cbht_itb_hit(i, hi, hmr, txg);
         if (err == -EAGAIN) {
-            /* no need to release the be.rlock */
+            /* release all the lockes */
+            xrwlock_runlock(&b->lock);
+            xrwlock_runlock(&e->lock);
             goto out;
         }
     }
@@ -725,17 +734,23 @@ out:
     return err;
 }
 
+/* General search in CBHT
+ *
+ * @hi: index to search, including flags, refer to "mds_api.h"
+ * @hmr:should allocate the data region
+ *
+ * Search by key(puuid, itbid)
+ * FIXME: how about LOCK!
+ */
 int mds_cbht_search(struct hvfs_index *hi, struct hvfs_md_reply *hmr,
                     struct hvfs_txg *txg)
 {
     struct bucket *b;
     struct bucket_entry *be;
     struct itbh *ih;
-    struct itb *i;
-    struct mdu *m;
+    struct eh *eh = &hmo.cbht;
     struct hlist_node *pos;
-    char mdu_rpy[HVFS_MDU_SIZE];
-    u64 hash;
+    u64 hash, offset;
     int err = 0;
 
     hash = hvfs_hash(hi->puuid, hi->itbid, sizeof(u64), HASH_SEL_CBHT);
@@ -756,13 +771,18 @@ retry_dir:
      */
 
     /* check the bucket */
-    if (b->active) {
+    if (atomic_read(&b->active)) {
         offset = hash & ((1 << eh->bucket_depth) - 1);
         be = b->content + offset;
     } else {
         /* the bucket is empty, you can do creating */
         if (hi->flag & INDEX_CREATE) {
             /* FIXME: */
+            xrwlock_runlock(&b->lock);
+            err = cbht_itb_miss(hi, hmr, txg);
+            if (err == -EAGAIN)
+                goto retry_dir;
+            return err;
         } else {
             err = -ENOENT;
             goto out;
@@ -770,13 +790,13 @@ retry_dir:
     }
 
     /* always holding the bucket.rlock */
+    xrwlock_rlock(&be->lock);
 retry:
     if (!hlist_empty(&be->h)) {
-        xrwlock_rlock(&be->lock);
         hlist_for_each_entry(ih, pos, &be->h, cbht) {
             if (ih->puuid == hi->puuid && ih->itbid == hi->itbid) {
                 /* OK, find the itb in the CBHT */
-                err = cbht_itb_hit((struct itb *)ih);
+                err = cbht_itb_hit((struct itb *)ih, hi, hmr, txg);
                 if (err == -EAGAIN) {
                     /* no need to release the be.rlock */
                     goto retry;
@@ -784,14 +804,75 @@ retry:
                 goto out;
             }
         }
-        xrwlock_runlock(&be->lock);
     }
-    /* Can not find it in CBHT */
-    err = cbht_itb_miss((struct itb *)itb);
-    if (err == -EAGAIN)         /* with bucket.rlock holded */
-        goto retry;
+    xrwlock_runlock(&be->lock);
+
+    /* Can not find it in CBHT, holding the bucket.rlock */
+    /* Step1: release the bucket.rlock */
+    xrwlock_runlock(&b->lock);
+    err = cbht_itb_miss(hi, hmr, txg);
+    if (err == -EAGAIN)         /* all locks are released */
+        goto retry_dir;
+    return err;
+
 out:
     /* put the bucket lock */
     xrwlock_runlock(&b->lock);
     return err;
 }
+
+#ifdef UNIT_TEST
+int main(int argc, char *argv[])
+{
+    struct itb *i;
+    struct timeval begin, end;
+    struct hvfs_index hi = {0,};
+    struct hvfs_md_reply hmr;
+    struct hvfs_txg txg = {.txg = 5,};
+    int err;
+
+    hvfs_info(mds, "CBHT UNIT TESTing...\n");
+    err = mds_cbht_init(&hmo.cbht, 4);
+    if (err) {
+        hvfs_err(mds, "mds_cbht_init failed %d\n", err);
+        goto out;
+    }
+    /* print the init cbht */
+    cbht_print_dir(&hmo.cbht);
+    /* init hte itb cache */
+    itb_cache_init(&hmo.ic, 100);
+    
+    /* alloc one ITB */
+    i = get_free_itb();
+    i->h.puuid = 9999;
+    i->h.itbid = 909009;
+    i->h.txg = 5;
+    i->h.state = ITB_STATE_CLEAN;
+
+
+    lib_timer_start(&begin);
+    err = mds_cbht_insert(&hmo.cbht, i);
+    if (err) {
+        hvfs_err(mds, "mds_cbht_insert() failed %d\n", err);
+        goto out;
+    }
+    lib_timer_stop(&end);
+    lib_timer_echo(&begin, &end);
+
+    /* search the itb! */
+    hi.puuid = 9999;
+    hi.itbid = 909009;
+    hi.flag |= (INDEX_LOOKUP | INDEX_BY_UUID_F);
+    err = mds_cbht_search(&hi, &hmr, &txg);
+    if (err) {
+        hvfs_err(mds, "mds_cbht_search() failed %d\n", err);
+    }
+    
+    itb_free(i);
+
+    itb_cache_destroy(&hmo.ic);
+    mds_cbht_destroy(&hmo.cbht);
+out:
+    return err;
+}
+#endif

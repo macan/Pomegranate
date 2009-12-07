@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 11:43:35 macan>
+ * Time-stamp: <2009-12-07 16:35:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,7 +30,8 @@
 #include "tx.h"
 #include "itb.h"
 #include "cbht.h"
-#include "ring.h"
+#include "mds_api.h"
+#include "lib.h"
 
 struct mds_conf 
 {
@@ -122,7 +123,7 @@ int cbht_bucket_split(struct eh *, struct bucket *, u64, struct bucket **);
 int mds_cbht_init(struct eh *, int);
 void mds_cbht_destroy(struct eh *);
 int mds_cbht_insert(struct eh *, struct itb *);
-void mds_cbht_del(struct eh *, struct itb *);
+int mds_cbht_del(struct eh *, struct itb *);
 struct bucket *mds_cbht_search_dir(u64);
 int mds_cbht_search(struct hvfs_index *, struct hvfs_md_reply *, struct hvfs_txg *);
 
@@ -132,9 +133,11 @@ void ite_update(struct hvfs_index *, struct ite *);
 struct itb *get_free_itb();
 void itb_free(struct itb *);
 struct itb *itb_cow(struct itb *);
-struct itb *itb_dirty(struct itb *, struct hvfs_txg *, struct bucket_entry *);
-int itb_search(struct hvfs_index *, struct itb *, void *, struct hvfs_txg *,
-               struct bucket_entry *);
+struct itb *itb_dirty(struct itb *, struct hvfs_txg *);
+int itb_search(struct hvfs_index *, struct itb *, void *, struct hvfs_txg *);
+int itb_readdir(struct hvfs_index *, struct itb *, struct hvfs_md_reply *);
+int itb_cache_init(struct itb_cache *, int);
+int itb_cache_destroy(struct itb_cache *);
 
 /* for txg.c: DRAFT */
 void txg_add_itb(struct hvfs_txg *, struct itb *);

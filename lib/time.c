@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 14:16:34 macan>
+ * Time-stamp: <2009-12-07 16:41:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,46 +21,24 @@
  *
  */
 
-#ifndef __HVFS_TXG_H__
-#define __HVFS_TXG_H__
+#include "lib.h"
 
-#include "xtable.h"
-
-struct hvfs_dir_delta 
+void lib_timer_start(struct timeval *begin)
 {
-    u64 site_id;
-    u64 duuid;
-    s32 nlink;                  /* no enough? */
-    u64 atime;
-    u64 ctime;
-};
+    if (gettimeofday(begin, NULL)) {
+        hvfs_err(lib, "gettimeofday() failed.\n");
+    }
+}
 
-struct hvfs_dir_delta_buf 
+void lib_timer_stop(struct timeval *end)
 {
-    struct list_head list;
-    int psize, asize;
-    struct hvfs_dir_delta *buf;
-};
+    if (gettimeofday(end, NULL)) {
+        hvfs_err(lib, "gettimeofday() failed.\n");
+    }
+}
 
-struct hvfs_rmds_ckpt_buf 
+void lib_timer_echo(struct timeval *begin, struct timeval *end)
 {
-    struct list_head list;
-    int psize, asize;
-    struct checkpoint buf;
-};
-
-struct hvfs_txg 
-{
-    struct timeval open_time;
-    atomic64_t tx_pending;
-    u64 txg;
-    u64 txmax;
-    u16 state;
-    xlock_t ckpt_lock, delta_lock, itb_lock;
-    struct hvfs_rmds_ckpt_buf *ckpt; /* ckpt list */
-    struct hvfs_dir_delta_buf *delta; /* dir delta's list */
-    struct bitmap_delta *bda;         /* array of bitmap deltas */
-    struct list_head dirty_list;
-};
-
-#endif
+    hvfs_info(lib, "ECHO\t %ld us\n", (end->tv_sec - begin->tv_sec) * 1000000 +
+              end->tv_usec - begin->tv_usec);
+}

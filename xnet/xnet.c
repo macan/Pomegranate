@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 14:16:34 macan>
+ * Time-stamp: <2009-12-07 15:38:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,46 +21,20 @@
  *
  */
 
-#ifndef __HVFS_TXG_H__
-#define __HVFS_TXG_H__
+#include "hvfs.h"
+#include "xnet.h"
 
-#include "xtable.h"
-
-struct hvfs_dir_delta 
+struct xnet_msg *xnet_alloc_msg(u8 alloc_flag)
 {
-    u64 site_id;
-    u64 duuid;
-    s32 nlink;                  /* no enough? */
-    u64 atime;
-    u64 ctime;
-};
+    return NULL;
+}
 
-struct hvfs_dir_delta_buf 
+void xnet_free_msg(struct xnet_msg *msg)
 {
-    struct list_head list;
-    int psize, asize;
-    struct hvfs_dir_delta *buf;
-};
+}
 
-struct hvfs_rmds_ckpt_buf 
+int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
 {
-    struct list_head list;
-    int psize, asize;
-    struct checkpoint buf;
-};
+    return 0;
+}
 
-struct hvfs_txg 
-{
-    struct timeval open_time;
-    atomic64_t tx_pending;
-    u64 txg;
-    u64 txmax;
-    u16 state;
-    xlock_t ckpt_lock, delta_lock, itb_lock;
-    struct hvfs_rmds_ckpt_buf *ckpt; /* ckpt list */
-    struct hvfs_dir_delta_buf *delta; /* dir delta's list */
-    struct bitmap_delta *bda;         /* array of bitmap deltas */
-    struct list_head dirty_list;
-};
-
-#endif
