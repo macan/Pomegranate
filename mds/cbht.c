@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 17:03:08 macan>
+ * Time-stamp: <2009-12-07 21:49:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -842,6 +842,8 @@ int main(int argc, char *argv[])
     /* init hte itb cache */
     itb_cache_init(&hmo.ic, 100);
     
+    hvfs_info(mds, "ITC init success ...\n");
+
     /* alloc one ITB */
     i = get_free_itb();
     i->h.puuid = 9999;
@@ -849,24 +851,29 @@ int main(int argc, char *argv[])
     i->h.txg = 5;
     i->h.state = ITB_STATE_CLEAN;
 
-
-    lib_timer_start(&begin);
+    hvfs_info(mds, "total struct itb = %ld\n", sizeof(struct itb) + 
+              ITB_SIZE * sizeof(struct ite));
+    hvfs_info(mds, "sizeof(struct itb) = %ld\n", sizeof(struct itb));
+    hvfs_info(mds, "sizeof(struct itbh) = %ld\n", sizeof(struct itbh));
+    hvfs_info(mds, "sizeof(struct ite) = %ld\n", sizeof(struct ite));
+    
     err = mds_cbht_insert(&hmo.cbht, i);
     if (err) {
         hvfs_err(mds, "mds_cbht_insert() failed %d\n", err);
         goto out;
     }
-    lib_timer_stop(&end);
-    lib_timer_echo(&begin, &end);
 
     /* search the itb! */
     hi.puuid = 9999;
     hi.itbid = 909009;
-    hi.flag |= (INDEX_LOOKUP | INDEX_BY_UUID_F);
+    hi.flag |= (INDEX_LOOKUP | INDEX_BY_UUID);
+    lib_timer_start(&begin);
     err = mds_cbht_search(&hi, &hmr, &txg);
     if (err) {
         hvfs_err(mds, "mds_cbht_search() failed %d\n", err);
     }
+    lib_timer_stop(&end);
+    lib_timer_echo(&begin, &end);
     
     itb_free(i);
 

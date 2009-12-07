@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 09:02:18 macan>
+ * Time-stamp: <2009-12-07 21:47:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,7 +65,7 @@ struct hvfs_mdsl_info
     u64 group;
     atomic64_t mi_tx;           /* next tx # */
     atomic64_t mi_txg;          /* next txg # */
-    atomic64_t mi_fuuid;        /* next file uuid */
+    atomic64_t mi_uuid;         /* next file uuid */
     atomic64_t mi_fnum;         /* total allocated file # */
 };
 

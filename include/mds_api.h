@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 14:00:15 macan>
+ * Time-stamp: <2009-12-07 21:48:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,8 +30,7 @@ struct hvfs_index
     int len;                    /* the name length */
 
 #define INDEX_BY_NAME           0x00000001 /* search by name */
-#define INDEX_BY_UUID_F         0x00000002 /* search by fuuid */
-#define INDEX_BY_UUID_D         0x00000003 /* search by duuid */
+#define INDEX_BY_UUID           0x00000002 /* search by uuid */
 #define INDEX_BY_ITB            0x00000004 /* for READDIR, start address in
                                             * .hash and current depth of ITB
                                             * is in the low bits of .itb */

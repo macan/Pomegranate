@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 17:10:00 macan>
+ * Time-stamp: <2009-12-07 22:11:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -104,18 +104,60 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi)
 {
     u64 offset;
     struct itb_lock *l;
+    struct ite *ite;
+    long nr;
 
     offset = hi->hash & ((1 << i->h.adepth) - 1);
 
     /* lock the index/storage region */
-    l = &itb->lock[offset / ITB_LOCK_GRANULARITY];
+    l = &i->lock[offset / ITB_LOCK_GRANULARITY];
     itb_index_wlock(l);
 
-    
+    /* Step1: get a free ITE entry */
+    /* Step1.0: check whether this ITB is full */
+    if (atomic_inc_return(&i->h.entries) <= (1 << i->h.adepth)) {
+    retry:
+        nr = find_first_zero_bit(i->bitmap, (1 << i->h.adepth));
+        if (nr < (1 << i->h.adepth)) {
+            /* ok, find one */
+            /* test and set the bit now */
+            if (lib_bitmap_tas(i->bitmap, nr) == 1) {
+                /* someone has set this bit, let us retry */
+                goto retry;
+            }
+            /* now we got a free ITE entry at position nr */
+            ite = i->ite[nr];
+            ite->hash = hi->hash;
+            ite->uuid = atomic_inc_return(&hmi.mi_uuid);
+            if (hi->flag & INDEX_CREATE_LINK)
+                ite->flag |= ITE_FLAG_LS;
+            else
+                ite->flag |= ITE_FLAG_NORMAL;
+            
+            if (hi->flag & INDEX_CREATE_DIR) {
+                ite->flag |= ITE_FLAG_SDT;
+            } else if (hi->flag & INDEX_CREATE_COPY) {
+                ite->flag |= ITE_FLAG_GDT;
+            }
+            /* next step: we try to get a free index entry */
+            __itb_add_index(i, ite);
+            
+        } else {
+            /* hoo, there is no zero bit! */
+            atomic_dec(&i->h.entries);
+            err = -EINVAL;
+            goto out;
+        }
+    } else {
+        /* already full, should split */
+        /* FIXME: ITB SPLIT! */
+    }
 
     itb_index_wunlock(l);
+    err = 0;
     
-    return 0;
+out:
+    return err;
 }
 
 /* 
@@ -208,7 +250,7 @@ inline int ite_match(struct ite *e, struct hvfs_index *hi)
     if ((hi->flag & INDEX_ITE_ACTIVE) && ((e->flag & ITE_STATE_MASK) != ITE_ACTIVE))
         return ITE_MATCH_MISS;
     
-    if ((hi->flag & INDEX_BY_UUID_D) || (hi->flag & INDEX_BY_UUID_F)) {
+    if (hi->flag & INDEX_BY_UUID) {
         if (e->uuid == hi->uuid && e->hash == hi->hash) {
             return ITE_MATCH_HIT;
         } else
@@ -245,7 +287,7 @@ int itb_cache_init(struct itb_cache *ic, int hint_size)
             hvfs_info(mds, "xzalloc() ITBs failed, continue ...\n");
             continue;
         }
-        i->h.len = sizeof(struct itb);
+        atomic_set(&i->h.len, sizeof(struct itb));
         i->h.adepth = ITB_DEPTH;
         i->h.flag = ITB_ACTIVE;
         i->h.state = ITB_STATE_CLEAN;
@@ -303,7 +345,7 @@ struct itb *get_free_itb()
         atomic_inc(&hmo.ic.csize);
     }
 
-    n->h.len = sizeof(struct itb);
+    atomic_set(&n->h.len, sizeof(struct itb));
     n->h.adepth = ITB_DEPTH;
     n->h.flag = ITB_ACTIVE;       /* 0 */
     n->h.state = ITB_STATE_CLEAN; /* 0 */
@@ -333,7 +375,7 @@ struct itb *itb_cow(struct itb *itb)
         n = get_free_itb();
     } while (!n && ({xsleep(10); 1;}));
 
-    memcpy(n, itb, itb->h.len);
+    memcpy(n, itb, atomic_read(&itb->h.len));
     xrwlock_init(&n->h.lock);
     INIT_HLIST_NODE(&n->h.cbht);
     INIT_LIST_HEAD(&n->h.list);

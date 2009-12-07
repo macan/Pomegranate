@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 10:56:48 macan>
+ * Time-stamp: <2009-12-07 21:26:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,7 +34,7 @@
 #define ITB_LOCK_GRANULARITY    16
 #endif
 
-#define ITB_SIZE        (2 << ITB_DEPTH)
+#define ITB_SIZE        (1 << ITB_DEPTH)
 
 /* ITB header */
 struct itbh 
@@ -48,17 +48,14 @@ struct itbh
 #define ITB_STATE_DIRTY 0x01
 #define ITB_STATE_WBED  0x02
     u8 state;
+
     u8 depth;                   /* local depth, true depth */
     u8 adepth;                  /* allocated depth, or size of ITB, original
                                  * length */
-    u16 entries;                /* current used entries */
-    u16 max_offset;             /* the max offset of ITE, for snip */
-    u16 conflicts;              /* current conflict entries */
-    u16 pseudo_conflicts;       /* current pseudo conflict entries */
-
-    /* section for compression */
-    u16 compress_algo;
-    u32 len;                    /* the actual total length */
+    atomic_t entries;           /* current used entries */
+    atomic_t max_offset;        /* the max offset of ITE, for snip */
+    atomic_t conflicts;         /* current conflict entries */
+    atomic_t pseudo_conflicts;  /* current pseudo conflict entries */
 
     /* section for TXG */
     u64 txg;                    /* txg of the latest update */
@@ -74,7 +71,15 @@ struct itbh
     struct list_head list;
 
     u64 twin;                   /* twin ITB */
-    void *next, *prev;          /* overflow ITBs */
+    struct list_head overflow;  /* overflow list */
+
+    /* section for compression */
+    atomic_t len;                    /* the actual total length */
+    u16 compress_algo;
+
+    /* section for itb_index allocation */
+    u16 inf;                    /* index next free */
+    u16 itu;                    /* index totally used */
 };
 
 /* ITB index entry */
@@ -111,9 +116,9 @@ struct itb
 {
     /* NOTE: do NOT move the struct itbh! */
     struct itbh h;
-    u8 bitmap[2 << (ITB_DEPTH - 3)];
-    struct itb_lock lock[(2 << ITB_DEPTH) / ITB_LOCK_GRANULARITY];
-    struct itb_index index[2 << (ITB_DEPTH + 1)];
+    u8 bitmap[1 << (ITB_DEPTH - 3)];
+    struct itb_lock lock[(1 << ITB_DEPTH) / ITB_LOCK_GRANULARITY];
+    struct itb_index index[2 << (ITB_DEPTH)]; /* double size */
     struct ite ite[0];
 };
 

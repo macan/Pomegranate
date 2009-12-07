@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-03 08:27:30 macan>
+ * Time-stamp: <2009-12-07 21:47:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -74,8 +74,7 @@ void mds_statfs(struct hvfs_tx *tx)
         return;
     }
     s->f_files = hmi.mi_dnum = hmi.mi_fnum;
-    s->f_ffree = (MAX_UUID_PER_MDS - hmi.mi_fuuid) +
-        (MAX_UUID_PER_MDS - hmi.mi_duuid);
+    s->f_ffree = (MAX_UUID_PER_MDS - hmi.mi_uuid);
 
     tx->rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!tx->rpy) {
