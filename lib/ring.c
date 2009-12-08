@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 15:24:04 macan>
+ * Time-stamp: <2009-12-08 17:09:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,18 +21,8 @@
  *
  */
 
+#include "lib.h"
 #include "ring.h"
-
-u64 ring_hash(u64 key, u64 salt)
-{
-    u64 val1, val2;
-    
-    val1 = hash_64(salt, 64);
-    val2 = hash_64(key, 64);
-    val1 = val1 ^ (val2 ^ GOLDEN_RATIO_PRIME);
-
-    return val1;
-}
 
 struct chring *ring_alloc(int alloc, u32 gid)
 {
@@ -143,7 +133,8 @@ int ring_del_point(struct chp *p, struct chring *r)
 
 struct chp *ring_get_point(u64 key, u64 salt, struct chring *r)
 {
-    return ring_get_point2(ring_hash(key, salt), r);
+    return ring_get_point2(hvfs_hash(key, salt, sizeof(salt), 
+                                     HASH_SEL_RING), r);
 }
 
 struct chp *ring_get_point2(u64 point, struct chring *r)

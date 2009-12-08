@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-08 15:46:42 macan>
+# Time-stamp: <2009-12-08 17:09:39 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -27,7 +27,7 @@ clean: unit_test_clean
 
 # Note: the following region is only for UNIT TESTing
 # region for unit test
-$(LIB_PATH)/ring : $(LIB_PATH)/ring.c $(LIB_PATH)/lib.c
+$(LIB_PATH)/ring : $(LIB_PATH)/ring.c $(LIB_PATH)/lib.c $(LIB_PATH)/hash.c
 	@echo -e " " CC"\t" $@
 	@$(CC) $(CFLAGS) $^ -o $@ -DUNIT_TEST
 

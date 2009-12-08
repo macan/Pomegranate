@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-08 16:32:35 macan>
+ * Time-stamp: <2009-12-08 22:58:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,8 +45,8 @@ int mds_seg_alloc(struct segment *s, struct eh *eh)
 {
     int err = 0;
 
-    s->seg[0] = xzalloc(s->alen);
-    if (!s->seg[0]) {
+    s->seg = xzalloc(s->alen);
+    if (!s->seg) {
         hvfs_err(mds, "xzalloc() seg failed\n");
         err = -ENOMEM;
     }
@@ -56,14 +56,10 @@ int mds_seg_alloc(struct segment *s, struct eh *eh)
 
 void mds_seg_free(struct segment *s)
 {
-    int i;
-
-    for (i = 0; i < 1; i++) {
-        if (s->seg[i])
-            xfree(s->seg[i]);
-    }
+    if (s->seg)
+        xfree(s->seg);
     s->len = 0;
-    memset(s->seg, 0, sizeof(void *));
+    s->seg = NULL;
 }
 
 static inline struct segment *mds_segment_alloc()
@@ -96,7 +92,7 @@ struct bucket *cbht_bucket_alloc(int depth)
         return NULL;
     }
 #ifdef UNIT_TEST
-    hvfs_info(mds, "alloc bucket %p\n", b);
+    hvfs_debug(mds, "alloc bucket %p, depth %d\n", b, depth);
 #endif
     b->content = xzalloc(sizeof(struct bucket_entry) * (1 << depth));
     if (!b->content) {
@@ -130,7 +126,7 @@ int cbht_bucket_init(struct eh *eh, struct segment *s)
     }
 
     b->id = 0;                  /* set bucket id to 0 */
-    *((struct bucket **)(s->seg[0])) = b;
+    *((struct bucket **)(s->seg)) = b;
     s->len = 1;
     
     return 0;
@@ -146,14 +142,15 @@ inline int segment_update_dir(struct eh *eh, u64 len, struct bucket *b)
     xrwlock_rlock(&eh->lock);
     list_for_each_entry(s, &eh->dir, list) {
         for (i = 0; i < s->len; i++) {
-            if (((s->offset + i) & mask) == b->id)
-                *((struct bucket **)(s->seg[0] + i)) = b;
+            if (((s->offset + i) & mask) == (b->id & mask)) {
+                *(((struct bucket **)s->seg) + i) = b;
+            }
             if (!(--len))
                 break;
         }
     }
     xrwlock_runlock(&eh->lock);
-
+    
     return 0;
 }
 
@@ -165,7 +162,7 @@ void cbht_print_dir(struct eh *eh)
     list_for_each_entry(s, &eh->dir, list) {
         for (i = 0; i < s->len; i++) {
             hvfs_info(mds, "offset %016d %p\n", i,
-                      *(struct bucket **)(s->seg[0] + i));
+                      *(((struct bucket **)s->seg) + i));
         }
     }
 }
@@ -181,7 +178,9 @@ void cbht_copy_dir(struct segment *s, u64 offset, u64 len, struct eh *eh)
     list_for_each_entry(pos, &eh->dir, list) {
         if (pos->offset <= offset && offset < (pos->offset + pos->len)) {
             clen = min(len, (pos->offset + pos->len - offset));
-            memcpy(s->seg[0] + s->len, s->seg[0] + (offset - s->offset), clen);
+            memcpy(s->seg + s->len * sizeof(struct bucket **), 
+                   ((struct bucket **)s->seg) + (offset - s->offset), 
+                   clen);
             len -= clen;
             offset += clen;
         }
@@ -224,6 +223,7 @@ int cbht_enlarge_dir(struct eh *eh)
         cbht_copy_dir(ss, offset, olen, eh);
         nlen -= olen;
         offset += olen;
+        ss->len += olen;
         /* next segment */
         if (ss->list.next == &eh->dir) {
             /* should allocate a new segment */
@@ -311,7 +311,9 @@ retry:
      * needed */
     for (i = 0; i < (1 << eh->bucket_depth); i++) {
         hlist_for_each_entry_safe(ih, pos, n, &(obe + i)->h, cbht) {
-            if (ih->hash & (1 << (atomic_read(&nb->depth) - 1))) {
+            hvfs_debug(mds, "hash 0x%lx\n", ih->hash);
+            if ((ih->hash >> eh->bucket_depth) & 
+                (1 << (atomic_read(&nb->depth) - 1))) {
                 /* move the new ITB */
                 hlist_del_init(pos);
                 hlist_add_head(pos, &(nbe + i)->h);
@@ -325,11 +327,11 @@ retry:
         }
     }
     /* one-level split has completed, but ... */
-    if (criminal & (1 << (atomic_read(&nb->depth) - 1)))
+    if ((criminal >> eh->bucket_depth) & (1 << (atomic_read(&nb->depth) - 1)))
         in = IN_NEW;
     else
         in = IN_OLD;
-    
+
     /* pre-locked new bucket, we know the two new buckets are all locked */
     xrwlock_wlock(&nb->lock);
     
@@ -338,6 +340,9 @@ retry:
     if (err) {
         goto out;
     }
+    hvfs_debug(mds, "in %d: ob %d nb %d. eh->depth %d\n", 
+               in, atomic_read(&ob->active),
+               atomic_read(&nb->active), eh->dir_depth);
 
     if (!atomic_read(&nb->active) && (in == IN_OLD)) {
         /* old bucket need deeply split */
@@ -351,6 +356,7 @@ retry:
         xrwlock_wunlock(&ob->lock);
     } else {
         /* ok, no one need deeply split */
+        xrwlock_wunlock(&nb->lock);
         tb = NULL;
     }
 
@@ -376,7 +382,6 @@ out:
 /* CBHT init
  *
  * @eh:     
- * @ddepth: depth of the directory, can't exceed one segment!
  * @bdepth: bucket depth
  */
 int mds_cbht_init(struct eh *eh, int bdepth)
@@ -384,6 +389,12 @@ int mds_cbht_init(struct eh *eh, int bdepth)
     struct segment *s;
     int err = 0;
     
+    /* do not move this region! */
+    /* REGION BEGIN */
+    eh->dir_depth = 0;
+    eh->bucket_depth = bdepth;
+    /* REGION END */
+
     INIT_LIST_HEAD(&eh->dir);
     xrwlock_init(&eh->lock);
 
@@ -409,8 +420,6 @@ int mds_cbht_init(struct eh *eh, int bdepth)
     list_add_tail(&s->list, &eh->dir);
     xrwlock_wunlock(&eh->lock);
 
-    eh->dir_depth = 0;
-    eh->bucket_depth = bdepth;
     return 0;
 }
 
@@ -468,8 +477,9 @@ retry:
         else if (err)
             goto out;
         b = sb;
+        be = b->content + offset;
     }
-    
+
     xrwlock_wlock(&be->lock);
     xrwlock_rlock(&i->h.lock);
     hlist_add_head(&i->h.cbht, &be->h);
@@ -522,6 +532,7 @@ retry:
         else if (err)
             goto out;
         b = sb;
+        be = b->content + offset;
     }
     
     xrwlock_wlock(&be->lock);
@@ -602,8 +613,9 @@ struct bucket *mds_cbht_search_dir(u64 hash)
     }
     if (found) {
         offset -= s->offset;
-        if (s->seg[0]) {
-            b = *((struct bucket **)(s->seg[0] + offset));
+        if (s->seg) {
+            b = *(((struct bucket **)s->seg) + offset);
+            hvfs_debug(mds, "hash 0x%lx, offset %ld\n", hash, offset);
             /* ok, holding the bucket rlock */
             if (xrwlock_tryrlock(&b->lock) == EBUSY) {
                 /* somebody wlock the bucket for spliting? */
@@ -676,7 +688,7 @@ out:
 }
 
 /*
- * Note: holding the bucket.rlock
+ * Note: holding nothing
  */
 int cbht_itb_miss(struct hvfs_index *hi, 
                   struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
@@ -714,6 +726,8 @@ int cbht_itb_miss(struct hvfs_index *hi,
                 xrwlock_runlock(&e->lock);
                 goto out;
             }
+            xrwlock_runlock(&e->lock);
+            xrwlock_runlock(&b->lock);
             /* FIXME: */
         } else {
             /* return -ENOENT */
@@ -734,6 +748,8 @@ int cbht_itb_miss(struct hvfs_index *hi,
             xrwlock_runlock(&e->lock);
             goto out;
         }
+        xrwlock_runlock(&e->lock);
+        xrwlock_runlock(&b->lock);
     }
 out:
     return err;
@@ -807,6 +823,7 @@ retry:
                     /* no need to release the be.rlock */
                     goto retry;
                 }
+                xrwlock_runlock(&be->lock);
                 goto out;
             }
         }
@@ -815,6 +832,8 @@ retry:
 
     /* Can not find it in CBHT, holding the bucket.rlock */
     /* Step1: release the bucket.rlock */
+    hvfs_debug(mds, "hash 0x%lx bucket %p but can not find the ITB in it.\n", 
+               hash, b);
     xrwlock_runlock(&b->lock);
     err = cbht_itb_miss(hi, hmr, txg);
     if (err == -EAGAIN)         /* all locks are released */
@@ -986,13 +1005,13 @@ int main(int argc, char *argv[])
     struct hvfs_md_reply hmr;
     struct hvfs_txg txg = {.txg = 5,};
     u64 puuid, itbid;
-    int i;
+    int i, j, k, x;
     char name[HVFS_MAX_NAME_LEN];
 
     int err = 0;
 
     hvfs_info(mds, "CBHT UNIT TESTing...\n");
-    err = mds_cbht_init(&hmo.cbht, 4);
+    err = mds_cbht_init(&hmo.cbht, 3);
     if (err) {
         hvfs_err(mds, "mds_cbht_init failed %d\n", err);
         goto out;
@@ -1013,55 +1032,75 @@ int main(int argc, char *argv[])
     /* alloc one ITB */
     insert_itb(0, 134, 5);
 
+    k = 30;
+    x = 1;
     /* insert the ite! */
-    puuid = 13;
-    itbid = 134;
     lib_timer_start(&begin);
-    for (i = 0; i < 1025; i++) {
-        mu.valid = MU_MODE | MU_UID;
-        mu.mode = i;
-        mu.uid = i;
-        sprintf(name, "macan-%d", i);
-        insert_ite(puuid, itbid, name, &mu, &hmr, &txg);
+    for (i = 0; i < k; i++) {
+        puuid = 0;
+        itbid = i;
+        hvfs_info(mds, "%d\n", i);
+        for (j = 0; j < x; j++) {
+            mu.valid = MU_MODE | MU_UID;
+            mu.mode = i;
+            mu.uid = j;
+            sprintf(name, "macan-%d-%d", i, j);
+            insert_ite(puuid, itbid, name, &mu, &hmr, &txg);
+        }
     }
     lib_timer_stop(&end);
-    lib_timer_echo(&begin, &end, 1000);
+    lib_timer_echo(&begin, &end, x * k);
     hvfs_info(mds, "Insert ite is done ...\n");
 
     /* lookup the ite! */
-    puuid = 13;
-    itbid = 134;
     lib_timer_start(&begin);
-    for (i = 0; i < 1025; i++) {
-        u64 flag;
-        sprintf(name, "macan-%d", i);
-        flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
-        lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+    for (i = 0; i < k; i++) {
+        puuid = 0;
+        itbid = i;
+        for (j = 0; j < x; j++) {
+            u64 flag;
+            sprintf(name, "macan-%d-%d", i, j);
+            flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
+            lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+        }
     }
     lib_timer_stop(&end);
-    lib_timer_echo(&begin, &end, 1000);
+    lib_timer_echo(&begin, &end, x * k);
     hvfs_info(mds, "Lookup ite is done ...\n");
 
     /* unlink the ite, change state to SHADOW */
-    for (i = 0; i < 1025; i++) {
-        u64 flag;
-        sprintf(name, "macan-%d", i);
-        remove_ite(puuid, itbid, name, &hmr, &txg);
-        flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
-        lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+    lib_timer_start(&begin);
+    for (i = 0; i < k; i++) {
+        puuid = 0;
+        itbid = i;
+        for (j = 0; j < x; j++) {
+            sprintf(name, "macan-%d-%d", i, j);
+            remove_ite(puuid, itbid, name, &hmr, &txg);
+        }
     }
-    hvfs_info(mds, "Unlink and active lookup ite is done ...\n");
+    lib_timer_stop(&end);
+    lib_timer_echo(&begin, &end, x * k);
+    hvfs_info(mds, "Unlink ite is done ...\n");
 
     /* shadow lookup */
-    for (i = 0; i < 1025; i++) {
-        u64 flag;
-        sprintf(name, "macan-%d", i);
-        flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_SHADOW;
-        lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+    lib_timer_start(&begin);
+    for (i = 0; i < k; i++) {
+        puuid = 0;
+        itbid = i;
+        for (j = 0; j < x; j++) {
+            u64 flag;
+            sprintf(name, "macan-%d-%d", i, j);
+            flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_SHADOW;
+            lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+        }
     }
-    hvfs_info(mds, "Unlink and shadow lookup ite is done ...\n");
+    lib_timer_stop(&end);
+    lib_timer_echo(&begin, &end, x * k);
+    hvfs_info(mds, "Shadow lookup ite is done ...\n");
     
     itb_cache_destroy(&hmo.ic);
+    /* print the init cbht */
+    cbht_print_dir(&hmo.cbht);
     mds_cbht_destroy(&hmo.cbht);
 out:
     return err;

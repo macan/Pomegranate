@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-08 16:08:16 macan>
+ * Time-stamp: <2009-12-08 19:08:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,7 +68,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
         /* retry with slow method */
         msg = xnet_alloc_msg(XNET_MSG_NORMAL);
         if (!msg) {
-            hvfs_err(mds, "xnet_alloc_msg() failed.\n");
+            hvfs_debug(mds, "xnet_alloc_msg() failed.\n");
             return ERR_PTR(-ENOMEM); /* return the err */
         }
     }
