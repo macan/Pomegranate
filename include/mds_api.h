@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 21:48:31 macan>
+ * Time-stamp: <2009-12-08 11:12:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,7 +95,7 @@ struct hvfs_md_reply
 };
 
 /*
- * used for setattr
+ * used for setattr and create
  */
 struct mdu_update 
 {

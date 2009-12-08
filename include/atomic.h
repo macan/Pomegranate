@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 14:14:53 macan>
+ * Time-stamp: <2009-12-08 10:40:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -80,6 +80,30 @@ static inline void atomic64_add(long i, atomic64_t *v)
                  : "=m" (v->counter)
                  : "er" (i), "m" (v->counter));
 }
+
+/**
+ * atomic_add_return - add and return
+ * @i: integer value to add
+ * @v: pointer of type atomic_t
+ *
+ * Atomically adds @i to @v and returns @i + @v
+ */
+static inline int atomic_add_return(int i, atomic_t *v)
+{
+    int __i = i;
+    asm volatile(LOCK_PREFIX "xaddl %0, %1"
+                 : "+r" (i), "+m" (v->counter)
+                 : : "memory");
+    return i + __i;
+}
+
+static inline int atomic_sub_return(int i, atomic_t *v)
+{
+    return atomic_add_return(-i, v);
+}
+
+#define atomic_inc_return(v)  (atomic_add_return(1, v))
+#define atomic_dec_return(v)  (atomic_sub_return(1, v))
 
 /**
  * atomic64_sub - subtract the atomic64 variable

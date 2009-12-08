@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 21:49:43 macan>
+ * Time-stamp: <2009-12-08 16:32:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -416,7 +416,9 @@ int mds_cbht_init(struct eh *eh, int bdepth)
 
 /* CBHT destroy w/o init
  *
- * @eh: 
+ * @eh:
+ *
+ * Note: do NOT free any ITBs in CBHT, you must free them manually for now 
  */
 void mds_cbht_destroy(struct eh *eh)
 {
@@ -639,10 +641,11 @@ int cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     /* FIXME: fill hmr with mdu_rpy */
     /* determine the flags */
     m = (struct mdu *)(mdu_rpy);
-    if (S_ISDIR(m->mode) && hi->puuid != hmi.gdt_uuid)
-        hmr->flag |= MD_REPLY_DIR_SDT;
     if (hi->flag & INDEX_BY_ITB)
         hmr->flag |= MD_REPLY_READDIR;
+
+    if (S_ISDIR(m->mode) && hi->puuid != hmi.gdt_uuid)
+        hmr->flag |= MD_REPLY_DIR_SDT;
     if (m->flags & HVFS_MDU_IF_LINKT) {
         hmr->flag |= MD_REPLY_WITH_LS;
         hmr->len += sizeof(struct link_source);
@@ -688,6 +691,8 @@ int cbht_itb_miss(struct hvfs_index *hi,
     if (IS_ERR(i)) {
         /* read itb failed, for what? */
         /* FIXME: why this happened? bitmap say this ITB exists! */
+        /* FIXME: we should act on ENOENT, other errors should not handle */
+        hvfs_debug(mds, "Why this happened? bitmap say this ITB exists!\n");
         if (hi->flag & INDEX_CREATE || hi->flag & INDEX_SYMLINK) {
             /* FIXME: create ITB and ITE */
             i = get_free_itb();
@@ -776,6 +781,7 @@ retry_dir:
         be = b->content + offset;
     } else {
         /* the bucket is empty, you can do creating */
+        hvfs_debug(mds, "OK, empty bucket!\n");
         if (hi->flag & INDEX_CREATE) {
             /* FIXME: */
             xrwlock_runlock(&b->lock);
@@ -813,23 +819,177 @@ retry:
     err = cbht_itb_miss(hi, hmr, txg);
     if (err == -EAGAIN)         /* all locks are released */
         goto retry_dir;
+    hmr->err = err;
     return err;
 
 out:
     /* put the bucket lock */
     xrwlock_runlock(&b->lock);
+    hmr->err = err;
     return err;
 }
 
 #ifdef UNIT_TEST
-int main(int argc, char *argv[])
+void hmr_print(struct hvfs_md_reply *hmr)
+{
+    struct hvfs_index *hi;
+    struct mdu *m;
+    struct link_source *ls;
+    void *p = hmr->data;
+
+    hvfs_info(mds, "hmr-> err %d, mdu_no %d, len %d, flag 0x%lx.\n", 
+              hmr->err, hmr->mdu_no, hmr->len, hmr->flag);
+    if (!p)
+        return;
+    hi = (struct hvfs_index *)p;
+    hvfs_info(mds, "hmr-> HI: len %d, flag 0x%x, uuid %ld, hash %ld, itbid %ld, "
+              "puuid %ld, psalt %ld\n", hi->len, hi->flag, hi->uuid, hi->hash,
+              hi->itbid, hi->puuid, hi->psalt);
+    p += sizeof(struct hvfs_index);
+    if (hmr->flag & MD_REPLY_WITH_MDU) {
+        m = (struct mdu *)p;
+        hvfs_info(mds, "hmr->MDU: size %ld, dev %ld, mode 0x%x, nlink %d, uid %d, "
+                  "gid %d, flags 0x%x, atime %lx, ctime %lx, mtime %lx, dtime %lx, "
+                  "version %d\n", m->size, m->dev, m->mode, m->nlink, m->uid,
+                  m->gid, m->flags, m->atime, m->ctime, m->mtime, m->dtime,
+                  m->version);
+        p += sizeof(struct mdu);
+    }
+    if (hmr->flag & MD_REPLY_WITH_LS) {
+        ls = (struct link_source *)p;
+        hvfs_info(mds, "hmr-> LS: hash %ld, puuid %ld, uuid %ld\n",
+                  ls->s_hash, ls->s_puuid, ls->s_uuid);
+        p += sizeof(struct link_source);
+    }
+    if (hmr->flag & MD_REPLY_WITH_BITMAP) {
+        hvfs_info(mds, "hmr-> BM: ...\n");
+    }
+}
+
+void insert_itb(u64 puuid, u64 itbid, u64 txg)
 {
     struct itb *i;
+    int err;
+    
+    i = get_free_itb();
+    i->h.puuid = puuid;
+    i->h.itbid = itbid;
+    i->h.txg = txg;
+    i->h.state = ITB_STATE_CLEAN;
+
+    err = mds_cbht_insert(&hmo.cbht, i);
+    if (err) {
+        hvfs_err(mds, "mds_cbht_insert() failed %d\n", err);
+    }
+}
+
+void insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
+                struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
+{
+    struct hvfs_index *hi;
+    struct mdu_update *mu;
+    int len, err;
+
+    len = sizeof(struct hvfs_index) + strlen(name) + sizeof(struct mdu_update);
+
+    hi = xzalloc(len);
+    if (!hi)
+        return;
+    hi->puuid = puuid;
+    hi->itbid = itbid;
+    hi->flag |= INDEX_CREATE;
+    memcpy(hi->name, name, strlen(name));
+    hi->len = strlen(name);
+    mu = (struct mdu_update *)((void *)hi + sizeof(struct hvfs_index) + 
+                               strlen(name));
+    memcpy(mu, imu, sizeof(struct mdu_update));
+    hi->data = mu;
+
+    memset(hmr, 0, sizeof(*hmr));
+    err = mds_cbht_search(hi, hmr, txg);
+    if (err) {
+        hvfs_err(mds, "mds_cbht_search() failed %d\n", err);
+    }
+/*     hmr_print(hmr); */
+    if (!hmr->err) {
+        xfree(hmr->data);
+    }
+
+    xfree(hi);
+}
+
+void remove_ite(u64 puuid, u64 itbid, char *name, struct hvfs_md_reply *hmr,
+                struct hvfs_txg *txg)
+{
+    struct hvfs_index *hi;
+    int len, err;
+
+    len = sizeof(struct hvfs_index) + strlen(name);
+
+    hi = xzalloc(len);
+    if (!hi)
+        return;
+
+    hi->puuid = puuid;
+    hi->itbid = itbid;
+    hi->flag = INDEX_UNLINK | INDEX_BY_NAME;
+    memcpy(hi->name, name, strlen(name));
+    hi->len = strlen(name);
+    hi->data = NULL;
+
+    memset(hmr, 0, sizeof(*hmr));
+    err = mds_cbht_search(hi, hmr, txg);
+    if (err) {
+        hvfs_err(mds, "mds_cbht_search() failed %d\n", err);
+    }
+/*     hmr_print(hmr); */
+    if (!hmr->err) {
+        xfree(hmr->data);
+    }
+}
+
+void lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag , 
+                struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
+{
+    struct hvfs_index *hi;
+    int len, err;
+
+    len = sizeof(struct hvfs_index) + strlen(name);
+
+    hi = xzalloc(len);
+    if (!hi)
+        return;
+
+    hi->puuid = puuid;
+    hi->itbid = itbid;
+    hi->flag = flag;
+    memcpy(hi->name, name, strlen(name));
+    hi->len = strlen(name);
+    
+    memset(hmr, 0, sizeof(*hmr));
+    err = mds_cbht_search(hi, hmr, txg);
+    if (err) {
+        hvfs_err(mds, "mds_cbht_search() failed %d\n", err);
+    }
+/*     hmr_print(hmr); */
+    if (!hmr->err) {
+        xfree(hmr->data);
+    }
+    
+    xfree(hi);
+}
+
+int main(int argc, char *argv[])
+{
     struct timeval begin, end;
-    struct hvfs_index hi = {0,};
+    struct mdu_update mu;
     struct hvfs_md_reply hmr;
     struct hvfs_txg txg = {.txg = 5,};
-    int err;
+    u64 puuid, itbid;
+    int i;
+    char name[HVFS_MAX_NAME_LEN];
+
+    int err = 0;
 
     hvfs_info(mds, "CBHT UNIT TESTing...\n");
     err = mds_cbht_init(&hmo.cbht, 4);
@@ -844,39 +1004,63 @@ int main(int argc, char *argv[])
     
     hvfs_info(mds, "ITC init success ...\n");
 
-    /* alloc one ITB */
-    i = get_free_itb();
-    i->h.puuid = 9999;
-    i->h.itbid = 909009;
-    i->h.txg = 5;
-    i->h.state = ITB_STATE_CLEAN;
-
     hvfs_info(mds, "total struct itb = %ld\n", sizeof(struct itb) + 
               ITB_SIZE * sizeof(struct ite));
     hvfs_info(mds, "sizeof(struct itb) = %ld\n", sizeof(struct itb));
     hvfs_info(mds, "sizeof(struct itbh) = %ld\n", sizeof(struct itbh));
     hvfs_info(mds, "sizeof(struct ite) = %ld\n", sizeof(struct ite));
     
-    err = mds_cbht_insert(&hmo.cbht, i);
-    if (err) {
-        hvfs_err(mds, "mds_cbht_insert() failed %d\n", err);
-        goto out;
-    }
+    /* alloc one ITB */
+    insert_itb(0, 134, 5);
 
-    /* search the itb! */
-    hi.puuid = 9999;
-    hi.itbid = 909009;
-    hi.flag |= (INDEX_LOOKUP | INDEX_BY_UUID);
+    /* insert the ite! */
+    puuid = 13;
+    itbid = 134;
     lib_timer_start(&begin);
-    err = mds_cbht_search(&hi, &hmr, &txg);
-    if (err) {
-        hvfs_err(mds, "mds_cbht_search() failed %d\n", err);
+    for (i = 0; i < 1025; i++) {
+        mu.valid = MU_MODE | MU_UID;
+        mu.mode = i;
+        mu.uid = i;
+        sprintf(name, "macan-%d", i);
+        insert_ite(puuid, itbid, name, &mu, &hmr, &txg);
     }
     lib_timer_stop(&end);
-    lib_timer_echo(&begin, &end);
-    
-    itb_free(i);
+    lib_timer_echo(&begin, &end, 1000);
+    hvfs_info(mds, "Insert ite is done ...\n");
 
+    /* lookup the ite! */
+    puuid = 13;
+    itbid = 134;
+    lib_timer_start(&begin);
+    for (i = 0; i < 1025; i++) {
+        u64 flag;
+        sprintf(name, "macan-%d", i);
+        flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
+        lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+    }
+    lib_timer_stop(&end);
+    lib_timer_echo(&begin, &end, 1000);
+    hvfs_info(mds, "Lookup ite is done ...\n");
+
+    /* unlink the ite, change state to SHADOW */
+    for (i = 0; i < 1025; i++) {
+        u64 flag;
+        sprintf(name, "macan-%d", i);
+        remove_ite(puuid, itbid, name, &hmr, &txg);
+        flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
+        lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+    }
+    hvfs_info(mds, "Unlink and active lookup ite is done ...\n");
+
+    /* shadow lookup */
+    for (i = 0; i < 1025; i++) {
+        u64 flag;
+        sprintf(name, "macan-%d", i);
+        flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_SHADOW;
+        lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+    }
+    hvfs_info(mds, "Unlink and shadow lookup ite is done ...\n");
+    
     itb_cache_destroy(&hmo.ic);
     mds_cbht_destroy(&hmo.cbht);
 out:

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 21:26:49 macan>
+ * Time-stamp: <2009-12-08 10:35:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -74,12 +74,12 @@ struct itbh
     struct list_head overflow;  /* overflow list */
 
     /* section for compression */
-    atomic_t len;                    /* the actual total length */
+    atomic_t len;               /* the actual total length */
     u16 compress_algo;
 
     /* section for itb_index allocation */
-    u16 inf;                    /* index next free */
-    u16 itu;                    /* index totally used */
+    u16 inf;            /* index next free */
+    u16 itu;            /* index totally used, not including the first half */
 };
 
 /* ITB index entry */
@@ -87,7 +87,7 @@ struct itbh
 #define ITB_INDEX_UNIQUE        0x01
 #define ITB_INDEX_CONFLICT      0x02
 #define ITB_INDEX_OVERFLOW      0x03
-#if ITB_DEPTH <= 16
+#if ITB_DEPTH <= 14
 struct itb_index 
 {
     u32 entry:15;

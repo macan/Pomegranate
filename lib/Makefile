@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-07 16:32:32 macan>
+# Time-stamp: <2009-12-08 10:50:10 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -10,7 +10,7 @@
 
 include ../Makefile.inc
 
-LIB_AR_SOURCE = lib.c ring.c hash.c time.c
+LIB_AR_SOURCE = lib.c ring.c hash.c time.c bitmap.c
 
 all : hvfs_lib
 

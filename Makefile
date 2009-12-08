@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-07 16:32:17 macan>
+# Time-stamp: <2009-12-08 15:46:42 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -40,6 +40,13 @@ $(MDS)/cbht : $(CBHT_SOURCES)
 unit_test: $(UNIT_TARGETS)
 	@echo "Targets [$(UNIT_TARGETS)] for unit test are ready."
 	@$(MDS)/cbht
+
+install: $(UNIT_TARGETS)
+	@scp $(MDS)/cbht syssw@glnode08:~/cbht
+	@lagent -d glnode08 -u syssw -sc "~/cbht"
+
+rut:
+	@lagent -d glnode08 -u syssw -sc "~/cbht"
 
 unit_test_clean:
 	@rm -rf $(UNIT_TARGETS)

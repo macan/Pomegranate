@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 16:41:11 macan>
+ * Time-stamp: <2009-12-08 15:45:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,8 +37,10 @@ void lib_timer_stop(struct timeval *end)
     }
 }
 
-void lib_timer_echo(struct timeval *begin, struct timeval *end)
+void lib_timer_echo(struct timeval *begin, struct timeval *end, int loop)
 {
-    hvfs_info(lib, "ECHO\t %ld us\n", (end->tv_sec - begin->tv_sec) * 1000000 +
-              end->tv_usec - begin->tv_usec);
+    hvfs_debug(lib, "%ld %ld -> %ld %ld\n", begin->tv_sec, begin->tv_usec,
+               end->tv_sec, end->tv_usec);
+    hvfs_info(lib, "ECHO\t %lf us\n", ((end->tv_sec - begin->tv_sec) * 1000000.0 +
+                                       end->tv_usec - begin->tv_usec) / loop);
 }

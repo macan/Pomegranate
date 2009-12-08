@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-01 12:58:42 macan>
+ * Time-stamp: <2009-12-08 15:54:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,4 +29,5 @@
 #define ETXCED  1025            /* TXC Evicted */
 #define ECHP    1026            /* Consistent Hash Point error */
 #define ERINGCHG        1027    /* Ring Changed */
+#define ESPLIT  1028            /* Need SPLIT */
 #endif
