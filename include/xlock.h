@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 10:29:22 macan>
+ * Time-stamp: <2009-12-09 16:35:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,8 +35,28 @@ typedef struct rw_semaphore xrwlock_t;
 #define xrwlock_init init_rwsem
 #define xrwlock_destroy(l)
 
-#else
+#else  /* !__KERNEL__ */
 
+#ifdef HVFS_DEBUG_LOCK
+/* section for rwlock */
+typedef pthread_rwlock_t xrwlock_t;
+int xrwlock_rlock(xrwlock_t *);
+int xrwlock_tryrlock(xrwlock_t *);
+int xrwlock_runlock(xrwlock_t *);
+int xrwlock_wlock(xrwlock_t *);
+int xrwlock_trywlock(xrwlock_t *);
+int xrwlock_wunlock(xrwlock_t *);
+int xrwlock_init(xrwlock_t *);
+int xrwlock_destroy(xrwlock_t *);
+
+/* section for lock */
+typedef pthread_mutex_t xlock_t;
+int xlock_lock(xlock_t *);
+int xlock_unlock(xlock_t *);
+int xlock_init(xlock_t *);
+int xlock_destroy(xlock_t *);
+
+#else  /* !HVFS_LOCK_DEBUG */
 /* section for rwlock */
 typedef pthread_rwlock_t xrwlock_t;
 #define xrwlock_rlock pthread_rwlock_rdlock
@@ -54,6 +74,8 @@ typedef pthread_mutex_t xlock_t;
 #define xlock_unlock pthread_mutex_unlock
 #define xlock_init(l) pthread_mutex_init(l, NULL)
 #define xlock_destroy pthread_mutex_destroy
+#endif
+
 #endif
 
 #endif

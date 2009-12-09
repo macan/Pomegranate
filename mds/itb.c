@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-09 14:40:08 macan>
+ * Time-stamp: <2009-12-09 17:05:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -145,8 +145,10 @@ void __itb_add_index(struct itb *i, u64 offset, long nr)
         ii[offset].conflict = f;
         ii[f].flag = ITB_INDEX_UNIQUE;
         ii[f].entry = nr;
+        /* update conflict state */
+        atomic_inc(&i->h.pseudo_conflicts);
     } else if (ii[offset].flag == ITB_INDEX_CONFLICT) {
-        /* have SOME entries, check to see if we need change flag to
+        /* FIXME: have SOME entries, check to see if we need change flag to
          * OVERFLOW */
         /* get a free index entry */
         f = __itb_get_free_index(i);
@@ -154,6 +156,8 @@ void __itb_add_index(struct itb *i, u64 offset, long nr)
         ii[f] = ii[offset];
         ii[offset].entry = nr;
         ii[offset].conflict = f;
+        /* it is hard to detemine the precise conflicts */
+        atomic_inc(&i->h.pseudo_conflicts);
     } else if (ii[offset].flag == ITB_INDEX_OVERFLOW) {
         hvfs_err(mds, "Hoo, this ITB overflowed, for now we can't handle it!\n");
     } else {
@@ -272,6 +276,7 @@ void itb_del_ite(struct itb *i, struct ite *e, u64 offset)
             }
             i->index[offset].flag = ITB_INDEX_FREE;
             i->h.itu--;
+            atomic_dec(&i->h.pseudo_conflicts);
             break;
         }
         prev = offset;

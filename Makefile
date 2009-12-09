@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-09 14:34:59 macan>
+# Time-stamp: <2009-12-09 16:37:24 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -14,6 +14,8 @@ include Makefile.inc
 
 UNIT_TARGETS = $(LIB_PATH)/ring $(MDS)/cbht
 UNIT_OBJS = $(LIB_PATH)/lib.o $(LIB_PATH)/ring.o
+RING_SOURCES = $(LIB_PATH)/ring.c $(LIB_PATH)/lib.c $(LIB_PATH)/hash.c \
+				$(LIB_PATH)/xlock.c
 
 all : hvfs_lib unit_test
 
@@ -27,7 +29,7 @@ clean: unit_test_clean
 
 # Note: the following region is only for UNIT TESTing
 # region for unit test
-$(LIB_PATH)/ring : $(LIB_PATH)/ring.c $(LIB_PATH)/lib.c $(LIB_PATH)/hash.c
+$(LIB_PATH)/ring : $(RING_SOURCES)
 	@echo -e " " CC"\t" $@
 	@$(CC) $(CFLAGS) $^ -o $@ -DUNIT_TEST
 

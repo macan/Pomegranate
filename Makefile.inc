@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-07 15:37:14 macan>
+# Time-stamp: <2009-12-09 16:40:04 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -20,9 +20,10 @@ XNET = $(HOME_PATH)/xnet
 COMPILE_DATE = `date`
 COMPILE_HOST = `hostname`
 
+# Debuging the memory and locks
 CFLAGS += -g -O2 -Wall -pg -DCDATE="\"$(COMPILE_DATE)\"" \
 			-DCHOST="\"$(COMPILE_HOST)\"" -I$(INC_PATH) -lpthread \
 			-I$(LIB_PATH) \
-			-DHVFS_TRACING -DHVFS_DEBUG_MEMORY
+			-DHVFS_TRACING -DHVFS_DEBUG_MEMORY -DHVFS_DEBUG_LOCK
 LFLAGS +=
 
