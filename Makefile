@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-08 17:09:39 macan>
+# Time-stamp: <2009-12-09 14:34:59 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -43,10 +43,11 @@ unit_test: $(UNIT_TARGETS)
 
 install: $(UNIT_TARGETS)
 	@scp $(MDS)/cbht syssw@glnode08:~/cbht
-	@lagent -d glnode08 -u syssw -sc "~/cbht"
+	@lagent -d glnode08 -u syssw -sc "time ~/cbht $(CBHT_ARGS)"
 
 rut:
-	@lagent -d glnode08 -u syssw -sc "~/cbht"
+	@lagent -d glnode08 -u syssw -sc "time ~/cbht $(CBHT_ARGS)"
+	@lagent -d glnode08 -u syssw -sc "gprof ~/cbht"
 
 unit_test_clean:
 	@rm -rf $(UNIT_TARGETS)

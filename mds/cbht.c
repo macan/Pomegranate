@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-08 22:58:58 macan>
+ * Time-stamp: <2009-12-09 13:23:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,26 +26,13 @@
 #include "mds.h"
 
 #define SEG_BASE (16 * 1024)
-#define SEG0_NO (SEG_BASE << 0)
-#define SEG1_NO (SEG_BASE << 1)
-#define SEG2_NO (SEG_BASE << 2)
-#define SEG3_NO (SEG_BASE << 3)
-#define SEG4_NO (SEG_BASE << 4)
-#define SEG5_NO (SEG_BASE << 5)
-#define SEG_TOTAL (SEG0_NO + SEG1_NO + SEG2_NO + SEG3_NO + SEG4_NO + SEG5_NO)
-
-#define SEG0_TOTAL (SEG0_NO)
-#define SEG1_TOTAL (SEG0_NO + SEG1_NO)
-#define SEG2_TOTAL (SEG0_NO + SEG1_NO + SEG2_NO)
-#define SEG3_TOTAL (SEG0_NO + SEG1_NO + SEG2_NO + SEG3_NO)
-#define SEG4_TOTAL (SEG0_NO + SEG1_NO + SEG2_NO + SEG3_NO + SEG4_NO)
-#define SEG5_TOTAL (SEG0_NO + SEG1_NO + SEG2_NO + SEG3_NO + SEG4_NO + SEG5_NO)
+#define SEG_TOTAL (SEG_BASE)    /* # of entries */
 
 int mds_seg_alloc(struct segment *s, struct eh *eh)
 {
     int err = 0;
 
-    s->seg = xzalloc(s->alen);
+    s->seg = xzalloc(s->alen * sizeof(struct bucket *));
     if (!s->seg) {
         hvfs_err(mds, "xzalloc() seg failed\n");
         err = -ENOMEM;
@@ -144,6 +131,7 @@ inline int segment_update_dir(struct eh *eh, u64 len, struct bucket *b)
         for (i = 0; i < s->len; i++) {
             if (((s->offset + i) & mask) == (b->id & mask)) {
                 *(((struct bucket **)s->seg) + i) = b;
+                hvfs_debug(mds, "Update @ %d w/ %p\n", i, b);
             }
             if (!(--len))
                 break;
@@ -159,6 +147,7 @@ void cbht_print_dir(struct eh *eh)
     struct segment *s;
     int i;
 
+    hvfs_info(mds, "CBHT depth %d\n", eh->dir_depth);
     list_for_each_entry(s, &eh->dir, list) {
         for (i = 0; i < s->len; i++) {
             hvfs_info(mds, "offset %016d %p\n", i,
@@ -178,9 +167,12 @@ void cbht_copy_dir(struct segment *s, u64 offset, u64 len, struct eh *eh)
     list_for_each_entry(pos, &eh->dir, list) {
         if (pos->offset <= offset && offset < (pos->offset + pos->len)) {
             clen = min(len, (pos->offset + pos->len - offset));
-            memcpy(s->seg + s->len * sizeof(struct bucket **), 
+            hvfs_debug(mds, "copy to [%ld,%ld) from [%ld,%ld), clen %ld\n",
+                       s->offset + s->len, s->offset + s->len + clen,
+                       offset, offset + len, clen);
+            memcpy(((struct bucket **)s->seg) + s->len, 
                    ((struct bucket **)s->seg) + (offset - s->offset), 
-                   clen);
+                   clen * sizeof(struct bucket **));
             len -= clen;
             offset += clen;
         }
@@ -296,7 +288,7 @@ retry:
     if (!nb) {
         hvfs_err(mds, "cbht_bucket_alloc() failed\n");
         err = -ENOMEM;
-        goto out;
+        goto out_lock;
     }
     atomic_inc(&ob->depth);
     atomic_set(&nb->depth, atomic_read(&ob->depth));
@@ -332,13 +324,14 @@ retry:
     else
         in = IN_OLD;
 
-    /* pre-locked new bucket, we know the two new buckets are all locked */
+    /* pre-locked new bucket, we know the two new buckets are all wlocked */
     xrwlock_wlock(&nb->lock);
     
     /* update the directory */
     err = cbht_update_dir(eh, nb);
     if (err) {
-        goto out;
+        xrwlock_wunlock(&nb->lock);
+        goto out_lock;
     }
     hvfs_debug(mds, "in %d: ob %d nb %d. eh->depth %d\n", 
                in, atomic_read(&ob->active),
@@ -357,21 +350,28 @@ retry:
     } else {
         /* ok, no one need deeply split */
         xrwlock_wunlock(&nb->lock);
+        xrwlock_wunlock(&ob->lock);
         tb = NULL;
     }
 
     if (tb) {
+        hvfs_debug(mds, "bucket %p need deeply split.\n", tb);
         ob = tb;
         goto retry;
     }
 
-    if (in == IN_NEW)
+    if (in == IN_NEW) {
+        xrwlock_rlock(&nb->lock);
         *out = nb;
-    else
+    } else {
+        xrwlock_rlock(&ob->lock);
         *out = ob;
+    }
 
     err = 0;
-out:
+    return err;
+
+out_lock:
     xrwlock_wunlock(&ob->lock);
     xrwlock_rlock(&ob->lock);
     return err;
@@ -1005,13 +1005,26 @@ int main(int argc, char *argv[])
     struct hvfs_md_reply hmr;
     struct hvfs_txg txg = {.txg = 5,};
     u64 puuid, itbid;
-    int i, j, k, x;
+    int i, j, k, x, bdepth, icsize;
     char name[HVFS_MAX_NAME_LEN];
 
     int err = 0;
 
-    hvfs_info(mds, "CBHT UNIT TESTing...\n");
-    err = mds_cbht_init(&hmo.cbht, 3);
+    if (argc == 5) {
+        /* the argv[1] is k, argv[2] is x, argv[3] is bucket.depth, argv[4] is
+         * ITB Cache init size */
+        k = atoi(argv[1]);
+        x = atoi(argv[2]);
+        bdepth = atoi(argv[3]);
+        icsize = atoi(argv[4]);
+    } else {
+        k = 100;
+        x = 100;
+        bdepth = 4;
+        icsize = 50;
+    }
+    hvfs_info(mds, "CBHT UNIT TESTing...(%d,%d,%d,%d)\n", k, x, bdepth, icsize);
+    err = mds_cbht_init(&hmo.cbht, bdepth);
     if (err) {
         hvfs_err(mds, "mds_cbht_init failed %d\n", err);
         goto out;
@@ -1019,7 +1032,7 @@ int main(int argc, char *argv[])
     /* print the init cbht */
     cbht_print_dir(&hmo.cbht);
     /* init hte itb cache */
-    itb_cache_init(&hmo.ic, 100);
+    itb_cache_init(&hmo.ic, icsize);
     
     hvfs_info(mds, "ITC init success ...\n");
 
@@ -1032,14 +1045,11 @@ int main(int argc, char *argv[])
     /* alloc one ITB */
     insert_itb(0, 134, 5);
 
-    k = 30;
-    x = 1;
     /* insert the ite! */
     lib_timer_start(&begin);
     for (i = 0; i < k; i++) {
         puuid = 0;
         itbid = i;
-        hvfs_info(mds, "%d\n", i);
         for (j = 0; j < x; j++) {
             mu.valid = MU_MODE | MU_UID;
             mu.mode = i;
@@ -1100,7 +1110,8 @@ int main(int argc, char *argv[])
     
     itb_cache_destroy(&hmo.ic);
     /* print the init cbht */
-    cbht_print_dir(&hmo.cbht);
+    hvfs_info(mds, "CBHT dir depth %d\n", hmo.cbht.dir_depth);
+/*     cbht_print_dir(&hmo.cbht); */
     mds_cbht_destroy(&hmo.cbht);
 out:
     return err;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-08 19:08:00 macan>
+ * Time-stamp: <2009-12-09 14:40:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -192,7 +192,7 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data)
             memset(ite, 0, sizeof(struct ite));
             ite->hash = hi->hash;
             ite->uuid = atomic64_inc_return(&hmi.mi_uuid);
-            if (hi->flag & INDEX_CREATE_LINK)
+            if (unlikely(hi->flag & INDEX_CREATE_LINK))
                 ite->flag |= ITE_FLAG_LS;
             else
                 ite->flag |= ITE_FLAG_NORMAL;
@@ -201,6 +201,11 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data)
                 ite->flag |= ITE_FLAG_SDT;
             } else if (hi->flag & INDEX_CREATE_COPY) {
                 ite->flag |= ITE_FLAG_GDT;
+            }
+            if (likely(hi->flag & INDEX_CREATE_SMALL)) {
+                ite->flag |= ITE_FLAG_SMALL;
+            } else if (hi->flag & INDEX_CREATE_LARGE) {
+                ite->flag |= ITE_FLAG_LARGE;
             }
             /* next step: we try to get a free index entry */
             __itb_add_index(i, offset, nr);
@@ -314,6 +319,12 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
         /* INDEX_CREATE_DIR and non-flag, mdu_update */
         struct mdu_update *mu = (struct mdu_update *)hi->data;
     
+        /* default fields */
+        e->s.mdu.flags |= HVFS_MDU_IF_NORMAL;
+        e->s.mdu.nlink = 1;
+
+        if (!mu->valid)
+            return;
         if (mu->valid & MU_MODE)
             e->s.mdu.mode = mu->mode;
         if (mu->valid & MU_UID)
@@ -334,7 +345,7 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.version = mu->version;
         if (mu->valid & MU_SIZE)
             e->s.mdu.size = mu->size;
-        if (mu->valid & MU_COLUMN) {
+        if (unlikely(mu->valid & MU_COLUMN)) {
             struct mu_column *mc = (struct mu_column *)(
                 hi->data + sizeof(struct mdu_update));
             int i;
@@ -344,9 +355,6 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
                 e->column[(mc + i)->cno] = (mc + i)->c;
             }
         }
-        /* default fields */
-        e->s.mdu.flags |= HVFS_MDU_IF_NORMAL;
-        e->s.mdu.nlink = 1;
     }
 }
 
@@ -647,11 +655,14 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t)
  * Err Convention: 0 means no error, other MINUS number means error
  *
  * Note: holding the bucket.rlock and be.rlock and itb.rlock
+ *
+ * NOTE: this is the very HOT path for LOOKUP/CREATE/UNLINK/....
  */
 int itb_search(struct hvfs_index *hi, struct itb* itb, void *data, 
                struct hvfs_txg *txg)
 {
     u64 offset = hi->hash & ((1 << itb->h.adepth) - 1);
+    u64 total = 1 << (itb->h.adepth + 1);
     struct itb_index *ii;
     struct itb_lock *l;
     int ret = 0;
@@ -664,7 +675,7 @@ int itb_search(struct hvfs_index *hi, struct itb* itb, void *data,
         itb_index_wlock(l);
     
     ret = -ENOENT;
-    while (offset < (1 << (itb->h.adepth + 1))) {
+    while (offset < total) {
         ii = &itb->index[offset];
         if (ii->flag == ITB_INDEX_FREE)
             break;
@@ -686,7 +697,7 @@ int itb_search(struct hvfs_index *hi, struct itb* itb, void *data,
         if (hi->flag & INDEX_LOOKUP) {
             /* read MDU to buffer */
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
-        } else if (hi->flag & INDEX_CREATE) {
+        } else if (unlikely(hi->flag & INDEX_CREATE)) {
             /* already exist, so... */
             if (!hi->flag & INDEX_CREATE_FORCE) {
                 /* should return -EEXIST */

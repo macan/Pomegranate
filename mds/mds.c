@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-08 22:44:34 macan>
+ * Time-stamp: <2009-12-09 08:50:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,8 +25,8 @@
 #include "mds.h"
 
 #ifdef HVFS_TRACING
-u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG_ALL;
-//u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL;
+//u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG_ALL;
+u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL;
 #endif
 
 /* Global variable */

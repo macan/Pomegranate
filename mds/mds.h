@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 21:47:19 macan>
+ * Time-stamp: <2009-12-09 16:19:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,6 +49,8 @@ struct mds_conf
 
     /* conf */
 #define HVFS_MDS_CHRECHK        0x01 /* recheck CH ring in fe dispatch */
+#define HVFS_MDS_ITB_RWLOCK     0x02 /* use pthread rwlock as index lock */
+#define HVFS_MDS_ITB_MUTEX      0x04 /* use pthread mutex as index lock */
     u64 option;
 };
 
