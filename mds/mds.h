@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-09 16:19:47 macan>
+ * Time-stamp: <2009-12-10 17:14:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -118,7 +118,7 @@ void mds_root_dispatch(struct xnet_msg *msg);
 struct bucket *cbht_bucket_alloc(int);
 int cbht_bucket_init(struct eh *, struct segment *);
 void cbht_copy_dir(struct segment *, u64, u64, struct eh *);
-int cbht_enlarge_dir(struct eh *);
+int cbht_enlarge_dir(struct eh *, u32);
 int cbht_update_dir(struct eh *, struct bucket *);
 int cbht_bucket_split(struct eh *, struct bucket *, u64, struct bucket **);
 int mds_cbht_init(struct eh *, int);

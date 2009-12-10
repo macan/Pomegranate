@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 15:46:31 macan>
+ * Time-stamp: <2009-12-10 10:38:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -47,6 +47,8 @@ struct xnet_msg_tx
 #define XNET_BARRIER            0x0010 /* schedule can through it */
 #define XNET_BCAST              0x0020 /* broadcast msg */
 #define XNET_REDUCE             0x0040 /* reduce msg */
+
+#define XNET_NEED_RESEND        0x0100 /* otherwise, return on send err */
     u16 flag;                          /* msg flags */
     int err;
     u64 ssite_id;               /* source site */

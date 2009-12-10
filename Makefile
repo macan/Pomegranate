@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-09 16:37:24 macan>
+# Time-stamp: <2009-12-10 16:36:59 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -43,7 +43,7 @@ unit_test: $(UNIT_TARGETS)
 	@echo "Targets [$(UNIT_TARGETS)] for unit test are ready."
 	@$(MDS)/cbht
 
-install: $(UNIT_TARGETS)
+install: hvfs_lib unit_test
 	@scp $(MDS)/cbht syssw@glnode08:~/cbht
 	@lagent -d glnode08 -u syssw -sc "time ~/cbht $(CBHT_ARGS)"
 

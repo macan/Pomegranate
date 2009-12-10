@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 11:49:43 macan>
+ * Time-stamp: <2009-12-10 11:10:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,6 +35,7 @@
 #include "xlock.h"
 #include "hvfs_common.h"
 #include "hvfs_const.h"
+#include "xhash.h"
 
 /* This section for HVFS cmds */
 /* Client to MDS */

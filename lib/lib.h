@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-09 16:47:51 macan>
+ * Time-stamp: <2009-12-10 14:37:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,6 +38,7 @@ extern struct list_head glt;           /* global lock table */
 void lib_timer_start(struct timeval *begin);
 void lib_timer_stop(struct timeval *end);
 void lib_timer_echo(struct timeval *begin, struct timeval *end, int loop);
+void lib_timer_acc(struct timeval *, struct timeval *, double *);
 
 int lib_bitmap_tas(volatile void *, u32);
 int lib_bitmap_tac(volatile void *, u32);
@@ -46,5 +47,10 @@ long find_first_zero_bit(const unsigned long *, unsigned long);
 long find_next_zero_bit(const unsigned long *, long, long);
 long find_first_bit(const unsigned long *, unsigned long);
 long find_next_bit(const unsigned long *, long, long);
+
+#ifdef HVFS_DEBUG_LOCK
+void lock_table_init(void);
+void lock_table_print(void);
+#endif
 
 #endif
