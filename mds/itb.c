@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-09 17:05:01 macan>
+ * Time-stamp: <2009-12-11 14:06:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,18 +31,34 @@
 
 void itb_index_rlock(struct itb_lock *l)
 {
+    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+        xrwlock_rlock((xrwlock_t *)l);
+    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+        xlock_rlock((xlock_t *)l);
+    }
 }
 
 void itb_index_wlock(struct itb_lock *l)
 {
+    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+        xrwlock_wlock((xrwlock_t *)l);
+    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+        xlock_wlock((xlock_t *)l);
+    }
 }
 
 void itb_index_runlock(struct itb_lock *l)
 {
+    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+    }
 }
 
 void itb_index_wunlock(struct itb_lock *l)
 {
+    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+    }
 }
 
 void ite_create(struct hvfs_index *hi, struct ite *e);
@@ -292,7 +308,7 @@ clear_bitmap:
  */
 void ite_unlink(struct ite *e, struct itb *i, u64 offset)
 {
-    if (e->flag & ITE_FLAG_NORMAL) {
+    if (likely(e->flag & ITE_FLAG_NORMAL)) {
         /* normal file */
         e->s.mdu.nlink--;
         if (!e->s.mdu.nlink)
@@ -419,7 +435,7 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
 inline int ite_match(struct ite *e, struct hvfs_index *hi)
 {
     /* compare the name or uuid */
-    if (hi->flag & INDEX_ITE_SHADOW) { 
+    if (unlikely(hi->flag & INDEX_ITE_SHADOW)) { 
         if (((e->flag & ITE_STATE_MASK) != ITE_SHADOW) && 
             ((e->flag & ITE_STATE_MASK) != ITE_UNLINKED))
             return ITE_MATCH_MISS;
@@ -574,9 +590,9 @@ struct itb *itb_cow(struct itb *itb)
  */
 struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t)
 {
-    if (t->txg == itb->h.txg) {
+    if (likely(t->txg == itb->h.txg)) {
         /* ITB accessed in this TXG */
-        if (itb->h.state == ITB_STATE_DIRTY)
+        if (likely(itb->h.state == ITB_STATE_DIRTY))
             return itb;
         else {
             hvfs_err(mds, "Hoo, ITB state 0x%x in TXG: 0x%lx\n", itb->h.state, 
@@ -684,6 +700,7 @@ int itb_search(struct hvfs_index *hi, struct itb* itb, void *data,
         ii = &itb->index[offset];
         if (ii->flag == ITB_INDEX_FREE)
             break;
+        atomic64_inc(&hmo.profiling.itb.rsearch_depth);
         ret = ite_match(&itb->ite[ii->entry], hi);
 
         if (ii->flag == ITB_INDEX_UNIQUE) {

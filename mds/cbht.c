@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-10 21:48:09 macan>
+ * Time-stamp: <2009-12-11 13:45:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -476,13 +476,9 @@ int mds_cbht_insert_bbrlocked(struct eh *eh, struct itb *i, struct bucket **ob,
 retry:
     b = mds_cbht_search_dir(hash);
     if (IS_ERR(b)) {
-        if (PTR_ERR(b) == -EAGAIN)
-            goto retry;
-        else {
-            hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
-                     "internal error!\n", i->h.itbid);
-            return -ENOENT;
-        }
+        hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
+                 "internal error!\n", i->h.itbid);
+        return -ENOENT;
     }
     offset = hash & ((1 << eh->bucket_depth) - 1);
     be = b->content + offset;
@@ -535,13 +531,9 @@ int mds_cbht_insert(struct eh *eh, struct itb *i)
 retry:
     b = mds_cbht_search_dir(hash);
     if (IS_ERR(b)) {
-        if (PTR_ERR(b) == -EAGAIN)
-            goto retry;
-        else {
-            hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
-                     "internal error!\n", i->h.itbid);
-            return -ENOENT;
-        }
+        hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
+                 "internal error!\n", i->h.itbid);
+        return -ENOENT;
     }
     offset = hash & ((1 << eh->bucket_depth) - 1);
     be = b->content + offset;
@@ -587,13 +579,9 @@ int mds_cbht_del(struct eh *eh, struct itb *i)
 retry:
     b = mds_cbht_search_dir(i->h.hash);
     if (IS_ERR(b)) {
-        if (PTR_ERR(b) == -EAGAIN)
-            goto retry;
-        else {
-            hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
-                     "internal error!\n", i->h.itbid);
-            return -ENOENT;
-        }
+        hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
+                 "internal error!\n", i->h.itbid);
+        return -ENOENT;
     }
     offset = i->h.hash & ((1 << eh->bucket_depth) - 1);
     be = b->content +offset;
@@ -634,6 +622,7 @@ struct bucket *mds_cbht_search_dir(u64 hash)
     int found = 0, err = 0;
     u32 ldepth;                 /* saved current dir_depth */
     
+retry:
     xrwlock_rlock(&eh->lock);
     ldepth = eh->dir_depth;
     offset = (hash >> eh->bucket_depth) & ((1 << ldepth) - 1);
@@ -653,7 +642,10 @@ struct bucket *mds_cbht_search_dir(u64 hash)
             if (err == EBUSY || err == EAGAIN) {
                 /* EBUSY: somebody wlock the bucket for spliting? */
                 /* EAGAIN: max rlock got, retry */
-                b = ERR_PTR(-EAGAIN);
+                /* OK: retry myself! */
+                xrwlock_runlock(&eh->lock);
+                found = 0;
+                goto retry;
             } else if (err){
                 b = ERR_PTR(err);
             }
@@ -815,13 +807,9 @@ int mds_cbht_search(struct hvfs_index *hi, struct hvfs_md_reply *hmr,
 retry_dir:
     b = mds_cbht_search_dir(hash);
     if (IS_ERR(b)) {
-        if (PTR_ERR(b) == -EAGAIN)
-            goto retry_dir;
-        else {
-            hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
-                     "internal error!\n", hi->itbid);
-            return -ENOENT;
-        }
+        hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
+                 "internal error!\n", hi->itbid);
+        return -ENOENT;
     }
     /* OK, we get the bucket, and holding the bucket.rlock, no bucket spliting
      * can happen!
@@ -950,6 +938,8 @@ void insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
     hi = xzalloc(len);
     if (!hi)
         return;
+
+    hi->hash = hvfs_hash(puuid, (u64)name, strlen(name), HASH_SEL_EH);
     hi->puuid = puuid;
     hi->itbid = itbid;
     hi->flag |= INDEX_CREATE;
@@ -986,6 +976,7 @@ void remove_ite(u64 puuid, u64 itbid, char *name, struct hvfs_md_reply *hmr,
     if (!hi)
         return;
 
+    hi->hash = hvfs_hash(puuid, (u64)name, strlen(name), HASH_SEL_EH);
     hi->puuid = puuid;
     hi->itbid = itbid;
     hi->flag = INDEX_UNLINK | INDEX_BY_NAME;
@@ -1017,6 +1008,7 @@ void lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag ,
     if (!hi)
         return;
 
+    hi->hash = hvfs_hash(puuid, (u64)name, strlen(name), HASH_SEL_EH);
     hi->puuid = puuid;
     hi->itbid = itbid;
     hi->flag = flag;
@@ -1028,6 +1020,8 @@ void lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag ,
     if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
                  puuid, itbid, name, err);
+        hvfs_err(mds, "hash 0x%20lx.\n", hvfs_hash(puuid, itbid, 
+                                                   sizeof(u64), HASH_SEL_CBHT));
     }
 /*     hmr_print(hmr); */
     if (!hmr->err) {
@@ -1183,6 +1177,9 @@ void *pt_main(void *arg)
     int i, j;
     char name[HVFS_MAX_NAME_LEN];
 
+    /* wait for other threads */
+    pthread_barrier_wait(pa->pb);
+
     /* parallel insert the ite! */
     lib_timer_start(&begin);
     for (i = 0; i < pa->k; i++) {
@@ -1251,6 +1248,24 @@ void *pt_main(void *arg)
     pthread_exit(0);
 }
 
+static inline char *idx2str(int i)
+{
+    switch (i) {
+    case 0:
+        return "start";
+    case 1:
+        return "insert";
+    case 2:
+        return "lookup";
+    case 3:
+        return "unlink";
+    case 4:
+        return "shadow";
+    default:
+        return "NULL";
+    }
+}
+
 int mt_main(int argc, char *argv[])
 {
     int err;
@@ -1309,7 +1324,7 @@ int mt_main(int argc, char *argv[])
         goto out_free;
     }
 
-    pthread_barrier_init(&pb, NULL, atoi(argv[5]));
+    pthread_barrier_init(&pb, NULL, atoi(argv[5]) + 1);
 
     /* determine the arguments */
     j = atoi(argv[5]);
@@ -1328,6 +1343,12 @@ int mt_main(int argc, char *argv[])
         }
     }
 
+    /* barrier 4 times */
+    for (i = 0; i < 5; i++) {
+        pthread_barrier_wait(&pb);
+        hvfs_info(mds, "[%s] done.\n", idx2str(i));
+    }
+    
     /* waiting for all the threads */
     for (i = 0; i < j; i++) {
         pthread_join(t[i], NULL);
@@ -1345,8 +1366,11 @@ int mt_main(int argc, char *argv[])
     hvfs_info(mds, "[insert lookup unlink shadow] %lf %lf %lf %lf\n", 
               acc[0], acc[1], acc[2], acc[3]);
 
+    hvfs_info(mds, "CBHT dir depth %d\n", hmo.cbht.dir_depth);
+    hvfs_info(mds, "Average ITB search depth %lf\n", 
+              atomic64_read(&hmo.profiling.itb.rsearch_depth) / 4.0 / (k * x));
     /* print the dir */
-//    cbht_print_dir(&hmo.cbht);
+/*     cbht_print_dir(&hmo.cbht); */
 
 out:
     return err;
