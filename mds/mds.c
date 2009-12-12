@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-10 17:03:34 macan>
+ * Time-stamp: <2009-12-12 17:20:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,4 +31,4 @@ u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL;
 
 /* Global variable */
 struct hvfs_mds_info hmi;
-struct hvfs_mds_object hmo;
+struct hvfs_mds_object hmo = {.conf.option = HVFS_MDS_ITB_MUTEX,};

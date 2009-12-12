@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-11 14:06:49 macan>
+ * Time-stamp: <2009-12-12 17:01:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,7 +34,7 @@ void itb_index_rlock(struct itb_lock *l)
     if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
         xrwlock_rlock((xrwlock_t *)l);
     } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
-        xlock_rlock((xlock_t *)l);
+        xlock_lock((xlock_t *)l);
     }
 }
 
@@ -43,21 +43,25 @@ void itb_index_wlock(struct itb_lock *l)
     if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
         xrwlock_wlock((xrwlock_t *)l);
     } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
-        xlock_wlock((xlock_t *)l);
+        xlock_lock((xlock_t *)l);
     }
 }
 
 void itb_index_runlock(struct itb_lock *l)
 {
     if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+        xrwlock_runlock((xrwlock_t *)l);
     } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+        xlock_unlock((xlock_t *)l);
     }
 }
 
 void itb_index_wunlock(struct itb_lock *l)
 {
     if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+        xrwlock_wunlock((xrwlock_t *)l);
     } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+        xlock_unlock((xlock_t *)l);
     }
 }
 
@@ -514,6 +518,7 @@ struct itb *get_free_itb()
 {
     struct itb *n;
     struct list_head *l = NULL;
+    int i;
 
     xlock_lock(&hmo.ic.lock);
     if (!list_empty(&hmo.ic.lru)) {
@@ -546,6 +551,16 @@ struct itb *get_free_itb()
     xrwlock_init(&n->h.lock);
     INIT_HLIST_NODE(&n->h.cbht);
     INIT_LIST_HEAD(&n->h.list);
+    /* init the lock region */
+    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+        for (i = 0; i < ((1 << ITB_DEPTH) / ITB_LOCK_GRANULARITY); i++) {
+            xrwlock_init((xrwlock_t *)(&n->lock[i]));
+        }
+    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+        for (i = 0; i < ((1 << ITB_DEPTH) / ITB_LOCK_GRANULARITY); i++) {
+            xlock_init((xlock_t *)(&n->lock[i]));
+        }
+    }
 
     return n;
 }
@@ -554,6 +569,18 @@ struct itb *get_free_itb()
  */
 void itb_free(struct itb *i)
 {
+    int j;
+
+    /* free the locks */
+    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+        for (j = 0; j < ((1 << ITB_DEPTH) / ITB_LOCK_GRANULARITY); j++) {
+            xrwlock_destroy((xrwlock_t *)(&i->lock[j]));
+        }
+    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+        for (j = 0; j < ((1 << ITB_DEPTH) / ITB_LOCK_GRANULARITY); j++) {
+            xlock_destroy((xlock_t *)(&i->lock[j]));
+        }
+    }
     xlock_lock(&hmo.ic.lock);
     list_add_tail(&i->h.list, &hmo.ic.lru);
     xlock_unlock(&hmo.ic.lock);
