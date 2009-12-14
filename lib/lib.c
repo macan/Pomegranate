@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-09 16:46:27 macan>
+ * Time-stamp: <2009-12-14 14:36:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,3 +30,13 @@ u32 hvfs_lib_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG_ALL;
 #ifdef HVFS_DEBUG_LOCK
 struct list_head glt;           /* global lock table */
 #endif
+
+void lib_init(void)
+{
+    srandom(time(NULL));
+}
+
+u64 lib_random(int hint)
+{
+    return random() % hint;
+}

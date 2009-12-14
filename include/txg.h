@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 14:16:34 macan>
+ * Time-stamp: <2009-12-14 12:55:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 #ifndef __HVFS_TXG_H__
 #define __HVFS_TXG_H__
 
+#include "hvfs.h"
 #include "xtable.h"
 
 struct hvfs_dir_delta 
@@ -51,10 +52,12 @@ struct hvfs_rmds_ckpt_buf
 
 struct hvfs_txg 
 {
-    struct timeval open_time;
     atomic64_t tx_pending;
+    xcond_t cond;
     u64 txg;
     u64 txmax;
+#define TXG_STATE_OPEN  0
+#define TXG_STATE_WB    1
     u16 state;
     xlock_t ckpt_lock, delta_lock, itb_lock;
     struct hvfs_rmds_ckpt_buf *ckpt; /* ckpt list */

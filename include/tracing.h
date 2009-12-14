@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 17:00:17 macan>
+ * Time-stamp: <2009-12-14 19:07:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -113,7 +113,7 @@
 #else  /* !__KERNEL__ */
 #define ASSERT(i, m) do {                               \
         if (!(i)) {                                     \
-            hvfs_err(m, "Assertion " #i "failed!\n");   \
+            hvfs_err(m, "Assertion " #i " failed!\n");  \
             exit(-EINVAL);                              \
         }                                               \
     } while (0)

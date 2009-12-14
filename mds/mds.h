@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 09:06:51 macan>
+ * Time-stamp: <2009-12-14 20:18:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -92,7 +92,10 @@ struct hvfs_mds_object
     struct chring *chring[CH_RING_NUM];
     struct mds_prof profiling;
     struct mds_conf conf;
-    struct hvfs_txg txg;
+#define TXG_NUM         2
+#define TXG_OPEN        0
+#define TXG_WB          1
+    struct hvfs_txg *txg[TXG_NUM];
     struct hvfs_txc txc;
     struct itb_cache ic;
 #define HMO_STATE_LAUNCH        0x00
@@ -107,6 +110,9 @@ extern struct hvfs_mds_object hmo;
 extern u32 hvfs_mds_tracing_flags;
 
 /* APIs */
+/* for mds.c */
+int mds_init(void);
+
 /* for dispatch.c */
 void mds_client_dispatch(struct xnet_msg *msg);
 void mds_mds_dispatch(struct xnet_msg *msg);
@@ -141,7 +147,38 @@ int itb_readdir(struct hvfs_index *, struct itb *, struct hvfs_md_reply *);
 int itb_cache_init(struct itb_cache *, int);
 int itb_cache_destroy(struct itb_cache *);
 
+/* for tx.c */
+struct hvfs_tx *mds_alloc_tx(u16, struct xnet_msg *);
+void mds_free_tx(struct hvfs_tx *);
+void mds_pre_free_tx(int);
+void mds_get_tx(struct hvfs_tx *);
+void mds_put_tx(struct hvfs_tx *);
+int mds_init_txc(struct hvfs_txc *, int, int);
+int mds_destroy_txc(struct hvfs_txc *);
+struct hvfs_tx *mds_txc_alloc_tx(struct hvfs_txc *);
+int mds_txc_add(struct hvfs_txc *, struct hvfs_tx *);
+struct hvfs_tx *mds_txc_search(struct hvfs_txc *, u64, u64);
+int mds_txc_evict(struct hvfs_txc *, struct hvfs_tx *);
+void mds_tx_done(struct hvfs_tx *);
+void mds_tx_reply(struct hvfs_tx *);
+void mds_tx_commit(struct hvfs_tx *);
+
 /* for txg.c: DRAFT */
 void txg_add_itb(struct hvfs_txg *, struct itb *);
+struct hvfs_txg *mds_get_open_txg(struct hvfs_mds_object *);
+int txg_switch(struct hvfs_mds_info *, struct hvfs_mds_object *);
+static inline void txg_get(struct hvfs_txg *t)
+{
+    atomic64_inc(&t->tx_pending);
+}
+
+static inline void txg_put(struct hvfs_txg *t)
+{
+    atomic64_dec(&t->tx_pending);
+    if (t->state != TXG_STATE_OPEN && atomic64_read(&t->tx_pending) == 0) {
+        /* signal the waiter, if exists */
+        xcond_signal(&t->cond);
+    }
+}
 
 #endif
