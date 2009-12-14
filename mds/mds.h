@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 15:07:33 macan>
+ * Time-stamp: <2009-12-14 17:37:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -110,6 +110,9 @@ extern struct hvfs_mds_object hmo;
 extern u32 hvfs_mds_tracing_flags;
 
 /* APIs */
+/* for mds.c */
+int mds_init(void);
+
 /* for dispatch.c */
 void mds_client_dispatch(struct xnet_msg *msg);
 void mds_mds_dispatch(struct xnet_msg *msg);

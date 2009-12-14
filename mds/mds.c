@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 10:33:24 macan>
+ * Time-stamp: <2009-12-14 19:00:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,8 +26,8 @@
 #include "lib.h"
 
 #ifdef HVFS_TRACING
-//u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG_ALL;
-u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL;
+u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG_ALL;
+//u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL;
 #endif
 
 /* Global variable */
@@ -130,6 +130,30 @@ int mds_init()
 out_tx:
 out_cbht:
 out_signal:
+    return err;
+}
+#else  /* UNIT_TEST */
+int mds_init()
+{
+    struct hvfs_txg *t;
+    int err = 0;
+
+    /* init hmi */
+    memset(&hmi, 0, sizeof(hmi));
+    
+    /* init hmo */
+    memset(&hmo, 0, sizeof(hmo));
+    t = xzalloc(sizeof(*t));
+    if (!t) {
+        return -ENOMEM;
+    }
+    hmo.txg[0] = t;
+    t = xzalloc(sizeof(*t));
+    if (!t) {
+        return -ENOMEM;
+    }
+    hmo.txg[1] = t;
+    
     return err;
 }
 #endif
