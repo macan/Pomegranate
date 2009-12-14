@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-11 14:03:59 macan>
+ * Time-stamp: <2009-12-14 16:17:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -210,7 +210,7 @@ inline unsigned int APHash(char* str, unsigned int len)
 /* End Of AP Hash Function */
 /* END OF General Hash Functions */
 
-static u64 hvfs_hash_eh(u64 key1, u64 key2, u64 key2len)
+static inline u64 hvfs_hash_eh(u64 key1, u64 key2, u64 key2len)
 {
 #if 1
     u64 hash;
@@ -223,7 +223,7 @@ static u64 hvfs_hash_eh(u64 key1, u64 key2, u64 key2len)
 #endif
 }
 
-static u64 hvfs_hash_cbht(u64 key1, u64 key2, u64 key2len)
+static inline u64 hvfs_hash_cbht(u64 key1, u64 key2, u64 key2len)
 {
 #if 1
     u64 hash;
@@ -242,7 +242,7 @@ static u64 hvfs_hash_cbht(u64 key1, u64 key2, u64 key2len)
 #endif
 }
 
-static u64 hvfs_hash_ring(u64 key1, u64 key2, u64 key2len)
+static inline u64 hvfs_hash_ring(u64 key1, u64 key2, u64 key2len)
 {
     u64 val1, val2;
     
@@ -253,7 +253,7 @@ static u64 hvfs_hash_ring(u64 key1, u64 key2, u64 key2len)
     return val1;
 }
 
-u64 hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel)
+u64 __cbht hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel)
 {
     switch (sel) {
     case HASH_SEL_EH:

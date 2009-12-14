@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 09:13:24 macan>
+ * Time-stamp: <2009-12-14 16:32:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,7 +68,7 @@ int mds_segment_init(struct segment *s, u64 offset, u32 alen, struct eh *eh)
     return mds_seg_alloc(s, eh);
 }
 
-struct bucket *cbht_bucket_alloc(int depth)
+struct bucket *__cbht cbht_bucket_alloc(int depth)
 {
     struct bucket *b;
     struct bucket_entry *be;
@@ -101,7 +101,7 @@ struct bucket *cbht_bucket_alloc(int depth)
 /*
  * Internal use, not export
  */
-int cbht_bucket_init(struct eh *eh, struct segment *s)
+int __cbht cbht_bucket_init(struct eh *eh, struct segment *s)
 {
     struct bucket *b;
 
@@ -119,7 +119,7 @@ int cbht_bucket_init(struct eh *eh, struct segment *s)
     return 0;
 }
 
-inline int segment_update_dir(struct eh *eh, u64 len, struct bucket *b)
+inline int __cbht segment_update_dir(struct eh *eh, u64 len, struct bucket *b)
 {
     /* follow the <b->id> to change all matched dir entries */
     struct segment *s;
@@ -158,7 +158,7 @@ void cbht_print_dir(struct eh *eh)
 
 /* cbht_copy_dir()
  */
-void cbht_copy_dir(struct segment *s, u64 offset, u64 len, struct eh *eh)
+void __cbht cbht_copy_dir(struct segment *s, u64 offset, u64 len, struct eh *eh)
 {
     u64 clen, cplen = 0;
     struct segment *pos;
@@ -188,7 +188,7 @@ void cbht_copy_dir(struct segment *s, u64 offset, u64 len, struct eh *eh)
  *
  * double the directory
  */
-int cbht_enlarge_dir(struct eh *eh, u32 tdepth)
+int __cbht cbht_enlarge_dir(struct eh *eh, u32 tdepth)
 {
     u32 olen = (1 << eh->dir_depth);
     u32 nlen = olen;
@@ -250,7 +250,7 @@ out:
 
 /* cbht_update_dir()
  */
-int cbht_update_dir(struct eh *eh, struct bucket *b)
+int __cbht cbht_update_dir(struct eh *eh, struct bucket *b)
 {
     int err;
 
@@ -274,8 +274,8 @@ out:
  *
  * Note: holding the bucket.rlock
  */
-int cbht_bucket_split(struct eh *eh, struct bucket *ob, u64 criminal,
-                      struct bucket **out)
+int __cbht cbht_bucket_split(struct eh *eh, struct bucket *ob, u64 criminal,
+                             struct bucket **out)
 {
 #define IN_NEW 0
 #define IN_OLD 1
@@ -462,8 +462,9 @@ void mds_cbht_destroy(struct eh *eh)
  *
  * Note: holding nothing
  */
-int mds_cbht_insert_bbrlocked(struct eh *eh, struct itb *i, struct bucket **ob,
-                              struct bucket_entry **oe)
+int __cbht mds_cbht_insert_bbrlocked(struct eh *eh, struct itb *i, 
+                                     struct bucket **ob, 
+                                     struct bucket_entry **oe)
 {
     u64 hash, offset;
     struct bucket *b, *sb;
@@ -518,7 +519,7 @@ out:
  *
  * Note: holding nothing
  */
-int mds_cbht_insert(struct eh *eh, struct itb *i)
+int __cbht mds_cbht_insert(struct eh *eh, struct itb *i)
 {
     u64 hash, offset;
     struct bucket *b, *sb;
@@ -570,7 +571,7 @@ out:
  *
  * Note: holding nothing
  */
-int mds_cbht_del(struct eh *eh, struct itb *i)
+int __cbht mds_cbht_del(struct eh *eh, struct itb *i)
 {
     struct bucket_entry *be;
     struct bucket *b;
@@ -613,7 +614,7 @@ retry:
  *
  * Error Convention: kernel ptr-err!
  */
-struct bucket *mds_cbht_search_dir(u64 hash)
+struct bucket * __cbht mds_cbht_search_dir(u64 hash)
 {
     struct eh *eh = &hmo.cbht;
     struct segment *s;
@@ -632,7 +633,7 @@ retry:
             break;
         }
     }
-    if (found) {
+    if (likely(found)) {
         offset -= s->offset;
         if (s->seg) {
             b = *(((struct bucket **)s->seg) + offset);
@@ -660,8 +661,8 @@ retry:
 /*
  * Note: holding the bucket.rlock, be.rlock
  */
-int cbht_itb_hit(struct itb *i, struct hvfs_index *hi, 
-                 struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
+int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi, 
+                        struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
 {
     struct mdu *m;
     int err;
@@ -718,8 +719,8 @@ out:
 /*
  * Note: holding nothing
  */
-int cbht_itb_miss(struct hvfs_index *hi, 
-                  struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
+int __cbht cbht_itb_miss(struct hvfs_index *hi, 
+                         struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
 {
     struct itb *i;
     struct bucket *b;
@@ -791,8 +792,8 @@ out:
  * Search by key(puuid, itbid)
  * FIXME: how about LOCK!
  */
-int mds_cbht_search(struct hvfs_index *hi, struct hvfs_md_reply *hmr,
-                    struct hvfs_txg *txg)
+int __cbht mds_cbht_search(struct hvfs_index *hi, struct hvfs_md_reply *hmr,
+                           struct hvfs_txg *txg)
 {
     struct bucket *b;
     struct bucket_entry *be;
@@ -806,7 +807,7 @@ int mds_cbht_search(struct hvfs_index *hi, struct hvfs_md_reply *hmr,
 
 retry_dir:
     b = mds_cbht_search_dir(hash);
-    if (IS_ERR(b)) {
+    if (unlikely(IS_ERR(b))) {
         hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
                  "internal error!\n", hi->itbid);
         return -ENOENT;
@@ -816,7 +817,7 @@ retry_dir:
      */
 
     /* check the bucket */
-    if (atomic_read(&b->active)) {
+    if (likely(atomic_read(&b->active))) {
         offset = hash & ((1 << eh->bucket_depth) - 1);
         be = b->content + offset;
     } else {

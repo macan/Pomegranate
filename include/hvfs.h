@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-10 11:10:48 macan>
+ * Time-stamp: <2009-12-14 16:16:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -80,5 +80,7 @@
 #define HASH_SEL_CBHT   0x01
 #define HASH_SEL_RING   0x02
 u64 hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel);
+
+#define __cbht __attribute__((__section__(".cbht.text")))
 
 #endif

@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-14 09:07:28 macan>
+# Time-stamp: <2009-12-14 15:34:33 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -33,7 +33,7 @@ $(LIB_PATH)/ring : $(RING_SOURCES)
 	@echo -e " " CC"\t" $@
 	@$(CC) $(CFLAGS) $^ -o $@ -DUNIT_TEST
 
-CBHT_SOURCES = $(MDS)/itb.c $(MDS)/cbht.c $(MDS)/mds.c $(MDS)/txg.c $(XNET)/xnet.c \
+CBHT_SOURCES = $(MDS)/itb.c $(MDS)/mds.c $(MDS)/txg.c $(XNET)/xnet.c $(MDS)/cbht.c \
 				$(TEST)/mds/cbht.c
 
 $(TEST)/mds/cbht : $(CBHT_SOURCES)

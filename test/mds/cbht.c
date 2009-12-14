@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 09:01:20 macan>
+ * Time-stamp: <2009-12-14 16:08:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -70,7 +70,7 @@ void hmr_print(struct hvfs_md_reply *hmr)
     }
 }
 
-void insert_itb(u64 puuid, u64 itbid, u64 txg)
+void __cbht insert_itb(u64 puuid, u64 itbid, u64 txg)
 {
     struct itb *i;
     int err;
@@ -87,8 +87,8 @@ void insert_itb(u64 puuid, u64 itbid, u64 txg)
     }
 }
 
-void insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
-                struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
+void __cbht insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
+                       struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
 {
     struct hvfs_index *hi;
     struct mdu_update *mu;
@@ -125,8 +125,9 @@ void insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
     xfree(hi);
 }
 
-void remove_ite(u64 puuid, u64 itbid, char *name, struct hvfs_md_reply *hmr,
-                struct hvfs_txg *txg)
+void __cbht remove_ite(u64 puuid, u64 itbid, char *name, 
+                       struct hvfs_md_reply *hmr,
+                       struct hvfs_txg *txg)
 {
     struct hvfs_index *hi;
     int len, err;
@@ -157,8 +158,8 @@ void remove_ite(u64 puuid, u64 itbid, char *name, struct hvfs_md_reply *hmr,
     }
 }
 
-void lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag , 
-                struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
+void __cbht lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag , 
+                       struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
 {
     struct hvfs_index *hi;
     int len, err;
@@ -192,7 +193,7 @@ void lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag ,
     xfree(hi);
 }
 
-int st_main(int argc, char *argv[])
+int __cbht st_main(int argc, char *argv[])
 {
     struct timeval begin, end;
     struct mdu_update mu;
@@ -327,7 +328,7 @@ struct pthread_args
     double acc[4];              /* 4 operations */
 };
 
-void *pt_main(void *arg)
+void * __cbht pt_main(void *arg)
 {
     struct pthread_args *pa = (struct pthread_args *)arg;
     struct timeval begin, end;
@@ -427,7 +428,7 @@ static inline char *idx2str(int i)
     }
 }
 
-int mt_main(int argc, char *argv[])
+int __cbht mt_main(int argc, char *argv[])
 {
     int err;
     int i, i1, j, k, x, bdepth, icsize;

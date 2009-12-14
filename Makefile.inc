@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-14 09:06:00 macan>
+# Time-stamp: <2009-12-14 15:57:30 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -22,7 +22,11 @@ COMPILE_DATE = `date`
 COMPILE_HOST = `hostname`
 
 # Debuging the memory and locks
-CFLAGS += -g -O2 -Wall -pg -DCDATE="\"$(COMPILE_DATE)\"" -rdynamic \
+XCFLAGS = -foptimize-sibling-calls -O2 -rdynamic -g -pg \
+          -fforward-propagate
+
+CFLAGS += $(XCFLAGS)
+CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" \
 			-DCHOST="\"$(COMPILE_HOST)\"" -I$(INC_PATH) -lpthread \
 			-I$(LIB_PATH) -I$(MDS)\
 			-DHVFS_TRACING -DHVFS_DEBUG_MEMORY -DHVFS_DEBUG_LOCK_
