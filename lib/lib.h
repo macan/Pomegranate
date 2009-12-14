@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-10 14:37:19 macan>
+ * Time-stamp: <2009-12-14 14:36:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -47,6 +47,9 @@ long find_first_zero_bit(const unsigned long *, unsigned long);
 long find_next_zero_bit(const unsigned long *, long, long);
 long find_first_bit(const unsigned long *, unsigned long);
 long find_next_bit(const unsigned long *, long, long);
+
+void lib_init(void);
+u64 lib_random(int hint);
 
 #ifdef HVFS_DEBUG_LOCK
 void lock_table_init(void);

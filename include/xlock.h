@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-09 16:35:36 macan>
+ * Time-stamp: <2009-12-14 13:01:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -74,6 +74,32 @@ typedef pthread_mutex_t xlock_t;
 #define xlock_unlock pthread_mutex_unlock
 #define xlock_init(l) pthread_mutex_init(l, NULL)
 #define xlock_destroy pthread_mutex_destroy
+
+/* section for cond */
+struct __cond
+{
+    xlock_t l;                  /* pthread mutex */
+    pthread_cond_t c;           /* pthread cond */
+};
+typedef struct __cond xcond_t;
+
+#define xcond_lock(cond) xlock_lock(&(cond)->l)
+#define xcond_unlock(cond) xlock_unlock(&(cond)->l)
+#define xcond_wait(cond) pthread_cond_wait(&(cond)->c, &(cond)->l)
+#define xcond_timedwait(cond, time) pthread_cond_timedwait(&(cond)->c,  \
+                                                           &(cond)->l, time)
+#define xcond_signal(cond) pthread_cond_signal(&(cond)->c)
+#define xcond_broadcast(cond) pthread_cond_broadcast(&(cond)->c)
+
+#define xcond_init(cond) do {                   \
+        pthread_cond_init(&(cond)->c, NULL);    \
+        xlock_init(&(cond)->l);                 \
+    } while (0)
+#define xcond_destroy(cond) do {                \
+        pthread_cond_destroy(&(cond)->c);       \
+        xlock_destroy(&(cond)->l);              \
+    } while (0)
+
 #endif
 
 #endif
