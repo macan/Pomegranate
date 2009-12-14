@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-10 17:14:19 macan>
+ * Time-stamp: <2009-12-14 09:06:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -127,6 +127,7 @@ int mds_cbht_insert(struct eh *, struct itb *);
 int mds_cbht_del(struct eh *, struct itb *);
 struct bucket *mds_cbht_search_dir(u64);
 int mds_cbht_search(struct hvfs_index *, struct hvfs_md_reply *, struct hvfs_txg *);
+void cbht_print_dir(struct eh *);
 
 /* for itb.c */
 struct itb *mds_read_itb(u64, u64, u64);

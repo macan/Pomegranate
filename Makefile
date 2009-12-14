@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-10 16:36:59 macan>
+# Time-stamp: <2009-12-14 09:07:28 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -12,7 +12,7 @@ HOME_PATH = $(shell pwd)
 
 include Makefile.inc
 
-UNIT_TARGETS = $(LIB_PATH)/ring $(MDS)/cbht
+UNIT_TARGETS = $(LIB_PATH)/ring $(TEST)/mds/cbht
 UNIT_OBJS = $(LIB_PATH)/lib.o $(LIB_PATH)/ring.o
 RING_SOURCES = $(LIB_PATH)/ring.c $(LIB_PATH)/lib.c $(LIB_PATH)/hash.c \
 				$(LIB_PATH)/xlock.c
@@ -33,18 +33,19 @@ $(LIB_PATH)/ring : $(RING_SOURCES)
 	@echo -e " " CC"\t" $@
 	@$(CC) $(CFLAGS) $^ -o $@ -DUNIT_TEST
 
-CBHT_SOURCES = $(MDS)/itb.c $(MDS)/cbht.c $(MDS)/mds.c $(MDS)/txg.c $(XNET)/xnet.c
+CBHT_SOURCES = $(MDS)/itb.c $(MDS)/cbht.c $(MDS)/mds.c $(MDS)/txg.c $(XNET)/xnet.c \
+				$(TEST)/mds/cbht.c
 
-$(MDS)/cbht : $(CBHT_SOURCES)
+$(TEST)/mds/cbht : $(CBHT_SOURCES)
 	@echo -e " " CC"\t" $@
 	@$(CC) $(CFLAGS) $^ -o $@ -DUNIT_TEST -L$(LIB_PATH) -lhvfs 
 
 unit_test: $(UNIT_TARGETS)
 	@echo "Targets [$(UNIT_TARGETS)] for unit test are ready."
-	@$(MDS)/cbht
+	@$(TEST)/mds/cbht
 
 install: hvfs_lib unit_test
-	@scp $(MDS)/cbht syssw@glnode08:~/cbht
+	@scp $(TEST)/mds/cbht syssw@glnode08:~/cbht
 	@lagent -d glnode08 -u syssw -sc "time ~/cbht $(CBHT_ARGS)"
 
 rut:
