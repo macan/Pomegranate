@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 20:18:13 macan>
+ * Time-stamp: <2009-12-15 16:16:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -126,12 +126,12 @@ int cbht_bucket_init(struct eh *, struct segment *);
 void cbht_copy_dir(struct segment *, u64, u64, struct eh *);
 int cbht_enlarge_dir(struct eh *, u32);
 int cbht_update_dir(struct eh *, struct bucket *);
-int cbht_bucket_split(struct eh *, struct bucket *, u64, struct bucket **);
+int cbht_bucket_split(struct eh *, struct bucket *, u64, u32);
 int mds_cbht_init(struct eh *, int);
 void mds_cbht_destroy(struct eh *);
 int mds_cbht_insert(struct eh *, struct itb *);
 int mds_cbht_del(struct eh *, struct itb *);
-struct bucket *mds_cbht_search_dir(u64);
+struct bucket *mds_cbht_search_dir(u64, u32 *);
 int mds_cbht_search(struct hvfs_index *, struct hvfs_md_reply *, struct hvfs_txg *);
 void cbht_print_dir(struct eh *);
 

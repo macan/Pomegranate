@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-08 10:35:40 macan>
+ * Time-stamp: <2009-12-15 10:26:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -60,6 +60,7 @@ struct itbh
     /* section for TXG */
     u64 txg;                    /* txg of the latest update */
     xrwlock_t lock;             /* access/evict lock */
+    xlock_t ilock;              /* index alloc/free lock */
 
     /* section for searching in ITB */
     u64 puuid;

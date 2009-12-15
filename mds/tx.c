@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 19:39:53 macan>
+ * Time-stamp: <2009-12-14 20:51:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -344,6 +344,15 @@ void mds_tx_commit(struct hvfs_tx *tx)
     }
 }
 
+/* mds_init_tx()
+ *
+ * NOTE: init the TX subssytem and init the commit threads' pool
+ */
+int mds_init_tx()
+{
+    
+}
+
 #ifdef UNIT_TEST
 void tx_in(u16 op, struct xnet_msg *req)
 {
@@ -392,20 +401,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    for (i = 0, seqno = 0; i < 20; i++) {
-        t = mds_txc_search(&hmo.txc, i, seqno++);
-        if (!t) {
-            hvfs_err(mds, "Internal error.\n");
-        } else {
-            /* ok, delete the TX from the cache */
-            mds_tx_done(t);
-            mds_tx_reply(t);
-            mds_tx_commit(t);
-            mds_put_tx(t);
-        }
-    }
-
-    for (i = 0, seqno = 0; i < 20; i++) {
+    for (i = 0, seqno = 0; i < 10; i++) {
         m.tx.reqno = seqno++;
         m.tx.ssite_id = i;
         tx_in(HVFS_TX_NORMAL, &m);

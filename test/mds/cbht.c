@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 16:08:10 macan>
+ * Time-stamp: <2009-12-15 16:41:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -358,6 +358,9 @@ void * __cbht pt_main(void *arg)
     /* wait for other threads */
     pthread_barrier_wait(pa->pb);
 
+    /* changing the debug flag */
+//    hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG_ALL;
+
     /* parallel lookup the ite! */
     lib_timer_start(&begin);
     for (i = 0; i < pa->k; i++) {
@@ -529,8 +532,10 @@ int __cbht mt_main(int argc, char *argv[])
               acc[0], acc[1], acc[2], acc[3]);
 
     hvfs_info(mds, "CBHT dir depth %d\n", hmo.cbht.dir_depth);
-    hvfs_info(mds, "Average ITB search depth %lf\n", 
-              atomic64_read(&hmo.profiling.itb.rsearch_depth) / 4.0 / (k * x));
+    hvfs_info(mds, "Average ITB read  search depth %lf\n", 
+              atomic64_read(&hmo.profiling.itb.rsearch_depth) / 2.0 / (k * x));
+    hvfs_info(mds, "Average ITB write search depth %lf\n", 
+              atomic64_read(&hmo.profiling.itb.wsearch_depth) / 2.0 / (k * x));
     /* print the dir */
 /*     cbht_print_dir(&hmo.cbht); */
 

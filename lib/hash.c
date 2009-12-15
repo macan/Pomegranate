@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 16:17:16 macan>
+ * Time-stamp: <2009-12-15 09:40:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -216,7 +216,7 @@ static inline u64 hvfs_hash_eh(u64 key1, u64 key2, u64 key2len)
     u64 hash;
 
     hash = hash_64(key1, 64);
-    hash ^= DJBHash((char *)key2, key2len);
+    hash ^= RSHash((char *)key2, key2len);
     return hash;
 #else
     return 0;
@@ -253,7 +253,7 @@ static inline u64 hvfs_hash_ring(u64 key1, u64 key2, u64 key2len)
     return val1;
 }
 
-u64 __cbht hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel)
+u64 hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel)
 {
     switch (sel) {
     case HASH_SEL_EH:

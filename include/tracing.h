@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 19:07:13 macan>
+ * Time-stamp: <2009-12-15 09:08:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,7 +49,7 @@
 
 #ifdef HVFS_TRACING
 #define hvfs_tracing(mask, flag, lvl, f, a...) do {             \
-        if (mask & flag) {                                      \
+        if (unlikely(mask & flag)) {                            \
             if (mask & HVFS_PRECISE) {                          \
                 PRINTK(lvl "HVFS (%16s, %5d): %s: " f,          \
                        __FILE__, __LINE__, __func__, ## a);     \

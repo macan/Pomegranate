@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-12 17:01:31 macan>
+ * Time-stamp: <2009-12-15 16:38:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,7 +29,7 @@
 #include "lib.h"
 #include "ring.h"
 
-void itb_index_rlock(struct itb_lock *l)
+inline void itb_index_rlock(struct itb_lock *l)
 {
     if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
         xrwlock_rlock((xrwlock_t *)l);
@@ -38,7 +38,7 @@ void itb_index_rlock(struct itb_lock *l)
     }
 }
 
-void itb_index_wlock(struct itb_lock *l)
+inline void itb_index_wlock(struct itb_lock *l)
 {
     if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
         xrwlock_wlock((xrwlock_t *)l);
@@ -47,7 +47,7 @@ void itb_index_wlock(struct itb_lock *l)
     }
 }
 
-void itb_index_runlock(struct itb_lock *l)
+inline void itb_index_runlock(struct itb_lock *l)
 {
     if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
         xrwlock_runlock((xrwlock_t *)l);
@@ -56,7 +56,7 @@ void itb_index_runlock(struct itb_lock *l)
     }
 }
 
-void itb_index_wunlock(struct itb_lock *l)
+inline void itb_index_wunlock(struct itb_lock *l)
 {
     if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
         xrwlock_wunlock((xrwlock_t *)l);
@@ -122,14 +122,18 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
  */
 long __itb_get_free_index(struct itb *i)
 {
-    long nr = i->h.inf;
-    int c = (1 << i->h.adepth);
-    int d = c;
+    long nr;
+    int c, d;
+    
+    xlock_lock(&i->h.ilock);
+    nr = i->h.inf;
+    d = c = (1 << i->h.adepth);
 
     while (c) {
         if (i->index[nr + d].flag == ITB_INDEX_FREE) {
-            i->h.inf = nr;
+            i->h.inf = nr + 1;
             i->h.itu++;
+            xlock_unlock(&i->h.ilock);
             return nr + d;
         }
         c--;
@@ -137,6 +141,7 @@ long __itb_get_free_index(struct itb *i)
         if (nr == d)
             nr = 0;
     }
+    xlock_unlock(&i->h.ilock);
 
     /* failed to get a free index, internal error! */
     hvfs_err(mds, "Internal error, failed to get a free index.\n");
@@ -211,6 +216,9 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data)
                 /* someone has set this bit, let us retry */
                 goto retry;
             }
+            hvfs_debug(mds, "%lx, ITB %p: %ld, %ld, 0x%lx %s, offset %ld, nr %ld\n", 
+                       pthread_self(), i,
+                       i->h.puuid, i->h.itbid, hi->hash, hi->name, offset, nr);
             /* now we got a free ITE entry at position nr */
             ite = &i->ite[nr];
             memset(ite, 0, sizeof(struct ite));
@@ -549,6 +557,7 @@ struct itb *get_free_itb()
     n->h.flag = ITB_ACTIVE;       /* 0 */
     n->h.state = ITB_STATE_CLEAN; /* 0 */
     xrwlock_init(&n->h.lock);
+    xlock_init(&n->h.ilock);
     INIT_HLIST_NODE(&n->h.cbht);
     INIT_LIST_HEAD(&n->h.list);
     /* init the lock region */
@@ -711,23 +720,26 @@ int itb_search(struct hvfs_index *hi, struct itb* itb, void *data,
 {
     u64 offset = hi->hash & ((1 << itb->h.adepth) - 1);
     u64 total = 1 << (itb->h.adepth + 1);
+    atomic64_t *as;
     struct itb_index *ii;
     struct itb_lock *l;
-    int ret = 0;
+    int ret = -ENOENT;
 
     /* get the ITE lock */
     l = &itb->lock[offset / ITB_LOCK_GRANULARITY];
-    if (hi->flag & INDEX_LOOKUP)
+    if (hi->flag & INDEX_LOOKUP) {
         itb_index_rlock(l);
-    else
+        as = &hmo.profiling.itb.rsearch_depth;
+    } else {
         itb_index_wlock(l);
+        as = &hmo.profiling.itb.wsearch_depth;
+    }
     
-    ret = -ENOENT;
     while (offset < total) {
         ii = &itb->index[offset];
         if (ii->flag == ITB_INDEX_FREE)
             break;
-        atomic64_inc(&hmo.profiling.itb.rsearch_depth);
+        atomic64_inc(as);
         ret = ite_match(&itb->ite[ii->entry], hi);
 
         if (ii->flag == ITB_INDEX_UNIQUE) {
@@ -825,7 +837,7 @@ int itb_search(struct hvfs_index *hi, struct itb* itb, void *data,
     }
     /* OK, can not find it, so ... */
     hvfs_debug(mds, "OK, the ITE do NOT exist in the ITB.\n");
-    if (hi->flag & INDEX_CREATE || hi->flag & INDEX_SYMLINK) {
+    if (likely(hi->flag & INDEX_CREATE || hi->flag & INDEX_SYMLINK)) {
         hvfs_debug(mds, "Not find the ITE and create/symlink it.\n");
         itb = itb_dirty(itb, txg);
         if (!itb) {
@@ -846,6 +858,10 @@ out:
     return ret;
 }
 
+/* itb_readdir()
+ *
+ * NOTE: holding the bucket.rlock, be.rlock, itb.rlock
+ */
 int itb_readdir(struct hvfs_index *hi, struct itb *i, struct hvfs_md_reply *hmr)
 {
     return 0;

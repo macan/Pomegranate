@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 19:00:19 macan>
+ * Time-stamp: <2009-12-14 20:51:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,8 +26,8 @@
 #include "lib.h"
 
 #ifdef HVFS_TRACING
-u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG_ALL;
-//u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL;
+//u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG_ALL;
+u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL;
 #endif
 
 /* Global variable */
@@ -111,7 +111,7 @@ int mds_init()
 
     /* FIXME: register with the Ring server */
 
-    /* FIXME: init the TX subsystem, init the commit threads'pool */
+    /* FIXME: init the TX subsystem, init the commit threads' pool */
     err = mds_init_tx();
     if (err)
         goto out_tx;
