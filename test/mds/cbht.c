@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-15 16:41:18 macan>
+ * Time-stamp: <2009-12-16 20:42:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -180,8 +180,8 @@ void __cbht lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag ,
     memset(hmr, 0, sizeof(*hmr));
     err = mds_cbht_search(hi, hmr, txg);
     if (err) {
-        hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
-                 puuid, itbid, name, err);
+        hvfs_err(mds, "%lx, mds_cbht_search(%ld, %ld, %s) failed %d\n", 
+                 pthread_self(), puuid, itbid, name, err);
         hvfs_err(mds, "hash 0x%20lx.\n", hvfs_hash(puuid, itbid, 
                                                    sizeof(u64), HASH_SEL_CBHT));
     }
@@ -322,12 +322,18 @@ out:
 struct pthread_args
 {
     int tid;                    /* thread index */
+    int threads;                /* total threads */
     int k, x, icsize;           /* dynamic */
     int bdepth;                 /* should be const */
     pthread_barrier_t *pb;
     double acc[4];              /* 4 operations */
 };
 
+/* pt_main()
+ *
+ * NOTE: This function is used to test parallel insertion to different
+ * ITBs. All threads insert/lookup in the different ITB w/o synchronization.
+ */
 void * __cbht pt_main(void *arg)
 {
     struct pthread_args *pa = (struct pthread_args *)arg;
@@ -357,9 +363,6 @@ void * __cbht pt_main(void *arg)
 
     /* wait for other threads */
     pthread_barrier_wait(pa->pb);
-
-    /* changing the debug flag */
-//    hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG_ALL;
 
     /* parallel lookup the ite! */
     lib_timer_start(&begin);
@@ -413,6 +416,97 @@ void * __cbht pt_main(void *arg)
     pthread_exit(0);
 }
 
+/* pt_main2()
+ *
+ * NOTE: pt_main2 is used to test the ITB parallel insertion/deletion. All
+ * threads parallel insert into the same ITB w/o synchronization.
+ */
+void * __cbht pt_main2(void *arg)
+{
+    struct pthread_args *pa = (struct pthread_args *)arg;
+    struct timeval begin, end;
+    struct mdu_update mu;
+    struct hvfs_md_reply hmr;
+    struct hvfs_txg txg = {.txg = 5,};
+    u64 puuid, itbid, flag;
+    int i, j;
+    char name[HVFS_MAX_NAME_LEN];
+
+    /* wait for other threads */
+    pthread_barrier_wait(pa->pb);
+
+    /* paralle insert the ite in the same ITB order */
+    lib_timer_start(&begin);
+    for (i = 0; i < pa->k; i++) {
+        puuid = 0;
+        itbid = i;
+        for (j = 0; j < (pa->x / pa->threads); j++) {
+            sprintf(name, "macan-%d-%d-%d", pa->tid, i, 
+                    pa->tid + (j * pa->threads));
+            insert_ite(puuid, itbid, name, &mu, &hmr, &txg);
+        }
+    }
+    lib_timer_stop(&end);
+    lib_timer_acc(&begin, &end, &pa->acc[0]);
+    
+    /* wait for other threads */
+    pthread_barrier_wait(pa->pb);
+
+    /* parallel lookup the ite in the same ITB order */
+    lib_timer_start(&begin);
+    for (i = 0; i < pa->k; i++) {
+        puuid = 0;
+        itbid = i;
+        for (j = 0; j < (pa->x / pa->threads); j++) {
+            sprintf(name, "macan-%d-%d-%d", pa->tid, i,
+                    pa->tid + (j * pa->threads));
+            flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
+            lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+        }
+    }
+    lib_timer_stop(&end);
+    lib_timer_acc(&begin, &end, &pa->acc[1]);
+
+    /* wait for other threads */
+    pthread_barrier_wait(pa->pb);
+
+    /* parallel unlink the ite in the same ITB order */
+    lib_timer_start(&begin);
+    for (i = 0; i < pa->k; i++) {
+        puuid = 0;
+        itbid = i;
+        for (j = 0; j < (pa->x / pa->threads); j++) {
+            sprintf(name, "macan-%d-%d-%d", pa->tid, i,
+                    pa->tid + (j * pa->threads));
+            remove_ite(puuid, itbid, name, &hmr, &txg);
+        }
+    }
+    lib_timer_stop(&end);
+    lib_timer_acc(&begin, &end, &pa->acc[2]);
+
+    /* wait for other threads */
+    pthread_barrier_wait(pa->pb);
+
+    /* parallel shadow lookup the ite in the same ITB order */
+    lib_timer_start(&begin);
+    for (i = 0; i < pa->k; i++) {
+        puuid = 0;
+        itbid = i;
+        for (j = 0; j < (pa->x / pa->threads); j++) {
+            sprintf(name, "macan-%d-%d-%d", pa->tid, i,
+                    pa->tid + (j * pa->threads));
+            flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_SHADOW;
+            lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+        }
+    }
+    lib_timer_stop(&end);
+    lib_timer_acc(&begin, &end, &pa->acc[3]);
+
+    pthread_barrier_wait(pa->pb);
+
+    pthread_exit(0);
+}
+
 static inline char *idx2str(int i)
 {
     switch (i) {
@@ -433,12 +527,12 @@ static inline char *idx2str(int i)
 
 int __cbht mt_main(int argc, char *argv[])
 {
-    int err;
-    int i, i1, j, k, x, bdepth, icsize;
     pthread_t *t;
     pthread_barrier_t pb;
     struct pthread_args *pa;
     double acc[4];
+    int err;
+    int i, i1, j, k, x, bdepth, icsize, model, threads;
 
     if (argc == 5) {
         /* the argv[1] is k, argv[2] is x, argv[3] is bucket.depth, argv[4] is
@@ -447,17 +541,26 @@ int __cbht mt_main(int argc, char *argv[])
         x = atoi(argv[2]);
         bdepth = atoi(argv[3]);
         icsize = atoi(argv[4]);
+        model = 0;
+    } else if (argc == 6) {
+        /* new threads' model */
+        k = atoi(argv[1]);
+        x = atoi(argv[2]);
+        bdepth = atoi(argv[3]);
+        icsize = atoi(argv[4]);
+        model = 1;
     } else {
         k = 100;
         x = 100;
         bdepth = 4;
         icsize = 50;
+        model = 0;
     }
 #ifdef HVFS_DEBUG_LOCK
     lock_table_init();
 #endif
-    hvfs_info(mds, "CBHT UNIT TESTing (multi thread)...(%d,%d,%d,%d)\n", 
-              k, x, bdepth, icsize);
+    hvfs_info(mds, "CBHT UNIT TESTing (multi thread M%d)...(%d,%d,%d,%d)\n", 
+              model, k, x, bdepth, icsize);
     err = mds_cbht_init(&hmo.cbht, bdepth);
     if (err) {
         hvfs_err(mds, "mds_cbht_init failed %d\n", err);
@@ -492,16 +595,31 @@ int __cbht mt_main(int argc, char *argv[])
     pthread_barrier_init(&pb, NULL, atoi(argv[5]) + 1);
 
     /* determine the arguments */
-    j = atoi(argv[5]);
-    k = k / j * j;
+    threads = j = atoi(argv[5]);
+    if (!model) {
+        k = k / j * j;
+        if (!k)
+            k = 1;
+    } else if (model == 1) {
+        x = x / j * j;
+        if (!x)
+            x = 1;
+    }
     for (i = 0; i < j; i++) {
         pa[i].tid = i;
-        pa[i].k = k / j;
-        pa[i].x = x;
         pa[i].bdepth = bdepth;
         pa[i].icsize = icsize;
         pa[i].pb = &pb;
-        err = pthread_create(&t[i], NULL, pt_main, (void *)&pa[i]);
+        pa[i].threads = threads;
+        if (!model) {
+            pa[i].k = k / j;
+            pa[i].x = x;
+            err = pthread_create(&t[i], NULL, pt_main, (void *)&pa[i]);
+        } else if (model == 1) {
+            pa[i].k = k;
+            pa[i].x = x;
+            err = pthread_create(&t[i], NULL, pt_main2, (void *)&pa[i]);
+        }
         if (err) {
             hvfs_err(mds, "pthread_create err %d\n", err);
             goto out_free2;
@@ -557,6 +675,18 @@ int main(int argc, char *argv[])
         /* may be multi-thread test */
         argc--;
         if (atoi(argv[5]) > 0) {
+            err = mt_main(argc, argv);
+            goto out;
+        }
+    } else if (argc == 7) {
+        argc--;
+        if (atoi(argv[6]) > 0) {
+            /* ok, this means we need new threads' model */
+            err = mt_main(argc, argv);
+            goto out;
+        } else {
+            /* fall back to normal threads' model */
+            argc--;
             err = mt_main(argc, argv);
             goto out;
         }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-15 16:38:22 macan>
+ * Time-stamp: <2009-12-16 19:39:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -212,7 +212,7 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data)
         if (nr < (1 << i->h.adepth)) {
             /* ok, find one */
             /* test and set the bit now */
-            if (lib_bitmap_tas(i->bitmap, nr) == 1) {
+            if (lib_bitmap_tas(i->bitmap, nr)) {
                 /* someone has set this bit, let us retry */
                 goto retry;
             }

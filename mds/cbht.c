@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-15 16:37:07 macan>
+ * Time-stamp: <2009-12-16 20:22:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -501,23 +501,28 @@ retry:
             goto out;
     }
 
+    hvfs_debug(mds, "%lx, %lx, ITB %ld, %ld trying to insert to b[%ld]\n", 
+               pthread_self(), hash, 
+               i->h.puuid, i->h.itbid, b->id);
+    xrwlock_wlock(&be->lock);
     /* ok, we should check whether this ITB is existing */
-    xrwlock_rlock(&be->lock);
     if (!hlist_empty(&be->h)) {
         hlist_for_each_entry(ih, pos, &be->h, cbht) {
             if (ih->puuid == i->h.puuid && ih->itbid == i->h.itbid) {
-                /* OK, find the itb in the CBHT, we do NOT need insert ourself */
+                /* OK, find the itb in the CBHT, we do NOT need insert
+                 * ourself */
+                hvfs_debug(mds, "OK, %lx we(%p) find that someone already "
+                           "insert the ITB %p.\n",
+                           pthread_self(), ih, i);
                 *oi = (struct itb *)ih;
+                *ob = b;
+                *oe = be;
+                xrwlock_wunlock(&be->lock);
+                xrwlock_rlock(&be->lock);
                 return -EEXIST;
             }
         }
     }
-    xrwlock_runlock(&be->lock);
-
-    hvfs_debug(mds, "%lx, %lx, ITB %ld, %ld insert to b[%ld]\n", 
-               pthread_self(), hash, 
-               i->h.puuid, i->h.itbid, b->id);
-    xrwlock_wlock(&be->lock);
     xrwlock_rlock(&i->h.lock);
     hlist_add_head(&i->h.cbht, &be->h);
     i->h.be = be;
@@ -536,6 +541,10 @@ out:
 }
 
 /* CBHT insert without any lock preservated at returning
+ *
+ * NOTE: this function do NOT check whether the ITB is already inserted into
+ * the CBHT, so you should use this function w/ more care. I strongly
+ * suggested that do NOT use this function other than just testing.
  *
  * Note: holding nothing
  */
@@ -698,8 +707,8 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     err = itb_search(hi, i, mdu_rpy, txg);
     if (unlikely(err)) {
         hvfs_debug(mds, "Oh, itb_search() return %d."
-                   "(itb [%ld, %ld], hi [%ld, %ld])\n", 
-                   err, i->h.puuid, i->h.itbid, hi->puuid, hi->itbid);
+                   "(itb [%ld, %ld], hi [%ld, %ld]), itb %p\n", 
+                   err, i->h.puuid, i->h.itbid, hi->puuid, hi->itbid, i);
         goto out;
     }
     /* FIXME: fill hmr with mdu_rpy */
