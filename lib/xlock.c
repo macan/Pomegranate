@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-10 16:30:02 macan>
+ * Time-stamp: <2009-12-18 12:21:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -104,6 +104,7 @@ void __add_tid(struct lock_entry *le)
 
     xlock_lock(&le->lock);
     list_add(&t->list, &le->tid);
+    hvfs_debug(lib, "add %lx le %p to list\n", t->tid, le->p);
     xlock_unlock(&le->lock);    
 }
 
@@ -117,12 +118,15 @@ void __del_tid(struct lock_entry *le)
         if (pos->tid == tid) {
             list_del(&pos->list);
             xfree(pos);
+            hvfs_debug(lib, "del %lx le %p from list\n", tid, le->p);
             xlock_unlock(&le->lock);
             return;
         }
     }
     xlock_unlock(&le->lock);
-    hvfs_err(lib, "Internal error on deleting TID.\n");
+    hvfs_err(lib, "Internal error on deleting TID %lx on le %p.\n", 
+             tid, le->p);
+    exit(0);
 }
 
 void __add_lock_entry(struct lock_entry *le)
@@ -194,9 +198,9 @@ void lock_table_print(void)
     int i, len, n;
 
     for (i = 0; i < LOCK_TABLE_SIZE; i++) {
-        p = line;
-        n = 520;
         list_for_each_entry(pos, &lt.ht[i].h, list) {
+            p = line;
+            n = 520;
             if (atomic64_read(&pos->trl) || atomic64_read(&pos->twl) ||
                 atomic64_read(&pos->rl) || atomic64_read(&pos->wl)) {
                 len = snprintf(p, n, 
@@ -213,7 +217,7 @@ void lock_table_print(void)
                     p += len;
                     n -= len;
                     list_for_each_entry(t, &pos->tid, list) {
-                        len = snprintf(p, n, "%ld, ", t->tid);
+                        len = snprintf(p, n, "%lx, ", t->tid);
                         p += len;
                         n -= len;
                     }
@@ -226,7 +230,7 @@ void lock_table_print(void)
                     p += len;
                     n -= len;
                     list_for_each_entry(t, &pos->tid, list) {
-                        len = snprintf(p, n, "%ld, ", t->tid);
+                        len = snprintf(p, n, "%lx, ", t->tid);
                         p += len;
                         n -= len;
                     }
@@ -242,7 +246,7 @@ void lock_table_print(void)
                         char **bts = backtrace_symbols(t->bt, t->size);
                         int i;
                         for (i = 0; i < t->size; i++) {
-                            hvfs_info(lib, "[%ld] -> %s\n", t->tid, bts[i]);
+                            hvfs_info(lib, "[%lx] -> %s\n", t->tid, bts[i]);
                         }
                         free(bts);
                     }
@@ -252,7 +256,7 @@ void lock_table_print(void)
                         char **bts = backtrace_symbols(t->bt, t->size);
                         int i;
                         for (i = 0; i < t->size; i++) {
-                            hvfs_info(lib, "[%ld] -> %s\n", t->tid, bts[i]);
+                            hvfs_info(lib, "[%lx] -> %s\n", t->tid, bts[i]);
                         }
                         free(bts);
                     }
@@ -260,6 +264,7 @@ void lock_table_print(void)
             }
         }
     }
+    return;
 }
 
 int xrwlock_rlock(xrwlock_t *lock)

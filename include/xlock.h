@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 13:01:35 macan>
+ * Time-stamp: <2009-12-17 15:41:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -75,6 +75,8 @@ typedef pthread_mutex_t xlock_t;
 #define xlock_init(l) pthread_mutex_init(l, NULL)
 #define xlock_destroy pthread_mutex_destroy
 
+#endif
+
 /* section for cond */
 struct __cond
 {
@@ -99,8 +101,6 @@ typedef struct __cond xcond_t;
         pthread_cond_destroy(&(cond)->c);       \
         xlock_destroy(&(cond)->l);              \
     } while (0)
-
-#endif
 
 #endif
 

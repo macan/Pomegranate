@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-16 19:39:53 macan>
+ * Time-stamp: <2009-12-18 12:33:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -88,7 +88,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
         /* retry with slow method */
         msg = xnet_alloc_msg(XNET_MSG_NORMAL);
         if (!msg) {
-            hvfs_debug(mds, "xnet_alloc_msg() failed.\n");
+            hvfs_debug(mds, "xnet_alloc_msg() in low memory.\n");
             return ERR_PTR(-ENOMEM); /* return the err */
         }
     }
@@ -152,7 +152,7 @@ long __itb_get_free_index(struct itb *i)
  *
  * holding the bucket.rlock and be.rlock and itb.rlock AND ite.wlock
  */
-void __itb_add_index(struct itb *i, u64 offset, long nr)
+void __itb_add_index(struct itb *i, u64 offset, long nr, char *name)
 {
     struct itb_index *ii = i->index;
     long f;
@@ -162,6 +162,8 @@ void __itb_add_index(struct itb *i, u64 offset, long nr)
         /* ok, this entry is free, and nobody can race w/ me */
         ii[offset].flag = ITB_INDEX_UNIQUE;
         ii[offset].entry = nr;
+        hvfs_debug(mds, "FREE     ITB %p: %ld %ld, %s offset %ld, nr %ld\n",
+                   i, i->h.puuid, i->h.itbid, name, offset, nr);
     } else if (ii[offset].flag == ITB_INDEX_UNIQUE) {
         /* only ONE entry, change flag to CONFLICT */
         /* get a free index entry */
@@ -172,6 +174,8 @@ void __itb_add_index(struct itb *i, u64 offset, long nr)
         ii[f].entry = nr;
         /* update conflict state */
         atomic_inc(&i->h.pseudo_conflicts);
+        hvfs_debug(mds, "UNIQUE   ITB %p: %ld %ld, %s offset %ld, nr %ld\n",
+                   i, i->h.puuid, i->h.itbid, name, offset, nr);
     } else if (ii[offset].flag == ITB_INDEX_CONFLICT) {
         /* FIXME: have SOME entries, check to see if we need change flag to
          * OVERFLOW */
@@ -183,11 +187,22 @@ void __itb_add_index(struct itb *i, u64 offset, long nr)
         ii[offset].conflict = f;
         /* it is hard to detemine the precise conflicts */
         atomic_inc(&i->h.pseudo_conflicts);
+        hvfs_debug(mds, "CONFLICT ITB %p: %ld %ld, %s offset %ld, nr %ld\n",
+                   i, i->h.puuid, i->h.itbid, name, offset, nr);
     } else if (ii[offset].flag == ITB_INDEX_OVERFLOW) {
         hvfs_err(mds, "Hoo, this ITB overflowed, for now we can't handle it!\n");
     } else {
         hvfs_err(mds, "Invalid ITE flag 0x%x\n", ii[offset].flag);
     }
+    xlock_lock(&i->h.ilock);
+    /* NOTE: we use '<=' here for max_offset == 0; because the init value of
+     * max_offset is 0, you should update the length when nr is exactly
+     * ZERO. */
+    if (atomic_read(&i->h.max_offset) <= nr) {
+        atomic_set(&i->h.max_offset, nr);
+        atomic_set(&i->h.len, sizeof(struct itb) + (nr + 1) * sizeof(struct ite));
+    }
+    xlock_unlock(&i->h.ilock);
 }
 
 /*
@@ -216,9 +231,9 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data)
                 /* someone has set this bit, let us retry */
                 goto retry;
             }
-            hvfs_debug(mds, "%lx, ITB %p: %ld, %ld, 0x%lx %s, offset %ld, nr %ld\n", 
-                       pthread_self(), i,
-                       i->h.puuid, i->h.itbid, hi->hash, hi->name, offset, nr);
+            hvfs_verbose(mds, "ITB %p: %ld, %ld, 0x%lx %s, offset %ld, nr %ld\n", 
+                         i, i->h.puuid, i->h.itbid, hi->hash, 
+                         hi->name, offset, nr);
             /* now we got a free ITE entry at position nr */
             ite = &i->ite[nr];
             memset(ite, 0, sizeof(struct ite));
@@ -240,7 +255,7 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data)
                 ite->flag |= ITE_FLAG_LARGE;
             }
             /* next step: we try to get a free index entry */
-            __itb_add_index(i, offset, nr);
+            __itb_add_index(i, offset, nr, hi->name);
             /* set up the mdu base on hi->data */
             ite_create(hi, ite);
             memcpy(data, &(ite->g), HVFS_MDU_SIZE);
@@ -341,6 +356,8 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
     /* there is always a struct mdu_update with normal create request */
 
     memcpy(&e->s.name, hi->name, hi->len);
+    if (hi->len < HVFS_MAX_NAME_LEN)
+        e->s.name[hi->len] = '\0';
     
     if (unlikely(hi->flag & INDEX_CREATE_COPY)) {
         /* hi->data is MDU */
@@ -532,7 +549,7 @@ struct itb *get_free_itb()
     if (!list_empty(&hmo.ic.lru)) {
         l = hmo.ic.lru.next;
         ASSERT(l != &hmo.ic.lru, mds);
-        list_del(l);
+        list_del_init(l);
     }
     xlock_unlock(&hmo.ic.lock);
 
@@ -560,6 +577,7 @@ struct itb *get_free_itb()
     xlock_init(&n->h.ilock);
     INIT_HLIST_NODE(&n->h.cbht);
     INIT_LIST_HEAD(&n->h.list);
+    INIT_LIST_HEAD(&n->h.overflow);
     /* init the lock region */
     if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
         for (i = 0; i < ((1 << ITB_DEPTH) / ITB_LOCK_GRANULARITY); i++) {
@@ -605,12 +623,61 @@ struct itb *itb_cow(struct itb *itb)
         n = get_free_itb();
     } while (!n && ({xsleep(10); 1;}));
 
-    memcpy(n, itb, atomic_read(&itb->h.len));
+    memcpy(n, itb, sizeof(struct itb));
+
+    /* init ITB header */
     xrwlock_init(&n->h.lock);
+    xlock_init(&n->h.ilock);
     INIT_HLIST_NODE(&n->h.cbht);
     INIT_LIST_HEAD(&n->h.list);
+    INIT_LIST_HEAD(&n->h.overflow);
     
     return n;
+}
+
+/**
+ * ITB COW RECOPY
+ *
+ * Holding the BE.wlock, and the old ITB has beed removed from the be list.
+ *
+ * NOTE: in itb_cow() we do not finish copying the ITE region, now let us
+ * retry to copy the remain regions.
+ */
+void itb_cow_recopy(struct itb *oi, struct itb *ni)
+{
+    int i;
+    
+    hvfs_debug(mds, "copied max_offset is %d, len %d\n", 
+               atomic_read(&oi->h.max_offset),
+               atomic_read(&oi->h.len));
+    
+    memcpy(ni->bitmap, oi->bitmap, ITB_COW_BITMAP_LEN);
+    memcpy(ni->index, oi->index, ITB_COW_INDEX_LEN);
+    memcpy(ni->ite, oi->ite,
+           atomic_read(&oi->h.len) - sizeof(struct itb));
+
+    /* some changes in header region */
+    if (atomic_read(&ni->h.len) != atomic_read(&oi->h.len)) {
+        atomic_set(&ni->h.len, atomic_read(&oi->h.len));
+        ni->h.inf = oi->h.inf;
+        ni->h.itu = oi->h.itu;
+        atomic_set(&ni->h.entries, atomic_read(&oi->h.entries));
+        atomic_set(&ni->h.max_offset, atomic_read(&oi->h.max_offset));
+        atomic_set(&ni->h.conflicts, atomic_read(&oi->h.conflicts));
+        atomic_set(&ni->h.pseudo_conflicts, atomic_read(&oi->h.pseudo_conflicts));
+    }
+    
+    /* init lock region */
+    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+        for (i = 0; i < ((1 << ITB_DEPTH) / ITB_LOCK_GRANULARITY); i++) {
+            xrwlock_init((xrwlock_t *)(&ni->lock[i]));
+        }
+    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+        for (i = 0; i < ((1 << ITB_DEPTH) / ITB_LOCK_GRANULARITY); i++) {
+            xlock_init((xlock_t *)(&ni->lock[i]));
+        }
+    }
+
 }
 
 /**
@@ -622,17 +689,24 @@ struct itb *itb_cow(struct itb *itb)
  *
  * Note: dirty and cow the ITB as needed; return the dirtied ITB for using
  *
- * Note: holding the bucket.rlock and be.rlock and itb.rlock
+ * Note: holding the bucket.rlock and be.rlock and itb.rlock and ite.wlock
+ *
+ * Note: we should release the ite.wlock when we are doing COW! Lesson of
+ * bloods~
  */
-struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t)
+struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l)
 {
     if (likely(t->txg == itb->h.txg)) {
         /* ITB accessed in this TXG */
         if (likely(itb->h.state == ITB_STATE_DIRTY))
             return itb;
         else {
-            hvfs_err(mds, "Hoo, ITB state 0x%x in TXG: 0x%lx\n", itb->h.state, 
-                     t->txg);
+            hvfs_debug(mds, "Hoo, ITB state 0x%x in TXG: 0x%lx\n", itb->h.state, 
+                       t->txg);
+            if (!t->txg && itb->h.state == ITB_STATE_CLEAN) {
+                /* init TXG, corner case */
+                txg_add_itb(t, itb);
+            }
             itb->h.state = ITB_STATE_DIRTY;
         }
     } else if (t->txg == itb->h.txg + 1) {
@@ -646,18 +720,22 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t)
         } else if (itb->h.state == ITB_STATE_DIRTY) {
             /* need COW */
             struct itb *n;
-            struct bucket_entry *be = itb->h.be;
+            struct bucket_entry *be;
             int should_retry = 0;
 
-            hvfs_debug(mds, "need COW.\n");
+#if 1
             n = itb_cow(itb);   /* itb_cow always success */
 
             /* MAGIC: exchange the old ITB with new ITB */
-            /* Step1: preserve the ITB.rlock, release BE.rlock */
-            xrwlock_runlock(&((struct bucket_entry *)(itb->h.be))->lock);
+            /* Step1: release BE.rlock & ITB.rlock */
+            be = itb->h.be;
+            itb_index_wunlock(l);
+            xrwlock_runlock(&itb->h.lock);
+            xrwlock_runlock(&be->lock);
 
-            /* Step2: get BE.wlock */
-            xrwlock_wlock(&((struct bucket_entry *)(itb->h.be))->lock);
+            /* Step2: get BE.wlock & ITB.wlock */
+            xrwlock_wlock(&be->lock);
+            xrwlock_wlock(&itb->h.lock);
 
             /* Step3: check the ITB txg */
 
@@ -667,35 +745,51 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t)
                 should_retry = 1;
             else {
                 /* not moved/deleted, just COWed */
-                if (itb->h.txg == t->txg) {
-                /* somebody already do cow (win us), we need just retrieve itb */
+                if (itb->h.txg == t->txg || itb->h.state == ITB_STATE_COWED) {
+                    /* somebody already do cow (win us), we need just retrieve
+                     * itb */
                     should_retry = 1;
                 } else {
                     /* refresh the pointers, and atomic change the pprev */
-                    n->h.cbht = itb->h.cbht;
-                    *(n->h.cbht.pprev) = &(n->h.cbht);
-                    xrwlock_rlock(&n->h.lock);
+                    hlist_del_init(&itb->h.cbht);
+                    itb->h.state = ITB_STATE_COWED;
+                    itb->h.be = NULL;
+
+                    n->h.txg = t->txg;
+                    n->h.state = ITB_STATE_DIRTY;
+                    n->h.be = be;
+                    hlist_add_head(&n->h.cbht, &be->h);
+
+                    /* ok, recopy the new ITEs */
+                    itb_cow_recopy(itb, n);
+                    hvfs_debug(mds, "ITB COWing %ld %p to %p\n", 
+                               itb->h.itbid, itb, n);
                 }
             }
             
             /* Step4: release BE.wlock */
-            xrwlock_wunlock(&((struct bucket_entry *)(itb->h.be))->lock);
+            xrwlock_wunlock(&itb->h.lock);
+            xrwlock_wunlock(&be->lock);
 
             /* Step5: loser should retry the access */
             if (should_retry) {
                 itb_free(n);
+                hvfs_debug(mds, "loser cow ITB %ld from %p\n", 
+                           n->h.itbid, itb);
+                itb_index_wlock(l);
+                xrwlock_rlock(&be->lock);
+                xrwlock_rlock(&itb->h.lock);
                 return NULL;
             }
             /* Step6: get BE.rlock */
-            xrwlock_rlock(&((struct bucket_entry *)(n->h.be))->lock);
+            xrwlock_rlock(&be->lock);
+            xrwlock_rlock(&n->h.lock);
 
-            /* Step7: winner got the new ITB.rlock, so release old ITB.rlock */
-            xrwlock_runlock(&itb->h.lock);
-
-            n->h.txg = t->txg;
-            n->h.state = ITB_STATE_DIRTY;
             txg_add_itb(t, n);
             itb = n;
+#else
+            itb->h.txg = t->txg;
+#endif
         }
     } else if (t->txg > itb->h.txg + 1) {
         /* ITB not accessed in the last TXG */
@@ -715,16 +809,20 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t)
  *
  * NOTE: this is the very HOT path for LOOKUP/CREATE/UNLINK/....
  */
-int itb_search(struct hvfs_index *hi, struct itb* itb, void *data, 
-               struct hvfs_txg *txg)
+int itb_search(struct hvfs_index *hi, struct itb *itb, void *data, 
+               struct hvfs_txg *txg, struct itb **oi)
 {
-    u64 offset = hi->hash & ((1 << itb->h.adepth) - 1);
+    u64 offset;
     u64 total = 1 << (itb->h.adepth + 1);
     atomic64_t *as;
     struct itb_index *ii;
     struct itb_lock *l;
     int ret = -ENOENT;
 
+    /* NOTE: if we are in retrying, we know that the ITB will not COW
+     * again! */
+retry:
+    offset = hi->hash & ((1 << itb->h.adepth) - 1);
     /* get the ITE lock */
     l = &itb->lock[offset / ITB_LOCK_GRANULARITY];
     if (hi->flag & INDEX_LOOKUP) {
@@ -754,7 +852,7 @@ int itb_search(struct hvfs_index *hi, struct itb* itb, void *data,
             }
         }
         /* OK, found it, already lock it then do xxx on it */
-        hvfs_debug(mds, "OK, the ITE do exist in the ITB.\n");
+        hvfs_verbose(mds, "OK, the ITE do exist in the ITB.\n");
         if (hi->flag & INDEX_LOOKUP) {
             /* read MDU to buffer */
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
@@ -770,55 +868,70 @@ int itb_search(struct hvfs_index *hi, struct itb* itb, void *data,
                 hvfs_debug(mds, "Forcely create dir now ... should not happen?\n");
             } else if (hi->flag & INDEX_CREATE_COPY) {
                 hvfs_debug(mds, "Forcely create with MDU ...\n");
-                itb = itb_dirty(itb, txg);
-                if (!itb) {
+                *oi = itb_dirty(itb, txg, l);
+                if (!(*oi)) {
                     ret = -EAGAIN;
                     goto out;
+                } else if ((*oi) != itb) {
+                    /* this means the itb is cowed, we should refresh ourself */
+                    goto refresh;
                 }
                 ite_update(hi, &itb->ite[ii->entry]);
                 memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
             } else if (hi->flag & INDEX_CREATE_LINK) {
-                hvfs_debug(mds, "Forcely create hard link ...\n");
-                itb = itb_dirty(itb, txg);
-                if (!itb) {
+                hvfs_verbose(mds, "Forcely create hard link ...\n");
+                *oi = itb_dirty(itb, txg, l);
+                if (!(*oi)) {
                     ret = -EAGAIN;
                     goto out;
+                } else if ((*oi) != itb) {
+                    /* this measn the itb is cowed, we should refresh ourself */
+                    goto refresh;
                 }
                 ite_update(hi, &itb->ite[ii->entry]);
                 memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
             }
         } else if (hi->flag & INDEX_MDU_UPDATE) {
             /* setattr, no failure */
-            hvfs_debug(mds, "Find the ITE and update the MDU.\n");
-            itb = itb_dirty(itb, txg);
-            if (!itb) {
+            hvfs_verbose(mds, "Find the ITE and update the MDU.\n");
+            *oi = itb_dirty(itb, txg, l);
+            if (!(*oi)) {
                 ret = -EAGAIN;
                 goto out;
+            } else if ((*oi) != itb) {
+                /* this means the itb is cowd, we should refresh ourself */
+                goto refresh;
             }
             ite_update(hi, &itb->ite[ii->entry]);
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
         } else if (hi->flag & INDEX_UNLINK) {
             /* unlink */
-            hvfs_debug(mds, "Find the ITE and unlink it.\n");
-            itb = itb_dirty(itb, txg);
-            if (!itb) {
+            hvfs_verbose(mds, "Find the ITE and unlink it.\n");
+            *oi = itb_dirty(itb, txg, l);
+            if (!(*oi)) {
                 ret = -EAGAIN;
                 goto out;
+            } else if ((*oi) != itb) {
+                /* this means the itb is cowed, we should refresh ourself */
+                goto refresh;
             }
             ite_unlink(&itb->ite[ii->entry], itb, offset);
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
         } else if (hi->flag & INDEX_LINK_ADD) {
             /* hard link */
-            hvfs_debug(mds, "Find the ITE and hard link it.\n");
+            hvfs_verbose(mds, "Find the ITE and hard link it.\n");
             /* check if this is a hard link ITE */
             if (itb->ite[ii->entry].flag & ITE_FLAG_LS) {
                 ret = -EACCES;
                 goto out;
             }
-            itb = itb_dirty(itb, txg);
-            if (!itb) {
+            *oi = itb_dirty(itb, txg, l);
+            if (!(*oi)) {
                 ret = -EAGAIN;
                 goto out;
+            } else if ((*oi) != itb) {
+                /* this means the itb is cowed, we should refresh ourself */
+                goto refresh;
             }
             itb->ite[ii->entry].s.mdu.nlink++;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
@@ -836,13 +949,19 @@ int itb_search(struct hvfs_index *hi, struct itb* itb, void *data,
         goto out;
     }
     /* OK, can not find it, so ... */
-    hvfs_debug(mds, "OK, the ITE do NOT exist in the ITB.\n");
+    hvfs_verbose(mds, "OK, the ITE do NOT exist in the ITB.\n");
     if (likely(hi->flag & INDEX_CREATE || hi->flag & INDEX_SYMLINK)) {
-        hvfs_debug(mds, "Not find the ITE and create/symlink it.\n");
-        itb = itb_dirty(itb, txg);
-        if (!itb) {
-            ret = -EAGAIN;
-            goto out;
+        hvfs_verbose(mds, "Not find the ITE and create/symlink it.\n");
+        *oi= itb_dirty(itb, txg, l);
+        if (unlikely((*oi) != itb)) {
+            if (!(*oi)) {
+                ret = -EAGAIN;  /* w/ itb.rlocked */
+                goto out;
+            } else {
+                /* this means the itb is cowed, we should refresh ourself */
+                /* w/ itb.runlocked and oi->rlocked */
+                goto refresh;
+            }
         }
         ret = itb_add_ite(itb, hi, data);
     } else {
@@ -850,12 +969,17 @@ int itb_search(struct hvfs_index *hi, struct itb* itb, void *data,
         ret = -ENOENT;
     }
 out:
+    *oi = itb;
     /* put the lock */
     if (hi->flag & INDEX_LOOKUP)
         itb_index_runlock(l);
     else
         itb_index_wunlock(l);
     return ret;
+refresh:
+    /* already released index.lock */
+    itb = *oi;
+    goto retry;
 }
 
 /* itb_readdir()
@@ -865,4 +989,52 @@ out:
 int itb_readdir(struct hvfs_index *hi, struct itb *i, struct hvfs_md_reply *hmr)
 {
     return 0;
+}
+
+/* itb_dump()
+ *
+ * NOTE: this function is written for debuging, no locking
+ */
+void itb_dump(struct itb *i)
+{
+    char line[4096];
+    struct itb_index *ii;
+    int j, l;
+    
+    /* dump the itb header */
+    hvfs_info(mds, "Header of ITB %p:\n", i);
+    hvfs_info(mds, "flag %x state %x depth %d adepth %d\n",
+              i->h.flag, i->h.state, i->h.depth, i->h.adepth);
+    hvfs_info(mds, "entries %d, max_offset %d, conflicts %d, "
+              "pseudo_conflicts %d\n",
+              atomic_read(&i->h.entries), atomic_read(&i->h.max_offset),
+              atomic_read(&i->h.conflicts), 
+              atomic_read(&i->h.pseudo_conflicts));
+    hvfs_info(mds, "txg %ld puuid %ld itbid %ld hash %lx\n",
+              i->h.txg, i->h.puuid, i->h.itbid, i->h.hash);
+    hvfs_info(mds, "be %p len %d inf %d itu %d\n",
+              i->h.be, atomic_read(&i->h.len), i->h.inf, i->h.itu);
+
+    /* dump the bitmap */
+    memset(line, 0, sizeof(line));
+    for (j = 0, l = 0; j < (1 << (ITB_DEPTH - 3)); j++) {
+        l += sprintf(line + l, "%x", i->bitmap[j]);
+    }
+    hvfs_info(mds, "Bitmap of ITB %p:\n%s\n", i, line);
+    /* dump the index region */
+    hvfs_info(mds, "Index of ITB %p:\n", i);
+    for (j = 0, l = 0; j < (1 << ITB_DEPTH); j++, l = 0) {
+        ii = &i->index[j];
+        if (ii->flag == ITB_INDEX_FREE)
+            continue;
+        l += sprintf(line + l, "offset %4d: ", j);
+        do {
+            l += sprintf(line + l, "<%x,%d,%d,%s>", ii->flag, ii->entry, 
+                         ii->conflict, i->ite[ii->entry].s.name);
+        } while (ii->flag != ITB_INDEX_UNIQUE && 
+                 (ii = &i->index[ii->conflict]));
+        line[l] = '\0';
+        hvfs_info(mds, "%s\n", line);
+    }
+    return;
 }

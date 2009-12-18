@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-14 20:22:09 macan>
+# Time-stamp: <2009-12-18 12:53:45 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -34,8 +34,9 @@ $(LIB_PATH)/ring : $(RING_SOURCES)
 	@$(CC) $(CFLAGS) $^ -o $@ -DUNIT_TEST
 
 CBHT_SOURCES = $(MDS)/itb.c $(MDS)/mds.c $(MDS)/txg.c $(XNET)/xnet.c $(MDS)/cbht.c \
-				$(TEST)/mds/cbht.c
-TX_SOURCES = $(MDS)/mds.c $(MDS)/txg.c $(MDS)/tx.c $(XNET)/xnet.c
+				$(TEST)/mds/cbht.c $(MDS)/tx.c
+TX_SOURCES = $(MDS)/mds.c $(MDS)/txg.c $(MDS)/tx.c $(XNET)/xnet.c $(MDS)/cbht.c\
+				$(TEST)/mds/tx.c $(MDS)/itb.c
 
 $(TEST)/mds/cbht : $(CBHT_SOURCES)
 	@echo -e " " CC"\t" $@
@@ -49,14 +50,14 @@ unit_test: $(UNIT_TARGETS)
 	@echo "Targets [$(UNIT_TARGETS)] for unit test are ready."
 
 install: hvfs_lib unit_test
-	@scp $(TEST)/mds/cbht syssw@glnode08:~/cbht
-	@lagent -d glnode08 -u syssw -sc "time ~/cbht $(CBHT_ARGS)"
-	@scp $(MDS)/tx syssw@glnode08:~/tx
-	@lagent -d glnode08 -u syssw -sc "time ~/tx $(CBHT_ARGS)"
+	@scp $(TEST)/mds/cbht root@glnode09:~/cbht
+	@lagent -d glnode09 -u root -sc "time ~/cbht $(CBHT_ARGS)"
+	@scp $(MDS)/tx root@glnode09:~/tx
+	@lagent -d glnode09 -u root -sc "time ~/tx $(CBHT_ARGS)"
 
 rut:
-	@lagent -d glnode08 -u syssw -sc "time ~/cbht $(CBHT_ARGS)"
-	@lagent -d glnode08 -u syssw -sc "gprof ~/cbht"
+	@lagent -d glnode09 -u root -sc "time ~/cbht $(CBHT_ARGS)"
+	@lagent -d glnode09 -u root -sc "gprof ~/cbht"
 
 unit_test_clean:
 	@rm -rf $(UNIT_TARGETS)

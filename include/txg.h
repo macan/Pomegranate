@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 12:55:02 macan>
+ * Time-stamp: <2009-12-17 15:41:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,18 +52,26 @@ struct hvfs_rmds_ckpt_buf
 
 struct hvfs_txg 
 {
+    time_t open_time;
     atomic64_t tx_pending;
     xcond_t cond;
     u64 txg;
     u64 txmax;
 #define TXG_STATE_OPEN  0
 #define TXG_STATE_WB    1
-    u16 state;
+    u8 state;
+    u8 dirty;                   /* whether this txg is dirtied, using in the
+                                 * SIGALARM handler to changing txg. */
     xlock_t ckpt_lock, delta_lock, itb_lock;
-    struct hvfs_rmds_ckpt_buf *ckpt; /* ckpt list */
+    struct hvfs_rmds_ckpt_buf *ckpt;  /* ckpt list */
     struct hvfs_dir_delta_buf *delta; /* dir delta's list */
     struct bitmap_delta *bda;         /* array of bitmap deltas */
     struct list_head dirty_list;
 };
+
+#define TXG_SET_DIRTY(txg) do { \
+        (txg)->dirty = 1;       \
+    } while (0)
+#define TXG_IS_DIRTY(txg) ((txg)->dirty)
 
 #endif

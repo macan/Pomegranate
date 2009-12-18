@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-15 09:08:03 macan>
+ * Time-stamp: <2009-12-18 08:44:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,14 +45,16 @@
 #define KERN_ERR        "[ERR ] "
 #define KERN_WARNING    "[WARN] "
 #define KERN_DEBUG      "[DBG ] "
+#define KERN_VERB       "[VERB] "
 #endif
 
 #ifdef HVFS_TRACING
 #define hvfs_tracing(mask, flag, lvl, f, a...) do {             \
         if (unlikely(mask & flag)) {                            \
             if (mask & HVFS_PRECISE) {                          \
-                PRINTK(lvl "HVFS (%16s, %5d): %s: " f,          \
-                       __FILE__, __LINE__, __func__, ## a);     \
+                PRINTK(lvl "HVFS (%16s, %5d): %s[%lx]: " f,     \
+                       __FILE__, __LINE__, __func__,            \
+                       pthread_self(), ## a);                   \
             } else                                              \
                 PRINTK(lvl f, ## a);                            \
         }                                                       \
@@ -83,6 +85,11 @@
     hvfs_tracing(HVFS_INFO, hvfs_##module##_tracing_flags,  \
                  KERN_INFO, f, ## a)
 
+#define hvfs_verbose(module, f, a...)           \
+    hvfs_tracing((HVFS_VERBOSE | HVFS_PRECISE), \
+                 hvfs_##module##_tracing_flags, \
+                 KERN_VERB, f, ## a)
+
 #define hvfs_debug(module, f, a...)             \
     hvfs_tracing((HVFS_DEBUG | HVFS_PRECISE),   \
                  hvfs_##module##_tracing_flags, \
@@ -107,6 +114,13 @@
     hvfs_tracing((HVFS_ERR | HVFS_PRECISE),     \
                  hvfs_##module##_tracing_flags, \
                  KERN_ERR, f, ##a)
+
+#define SET_TRACING_FLAG(module, flag) do {     \
+        hvfs_##module##_tracing_flags |= flag;  \
+    } while (0)
+#define CLR_TRACING_FLAG(module, flag) do {     \
+        hvfs_##module##_tracing_flags &= ~flag; \
+    } while (0)
 
 #ifdef __KERNEL__
 #define ASSERT(i, m) BUG_ON(!(i))

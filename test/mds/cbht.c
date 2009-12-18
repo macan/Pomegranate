@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-16 20:42:49 macan>
+ * Time-stamp: <2009-12-18 09:43:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -88,10 +88,11 @@ void __cbht insert_itb(u64 puuid, u64 itbid, u64 txg)
 }
 
 void __cbht insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
-                       struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
+                       struct hvfs_md_reply *hmr)
 {
     struct hvfs_index *hi;
     struct mdu_update *mu;
+    struct hvfs_txg *txg;
     int len, err;
 
     len = sizeof(struct hvfs_index) + strlen(name) + sizeof(struct mdu_update);
@@ -112,6 +113,7 @@ void __cbht insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
     hi->data = mu;
 
     memset(hmr, 0, sizeof(*hmr));
+    txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg);
     if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
@@ -126,10 +128,10 @@ void __cbht insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
 }
 
 void __cbht remove_ite(u64 puuid, u64 itbid, char *name, 
-                       struct hvfs_md_reply *hmr,
-                       struct hvfs_txg *txg)
+                       struct hvfs_md_reply *hmr)
 {
     struct hvfs_index *hi;
+    struct hvfs_txg *txg;
     int len, err;
 
     len = sizeof(struct hvfs_index) + strlen(name);
@@ -147,6 +149,7 @@ void __cbht remove_ite(u64 puuid, u64 itbid, char *name,
     hi->data = NULL;
 
     memset(hmr, 0, sizeof(*hmr));
+    txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg);
     if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
@@ -159,9 +162,10 @@ void __cbht remove_ite(u64 puuid, u64 itbid, char *name,
 }
 
 void __cbht lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag , 
-                       struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
+                       struct hvfs_md_reply *hmr)
 {
     struct hvfs_index *hi;
+    struct hvfs_txg *txg;
     int len, err;
 
     len = sizeof(struct hvfs_index) + strlen(name);
@@ -178,12 +182,14 @@ void __cbht lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag ,
     hi->len = strlen(name);
     
     memset(hmr, 0, sizeof(*hmr));
+    txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg);
     if (err) {
-        hvfs_err(mds, "%lx, mds_cbht_search(%ld, %ld, %s) failed %d\n", 
-                 pthread_self(), puuid, itbid, name, err);
-        hvfs_err(mds, "hash 0x%20lx.\n", hvfs_hash(puuid, itbid, 
-                                                   sizeof(u64), HASH_SEL_CBHT));
+        hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
+                 puuid, itbid, name, err);
+        hvfs_err(mds, "ITB hash 0x%20lx.\n", 
+                 hvfs_hash(puuid, itbid, sizeof(u64), HASH_SEL_CBHT));
+        mds_cbht_search_dump_itb(hi);
     }
 /*     hmr_print(hmr); */
     if (!hmr->err) {
@@ -198,7 +204,6 @@ int __cbht st_main(int argc, char *argv[])
     struct timeval begin, end;
     struct mdu_update mu;
     struct hvfs_md_reply hmr;
-    struct hvfs_txg txg = {.txg = 5,};
     u64 puuid, itbid;
     int i, j, k, x, bdepth, icsize;
     char name[HVFS_MAX_NAME_LEN];
@@ -223,7 +228,7 @@ int __cbht st_main(int argc, char *argv[])
 #endif
     hvfs_info(mds, "CBHT UNIT TESTing (single thread)...(%d,%d,%d,%d)\n", 
               k, x, bdepth, icsize);
-    err = mds_cbht_init(&hmo.cbht, bdepth);
+    err = mds_init(bdepth);
     if (err) {
         hvfs_err(mds, "mds_cbht_init failed %d\n", err);
         goto out;
@@ -254,7 +259,7 @@ int __cbht st_main(int argc, char *argv[])
             mu.mode = i;
             mu.uid = j;
             sprintf(name, "macan-%d-%d", i, j);
-            insert_ite(puuid, itbid, name, &mu, &hmr, &txg);
+            insert_ite(puuid, itbid, name, &mu, &hmr);
         }
     }
     lib_timer_stop(&end);
@@ -270,7 +275,7 @@ int __cbht st_main(int argc, char *argv[])
             u64 flag;
             sprintf(name, "macan-%d-%d", i, j);
             flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
-            lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+            lookup_ite(puuid, itbid, name, flag, &hmr);
         }
     }
     lib_timer_stop(&end);
@@ -284,7 +289,7 @@ int __cbht st_main(int argc, char *argv[])
         itbid = i;
         for (j = 0; j < x; j++) {
             sprintf(name, "macan-%d-%d", i, j);
-            remove_ite(puuid, itbid, name, &hmr, &txg);
+            remove_ite(puuid, itbid, name, &hmr);
         }
     }
     lib_timer_stop(&end);
@@ -300,7 +305,7 @@ int __cbht st_main(int argc, char *argv[])
             u64 flag;
             sprintf(name, "macan-%d-%d", i, j);
             flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_SHADOW;
-            lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+            lookup_ite(puuid, itbid, name, flag, &hmr);
         }
     }
     lib_timer_stop(&end);
@@ -340,7 +345,6 @@ void * __cbht pt_main(void *arg)
     struct timeval begin, end;
     struct mdu_update mu;
     struct hvfs_md_reply hmr;
-    struct hvfs_txg txg = {.txg = 5,};
     u64 puuid, itbid, flag;
     int i, j;
     char name[HVFS_MAX_NAME_LEN];
@@ -355,7 +359,7 @@ void * __cbht pt_main(void *arg)
         itbid = i;
         for (j = 0; j < pa->x; j++) {
             sprintf(name, "macan-%d-%d-%d", pa->tid, i, j);
-            insert_ite(puuid, itbid, name, &mu, &hmr, &txg);
+            insert_ite(puuid, itbid, name, &mu, &hmr);
         }
     }
     lib_timer_stop(&end);
@@ -372,7 +376,7 @@ void * __cbht pt_main(void *arg)
         for (j = 0; j < pa->x; j++) {
             sprintf(name, "macan-%d-%d-%d", pa->tid, i, j);
             flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
-            lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+            lookup_ite(puuid, itbid, name, flag, &hmr);
         }
     }
     lib_timer_stop(&end);
@@ -388,7 +392,7 @@ void * __cbht pt_main(void *arg)
         itbid = i;
         for (j = 0; j < pa->x; j++) {
             sprintf(name, "macan-%d-%d-%d", pa->tid, i, j);
-            remove_ite(puuid, itbid, name, &hmr, &txg);
+            remove_ite(puuid, itbid, name, &hmr);
         }
     }
     lib_timer_stop(&end);
@@ -405,7 +409,7 @@ void * __cbht pt_main(void *arg)
         for (j = 0; j < pa->x; j++) {
             sprintf(name, "macan-%d-%d-%d", pa->tid, i, j);
             flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_SHADOW;
-            lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+            lookup_ite(puuid, itbid, name, flag, &hmr);
         }
     }
     lib_timer_stop(&end);
@@ -427,7 +431,6 @@ void * __cbht pt_main2(void *arg)
     struct timeval begin, end;
     struct mdu_update mu;
     struct hvfs_md_reply hmr;
-    struct hvfs_txg txg = {.txg = 5,};
     u64 puuid, itbid, flag;
     int i, j;
     char name[HVFS_MAX_NAME_LEN];
@@ -443,7 +446,7 @@ void * __cbht pt_main2(void *arg)
         for (j = 0; j < (pa->x / pa->threads); j++) {
             sprintf(name, "macan-%d-%d-%d", pa->tid, i, 
                     pa->tid + (j * pa->threads));
-            insert_ite(puuid, itbid, name, &mu, &hmr, &txg);
+            insert_ite(puuid, itbid, name, &mu, &hmr);
         }
     }
     lib_timer_stop(&end);
@@ -461,7 +464,7 @@ void * __cbht pt_main2(void *arg)
             sprintf(name, "macan-%d-%d-%d", pa->tid, i,
                     pa->tid + (j * pa->threads));
             flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
-            lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+            lookup_ite(puuid, itbid, name, flag, &hmr);
         }
     }
     lib_timer_stop(&end);
@@ -478,7 +481,7 @@ void * __cbht pt_main2(void *arg)
         for (j = 0; j < (pa->x / pa->threads); j++) {
             sprintf(name, "macan-%d-%d-%d", pa->tid, i,
                     pa->tid + (j * pa->threads));
-            remove_ite(puuid, itbid, name, &hmr, &txg);
+            remove_ite(puuid, itbid, name, &hmr);
         }
     }
     lib_timer_stop(&end);
@@ -496,7 +499,7 @@ void * __cbht pt_main2(void *arg)
             sprintf(name, "macan-%d-%d-%d", pa->tid, i,
                     pa->tid + (j * pa->threads));
             flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_SHADOW;
-            lookup_ite(puuid, itbid, name, flag, &hmr, &txg);
+            lookup_ite(puuid, itbid, name, flag, &hmr);
         }
     }
     lib_timer_stop(&end);
@@ -561,7 +564,7 @@ int __cbht mt_main(int argc, char *argv[])
 #endif
     hvfs_info(mds, "CBHT UNIT TESTing (multi thread M%d)...(%d,%d,%d,%d)\n", 
               model, k, x, bdepth, icsize);
-    err = mds_cbht_init(&hmo.cbht, bdepth);
+    err = mds_init(bdepth);
     if (err) {
         hvfs_err(mds, "mds_cbht_init failed %d\n", err);
         goto out;

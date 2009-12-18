@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-15 16:16:10 macan>
+ * Time-stamp: <2009-12-18 14:11:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -103,6 +103,10 @@ struct hvfs_mds_object
 #define HMO_STATE_PAUSE         0x02
 #define HMO_STATE_RDONLY        0x03
     u64 state;
+    /* the following region is used for threads */
+    sem_t timer_sem;            /* for timer thread wakeup */
+    pthread_t timer_thread;
+    u8 timer_thread_stop;       /* running flag for timer thread */
 };
 
 extern struct hvfs_mds_info hmi;
@@ -111,7 +115,8 @@ extern u32 hvfs_mds_tracing_flags;
 
 /* APIs */
 /* for mds.c */
-int mds_init(void);
+int mds_init(int bdepth);
+void mds_destroy(void);
 
 /* for dispatch.c */
 void mds_client_dispatch(struct xnet_msg *msg);
@@ -134,6 +139,7 @@ int mds_cbht_del(struct eh *, struct itb *);
 struct bucket *mds_cbht_search_dir(u64, u32 *);
 int mds_cbht_search(struct hvfs_index *, struct hvfs_md_reply *, struct hvfs_txg *);
 void cbht_print_dir(struct eh *);
+void mds_cbht_search_dump_itb(struct hvfs_index *);
 
 /* for itb.c */
 struct itb *mds_read_itb(u64, u64, u64);
@@ -141,11 +147,13 @@ void ite_update(struct hvfs_index *, struct ite *);
 struct itb *get_free_itb();
 void itb_free(struct itb *);
 struct itb *itb_cow(struct itb *);
-struct itb *itb_dirty(struct itb *, struct hvfs_txg *);
-int itb_search(struct hvfs_index *, struct itb *, void *, struct hvfs_txg *);
+struct itb *itb_dirty(struct itb *, struct hvfs_txg *, struct itb_lock *);
+int itb_search(struct hvfs_index *, struct itb *, void *, struct hvfs_txg *,
+               struct itb **);
 int itb_readdir(struct hvfs_index *, struct itb *, struct hvfs_md_reply *);
 int itb_cache_init(struct itb_cache *, int);
 int itb_cache_destroy(struct itb_cache *);
+void itb_dump(struct itb *);
 
 /* for tx.c */
 struct hvfs_tx *mds_alloc_tx(u16, struct xnet_msg *);
@@ -162,6 +170,7 @@ int mds_txc_evict(struct hvfs_txc *, struct hvfs_tx *);
 void mds_tx_done(struct hvfs_tx *);
 void mds_tx_reply(struct hvfs_tx *);
 void mds_tx_commit(struct hvfs_tx *);
+int mds_init_tx(u64);
 
 /* for txg.c: DRAFT */
 void txg_add_itb(struct hvfs_txg *, struct itb *);
@@ -180,5 +189,7 @@ static inline void txg_put(struct hvfs_txg *t)
         xcond_signal(&t->cond);
     }
 }
+int txg_init(u64);
+void txg_changer(time_t);
 
 #endif

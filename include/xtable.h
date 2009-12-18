@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-15 10:26:29 macan>
+ * Time-stamp: <2009-12-18 08:30:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -47,6 +47,7 @@ struct itbh
 #define ITB_STATE_CLEAN 0x00
 #define ITB_STATE_DIRTY 0x01
 #define ITB_STATE_WBED  0x02
+#define ITB_STATE_COWED 0x03
     u8 state;
 
     u8 depth;                   /* local depth, true depth */
@@ -60,7 +61,8 @@ struct itbh
     /* section for TXG */
     u64 txg;                    /* txg of the latest update */
     xrwlock_t lock;             /* access/evict lock */
-    xlock_t ilock;              /* index alloc/free lock */
+    xlock_t ilock;              /* index alloc/free lock; max_offset
+                                 * changing! */
 
     /* section for searching in ITB */
     u64 puuid;
@@ -69,7 +71,7 @@ struct itbh
 
     void *be;                   /* bucket_entry myself attatched to */
     struct hlist_node cbht;
-    struct list_head list;
+    struct list_head list;      /* link into the lru list/dirty list */
 
     u64 twin;                   /* twin ITB */
     struct list_head overflow;  /* overflow list */
@@ -117,8 +119,10 @@ struct itb
 {
     /* NOTE: do NOT move the struct itbh! */
     struct itbh h;
-    u8 bitmap[1 << (ITB_DEPTH - 3)];
     struct itb_lock lock[(1 << ITB_DEPTH) / ITB_LOCK_GRANULARITY];
+#define ITB_COW_BITMAP_LEN (sizeof(u8) * (1 << (ITB_DEPTH - 3)))
+#define ITB_COW_INDEX_LEN (sizeof(struct itb_index) * (2 << ITB_DEPTH))
+    u8 bitmap[1 << (ITB_DEPTH - 3)];
     struct itb_index index[2 << (ITB_DEPTH)]; /* double size */
     struct ite ite[0];
 };

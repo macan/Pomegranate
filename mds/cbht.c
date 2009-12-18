@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-16 20:22:16 macan>
+ * Time-stamp: <2009-12-18 10:07:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -330,8 +330,8 @@ retry:
         hlist_for_each_entry_safe(ih, pos, n, &(obe + i)->h, cbht) {
             if ((ih->hash >> eh->bucket_depth) & 
                 (1 << (atomic_read(&nb->depth) - 1))) {
-                hvfs_debug(mds, "%lx, hash 0x%lx from ob[%ld] to nb[%ld]\n", 
-                           pthread_self(), ih->hash, ob->id, nb->id);
+                hvfs_debug(mds, "hash 0x%lx from ob[%ld] to nb[%ld]\n", 
+                           ih->hash, ob->id, nb->id);
                 /* move the new ITB */
                 hlist_del_init(pos);
                 hlist_add_head(pos, &(nbe + i)->h);
@@ -360,8 +360,8 @@ retry:
         goto out_lock;
     }
 
-    hvfs_debug(mds, "%lx, %lx, in %d: ob[%ld] %d nb[%ld] %d. eh->depth %d\n", 
-               pthread_self(), criminal, in, ob->id, atomic_read(&ob->active), 
+    hvfs_debug(mds, "%lx, in %d: ob[%ld] %d nb[%ld] %d. eh->depth %d\n", 
+               criminal, in, ob->id, atomic_read(&ob->active), 
                nb->id, atomic_read(&nb->active), eh->dir_depth);
 
     if (!atomic_read(&nb->active) && (in == IN_OLD)) {
@@ -501,9 +501,8 @@ retry:
             goto out;
     }
 
-    hvfs_debug(mds, "%lx, %lx, ITB %ld, %ld trying to insert to b[%ld]\n", 
-               pthread_self(), hash, 
-               i->h.puuid, i->h.itbid, b->id);
+    hvfs_debug(mds, "%lx, ITB %ld, %ld trying to insert to b[%ld]\n", 
+               hash, i->h.puuid, i->h.itbid, b->id);
     xrwlock_wlock(&be->lock);
     /* ok, we should check whether this ITB is existing */
     if (!hlist_empty(&be->h)) {
@@ -511,9 +510,9 @@ retry:
             if (ih->puuid == i->h.puuid && ih->itbid == i->h.itbid) {
                 /* OK, find the itb in the CBHT, we do NOT need insert
                  * ourself */
-                hvfs_debug(mds, "OK, %lx we(%p) find that someone already "
+                hvfs_debug(mds, "OK, ITB %p find that someone already "
                            "insert the ITB %p.\n",
-                           pthread_self(), ih, i);
+                           ih, i);
                 *oi = (struct itb *)ih;
                 *ob = b;
                 *oe = be;
@@ -606,7 +605,6 @@ int __cbht mds_cbht_del(struct eh *eh, struct itb *i)
     u64 offset;
     u32 sdepth;
 
-retry:
     b = mds_cbht_search_dir(i->h.hash, &sdepth);
     if (unlikely(IS_ERR(b))) {
         hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
@@ -626,7 +624,7 @@ retry:
         xrwlock_runlock(&i->h.lock);
         xrwlock_wunlock(&be->lock);
         xrwlock_runlock(&b->lock);
-        goto retry;
+        return 0;
     }
     hlist_del_init(&i->h.cbht);
     i->h.be = NULL;
@@ -665,8 +663,8 @@ retry:
         offset -= s->offset;
         if (s->seg) {
             b = *(((struct bucket **)s->seg) + offset);
-            hvfs_debug(mds, "%lx, hash 0x%lx, offset %ld, b[%ld]\n", 
-                       pthread_self(), hash, offset, b->id);
+            hvfs_verbose(mds, "hash 0x%lx, offset %ld, b[%ld]\n",
+                         hash, offset, b->id);
             /* ok, holding the bucket rlock */
             err = xrwlock_tryrlock(&b->lock);
             if (err == EBUSY || err == EAGAIN) {
@@ -694,23 +692,31 @@ retry:
 int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi, 
                         struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
 {
+    struct itb *oi;
     struct mdu *m;
     int err;
     char mdu_rpy[HVFS_MDU_SIZE];
 
     xrwlock_rlock(&i->h.lock);
+    /* check the ITB state */
+    if (i->h.state == ITB_STATE_COWED) {
+        xrwlock_runlock(&i->h.lock);
+        return -EAGAIN;
+    }
     if (unlikely(hi->flag & INDEX_BY_ITB)) {
         /* readdir, read-only */
         err = itb_readdir(hi, i, hmr);
         goto out;
     }
-    err = itb_search(hi, i, mdu_rpy, txg);
+    err = itb_search(hi, i, mdu_rpy, txg, &oi);
     if (unlikely(err)) {
         hvfs_debug(mds, "Oh, itb_search() return %d."
-                   "(itb [%ld, %ld], hi [%ld, %ld]), itb %p\n", 
-                   err, i->h.puuid, i->h.itbid, hi->puuid, hi->itbid, i);
+                   "(itb [%ld, %ld], hi [%ld, %ld, %s]), itb %p\n", 
+                   err, i->h.puuid, i->h.itbid, hi->puuid, hi->itbid, hi->name, i);
         goto out;
     }
+    /* NOTE: we should use the substituted ITB now */
+    i = oi;
     /* FIXME: fill hmr with mdu_rpy */
     /* determine the flags */
     m = (struct mdu *)(mdu_rpy);
@@ -898,8 +904,8 @@ retry:
 
     /* Can not find it in CBHT, holding the bucket.rlock */
     /* Step1: release the bucket.rlock */
-    hvfs_debug(mds, "hash 0x%lx bucket %p but can not find the ITB in it.\n", 
-               hash, b);
+    hvfs_verbose(mds, "hash 0x%lx bucket %p but can not find the ITB in it.\n",
+                 hash, b);
     xrwlock_runlock(&b->lock);
     err = cbht_itb_miss(hi, hmr, txg);
     if (err == -EAGAIN)         /* all locks are released */
@@ -912,4 +918,61 @@ out:
     xrwlock_runlock(&b->lock);
     hmr->err = err;
     return err;
+}
+
+/* mds_cbht_search_dump_itb()
+ *
+ * NOTE: this function is written for debuging, no locking
+ */
+void mds_cbht_search_dump_itb(struct hvfs_index *hi)
+{
+    struct bucket *b;
+    struct bucket_entry *be;
+    struct itbh *ih;
+    struct eh *eh = &hmo.cbht;
+    struct hlist_node *pos;
+    u64 hash, offset;
+    u32 sdepth;
+
+    hash = hvfs_hash(hi->puuid, hi->itbid, sizeof(u64), HASH_SEL_CBHT);
+
+    b = mds_cbht_search_dir(hash, &sdepth);
+    if (unlikely(IS_ERR(b))) {
+        hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
+                 "internal error!\n", hi->itbid);
+        return;
+    }
+    /* OK, we get the bucket, and holding the bucket.rlock, no bucket spliting
+     * can happen!
+     */
+
+    /* check the bucket */
+    if (likely(atomic_read(&b->active))) {
+        offset = hash & ((1 << eh->bucket_depth) - 1);
+        be = b->content + offset;
+    } else {
+        /* the bucket is empty, you can do creating */
+        hvfs_err(mds, "OK, empty bucket!\n");
+        goto out;
+    }
+
+    offset = hi->hash & ((1 << ITB_DEPTH) - 1);
+    hvfs_info(mds, "criminal: %s @ offset %ld\n", hi->name, offset);
+
+    /* always holding the bucket.rlock */
+    xrwlock_rlock(&be->lock);
+    if (!hlist_empty(&be->h)) {
+        hlist_for_each_entry(ih, pos, &be->h, cbht) {
+            if (ih->puuid == hi->puuid && ih->itbid == hi->itbid) {
+                /* OK, find the itb in the CBHT */
+                itb_dump((struct itb*)ih);
+                break;
+            }
+        }
+    }
+    xrwlock_runlock(&be->lock);
+
+out:
+    xrwlock_runlock(&b->lock);
+    return;
 }

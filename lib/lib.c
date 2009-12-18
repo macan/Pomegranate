@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 14:36:18 macan>
+ * Time-stamp: <2009-12-17 17:09:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,7 +24,8 @@
 #include "lib.h"
 
 #ifdef HVFS_TRACING
-u32 hvfs_lib_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG_ALL;
+//u32 hvfs_lib_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG_ALL;
+u32 hvfs_lib_tracing_flags = HVFS_DEFAULT_LEVEL;
 #endif
 
 #ifdef HVFS_DEBUG_LOCK
