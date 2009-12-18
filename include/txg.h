@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-17 15:41:06 macan>
+ * Time-stamp: <2009-12-18 21:52:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,8 +57,10 @@ struct hvfs_txg
     xcond_t cond;
     u64 txg;
     u64 txmax;
-#define TXG_STATE_OPEN  0
-#define TXG_STATE_WB    1
+#define TXG_STATE_OPEN          0
+#define TXG_STATE_WB            1 /* begin WB, waiting for pending TXs */
+#define TXG_STATE_WBLOCK        2 /* in WB, all pending TXs are done, ITB are
+                                   * free to use */
     u8 state;
     u8 dirty;                   /* whether this txg is dirtied, using in the
                                  * SIGALARM handler to changing txg. */
@@ -73,5 +75,11 @@ struct hvfs_txg
         (txg)->dirty = 1;       \
     } while (0)
 #define TXG_IS_DIRTY(txg) ((txg)->dirty)
+
+/* the following regions is designed for commit threads */
+struct commit_thread_arg
+{
+    int tid;                    /* thread id */
+};
 
 #endif

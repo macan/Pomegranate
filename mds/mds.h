@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 14:11:13 macan>
+ * Time-stamp: <2009-12-18 21:19:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,6 +42,13 @@ struct mds_conf
 
     /* section for file fd */
     int pf_fd, cf_fd, lf_fd;
+
+    /* # of threads */
+    /* NOTE: # of profiling thread is always ONE */
+    int commit_threads;         /* # of commit threads */
+    int service_threads;        /* # of service threads, pass this value to
+                                     lnet serve-in threads' pool
+                                     initialization */
 
     /* intervals */
     int profiling_thread_interval;
@@ -103,10 +110,16 @@ struct hvfs_mds_object
 #define HMO_STATE_PAUSE         0x02
 #define HMO_STATE_RDONLY        0x03
     u64 state;
+
     /* the following region is used for threads */
     sem_t timer_sem;            /* for timer thread wakeup */
+    sem_t commit_sem;           /* for commit thread wakeup */
+    
     pthread_t timer_thread;
+    pthread_t *commit_thread;
+
     u8 timer_thread_stop;       /* running flag for timer thread */
+    u8 commit_thread_stop;      /* running flag for commit thread */
 };
 
 extern struct hvfs_mds_info hmi;
@@ -171,6 +184,7 @@ void mds_tx_done(struct hvfs_tx *);
 void mds_tx_reply(struct hvfs_tx *);
 void mds_tx_commit(struct hvfs_tx *);
 int mds_init_tx(u64);
+void mds_destroy_tx(void);
 
 /* for txg.c: DRAFT */
 void txg_add_itb(struct hvfs_txg *, struct itb *);
@@ -191,5 +205,7 @@ static inline void txg_put(struct hvfs_txg *t)
 }
 int txg_init(u64);
 void txg_changer(time_t);
+int commit_tp_init(void);
+void commit_tp_destroy(void);
 
 #endif

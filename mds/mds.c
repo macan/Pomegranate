@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 14:11:21 macan>
+ * Time-stamp: <2009-12-18 21:20:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -271,10 +271,15 @@ out_signal:
 
 void mds_destroy(void)
 {
-    hvfs_err(mds, "OK, stop it now...\n");
+    hvfs_verbose(mds, "OK, stop it now...\n");
+
+    /* stop the timer thread */
     hmo.timer_thread_stop = 1;
     if (hmo.timer_thread)
         pthread_join(hmo.timer_thread, NULL);
     sem_destroy(&hmo.timer_sem);
+
+    /* stop the commit threads */
+    mds_destroy_tx();
 }
 

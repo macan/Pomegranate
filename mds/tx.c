@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 14:11:04 macan>
+ * Time-stamp: <2009-12-18 21:19:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -352,10 +352,22 @@ int mds_init_tx(u64 txg)
 {
     int err;
     
-    /* FIXME */
+    /* init the txg */
     err = txg_init(txg);
     if (err)
         goto out;
+    /* init the commit threads' pool */
+    err = commit_tp_init();
+    if (err)
+        goto out;
+    
 out:    
     return 0;
+}
+
+/* mds_destroy_tx()
+ */
+void mds_destroy_tx(void)
+{
+    commit_tp_destroy();
 }

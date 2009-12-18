@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 14:30:03 macan>
+ * Time-stamp: <2009-12-18 21:48:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -107,6 +107,13 @@ retry:
     return t;
 }
 
+struct hvfs_txg *mds_get_wb_txg(struct hvfs_mds_object *hmo)
+{
+    return hmo->txg[TXG_WB];
+}
+
+    
+
 /* txg_switch()
  *
  * NOTE: only one thread can call this function, and the WB txg should be
@@ -181,6 +188,78 @@ void txg_changer(time_t t)
     err = txg_switch(&hmi, &hmo);
     if (err) {
         hvfs_err(mds, "txg_switch() failed w/ low memory.\n");
-    } else
+    } else {
         hvfs_info(mds, "Entering new txg %ld\n", hmo.txg[TXG_OPEN]->txg);
+        sem_post(&hmo.commit_sem);
+    }
+}
+
+/* txg_commit()
+ *
+ * NOTE: this is the main function for commit thread
+ * NOTE: we should design the txg parallel writeback model.
+ */
+void *txg_commit(void *arg)
+{
+    struct commit_thread_arg *cta = (struct commit_thread_arg *)arg;
+    
+    while (!hmo.commit_thread_stop) {
+        sem_wait(&hmo.commit_sem);
+        hvfs_info(mds, "Commit thread %d wakeup to progress the TXG"
+                   " writeback.\n", cta->tid);
+    }
+    pthread_exit(0);
+}
+
+int commit_tp_init()
+{
+    struct commit_thread_arg *cta;
+    int i, err = 0;
+
+    sem_init(&hmo.commit_sem, 0, 0);
+    
+    /* init commit threads' pool */
+    if (!hmo.conf.commit_threads)
+        hmo.conf.commit_threads = 4;
+
+    hmo.commit_thread = xzalloc(hmo.conf.commit_threads * sizeof(pthread_t));
+    if (!hmo.commit_thread) {
+        hvfs_err(mds, "xzalloc() pthread_t failed\n");
+        return -ENOMEM;
+    }
+
+    cta = xzalloc(hmo.conf.commit_threads * sizeof(pthread_t));
+    if (!cta) {
+        hvfs_err(mds, "xzalloc() struct commit_thread_arg failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+    
+    for (i = 0; i < hmo.conf.commit_threads; i++) {
+        (cta + i)->tid = i;
+        err = pthread_create(hmo.commit_thread + i, NULL, &txg_commit,
+                             cta + i);
+        if (err)
+            goto out;
+    }
+
+out:
+    return err;
+out_free:
+    xfree(hmo.commit_thread);
+    goto out;
+}
+
+void commit_tp_destroy(void)
+{
+    int i;
+    
+    hmo.commit_thread_stop = 1;
+    for (i = 0; i < hmo.conf.commit_threads; i++) {
+        sem_post(&hmo.commit_sem);
+    }
+    for (i = 0; i < hmo.conf.commit_threads; i++) {
+        pthread_join(*(hmo.commit_thread + i), NULL);
+    }
+    sem_destroy(&hmo.commit_sem);
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 12:33:55 macan>
+ * Time-stamp: <2009-12-18 21:57:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -792,9 +792,25 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l)
 #endif
         }
     } else if (t->txg > itb->h.txg + 1) {
-        /* ITB not accessed in the last TXG */
-        hvfs_debug(mds, "Note that we must promise no pending WB on the TXG: "
-                   "0x%lx\n", itb->h.txg);
+        /* We do not know if this ITB will be accessed in the last TXG until
+         * the last TXG is committed, but we know that this ITB should be
+         * clean(or wbed to clean) if not accessed for now. */
+        /* 
+         * FIXME: We should think deeply on the concurrent execution on this
+         * code path!
+         */
+        wbt = mds_get_wb_txg(&hmo);
+        if (wbt) {
+            if (wbt->state == TXG_STATE_WBLOCK) {
+                /* the txg is in WBLOCK state, we can write this ITB */
+            } else {
+                /* a little wait and check, if failed then COW it */
+            }
+        } else {
+            /* the wb txg is NULL, means we can write this ITB? */
+            itb->h.txg = t->txg;
+            itb->h.state = ITB_STATE_DIRTY;
+        }
     }
 
     return itb;
