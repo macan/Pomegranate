@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 21:19:12 macan>
+ * Time-stamp: <2009-12-21 22:48:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -150,7 +150,8 @@ void mds_cbht_destroy(struct eh *);
 int mds_cbht_insert(struct eh *, struct itb *);
 int mds_cbht_del(struct eh *, struct itb *);
 struct bucket *mds_cbht_search_dir(u64, u32 *);
-int mds_cbht_search(struct hvfs_index *, struct hvfs_md_reply *, struct hvfs_txg *);
+int mds_cbht_search(struct hvfs_index *, struct hvfs_md_reply *, 
+                    struct hvfs_txg *, struct hvfs_txg **);
 void cbht_print_dir(struct eh *);
 void mds_cbht_search_dump_itb(struct hvfs_index *);
 
@@ -159,10 +160,10 @@ struct itb *mds_read_itb(u64, u64, u64);
 void ite_update(struct hvfs_index *, struct ite *);
 struct itb *get_free_itb();
 void itb_free(struct itb *);
-struct itb *itb_cow(struct itb *);
-struct itb *itb_dirty(struct itb *, struct hvfs_txg *, struct itb_lock *);
+struct itb *itb_dirty(struct itb *, struct hvfs_txg *, struct itb_lock *,
+                      struct hvfs_txg **);
 int itb_search(struct hvfs_index *, struct itb *, void *, struct hvfs_txg *,
-               struct itb **);
+               struct itb **, struct hvfs_txg **);
 int itb_readdir(struct hvfs_index *, struct itb *, struct hvfs_md_reply *);
 int itb_cache_init(struct itb_cache *, int);
 int itb_cache_destroy(struct itb_cache *);
@@ -198,9 +199,13 @@ static inline void txg_get(struct hvfs_txg *t)
 static inline void txg_put(struct hvfs_txg *t)
 {
     atomic64_dec(&t->tx_pending);
+    xcond_lock(&t->cond);
     if (t->state != TXG_STATE_OPEN && atomic64_read(&t->tx_pending) == 0) {
         /* signal the waiter, if exists */
+        xcond_unlock(&t->cond);
         xcond_signal(&t->cond);
+    } else {
+        xcond_unlock(&t->cond);
     }
 }
 int txg_init(u64);

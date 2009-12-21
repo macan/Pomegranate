@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 21:48:13 macan>
+ * Time-stamp: <2009-12-21 22:52:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -160,7 +160,8 @@ out:
 void txg_add_itb(struct hvfs_txg *txg, struct itb *i)
 {
     xlock_lock(&txg->itb_lock);
-    list_add_tail(&i->h.list, &txg->dirty_list);
+    if (list_empty(&i->h.list))
+        list_add_tail(&i->h.list, &txg->dirty_list);
     xlock_unlock(&txg->itb_lock);
     TXG_SET_DIRTY(txg);
 }
@@ -202,11 +203,43 @@ void txg_changer(time_t t)
 void *txg_commit(void *arg)
 {
     struct commit_thread_arg *cta = (struct commit_thread_arg *)arg;
+    struct hvfs_txg *t;
+    struct itbh *ih, *n;
+    struct itb *i;
+    struct timespec ts;
     
     while (!hmo.commit_thread_stop) {
         sem_wait(&hmo.commit_sem);
-        hvfs_info(mds, "Commit thread %d wakeup to progress the TXG"
+        hvfs_err(mds, "Commit thread %d wakeup to progress the TXG"
                    " writeback.\n", cta->tid);
+        /* ok, we should commit the dirty TXG to the MDSL */
+        t = hmo.txg[TXG_WB];
+        if (!t)
+            continue;
+        /* Step1: wait for any pending TXs */
+        xcond_lock(&t->cond);
+        while (atomic64_read(&t->tx_pending)) {
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += 1;
+            xcond_timedwait(&t->cond, &ts);
+            hvfs_err(mds, "><-----><\n");
+        }
+        xcond_unlock(&t->cond);
+        hvfs_err(mds, "TXG %ld is write-backing.\n", t->txg);
+        /* Step2: no reference to this TXG, we can write back now */
+        list_for_each_entry_safe(ih, n, &t->dirty_list, list) {
+            i = (struct itb *)ih;
+            list_del_init(&ih->list);
+            if (ih->state == ITB_STATE_COWED)
+                itb_free(i);
+            else
+                ih->state = ITB_STATE_CLEAN;
+        }
+        hmo.txg[TXG_WB] = NULL;
+        /* free the TXG */
+        hvfs_err(mds, "TXG %ld is released.\n", t->txg);
+        xcond_destroy(&t->cond);
+        xfree(t);
     }
     pthread_exit(0);
 }

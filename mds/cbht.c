@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 10:07:32 macan>
+ * Time-stamp: <2009-12-21 21:42:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -690,7 +690,8 @@ retry:
  * Note: holding the bucket.rlock, be.rlock
  */
 int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi, 
-                        struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
+                        struct hvfs_md_reply *hmr, struct hvfs_txg *txg,
+                        struct hvfs_txg **otxg)
 {
     struct itb *oi;
     struct mdu *m;
@@ -708,7 +709,7 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
         err = itb_readdir(hi, i, hmr);
         goto out;
     }
-    err = itb_search(hi, i, mdu_rpy, txg, &oi);
+    err = itb_search(hi, i, mdu_rpy, txg, &oi, otxg);
     if (unlikely(err)) {
         hvfs_debug(mds, "Oh, itb_search() return %d."
                    "(itb [%ld, %ld], hi [%ld, %ld, %s]), itb %p\n", 
@@ -758,7 +759,8 @@ out:
  * Note: holding nothing
  */
 int __cbht cbht_itb_miss(struct hvfs_index *hi, 
-                         struct hvfs_md_reply *hmr, struct hvfs_txg *txg)
+                         struct hvfs_md_reply *hmr, struct hvfs_txg *txg,
+                         struct hvfs_txg **otxg)
 {
     struct itb *i, *oi;
     struct bucket *b;
@@ -774,7 +776,7 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
         hvfs_debug(mds, "Why this happened? bitmap say this ITB exists!\n");
         if (hi->flag & INDEX_CREATE || hi->flag & INDEX_SYMLINK) {
             /* FIXME: create ITB and ITE */
-            i = get_free_itb();
+            i = get_free_itb(txg);
             if (unlikely(!i)) {
                 hvfs_debug(mds, "get_free_itb() failed\n");
                 err = -ENOMEM;
@@ -790,7 +792,7 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
             } else if (unlikely(err)) {
                 goto out;
             }
-            err = cbht_itb_hit(i, hi, hmr, txg);
+            err = cbht_itb_hit(i, hi, hmr, txg, otxg);
             if (err == -EAGAIN) {
                 /* release all the locks */
                 xrwlock_runlock(&b->lock);
@@ -816,7 +818,7 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
         } else if (unlikely(err)) {
             goto out;
         }
-        err = cbht_itb_hit(i, hi, hmr, txg);
+        err = cbht_itb_hit(i, hi, hmr, txg, otxg);
         if (err == -EAGAIN) {
             /* release all the lockes */
             xrwlock_runlock(&b->lock);
@@ -839,7 +841,7 @@ out:
  * FIXME: how about LOCK!
  */
 int __cbht mds_cbht_search(struct hvfs_index *hi, struct hvfs_md_reply *hmr,
-                           struct hvfs_txg *txg)
+                           struct hvfs_txg *txg, struct hvfs_txg **otxg)
 {
     struct bucket *b;
     struct bucket_entry *be;
@@ -873,7 +875,7 @@ retry_dir:
         if (hi->flag & INDEX_CREATE) {
             /* FIXME: */
             xrwlock_runlock(&b->lock);
-            err = cbht_itb_miss(hi, hmr, txg);
+            err = cbht_itb_miss(hi, hmr, txg, otxg);
             if (err == -EAGAIN)
                 goto retry_dir;
             return err;
@@ -890,7 +892,7 @@ retry:
         hlist_for_each_entry(ih, pos, &be->h, cbht) {
             if (ih->puuid == hi->puuid && ih->itbid == hi->itbid) {
                 /* OK, find the itb in the CBHT */
-                err = cbht_itb_hit((struct itb *)ih, hi, hmr, txg);
+                err = cbht_itb_hit((struct itb *)ih, hi, hmr, txg, otxg);
                 if (err == -EAGAIN) {
                     /* no need to release the be.rlock */
                     goto retry;
@@ -907,7 +909,7 @@ retry:
     hvfs_verbose(mds, "hash 0x%lx bucket %p but can not find the ITB in it.\n",
                  hash, b);
     xrwlock_runlock(&b->lock);
-    err = cbht_itb_miss(hi, hmr, txg);
+    err = cbht_itb_miss(hi, hmr, txg, otxg);
     if (err == -EAGAIN)         /* all locks are released */
         goto retry_dir;
     hmr->err = err;

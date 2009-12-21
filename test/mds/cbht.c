@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 09:43:18 macan>
+ * Time-stamp: <2009-12-21 21:46:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -70,23 +70,6 @@ void hmr_print(struct hvfs_md_reply *hmr)
     }
 }
 
-void __cbht insert_itb(u64 puuid, u64 itbid, u64 txg)
-{
-    struct itb *i;
-    int err;
-    
-    i = get_free_itb();
-    i->h.puuid = puuid;
-    i->h.itbid = itbid;
-    i->h.txg = txg;
-    i->h.state = ITB_STATE_CLEAN;
-
-    err = mds_cbht_insert(&hmo.cbht, i);
-    if (err) {
-        hvfs_err(mds, "mds_cbht_insert() failed %d\n", err);
-    }
-}
-
 void __cbht insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
                        struct hvfs_md_reply *hmr)
 {
@@ -114,11 +97,12 @@ void __cbht insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
 
     memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
-    err = mds_cbht_search(hi, hmr, txg);
+    err = mds_cbht_search(hi, hmr, txg, &txg);
     if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
                  puuid, itbid, name, err);
     }
+    txg_put(txg);
 /*     hmr_print(hmr); */
     if (!hmr->err) {
         xfree(hmr->data);
@@ -150,11 +134,12 @@ void __cbht remove_ite(u64 puuid, u64 itbid, char *name,
 
     memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
-    err = mds_cbht_search(hi, hmr, txg);
+    err = mds_cbht_search(hi, hmr, txg, &txg);
     if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
                  puuid, itbid, name, err);
     }
+    txg_put(txg);
 /*     hmr_print(hmr); */
     if (!hmr->err) {
         xfree(hmr->data);
@@ -183,7 +168,7 @@ void __cbht lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag ,
     
     memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
-    err = mds_cbht_search(hi, hmr, txg);
+    err = mds_cbht_search(hi, hmr, txg, &txg);
     if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
                  puuid, itbid, name, err);
@@ -191,6 +176,7 @@ void __cbht lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag ,
                  hvfs_hash(puuid, itbid, sizeof(u64), HASH_SEL_CBHT));
         mds_cbht_search_dump_itb(hi);
     }
+    txg_put(txg);
 /*     hmr_print(hmr); */
     if (!hmr->err) {
         xfree(hmr->data);
@@ -246,9 +232,6 @@ int __cbht st_main(int argc, char *argv[])
     hvfs_info(mds, "sizeof(struct itbh) = %ld\n", sizeof(struct itbh));
     hvfs_info(mds, "sizeof(struct ite) = %ld\n", sizeof(struct ite));
     
-    /* alloc one ITB */
-    insert_itb(0, 134, 5);
-
     /* insert the ite! */
     lib_timer_start(&begin);
     for (i = 0; i < k; i++) {

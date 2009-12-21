@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 21:57:47 macan>
+ * Time-stamp: <2009-12-21 23:02:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -510,14 +510,6 @@ int itb_cache_init(struct itb_cache *ic, int hint_size)
             hvfs_info(mds, "xzalloc() ITBs failed, continue ...\n");
             continue;
         }
-        atomic_set(&i->h.len, sizeof(struct itb));
-        i->h.adepth = ITB_DEPTH;
-        i->h.flag = ITB_ACTIVE;
-        i->h.state = ITB_STATE_CLEAN;
-        xrwlock_init(&i->h.lock);
-        INIT_HLIST_NODE(&i->h.cbht);
-        INIT_LIST_HEAD(&i->h.list);
-        list_add_tail(&i->h.list, &ic->lru);
         atomic_inc(&ic->csize);
     }
     return 0;
@@ -539,7 +531,7 @@ int itb_cache_destroy(struct itb_cache *ic)
 
 /* get_free_itb()
  */
-struct itb *get_free_itb()
+struct itb *get_free_itb(struct hvfs_txg *txg)
 {
     struct itb *n;
     struct list_head *l = NULL;
@@ -573,6 +565,7 @@ struct itb *get_free_itb()
     n->h.adepth = ITB_DEPTH;
     n->h.flag = ITB_ACTIVE;       /* 0 */
     n->h.state = ITB_STATE_CLEAN; /* 0 */
+    n->h.txg = txg->txg;
     xrwlock_init(&n->h.lock);
     xlock_init(&n->h.ilock);
     INIT_HLIST_NODE(&n->h.cbht);
@@ -615,12 +608,12 @@ void itb_free(struct itb *i)
 
 /* ITB COW
  */
-struct itb *itb_cow(struct itb *itb)
+struct itb *itb_cow(struct itb *itb, struct hvfs_txg *txg)
 {
     struct itb *n;
 
     do {
-        n = get_free_itb();
+        n = get_free_itb(txg);
     } while (!n && ({xsleep(10); 1;}));
 
     memcpy(n, itb, sizeof(struct itb));
@@ -694,8 +687,11 @@ void itb_cow_recopy(struct itb *oi, struct itb *ni)
  * Note: we should release the ite.wlock when we are doing COW! Lesson of
  * bloods~
  */
-struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l)
+struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
+                      struct hvfs_txg **otxg)
 {
+    *otxg = t;
+
     if (likely(t->txg == itb->h.txg)) {
         /* ITB accessed in this TXG */
         if (likely(itb->h.state == ITB_STATE_DIRTY))
@@ -703,7 +699,7 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l)
         else {
             hvfs_debug(mds, "Hoo, ITB state 0x%x in TXG: 0x%lx\n", itb->h.state, 
                        t->txg);
-            if (!t->txg && itb->h.state == ITB_STATE_CLEAN) {
+            if (itb->h.state == ITB_STATE_CLEAN) {
                 /* init TXG, corner case */
                 txg_add_itb(t, itb);
             }
@@ -724,7 +720,7 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l)
             int should_retry = 0;
 
 #if 1
-            n = itb_cow(itb);   /* itb_cow always success */
+            n = itb_cow(itb, t); /* itb_cow always success */
 
             /* MAGIC: exchange the old ITB with new ITB */
             /* Step1: release BE.rlock & ITB.rlock */
@@ -792,25 +788,23 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l)
 #endif
         }
     } else if (t->txg > itb->h.txg + 1) {
-        /* We do not know if this ITB will be accessed in the last TXG until
-         * the last TXG is committed, but we know that this ITB should be
-         * clean(or wbed to clean) if not accessed for now. */
-        /* 
-         * FIXME: We should think deeply on the concurrent execution on this
-         * code path!
-         */
-        wbt = mds_get_wb_txg(&hmo);
-        if (wbt) {
-            if (wbt->state == TXG_STATE_WBLOCK) {
-                /* the txg is in WBLOCK state, we can write this ITB */
-            } else {
-                /* a little wait and check, if failed then COW it */
-            }
-        } else {
-            /* the wb txg is NULL, means we can write this ITB? */
-            itb->h.txg = t->txg;
-            itb->h.state = ITB_STATE_DIRTY;
-        }
+        itb->h.txg = t->txg;
+        itb->h.state = ITB_STATE_DIRTY;
+        txg_add_itb(t, itb);
+    } else if (t->txg == itb->h.txg - 1) {
+        /* ITB accessed in the TXG, this can happen on the changing TXG. we
+         * should put ourself on the new TXG to diminish the complexity of TXG
+         * state machine */
+        struct hvfs_txg *nt;
+        
+        hvfs_debug(mds, "TXG %ld <-- ITB(%ld) %ld, reassign the TXG\n", 
+                   t->txg, itb->h.itbid, itb->h.txg);
+        nt = mds_get_open_txg(&hmo);
+        txg_put(t);
+        *otxg = nt;
+        itb->h.txg = nt->txg;
+        itb->h.state = ITB_STATE_DIRTY;
+        txg_add_itb(nt, itb);
     }
 
     return itb;
@@ -826,7 +820,8 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l)
  * NOTE: this is the very HOT path for LOOKUP/CREATE/UNLINK/....
  */
 int itb_search(struct hvfs_index *hi, struct itb *itb, void *data, 
-               struct hvfs_txg *txg, struct itb **oi)
+               struct hvfs_txg *txg, struct itb **oi,
+               struct hvfs_txg **otxg)
 {
     u64 offset;
     u64 total = 1 << (itb->h.adepth + 1);
@@ -884,7 +879,7 @@ retry:
                 hvfs_debug(mds, "Forcely create dir now ... should not happen?\n");
             } else if (hi->flag & INDEX_CREATE_COPY) {
                 hvfs_debug(mds, "Forcely create with MDU ...\n");
-                *oi = itb_dirty(itb, txg, l);
+                *oi = itb_dirty(itb, txg, l, otxg);
                 if (!(*oi)) {
                     ret = -EAGAIN;
                     goto out;
@@ -896,7 +891,7 @@ retry:
                 memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
             } else if (hi->flag & INDEX_CREATE_LINK) {
                 hvfs_verbose(mds, "Forcely create hard link ...\n");
-                *oi = itb_dirty(itb, txg, l);
+                *oi = itb_dirty(itb, txg, l, otxg);
                 if (!(*oi)) {
                     ret = -EAGAIN;
                     goto out;
@@ -910,7 +905,7 @@ retry:
         } else if (hi->flag & INDEX_MDU_UPDATE) {
             /* setattr, no failure */
             hvfs_verbose(mds, "Find the ITE and update the MDU.\n");
-            *oi = itb_dirty(itb, txg, l);
+            *oi = itb_dirty(itb, txg, l, otxg);
             if (!(*oi)) {
                 ret = -EAGAIN;
                 goto out;
@@ -923,7 +918,7 @@ retry:
         } else if (hi->flag & INDEX_UNLINK) {
             /* unlink */
             hvfs_verbose(mds, "Find the ITE and unlink it.\n");
-            *oi = itb_dirty(itb, txg, l);
+            *oi = itb_dirty(itb, txg, l, otxg);
             if (!(*oi)) {
                 ret = -EAGAIN;
                 goto out;
@@ -941,7 +936,7 @@ retry:
                 ret = -EACCES;
                 goto out;
             }
-            *oi = itb_dirty(itb, txg, l);
+            *oi = itb_dirty(itb, txg, l, otxg);
             if (!(*oi)) {
                 ret = -EAGAIN;
                 goto out;
@@ -968,7 +963,7 @@ retry:
     hvfs_verbose(mds, "OK, the ITE do NOT exist in the ITB.\n");
     if (likely(hi->flag & INDEX_CREATE || hi->flag & INDEX_SYMLINK)) {
         hvfs_verbose(mds, "Not find the ITE and create/symlink it.\n");
-        *oi= itb_dirty(itb, txg, l);
+        *oi= itb_dirty(itb, txg, l, otxg);
         if (unlikely((*oi) != itb)) {
             if (!(*oi)) {
                 ret = -EAGAIN;  /* w/ itb.rlocked */
