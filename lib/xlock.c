@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 12:21:20 macan>
+ * Time-stamp: <2009-12-22 15:36:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -265,6 +265,10 @@ void lock_table_print(void)
         }
     }
     return;
+}
+
+void __deadlock_detect(void)
+{
 }
 
 int xrwlock_rlock(xrwlock_t *lock)

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-21 22:48:19 macan>
+ * Time-stamp: <2009-12-22 22:31:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,6 +35,11 @@
 
 struct mds_conf 
 {
+    /* section for dynamic configuration */
+    char dcaddr[MDS_DCONF_MAX_NAME_LEN];
+    int dcfd, dcepfd;
+    pthread_t dcpt;
+
     /* section for file name */
     char *profiling_file;
     char *conf_file;
@@ -97,7 +102,7 @@ struct hvfs_mds_object
 #define CH_RING_MDS     0
 #define CH_RING_MDSL    1
     struct chring *chring[CH_RING_NUM];
-    struct mds_prof profiling;
+    struct mds_prof prof;
     struct mds_conf conf;
 #define TXG_NUM         2
 #define TXG_OPEN        0
@@ -120,11 +125,21 @@ struct hvfs_mds_object
 
     u8 timer_thread_stop;       /* running flag for timer thread */
     u8 commit_thread_stop;      /* running flag for commit thread */
+    u8 dconf_thread_stop;       /* running flag for dconf thread */
 };
 
 extern struct hvfs_mds_info hmi;
 extern struct hvfs_mds_object hmo;
 extern u32 hvfs_mds_tracing_flags;
+
+struct dconf_req
+{
+#define DCONF_ECHO_CONF         0
+#define DCONF_SET_TXG_INTV      1
+#define DCONF_SET_PROF_INTV     2
+    u64 cmd;
+    u64 arg0;
+};
 
 /* APIs */
 /* for mds.c */
@@ -199,18 +214,21 @@ static inline void txg_get(struct hvfs_txg *t)
 static inline void txg_put(struct hvfs_txg *t)
 {
     atomic64_dec(&t->tx_pending);
-    xcond_lock(&t->cond);
-    if (t->state != TXG_STATE_OPEN && atomic64_read(&t->tx_pending) == 0) {
+    if ((t->state != TXG_STATE_OPEN) && (atomic64_read(&t->tx_pending) == 0)) {
         /* signal the waiter, if exists */
-        xcond_unlock(&t->cond);
         xcond_signal(&t->cond);
-    } else {
-        xcond_unlock(&t->cond);
     }
 }
 int txg_init(u64);
 void txg_changer(time_t);
 int commit_tp_init(void);
 void commit_tp_destroy(void);
+
+/* for prof.c */
+void dump_profiling(time_t);
+
+/* for conf.c */
+int dconf_init(void);
+void dconf_destroy(void);
 
 #endif

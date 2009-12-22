@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 10:31:32 macan>
+ * Time-stamp: <2009-12-22 17:18:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -90,10 +90,12 @@ struct mds_itb_prof
     atomic64_t pseudo_conflict; /* # of pseudo conflicts in ITB */
     atomic64_t rsearch_depth;   /* total read search depth */
     atomic64_t wsearch_depth;   /* total write search depth */
+    atomic64_t cowed;           /* # of COWed ITBs */
 };
 
 struct mds_prof
 {
+    time_t ts;
     struct mds_client_prof client;
     struct mds_ring_prof ring;
     struct mds_mds_prof mds;
@@ -103,5 +105,26 @@ struct mds_prof
     struct mds_itb_prof itb;
 };
 
+#define mds_cbht_prof_rw(hi) do {                   \
+        if (hi->flag & INDEX_LOOKUP)                \
+            atomic64_inc(&hmo.prof.cbht.lookup);    \
+        else                                        \
+            atomic64_inc(&hmo.prof.cbht.modify);    \
+    } while (0)
 
+#define mds_cbht_prof_split() do {              \
+        atomic64_inc(&hmo.prof.cbht.split);     \
+    } while (0)
+
+#define mds_cbht_prof_buckets() do {            \
+        atomic64_inc(&hmo.prof.cbht.buckets);   \
+    } while (0)
+
+#define mds_cbht_prof_depth(dep) do {              \
+        atomic64_set(&hmo.prof.cbht.depth, (dep)); \
+    } while (0)
+
+#define mds_itb_prof_cow() do {                 \
+        atomic64_inc(&hmo.prof.itb.cowed);      \
+    } while (0)
 #endif

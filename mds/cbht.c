@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-21 21:42:40 macan>
+ * Time-stamp: <2009-12-22 15:56:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,6 +95,7 @@ struct bucket *__cbht cbht_bucket_alloc(int depth)
         xrwlock_init(&(be + i)->lock);
     }
 
+    mds_cbht_prof_buckets();
     return b;
 }
 
@@ -243,6 +244,7 @@ int __cbht cbht_enlarge_dir(struct eh *eh, u32 tdepth)
     }
     /* ok to change the depth */
     eh->dir_depth++;
+    mds_cbht_prof_depth(eh->dir_depth);
 
 out:
     return err;
@@ -380,6 +382,8 @@ retry:
         xrwlock_wunlock(&ob->lock);
         tb = NULL;
     }
+
+    mds_cbht_prof_split();
 
     if (tb) {
         hvfs_debug(mds, "bucket %p need deeply split.\n", tb);
@@ -852,6 +856,7 @@ int __cbht mds_cbht_search(struct hvfs_index *hi, struct hvfs_md_reply *hmr,
     u32 sdepth;
     int err = 0;
 
+    mds_cbht_prof_rw(hi);
     hash = hvfs_hash(hi->puuid, hi->itbid, sizeof(u64), HASH_SEL_CBHT);
 
 retry_dir:

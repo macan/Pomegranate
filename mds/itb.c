@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-21 23:02:48 macan>
+ * Time-stamp: <2009-12-22 17:19:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -510,6 +510,7 @@ int itb_cache_init(struct itb_cache *ic, int hint_size)
             hvfs_info(mds, "xzalloc() ITBs failed, continue ...\n");
             continue;
         }
+        list_add_tail(&i->h.list, &ic->lru);
         atomic_inc(&ic->csize);
     }
     return 0;
@@ -550,7 +551,9 @@ struct itb *get_free_itb(struct hvfs_txg *txg)
         n = (struct itb *)(list_entry(l, struct itbh, list));
         if (!hlist_unhashed(&n->h.cbht))
             mds_cbht_del(&hmo.cbht, n);
-        memset(n, 0, sizeof(struct itb));
+        memset(n, 0, sizeof(struct itbh));
+        memset(n->bitmap, 0, (1 << (ITB_DEPTH - 3)));
+        memset(n->index, 0, (2 << ITB_DEPTH));
     } else {
         /* try to malloc() one */
         n = xzalloc(sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE);
@@ -707,7 +710,8 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
         }
     } else if (t->txg == itb->h.txg + 1) {
         /* ITB accessed in the last TXG */
-        if (itb->h.state == ITB_STATE_WBED || itb->h.state == ITB_STATE_CLEAN) {
+        ASSERT(itb->h.state != ITB_STATE_COWED, mds);
+        if (itb->h.state == ITB_STATE_CLEAN) {
             /* clean or already write-backed, free to use */
             hvfs_debug(mds, "clean or already write-backed, free to use.\n");
             itb->h.txg = t->txg;
@@ -741,7 +745,8 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                 should_retry = 1;
             else {
                 /* not moved/deleted, just COWed */
-                if (itb->h.txg == t->txg || itb->h.state == ITB_STATE_COWED) {
+                if ((t->txg != itb->h.txg + 1) 
+                    || (itb->h.state != ITB_STATE_DIRTY)) {
                     /* somebody already do cow (win us), we need just retrieve
                      * itb */
                     should_retry = 1;
@@ -760,6 +765,7 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                     itb_cow_recopy(itb, n);
                     hvfs_debug(mds, "ITB COWing %ld %p to %p\n", 
                                itb->h.itbid, itb, n);
+                    mds_itb_prof_cow();
                 }
             }
             
@@ -770,11 +776,13 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
             /* Step5: loser should retry the access */
             if (should_retry) {
                 itb_free(n);
-                hvfs_debug(mds, "loser cow ITB %ld from %p\n", 
-                           n->h.itbid, itb);
-                itb_index_wlock(l);
+                hvfs_debug(mds, "loser cow ITB %ld from %p TXG %ld -> %ld, "
+                           "S %0x, BE %p %p\n", 
+                           n->h.itbid, itb, t->txg, itb->h.txg, itb->h.state,
+                           be, itb->h.be);
                 xrwlock_rlock(&be->lock);
                 xrwlock_rlock(&itb->h.lock);
+                itb_index_wlock(l);
                 return NULL;
             }
             /* Step6: get BE.rlock */
@@ -785,6 +793,8 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
             itb = n;
 #else
             itb->h.txg = t->txg;
+            itb->h.state = ITB_STATE_DIRTY;
+            txg_add_itb(t, itb);
 #endif
         }
     } else if (t->txg > itb->h.txg + 1) {
@@ -792,9 +802,9 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
         itb->h.state = ITB_STATE_DIRTY;
         txg_add_itb(t, itb);
     } else if (t->txg == itb->h.txg - 1) {
-        /* ITB accessed in the TXG, this can happen on the changing TXG. we
-         * should put ourself on the new TXG to diminish the complexity of TXG
-         * state machine */
+        /* ITB accessed in the next TXG, this can happen on the changing
+         * TXG. we should put ourself on the new TXG to diminish the
+         * complexity of TXG state machine */
         struct hvfs_txg *nt;
         
         hvfs_debug(mds, "TXG %ld <-- ITB(%ld) %ld, reassign the TXG\n", 
@@ -802,9 +812,9 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
         nt = mds_get_open_txg(&hmo);
         txg_put(t);
         *otxg = nt;
-        itb->h.txg = nt->txg;
-        itb->h.state = ITB_STATE_DIRTY;
-        txg_add_itb(nt, itb);
+        /* FIXME: itb accessed in the next TXG, so it must be dirty! */
+        ASSERT(itb->h.state == ITB_STATE_DIRTY, mds);
+        ASSERT(nt->txg == itb->h.txg, mds);
     }
 
     return itb;
@@ -838,10 +848,10 @@ retry:
     l = &itb->lock[offset / ITB_LOCK_GRANULARITY];
     if (hi->flag & INDEX_LOOKUP) {
         itb_index_rlock(l);
-        as = &hmo.profiling.itb.rsearch_depth;
+        as = &hmo.prof.itb.rsearch_depth;
     } else {
         itb_index_wlock(l);
-        as = &hmo.profiling.itb.wsearch_depth;
+        as = &hmo.prof.itb.wsearch_depth;
     }
     
     while (offset < total) {

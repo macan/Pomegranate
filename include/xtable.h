@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 08:30:43 macan>
+ * Time-stamp: <2009-12-22 14:27:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,12 +25,12 @@
 #define __XTABLE_H__
 
 #ifndef ITB_DEPTH
-#warning "You have NOT define the ITB_DEPTH, we default it to 1024 entries."
+/* #warning "You have NOT define the ITB_DEPTH, we default it to 1024 entries." */
 #define ITB_DEPTH       10
 #endif
 
 #ifndef ITB_LOCK_GRANULARITY
-#warning "You have NOT define the ITB_LOCK_GRANULARITY, default it to 16."
+/* #warning "You have NOT define the ITB_LOCK_GRANULARITY, default it to 16." */
 #define ITB_LOCK_GRANULARITY    16
 #endif
 

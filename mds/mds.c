@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 21:20:03 macan>
+ * Time-stamp: <2009-12-22 21:03:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -121,7 +121,7 @@ static int __gcd(int m, int n)
 static void *mds_timer_thread_main(void *arg)
 {
     sigset_t set;
-    int v;
+    int v, err;
 
     hvfs_debug(mds, "I am running...\n");
 
@@ -132,7 +132,9 @@ static void *mds_timer_thread_main(void *arg)
                                              * errs */
     /* then, we loop for the timer events */
     while (!hmo.timer_thread_stop) {
-        sem_wait(&hmo.timer_sem);
+        err = sem_wait(&hmo.timer_sem);
+        if (err == EINTR)
+            continue;
         sem_getvalue(&hmo.timer_sem, &v);
         hvfs_debug(mds, "OK, we receive a SIGALRM event(remain %d).\n", v);
         /* should we work now */
@@ -141,6 +143,7 @@ static void *mds_timer_thread_main(void *arg)
             txg_changer(time(NULL));
         }
         /* then, checking profiling */
+        dump_profiling(time(NULL));
         /* FIXME: */
     }
 
@@ -221,8 +224,9 @@ int mds_init(int bdepth)
     /* FIXME: decode the cmdline */
 
     /* FIXME: configations */
-    hmo.conf.profiling_thread_interval = 4;
-    hmo.conf.txg_interval = 3;
+    dconf_init();
+    hmo.conf.profiling_thread_interval = 5;
+    hmo.conf.txg_interval = 10;
     hmo.conf.option = HVFS_MDS_ITB_RWLOCK;
 
     /* Init the signal handlers */
@@ -281,5 +285,8 @@ void mds_destroy(void)
 
     /* stop the commit threads */
     mds_destroy_tx();
+
+    /* destroy the dconf */
+    dconf_destroy();
 }
 
