@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-22 17:19:12 macan>
+ * Time-stamp: <2009-12-23 14:32:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -258,7 +258,6 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data)
             __itb_add_index(i, offset, nr, hi->name);
             /* set up the mdu base on hi->data */
             ite_create(hi, ite);
-            memcpy(data, &(ite->g), HVFS_MDU_SIZE);
         } else {
             /* hoo, there is no zero bit! */
             atomic_dec(&i->h.entries);
@@ -553,7 +552,7 @@ struct itb *get_free_itb(struct hvfs_txg *txg)
             mds_cbht_del(&hmo.cbht, n);
         memset(n, 0, sizeof(struct itbh));
         memset(n->bitmap, 0, (1 << (ITB_DEPTH - 3)));
-        memset(n->index, 0, (2 << ITB_DEPTH));
+        memset(n->index, 0, sizeof(struct itb_index) * (2 << ITB_DEPTH));
     } else {
         /* try to malloc() one */
         n = xzalloc(sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE);
@@ -619,7 +618,7 @@ struct itb *itb_cow(struct itb *itb, struct hvfs_txg *txg)
         n = get_free_itb(txg);
     } while (!n && ({xsleep(10); 1;}));
 
-    memcpy(n, itb, sizeof(struct itb));
+    memcpy(n, itb, sizeof(struct itbh));
 
     /* init ITB header */
     xrwlock_init(&n->h.lock);

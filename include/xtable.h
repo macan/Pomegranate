@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-22 14:27:49 macan>
+ * Time-stamp: <2009-12-23 14:05:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -115,13 +115,13 @@ struct itb_lock
 #include "ite.h"                /* for ite */
 
 /* ITB defination */
+#define ITB_COW_BITMAP_LEN (sizeof(u8) * (1 << (ITB_DEPTH - 3)))
+#define ITB_COW_INDEX_LEN (sizeof(struct itb_index) * (2 << ITB_DEPTH))
 struct itb 
 {
     /* NOTE: do NOT move the struct itbh! */
     struct itbh h;
     struct itb_lock lock[(1 << ITB_DEPTH) / ITB_LOCK_GRANULARITY];
-#define ITB_COW_BITMAP_LEN (sizeof(u8) * (1 << (ITB_DEPTH - 3)))
-#define ITB_COW_INDEX_LEN (sizeof(struct itb_index) * (2 << ITB_DEPTH))
     u8 bitmap[1 << (ITB_DEPTH - 3)];
     struct itb_index index[2 << (ITB_DEPTH)]; /* double size */
     struct ite ite[0];

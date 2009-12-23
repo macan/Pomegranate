@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-22 21:03:53 macan>
+ * Time-stamp: <2009-12-23 12:52:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -226,7 +226,7 @@ int mds_init(int bdepth)
     /* FIXME: configations */
     dconf_init();
     hmo.conf.profiling_thread_interval = 5;
-    hmo.conf.txg_interval = 10;
+    hmo.conf.txg_interval = 0;
     hmo.conf.option = HVFS_MDS_ITB_RWLOCK;
 
     /* Init the signal handlers */

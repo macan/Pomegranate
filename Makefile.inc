@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-21 21:14:11 macan>
+# Time-stamp: <2009-12-23 11:37:42 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -27,7 +27,7 @@ XCFLAGS = -O2 -rdynamic -g -pg
 CFLAGS += $(XCFLAGS)
 CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" \
 			-DCHOST="\"$(COMPILE_HOST)\"" -I$(INC_PATH) -lrt -lpthread \
-			-I$(LIB_PATH) -I$(MDS)\
+			-I$(LIB_PATH) -I$(MDS) -D_GNU_SOURCE\
 			-DHVFS_TRACING -DHVFS_DEBUG_MEMORY -DHVFS_DEBUG_LOCK_
 LFLAGS +=
 

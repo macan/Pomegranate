@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-22 16:00:12 macan>
+ * Time-stamp: <2009-12-23 14:01:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -87,7 +87,7 @@ void __cbht insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
     hi->hash = hvfs_hash(puuid, (u64)name, strlen(name), HASH_SEL_EH);
     hi->puuid = puuid;
     hi->itbid = itbid;
-    hi->flag |= INDEX_CREATE;
+    hi->flag = INDEX_CREATE;
     memcpy(hi->name, name, strlen(name));
     hi->len = strlen(name);
     mu = (struct mdu_update *)((void *)hi + sizeof(struct hvfs_index) + 
@@ -98,11 +98,11 @@ void __cbht insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
     memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
+    txg_put(txg);
     if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
                  puuid, itbid, name, err);
     }
-    txg_put(txg);
 /*     hmr_print(hmr); */
     if (!hmr->err) {
         xfree(hmr->data);
@@ -135,11 +135,11 @@ void __cbht remove_ite(u64 puuid, u64 itbid, char *name,
     memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
+    txg_put(txg);
     if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
                  puuid, itbid, name, err);
     }
-    txg_put(txg);
 /*     hmr_print(hmr); */
     if (!hmr->err) {
         xfree(hmr->data);
@@ -169,14 +169,14 @@ void __cbht lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag ,
     memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
+    txg_put(txg);
     if (err) {
-        hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
-                 puuid, itbid, name, err);
+        hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s, %lx) failed %d\n", 
+                 puuid, itbid, name, hi->hash, err);
         hvfs_err(mds, "ITB hash 0x%20lx.\n", 
                  hvfs_hash(puuid, itbid, sizeof(u64), HASH_SEL_CBHT));
         mds_cbht_search_dump_itb(hi);
     }
-    txg_put(txg);
 /*     hmr_print(hmr); */
     if (!hmr->err) {
         xfree(hmr->data);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-22 21:10:29 macan>
+ * Time-stamp: <2009-12-23 12:49:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -178,8 +178,12 @@ void txg_changer(time_t t)
         return;
     }
     /* first, check the open time */
-    if (t < hmo.txg[TXG_OPEN]->open_time + hmo.conf.txg_interval) {
+    if (!hmo.conf.txg_interval)
         return;
+    else {
+        if (t < hmo.txg[TXG_OPEN]->open_time + hmo.conf.txg_interval) {
+            return;
+        }
     }
     /* then, check if the writeback slot is free */
     if (hmo.txg[TXG_WB] != NULL) {
