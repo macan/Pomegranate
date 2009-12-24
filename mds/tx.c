@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 21:19:00 macan>
+ * Time-stamp: <2009-12-24 12:42:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,7 +55,7 @@ init_tx:
     tx->reqin_site = req->tx.ssite_id;
     tx->req = req;
     tx->txg = mds_get_open_txg(&hmo); /* get the current opened TXG */
-    atomic_set(&tx->ref, 0);
+    atomic_set(&tx->ref, 1);
     INIT_LIST_HEAD(&tx->lru);
     INIT_LIST_HEAD(&tx->tx_list);
     INIT_HLIST_NODE(&tx->hlist);
@@ -152,6 +152,9 @@ out:
 int mds_destroy_txc(struct hvfs_txc *txc)
 {
     /* NOTE: there is no need to destroy the TXC actually */
+    if (txc->txht)
+        xfree(txc->txht);
+    txc->ftx = 0;
     return 0;
 }
 
@@ -162,6 +165,9 @@ struct hvfs_tx *mds_txc_alloc_tx(struct hvfs_txc *txc)
     struct hvfs_tx *tx = NULL;
     
     xlock_lock(&txc->lock);
+    if (txc->ftx > MDS_TXC_MAX_FREE) {
+        /* ok, we need to free some memory for other modules */
+    }
     if (txc->ftx > 0) {
         txc->ftx--;
         l = txc->lru.next;
@@ -287,6 +293,10 @@ void mds_tx_done(struct hvfs_tx *tx)
                  tx, tx->state);
         return;
     }
+    /* NOTE: the following function is need to release the alloc
+     * reference */
+    mds_put_tx(tx);
+
     if (tx->op == HVFS_TX_FORGET) {
         xlock_lock(&hmo.txc.lock);
         list_add_tail(&tx->lru, &hmo.txc.lru);

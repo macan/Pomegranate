@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-01 14:05:46 macan>
+ * Time-stamp: <2009-12-24 13:31:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -64,7 +64,7 @@ void mds_fe_dispatch(struct xnet_msg *msg)
     dh_lookup:
         /* search in the DH */
         /* FIXME: DH load blocking may happen */
-        e = mds_dh_search(hmo.dh, hi->puuid);
+        e = mds_dh_search(hmo.dh, hi);
         if (!e) {
             /* reply err = -ENOENT */
             err = -ENOENT;

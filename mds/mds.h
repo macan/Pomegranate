@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-22 22:31:02 macan>
+ * Time-stamp: <2009-12-24 13:12:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@
 #include "prof.h"
 #include "txg.h"
 #include "tx.h"
+#include "dh.h"
 #include "itb.h"
 #include "cbht.h"
 #include "mds_api.h"
@@ -96,7 +97,7 @@ struct hvfs_mds_object
 
     struct mem_ops *mops;         /* memory management operations */
     struct eh cbht;               /* memory hash table */
-    struct regular_hash *dh;      /* directory hash table */
+    struct dh *dh;                /* directory hash table */
 
 #define CH_RING_NUM     2
 #define CH_RING_MDS     0
@@ -145,6 +146,7 @@ struct dconf_req
 /* for mds.c */
 int mds_init(int bdepth);
 void mds_destroy(void);
+void mds_reset_itimer(void);
 
 /* for dispatch.c */
 void mds_client_dispatch(struct xnet_msg *msg);
@@ -216,7 +218,7 @@ static inline void txg_put(struct hvfs_txg *t)
     atomic64_dec(&t->tx_pending);
     if ((t->state != TXG_STATE_OPEN) && (atomic64_read(&t->tx_pending) == 0)) {
         /* signal the waiter, if exists */
-        xcond_signal(&t->cond);
+        mcond_signal(&t->cond);
     }
 }
 int txg_init(u64);

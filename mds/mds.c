@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-23 12:52:49 macan>
+ * Time-stamp: <2009-12-23 15:43:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -203,6 +203,34 @@ int mds_setup_timers(void)
 out:
     return err;
 }
+
+void mds_reset_itimer(void)
+{
+    struct itimerval value, ovalue, pvalue;
+    int err, interval;
+
+    err = getitimer(ITIMER_REAL, &pvalue);
+    if (err) {
+        goto out;
+    }
+    interval = __gcd(hmo.conf.profiling_thread_interval,
+                     hmo.conf.txg_interval);
+    if (interval) {
+        value.it_interval.tv_sec = interval;
+        value.it_interval.tv_usec = 0;
+        value.it_value.tv_sec = interval;
+        value.it_value.tv_usec = 0;
+        err = setitimer(ITIMER_REAL, &value, &ovalue);
+        if (err) {
+            goto out;
+        }
+        hvfs_debug(mds, "OK, we reset the itimer to %d second(s).\n", 
+                   interval);
+    }
+out:
+    return;
+}
+
 
 /* mds_init()
  *

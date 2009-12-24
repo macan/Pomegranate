@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-17 13:16:47 macan>
+ * Time-stamp: <2009-12-24 11:46:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,27 +42,42 @@ int main(int argc, char *argv[])
 {
     struct xnet_msg m;
     struct hvfs_tx *t;
+    int hsize, ftx, tc;
     int err, i, seqno;
 
-    hvfs_info(mds, "TX UNIT TESTing ...\n");
+    if (argc == 4) {
+        hsize = atoi(argv[1]);
+        ftx = atoi(argv[2]);
+        tc = atoi(argv[3]);
+    } else {
+        hsize = 1024;
+        ftx = 10;
+        tc = 20;
+    }
+
+/*     SET_TRACING_FLAG(mds, HVFS_DEBUG); */
     
+    hvfs_info(mds, "TX UNIT TESTing (%d,%d,%d)...\n", hsize, ftx, tc);
+
     /* init mds unit test */
     lib_init();
     mds_init(10);
     
-    err = mds_init_txc(&hmo.txc, 1024, 10); /* default free TXs */
+    err = mds_init_txc(&hmo.txc, hsize, ftx); /* default free TXs */
     if (err) {
         hvfs_err(mds, "mds_init_txc() failed %d\n", err);
         goto out;
     }
 
-    for (i = 0, seqno = 0; i < 20; i++) {
+    for (i = 0, seqno = 0; i < tc; i++) {
         m.tx.reqno = seqno++;
         m.tx.ssite_id = i;
         tx_in(HVFS_TX_NORMAL, &m);
     }
 
-    for (i = 0, seqno = 0; i < 20; i++) {
+    hvfs_info(mds, "[TX IN ][%10d] done.\n", hmo.txc.ftx);
+
+    for (i = 0, seqno = 0; i < tc; i++) {
         t = mds_txc_search(&hmo.txc, i, seqno++);
         if (!t) {
             hvfs_err(mds, "Internal error.\n");
@@ -75,13 +90,15 @@ int main(int argc, char *argv[])
         }
     }
 
-    for (i = 0, seqno = 0; i < 10; i++) {
+    hvfs_info(mds, "[TX DEL][%10d] done.\n", hmo.txc.ftx);
+
+    for (i = 0, seqno = 0; i < tc; i++) {
         m.tx.reqno = seqno++;
         m.tx.ssite_id = i;
         tx_in(HVFS_TX_NORMAL, &m);
     }
 
-    hvfs_info(mds, "FTX in TXC is %d.\n", hmo.txc.ftx);
+    hvfs_info(mds, "[TX INr][%10d] done.\n", hmo.txc.ftx);
     
     mds_destroy_txc(&hmo.txc);
     mds_destroy();

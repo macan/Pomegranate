@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-23 14:05:00 macan>
+ * Time-stamp: <2009-12-24 14:53:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,8 +61,13 @@ struct itbh
     /* section for TXG */
     u64 txg;                    /* txg of the latest update */
     xrwlock_t lock;             /* access/evict lock */
+#ifdef _USE_SPINLOCK
+    xspinlock_t ilock;          /* index alloc/freelock; max_offset
+                                 * changing */
+#else
     xlock_t ilock;              /* index alloc/free lock; max_offset
                                  * changing! */
+#endif
 
     /* section for searching in ITB */
     u64 puuid;
@@ -125,6 +130,17 @@ struct itb
     u8 bitmap[1 << (ITB_DEPTH - 3)];
     struct itb_index index[2 << (ITB_DEPTH)]; /* double size */
     struct ite ite[0];
+};
+
+struct itbitmap
+{
+    struct list_head list;
+    u64 offset:56;
+#define BITMAP_END      0x80    /* means there is no slice after this slice */
+    u64 flag:8;
+    u64 ts;
+#define XTABLE_BITMAP_SIZE      (128 * 1024 * 1024)
+    u8 array[XTABLE_BITMAP_SIZE];
 };
 
 struct checkpoint 

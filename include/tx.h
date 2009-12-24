@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 14:40:08 macan>
+ * Time-stamp: <2009-12-24 11:33:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -59,5 +59,5 @@ struct hvfs_txc
 #define MDS_TXC_DEFAULT_SIZE    (1024 * 8)
 #define MDS_TXC_DEFAULT_FTX     (1024 * 32)
 #define HVFS_TX_PRE_FREE_HINT   (16)
-
+#define MDS_TXC_MAX_FREE        (500000)
 #endif

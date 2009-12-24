@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 10:13:31 macan>
+ * Time-stamp: <2009-12-24 15:00:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,3 +23,34 @@
 
 #include "hvfs.h"
 #include "xtable.h"
+#include "mds.h"
+
+/* ITB split
+ *
+ * NOTE: 
+ */
+int itb_split(struct itb *oi, struct itb **ni)
+{
+    int err = 0;
+
+    return err;
+}
+
+/* ITB overflow
+ *
+ * NOTE:
+ */
+int itb_overflow(struct itb *oi, struct itb **ni)
+{
+    int err = 0;
+
+    return err;
+}
+
+/* mds_bitmap_lookup()
+ *
+ * Test the offset in this slice, return the bit!
+ */
+u64 mds_bitmap_lookup(struct itbitmap *b, u64 offset)
+{
+}

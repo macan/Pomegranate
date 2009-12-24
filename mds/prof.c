@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-22 17:20:55 macan>
+ * Time-stamp: <2009-12-24 11:47:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,14 +31,16 @@ void dump_profiling(time_t t)
         return;
     }
     hmo.prof.ts = t;
-    hvfs_info(mds, "ITB Cache Size %d\n", atomic_read(&hmo.ic.csize));
-    hvfs_info(mds, "CBHT Prof: lookup %ld, modify %ld, split %ld, "
+    hvfs_info(mds, "-- ITB Cache Size %d\n", 
+              atomic_read(&hmo.ic.csize));
+    hvfs_info(mds, "|  CBHT Prof: lookup %ld, modify %ld, split %ld, "
               "buckets %ld, depth %ld\n",
               atomic64_read(&hmo.prof.cbht.lookup),
               atomic64_read(&hmo.prof.cbht.modify),
               atomic64_read(&hmo.prof.cbht.split),
               atomic64_read(&hmo.prof.cbht.buckets),
               atomic64_read(&hmo.prof.cbht.depth));
-    hvfs_info(mds, "ITB Prof: cowed %ld\n",
+    hvfs_info(mds, "|  ITB Prof: cowed %ld\n",
               atomic64_read(&hmo.prof.itb.cowed));
+    hvfs_info(mds, "-- ITC Prof: ftx %d\n", hmo.txc.ftx);
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-23 14:32:55 macan>
+ * Time-stamp: <2009-12-24 09:39:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -125,7 +125,11 @@ long __itb_get_free_index(struct itb *i)
     long nr;
     int c, d;
     
+#ifdef _USE_SPINLOCK
+    xspinlock_lock(&i->h.ilock);
+#else
     xlock_lock(&i->h.ilock);
+#endif
     nr = i->h.inf;
     d = c = (1 << i->h.adepth);
 
@@ -133,7 +137,11 @@ long __itb_get_free_index(struct itb *i)
         if (i->index[nr + d].flag == ITB_INDEX_FREE) {
             i->h.inf = nr + 1;
             i->h.itu++;
+#ifdef _USE_SPINLOCK
+            xspinlock_unlock(&i->h.ilock);
+#else
             xlock_unlock(&i->h.ilock);
+#endif
             return nr + d;
         }
         c--;
@@ -141,7 +149,11 @@ long __itb_get_free_index(struct itb *i)
         if (nr == d)
             nr = 0;
     }
+#ifdef _USE_SPINLOCK
+    xspinlock_unlock(&i->h.ilock);
+#else
     xlock_unlock(&i->h.ilock);
+#endif
 
     /* failed to get a free index, internal error! */
     hvfs_err(mds, "Internal error, failed to get a free index.\n");
@@ -194,7 +206,11 @@ void __itb_add_index(struct itb *i, u64 offset, long nr, char *name)
     } else {
         hvfs_err(mds, "Invalid ITE flag 0x%x\n", ii[offset].flag);
     }
+#ifdef _USE_SPINLOCK
+    xspinlock_lock(&i->h.ilock);
+#else
     xlock_lock(&i->h.ilock);
+#endif
     /* NOTE: we use '<=' here for max_offset == 0; because the init value of
      * max_offset is 0, you should update the length when nr is exactly
      * ZERO. */
@@ -202,7 +218,11 @@ void __itb_add_index(struct itb *i, u64 offset, long nr, char *name)
         atomic_set(&i->h.max_offset, nr);
         atomic_set(&i->h.len, sizeof(struct itb) + (nr + 1) * sizeof(struct ite));
     }
+#ifdef _USE_SPINLOCK
+    xspinlock_unlock(&i->h.ilock);
+#else
     xlock_unlock(&i->h.ilock);
+#endif
 }
 
 /*
@@ -258,6 +278,8 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data)
             __itb_add_index(i, offset, nr, hi->name);
             /* set up the mdu base on hi->data */
             ite_create(hi, ite);
+            /* copy the mdu into the hmr buffer */
+            memcpy(data, &(ite->g), HVFS_MDU_SIZE);
         } else {
             /* hoo, there is no zero bit! */
             atomic_dec(&i->h.entries);
@@ -478,7 +500,7 @@ inline int ite_match(struct ite *e, struct hvfs_index *hi)
         } else
             return ITE_MATCH_MISS;
     } else if (hi->flag & INDEX_BY_NAME) {
-        if (strncmp(e->s.name, hi->name, hi->len) == 0) {
+        if (memcmp(e->s.name, hi->name, hi->len) == 0) {
             return ITE_MATCH_HIT;
         } else
             return ITE_MATCH_MISS;
@@ -569,7 +591,11 @@ struct itb *get_free_itb(struct hvfs_txg *txg)
     n->h.state = ITB_STATE_CLEAN; /* 0 */
     n->h.txg = txg->txg;
     xrwlock_init(&n->h.lock);
+#ifdef _USE_SPINLOCK
+    xspinlock_init(&n->h.ilock);
+#else
     xlock_init(&n->h.ilock);
+#endif
     INIT_HLIST_NODE(&n->h.cbht);
     INIT_LIST_HEAD(&n->h.list);
     INIT_LIST_HEAD(&n->h.overflow);
@@ -622,7 +648,11 @@ struct itb *itb_cow(struct itb *itb, struct hvfs_txg *txg)
 
     /* init ITB header */
     xrwlock_init(&n->h.lock);
+#ifdef _USE_SPINLOCK
+    xspinlock_init(&n->h.ilock);
+#else
     xlock_init(&n->h.ilock);
+#endif
     INIT_HLIST_NODE(&n->h.cbht);
     INIT_LIST_HEAD(&n->h.list);
     INIT_LIST_HEAD(&n->h.overflow);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-23 12:49:52 macan>
+ * Time-stamp: <2009-12-23 15:36:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,7 +58,7 @@ struct hvfs_txg *txg_alloc(void)
         return NULL;
     /* init the lock region */
     t->state = TXG_STATE_OPEN;
-    xcond_init(&t->cond);
+    mcond_init(&t->cond);
     xlock_init(&t->ckpt_lock);
     xlock_init(&t->delta_lock);
     xlock_init(&t->itb_lock);
@@ -231,18 +231,25 @@ void *txg_commit(void *arg)
         if (!t)
             continue;
         /* Step1: wait for any pending TXs */
-        xcond_lock(&t->cond);
+        mcond_lock(&t->cond);
+        if (t->state != TXG_STATE_WB) {
+            mcond_unlock(&t->cond);
+            continue;
+        } else {
+            t->state = TXG_STATE_WBING;
+        }
+        mcond_unlock(&t->cond);
+
         while (atomic64_read(&t->tx_pending)) {
             clock_gettime(CLOCK_REALTIME, &ts);
             ts.tv_nsec += 2000;  /* 2000 ns */
-            xcond_timedwait(&t->cond, &ts);
+            mcond_timedwait(&t->cond, &ts);
             hvfs_debug(mds, "><--%ld--><\n", atomic64_read(&t->tx_pending));
             if (t != hmo.txg[TXG_WB]) {
-                xcond_unlock(&t->cond);
                 goto retry;
             }
         }
-        xcond_unlock(&t->cond);
+
         hvfs_debug(mds, "TXG %ld is write-backing.\n", t->txg);
         /* Step2: no reference to this TXG, we can write back now */
         freed = clean = 0;
@@ -264,7 +271,7 @@ void *txg_commit(void *arg)
         /* free the TXG */
         hvfs_info(mds, "TXG %ld is released (free:%d, clean:%d).\n", 
                   t->txg, freed, clean);
-        xcond_destroy(&t->cond);
+        mcond_destroy(&t->cond);
         xfree(t);
     retry:
         ;

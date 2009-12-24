@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-17 15:41:53 macan>
+ * Time-stamp: <2009-12-24 09:27:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -101,6 +101,38 @@ typedef struct __cond xcond_t;
         pthread_cond_destroy(&(cond)->c);       \
         xlock_destroy(&(cond)->l);              \
     } while (0)
+
+/* section for mcond */
+struct __m_cond
+{
+    xlock_t l;
+    sem_t c;
+};
+typedef struct __m_cond mcond_t;
+
+#define mcond_lock(cond) xlock_lock(&(cond)->l)
+#define mcond_unlock(cond) xlock_unlock(&(cond)->l)
+#define mcond_wait(cond) sem_wait(&(cond)->c)
+#define mcond_timedwait(cond, time) sem_timedwait(&(cond)->c, time)
+#define mcond_signal(cond) sem_post(&(cond)->c)
+
+#define mcond_init(cond) do {                   \
+        xlock_init(&(cond)->l);                 \
+        sem_init(&(cond)->c, 0, 0);             \
+    } while (0)
+#define mcond_destroy(cond) do {                \
+        sem_destroy(&(cond)->c);                \
+        xlock_destroy(&(cond)->l);              \
+    } while (0)
+
+/* section for spinlock */
+typedef pthread_spinlock_t xspinlock_t;
+
+#define xspinlock_lock pthread_spin_lock
+#define xspinlock_trylock pthread_spin_trylock
+#define xspinlock_unlock pthread_spin_unlock
+#define xspinlock_init(l) pthread_spin_init(l, PTHREAD_PROCESS_PRIVATE)
+#define xspinlock_destroy pthread_spin_destroy
 
 #endif
 

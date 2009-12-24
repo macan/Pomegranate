@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-18 21:52:22 macan>
+ * Time-stamp: <2009-12-23 15:33:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,12 +54,12 @@ struct hvfs_txg
 {
     time_t open_time;
     atomic64_t tx_pending;
-    xcond_t cond;
+    mcond_t cond;               /* semaphore for condition wait */
     u64 txg;
     u64 txmax;
 #define TXG_STATE_OPEN          0
 #define TXG_STATE_WB            1 /* begin WB, waiting for pending TXs */
-#define TXG_STATE_WBLOCK        2 /* in WB, all pending TXs are done, ITB are
+#define TXG_STATE_WBING         2 /* in WB, all pending TXs are done, ITB are
                                    * free to use */
     u8 state;
     u8 dirty;                   /* whether this txg is dirtied, using in the
