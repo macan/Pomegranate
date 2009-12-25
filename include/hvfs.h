@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 16:16:38 macan>
+ * Time-stamp: <2009-12-25 23:02:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,11 +48,13 @@
 #define HVFS_CLT2MDS_LINKADD    0x8020000000000000
 #define HVFS_CLT2MDS_UNLINK     0x8040000000000000
 #define HVFS_CLT2MDS_SYMLINK    0x8080000000000000
+#define HVFS_CLT2MDS_LB         0x8100000000000000 /* load bitmap */
 #define HVFS_CLT2MDS_NODHLOOKUP (                                       \
         (HVFS_CLT2MDS_STATFS | HVFS_CLT2MDS_RELEASE) &                  \
         ~HVFS_CLT2MDS_BASE)
 #define HVFS_CLT2MDS_NOCACHE (                              \
-        (HVFS_CLT2MDS_LOOKUP | HVFS_CLT2MDS_NODHLOOKUP) &   \
+        (HVFS_CLT2MDS_LOOKUP | HVFS_CLT2MDS_NODHLOOKUP |    \
+         HVFS_CLT2MDS_LB) &                                 \
         ~HVFS_CLT2MDS_BASE)
 
 /* MDS to MDS */

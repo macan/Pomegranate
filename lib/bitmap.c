@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-16 20:43:53 macan>
+ * Time-stamp: <2009-12-25 22:43:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -252,4 +252,83 @@ long find_next_bit(const unsigned long * addr, long size, long offset)
      */
     res = __find_first_bit (p, size - 64 * (p - addr));
     return (offset + set + res);
+}
+
+/**
+ * __set_bit - Set a bit in memory
+ * @nr: the bit to set
+ * @addr: the address to start counting from
+ *
+ * Unlike set_bit(), this function is non-atomic and may be reordered.
+ * If it's called on the same region of memory simultaneously, the effect
+ * may be that only one operation succeeds.
+ */
+void __set_bit(int nr, volatile unsigned long *addr)
+{
+    asm volatile("bts %1,%0" : ADDR : "Ir" (nr) : "memory");
+}
+
+/*
+ * __clear_bit - Clears a bit in memory
+ * @nr: Bit to clear
+ * @addr: Address to start counting from
+ */
+void __clear_bit(int nr, volatile unsigned long *addr)
+{
+	asm volatile("btr %1,%0" : ADDR : "Ir" (nr));
+}
+
+#define CONFIG_X86_CMOV
+/**
+ * ffs - find first set bit in word
+ * @x: the word to search
+ *
+ * This is defined the same way as the libc and compiler builtin ffs
+ * routines, therefore differs in spirit from the other bitops.
+ *
+ * ffs(value) returns 0 if value is 0 or the position of the first
+ * set bit if value is nonzero. The first (least significant) bit
+ * is at position 1.
+ */
+int ffs(int x)
+{
+    int r;
+#ifdef CONFIG_X86_CMOV
+    asm("bsfl %1,%0\n\t"
+        "cmovzl %2,%0"
+        : "=r" (r) : "rm" (x), "r" (-1));
+#else
+    asm("bsfl %1,%0\n\t"
+        "jnz 1f\n\t"
+        "movl $-1,%0\n"
+        "1:" : "=r" (r) : "rm" (x));
+#endif
+    return r + 1;
+}
+
+/**
+ * fls - find last set bit in word
+ * @x: the word to search
+ *
+ * This is defined in a similar way as the libc and compiler builtin
+ * ffs, but returns the position of the most significant set bit.
+ *
+ * fls(value) returns 0 if value is 0 or the position of the last
+ * set bit if value is nonzero. The last (most significant) bit is
+ * at position 32.
+ */
+int fls(int x)
+{
+    int r;
+#ifdef CONFIG_X86_CMOV
+    asm("bsrl %1,%0\n\t"
+        "cmovzl %2,%0"
+        : "=&r" (r) : "rm" (x), "rm" (-1));
+#else
+    asm("bsrl %1,%0\n\t"
+        "jnz 1f\n\t"
+        "movl $-1,%0\n"
+        "1:" : "=r" (r) : "rm" (x));
+#endif
+    return r + 1;
 }

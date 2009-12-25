@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-23 11:37:57 macan>
+ * Time-stamp: <2009-12-25 22:44:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -114,5 +114,29 @@ static inline u64 hash_64(u64 val, unsigned int bits)
 	typeof(y) _y = (y);	\
 	(void) (&_x == &_y);	\
 	_x > _y ? _x : _y; })
+
+/* for test_bit */
+static inline int constant_test_bit(int nr, const volatile unsigned long *addr)
+{
+    return ((1UL << (nr % BITS_PER_LONG)) &
+            (((unsigned long *)addr)[nr / BITS_PER_LONG])) != 0;
+}
+
+static inline int variable_test_bit(int nr, volatile const unsigned long *addr)
+{
+    int oldbit;
+
+    asm volatile("bt %2,%1\n\t"
+                 "sbb %0,%0"
+                 : "=r" (oldbit)
+                 : "m" (*(unsigned long *)addr), "Ir" (nr));
+    
+    return oldbit;
+}
+#define test_bit(nr,addr)                       \
+    (__builtin_constant_p(nr) ?                 \
+     constant_test_bit((nr),(addr)) :           \
+     variable_test_bit((nr),(addr)))
+
 
 #endif  /* !__HVFS_U_H__ */
