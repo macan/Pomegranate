@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-25 23:02:35 macan>
+ * Time-stamp: <2009-12-28 17:17:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,6 +49,7 @@
 #define HVFS_CLT2MDS_UNLINK     0x8040000000000000
 #define HVFS_CLT2MDS_SYMLINK    0x8080000000000000
 #define HVFS_CLT2MDS_LB         0x8100000000000000 /* load bitmap */
+/* NOTE: there is no *_LD in client, because we can use lookup instead */
 #define HVFS_CLT2MDS_NODHLOOKUP (                                       \
         (HVFS_CLT2MDS_STATFS | HVFS_CLT2MDS_RELEASE) &                  \
         ~HVFS_CLT2MDS_BASE)
@@ -62,6 +63,9 @@
 #define HVFS_MDS2MDS_SPITB      0x0000000080000001 /* split itb */
 #define HVFS_MDS2MDS_AUPDATE    0x0000000080000002 /* async update */
 #define HVFS_MDS2MDS_REDODELTA  0x0000000080000003 /* redo delta */
+#define HVFS_MDS2MDS_LB         0x0000000080000004 /* load bitmap */
+#define HVFS_MDS2MDS_LD         0x0000000080000005 /* load directory hash
+                                                    * info */
 /* MDSL to MDS */
 /* RING/ROOT to MDS */
 
@@ -81,6 +85,7 @@
 #define HASH_SEL_EH     0x00
 #define HASH_SEL_CBHT   0x01
 #define HASH_SEL_RING   0x02
+#define HASH_SEL_DH     0x03
 u64 hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel);
 
 #define __cbht __attribute__((__section__(".cbht.text")))

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 14:36:50 macan>
+ * Time-stamp: <2009-12-28 14:34:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,6 +34,12 @@ extern u32 hvfs_lib_tracing_flags;
 extern struct list_head glt;           /* global lock table */
 #endif
 
+/* defines */
+#define EXTRACT_HI      0x10
+#define EXTRACT_MDU     0x20
+#define EXTRACT_LS      0x40
+#define EXTRACT_BITMAP  0x80
+
 /* APIs */
 void lib_timer_start(struct timeval *begin);
 void lib_timer_stop(struct timeval *end);
@@ -47,9 +53,15 @@ long find_first_zero_bit(const unsigned long *, unsigned long);
 long find_next_zero_bit(const unsigned long *, long, long);
 long find_first_bit(const unsigned long *, unsigned long);
 long find_next_bit(const unsigned long *, long, long);
+void __set_bit(int, volatile unsigned long *);
+void __clear_bit(int, volatile unsigned long *);
+int ffs(int);
+int fls(int);
 
 void lib_init(void);
 u64 lib_random(int hint);
+
+void *hmr_extract(void *, int, int *);
 
 #ifdef HVFS_DEBUG_LOCK
 void lock_table_init(void);

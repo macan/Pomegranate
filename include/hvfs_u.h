@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-25 22:44:26 macan>
+ * Time-stamp: <2009-12-28 11:04:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -115,6 +115,7 @@ static inline u64 hash_64(u64 val, unsigned int bits)
 	(void) (&_x == &_y);	\
 	_x > _y ? _x : _y; })
 
+#define BITS_PER_LONG   64
 /* for test_bit */
 static inline int constant_test_bit(int nr, const volatile unsigned long *addr)
 {

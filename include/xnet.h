@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-10 10:38:41 macan>
+ * Time-stamp: <2009-12-28 19:38:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -47,6 +47,8 @@ struct xnet_msg_tx
 #define XNET_BARRIER            0x0010 /* schedule can through it */
 #define XNET_BCAST              0x0020 /* broadcast msg */
 #define XNET_REDUCE             0x0040 /* reduce msg */
+#define XNET_DATA_PREPARED      0x0080 /* data in iov is the receiving
+                                        * region */
 
 #define XNET_NEED_RESEND        0x0100 /* otherwise, return on send err */
     u16 flag;                          /* msg flags */
@@ -56,6 +58,7 @@ struct xnet_msg_tx
     u64 cmd;                    /* please refer to the cmd list of
                                  * REQ/RPY/CMD */
     u64 arg0;
+    u64 arg1;
     u64 reqno;
     u64 len;                    /* total data len */
 };
@@ -101,15 +104,22 @@ int xnet_send(struct xnet_context *xc, struct xnet_msg *m);
 #define xnet_msg_add_data(m, addr, len) do {    \
     } while (0)
 
-static inline void __xnet_msg_fill_cmd(struct xnet_msg *m, u64 cmd, u64 arg) 
+static inline 
+void __xnet_msg_fill_cmd(struct xnet_msg *m, u64 cmd, u64 arg0, u64 arg1) 
 {
-    m->tx.arg0 = arg;
+    m->tx.arg0 = arg0;
+    m->tx.arg1 = arg1;
     m->tx.cmd = cmd;
 }
 
-#define xnet_msg_fill_cmd(m, cmd, arg) do {     \
-        __xnet_msg_fill_cmd(m, cmd, arg);       \
+#define xnet_msg_fill_cmd(m, cmd, arg0, arg1) do {   \
+        __xnet_msg_fill_cmd(m, cmd, arg0, arg1);     \
     } while (0)
 
+#define xnet_clear_auto_free(m) do {            \
+        (m)->tx.flag &= (~XNET_NEED_DATA_FREE); \
+    } while (0)
+
+TRACING_FLAG_DEF(xnet);
 
 #endif

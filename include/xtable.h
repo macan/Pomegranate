@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-24 14:53:37 macan>
+ * Time-stamp: <2009-12-28 14:33:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -171,5 +171,12 @@ struct bitmap_delta
     u64 oitb;                   /* piggyback SPLIT/MERGE info in low bits */
     u64 nitb;
 };
+
+#include "dh.h"
+/* APIs */
+int mds_bitmap_lookup(struct itbitmap *, u64);
+u64 mds_bitmap_fallback(u64);
+void mds_bitmap_update(struct itbitmap *, struct itbitmap *);
+int mds_bitmap_load(struct dhe *, u64, u64);
 
 #endif

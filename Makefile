@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-22 22:55:23 macan>
+# Time-stamp: <2009-12-28 20:55:20 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -12,21 +12,26 @@ HOME_PATH = $(shell pwd)
 
 include Makefile.inc
 
-UNIT_TARGETS = $(LIB_PATH)/ring $(TEST)/mds/cbht $(MDS)/tx \
-				$(TEST)/mds/cmd_sender
-UNIT_OBJS = $(LIB_PATH)/lib.o $(LIB_PATH)/ring.o
 RING_SOURCES = $(LIB_PATH)/ring.c $(LIB_PATH)/lib.c $(LIB_PATH)/hash.c \
 				$(LIB_PATH)/xlock.c
 
-all : hvfs_lib unit_test
+all : unit_test
 
-hvfs_lib : 
+$(HVFS_LIB) : $(lib_depend_files)
 	@echo -e " " CD"\t" $(LIB_PATH)
 	@echo -e " " MK"\t" $@
 	@$(MAKE) --no-print-directory -C $(LIB_PATH) -e "HOME_PATH=$(HOME_PATH)"
 
-clean: unit_test_clean
+$(MDS_LIB) : $(mds_depend_files)
+	@echo -e " " CD"\t" $(MDS)
+	@echo -e " " MK"\t" $@
+	@$(MAKE) --no-print-directory -C $(MDS) -e "HOME_PATH=$(HOME_PATH)"
+
+clean :
 	@$(MAKE) --no-print-directory -C $(LIB_PATH) -e "HOME_PATH=$(HOME_PATH)" clean
+	@$(MAKE) --no-print-directory -C $(MDS) -e "HOME_PATH=$(HOME_PATH)" clean
+	@$(MAKE) --no-print-directory -C $(TEST)/mds -e "HOME_PATH=$(HOME_PATH)" clean
+	-@rm -rf $(LIB_PATH)/ring
 
 # Note: the following region is only for UNIT TESTing
 # region for unit test
@@ -34,38 +39,19 @@ $(LIB_PATH)/ring : $(RING_SOURCES)
 	@echo -e " " CC"\t" $@
 	@$(CC) $(CFLAGS) $^ -o $@ -DUNIT_TEST
 
-CBHT_SOURCES = $(MDS)/itb.c $(MDS)/mds.c $(MDS)/txg.c $(XNET)/xnet.c $(MDS)/cbht.c \
-				$(TEST)/mds/cbht.c $(MDS)/tx.c $(MDS)/prof.c $(MDS)/conf.c
-TX_SOURCES = $(MDS)/mds.c $(MDS)/txg.c $(MDS)/tx.c $(XNET)/xnet.c $(MDS)/cbht.c\
-				$(TEST)/mds/tx.c $(MDS)/itb.c $(MDS)/prof.c $(MDS)/conf.c
-CMDS_SOURCES = $(TEST)/mds/cmd_sender.c
+unit_test : $(ut_depend_files) $(HVFS_LIB) $(MDS_LIB)
+	@echo -e " " CD"\t" $(TEST)/mds
+	@$(MAKE) --no-print-directory -C $(TEST)/mds -e "HOME_PATH=$(HOME_PATH)"
+	@echo "Targets for unit test are ready."
 
-$(TEST)/mds/cbht : $(CBHT_SOURCES)
-	@echo -e " " CC"\t" $@
-	@$(CC) $(CFLAGS) $^ -o $@ -DUNIT_TEST -L$(LIB_PATH) -lhvfs 
-
-$(MDS)/tx : $(TX_SOURCES)
-	@echo -e " " CC"\t" $@
-	@$(CC) $(CFLAGS) $^ -o $@ -DUNIT_TEST -L$(LIB_PATH) -lhvfs 
-
-$(TEST)/mds/cmd_sender : $(CMDS_SOURCES)
-	@echo -e " " CC"\t" $@
-	@$(CC) $(CFLAGS) $^ -o $@
-
-unit_test: $(UNIT_TARGETS)
-	@echo "Targets [$(UNIT_TARGETS)] for unit test are ready."
-
-install: hvfs_lib unit_test
-	@scp $(TEST)/mds/cbht root@glnode09:~/cbht
-	@scp $(TEST)/mds/cmd_sender root@glnode09:~/cmd_sender
+install: unit_test
+	@scp $(TEST)/mds/cbht.ut root@glnode09:~/cbht
+	@scp $(TEST)/mds/cmd_sender.ut root@glnode09:~/cmd_sender
+	@scp $(TEST)/mds/tx.ut root@glnode09:~/tx
+	@scp $(TEST)/mds/dh.ut root@glnode09:~/dh
 	@lagent -d glnode09 -u root -sc "time ~/cbht $(CBHT_ARGS)"
-	@scp $(MDS)/tx root@glnode09:~/tx
 	@lagent -d glnode09 -u root -sc "time ~/tx $(CBHT_ARGS)"
 
 rut:
 	@lagent -d glnode09 -u root -sc "time ~/cbht $(CBHT_ARGS)"
 	@lagent -d glnode09 -u root -sc "gprof ~/cbht"
-
-unit_test_clean:
-	@rm -rf $(UNIT_TARGETS)
-

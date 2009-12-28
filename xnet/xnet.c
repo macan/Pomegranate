@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 15:38:37 macan>
+ * Time-stamp: <2009-12-28 19:37:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,17 +24,39 @@
 #include "hvfs.h"
 #include "xnet.h"
 
+TRACING_FLAG(xnet, HVFS_DEFAULT_LEVEL);
+
 struct xnet_msg *xnet_alloc_msg(u8 alloc_flag)
 {
-    return NULL;
+    struct xnet_msg *msg;
+
+    /* fast method */
+    if (alloc_flag == XNET_MSG_CACHE)
+        return NULL;
+    
+    /* slow method */
+    if (alloc_flag != XNET_MSG_NORMAL)
+        return NULL;
+    
+    msg = xzalloc(sizeof(struct xnet_msg));
+    if (!msg) {
+        hvfs_err(xnet, "xzalloc() struct xnet_msg failed\n");
+        return NULL;
+    }
+
+    return msg;
 }
 
 void xnet_free_msg(struct xnet_msg *msg)
 {
+    /* FIXME: we should check the alloc_flag and auto free flag */
+    if (msg->pair)
+        xnet_free_msg(msg->pair);
+    xfree(msg);
 }
 
 int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
 {
-    return 0;
+    return -ENOSYS;
 }
 

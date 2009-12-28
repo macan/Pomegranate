@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-24 14:17:04 macan>
+ * Time-stamp: <2009-12-28 14:33:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 #ifndef __MDS_DH_H__
 #define __MDS_DH_H__
 
+#define MDS_DH_DEFAULT_SIZE     (1024)
 struct dh
 {
     struct regular_hash *ht;

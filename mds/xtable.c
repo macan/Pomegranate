@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-25 22:52:26 macan>
+ * Time-stamp: <2009-12-28 17:56:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,7 +22,10 @@
  */
 
 #include "hvfs.h"
+#include "xnet.h"
 #include "xtable.h"
+#include "ring.h"
+#include "lib.h"
 #include "mds.h"
 
 /* ITB split
@@ -56,7 +59,7 @@ int mds_bitmap_lookup(struct itbitmap *b, u64 offset)
     int index = offset - b->offset;
 
     ASSERT((index >= 0 && index < XTABLE_BITMAP_SIZE), mds);
-    return test_bit(index, b->array);
+    return test_bit(index, (u64 *)(b->array));
 }
 
 /* mds_bitmap_fallback()
@@ -65,7 +68,7 @@ int mds_bitmap_lookup(struct itbitmap *b, u64 offset)
  */
 u64 mds_bitmap_fallback(u64 offset)
 {
-    int nr = ffs(&offset);
+    int nr = ffs(offset);       /* NOTE: we just use the low 32 bits */
 
     if (!nr)
         return 0;
@@ -73,19 +76,94 @@ u64 mds_bitmap_fallback(u64 offset)
     return offset;
 }
 
+/* mds_bitmap_update()
+ *
+ * Update the old bitmap with the new bitmap. For now, we just OR the new
+ * bitmap to the old bitmap:,(
+ */
+void mds_bitmap_update(struct itbitmap *o, struct itbitmap *n)
+{
+    u64 *op = (u64 *)o->array;
+    u64 *np = (u64 *)n->array;
+    int i;
+    
+    o->ts = n->ts;
+    for (i = 0; i < (XTABLE_BITMAP_SIZE / sizeof(u64)); i++) {
+        *(op + i) |= *(np + i);
+    }
+}
+
 /* mds_bitmap_load()
  *
  * Return Value: -ENOEXIST means the slice is not exist!
  */
-int mds_bitmap_load(struct dh *dh, struct hvfs_index *hi, u64 offset)
+int mds_bitmap_load(struct dhe *e, u64 uuid, u64 offset)
 {
-    struct hvfs_index ghi;
     struct hvfs_md_reply *hmr;
     struct xnet_msg *msg;
     struct chp *p;
-    int err;
+    struct itbitmap *bitmap, *b;
+    int err, no;
     
-    /* prepare the arguments for GDT lookup */
-    ghi.flag = 
+    msg = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!msg) {
+        /* retry with slow method */
+        msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+        if (!msg) {
+            hvfs_debug(mds, "xnet_alloc_msg() in low memory.\n");
+            return -ENOMEM;
+        }
+    }
+
+    /* find the MDS server */
+    p = ring_get_point(uuid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
+    if (IS_ERR(p)) {
+        hvfs_err(mds, "ring_get_point() failed with %ld\n", PTR_ERR(p));
+        return PTR_ERR(p);
+    }
+    /* prepare the msg */
+    xnet_msg_set_site(msg, p->site_id);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_LB, uuid, offset);
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(mds, "xnet_send() failed with %d\n", err);
+        goto out_free;
+    }
+    /* ok, we get the reply: have the bitmap slice in the reply msg */
+    hmr = (struct hvfs_md_reply *)(msg->pair->xm_data);
+    if (hmr->err) {
+        hvfs_err(mds, "bitmap_load request failed %d\n", hmr->err);
+        goto out_free;
+    }
+    bitmap = hmr_extract(hmr, EXTRACT_BITMAP, &no);
+    if (!bitmap) {
+        hvfs_err(mds, "hmr_extract BITMAP failed, not found this subregion.\n");
+        goto out_free;
+    }
+    /* hey, we got some bitmap slice, let us insert them to the dhe list */
+    xlock_lock(&e->lock);
+    list_for_each_entry(b, &e->bitmap, list) {
+        if (b->offset < offset)
+            continue;
+        if (b->offset == offset) {
+            /* hoo, someone insert the bitmap prior us, we just update our
+             * bitmap to the previous one */
+            mds_bitmap_update(b, bitmap);
+            break;
+        }
+        if (b->offset > offset) {
+            /* ok, insert ourself prior this slice */
+            list_add_tail(&bitmap->list, &b->list);
+            /* FIXME: XNET clear the auto free flag */
+            xnet_clear_auto_free(msg->pair);
+            break;
+        }
+    }
+    xlock_unlock(&e->lock);
+
+out_free:
+    xnet_free_msg(msg);
+    return err;
 }
 

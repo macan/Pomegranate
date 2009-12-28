@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-24 09:39:43 macan>
+ * Time-stamp: <2009-12-28 19:55:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -94,27 +94,33 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
     }
     p = ring_get_point(itbid, psalt, hmo.chring[CH_RING_MDSL]);
     if (IS_ERR(p)) {
-        hvfs_err(mds, "ring_get_point() failed with %ld\n", PTR_ERR(p));
-        return (struct itb *)p;
+        hvfs_debug(mds, "ring_get_point() failed with %ld\n", PTR_ERR(p));
+        i = (struct itb *)p;
+        goto out;
     }
     /* prepare the msg */
     xnet_msg_set_site(msg, p->site_id);
     xnet_msg_add_data(msg, &si, sizeof(si));
-    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_ITB, 0);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_ITB, 0, 0);
     
     ret = xnet_send(hmo.xc, msg);
     if (ret) {
         hvfs_err(mds, "xnet_send() failed with %d\n", ret);
-        return ERR_PTR(ret);
+        i = ERR_PTR(ret);
+        goto out_free;
     }
     /* ok, we get the reply: ITB.len is the length */
     sr = (struct storage_result *)(msg->pair->xm_data);
     if (sr->src.err)
         i = ERR_PTR(sr->src.err);
-    else
+    else {
+        /* FIXME: do we need clear the auto free flag? */
         i = (struct itb *)(sr->data);
-    xnet_free_msg(msg);
+    }
 
+out_free:
+    xnet_free_msg(msg);
+out:
     return i;
 }
 

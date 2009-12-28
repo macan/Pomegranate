@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-23 14:01:26 macan>
+ * Time-stamp: <2009-12-28 15:42:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -41,7 +41,7 @@ void hmr_print(struct hvfs_md_reply *hmr)
     struct link_source *ls;
     void *p = hmr->data;
 
-    hvfs_info(mds, "hmr-> err %d, mdu_no %d, len %d, flag 0x%lx.\n", 
+    hvfs_info(mds, "hmr-> err %d, mdu_no %d, len %d, flag 0x%x.\n", 
               hmr->err, hmr->mdu_no, hmr->len, hmr->flag);
     if (!p)
         return;
@@ -70,7 +70,7 @@ void hmr_print(struct hvfs_md_reply *hmr)
     }
 }
 
-void __cbht insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
+void insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
                        struct hvfs_md_reply *hmr)
 {
     struct hvfs_index *hi;
@@ -111,7 +111,7 @@ void __cbht insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
     xfree(hi);
 }
 
-void __cbht remove_ite(u64 puuid, u64 itbid, char *name, 
+void remove_ite(u64 puuid, u64 itbid, char *name, 
                        struct hvfs_md_reply *hmr)
 {
     struct hvfs_index *hi;
@@ -146,7 +146,7 @@ void __cbht remove_ite(u64 puuid, u64 itbid, char *name,
     }
 }
 
-void __cbht lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag , 
+void lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag , 
                        struct hvfs_md_reply *hmr)
 {
     struct hvfs_index *hi;
@@ -185,7 +185,7 @@ void __cbht lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag ,
     xfree(hi);
 }
 
-int __cbht st_main(int argc, char *argv[])
+int st_main(int argc, char *argv[])
 {
     struct timeval begin, end;
     struct mdu_update mu;
@@ -322,7 +322,7 @@ struct pthread_args
  * NOTE: This function is used to test parallel insertion to different
  * ITBs. All threads insert/lookup in the different ITB w/o synchronization.
  */
-void * __cbht pt_main(void *arg)
+void *pt_main(void *arg)
 {
     struct pthread_args *pa = (struct pthread_args *)arg;
     struct timeval begin, end;
@@ -408,7 +408,7 @@ void * __cbht pt_main(void *arg)
  * NOTE: pt_main2 is used to test the ITB parallel insertion/deletion. All
  * threads parallel insert into the same ITB w/o synchronization.
  */
-void * __cbht pt_main2(void *arg)
+void *pt_main2(void *arg)
 {
     struct pthread_args *pa = (struct pthread_args *)arg;
     struct timeval begin, end;
@@ -511,7 +511,7 @@ static inline char *idx2str(int i)
     }
 }
 
-int __cbht mt_main(int argc, char *argv[])
+int mt_main(int argc, char *argv[])
 {
     pthread_t *t;
     pthread_barrier_t pb;

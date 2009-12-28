@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-09 14:30:09 macan>
+ * Time-stamp: <2009-12-28 10:22:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -72,16 +72,21 @@ struct hvfs_md_reply
 {
     short err;
     short mdu_no;               /* # of MDUs */
+    short ls_no;                /* # of LSs */
+    short bitmap_no;            /* # of BITMAPs */
     int len;                    /* the data length */
 
-#define MD_REPLY_WITH_BITMAP    0x01 /* bitmap info in data area */
-#define MD_REPLY_DIR_SDT        0x02 /* SDT result */
-#define MD_REPLY_READDIR        0x04 /* piggyback the ITB depth in h8 of flag */
+#define MD_REPLY_DIR_SDT        0x01 /* SDT result */
+#define MD_REPLY_READDIR        0x02 /* piggyback the ITB depth in h8 of flag */
 
+    /* please do NOT change the following defines, they should be consistent
+     * with the defines in lib.h */
 #define MD_REPLY_WITH_HI        0x10
 #define MD_REPLY_WITH_MDU       0x20
 #define MD_REPLY_WITH_LS        0x40
-    u64 flag;
+#define MD_REPLY_WITH_BITMAP    0x80 /* bitmap info in data area */
+
+    u32 flag;
     void *data;                 /* how to alloc data region more faster? */
     /* Layout of data region
      *
@@ -91,9 +96,9 @@ struct hvfs_md_reply
      * Layout of the data region: low->high, selected by flags
      *
      * struct hvfs_index hi;
-     * struct mdu mdu;
+     * struct mdu mdu; + u64; (HVFS_MDU_SIZE)
      * struct link_source ls;
-     * char data[*];
+     * struct itbitmap + 128KB;
      */
 };
 

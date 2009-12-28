@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-08 17:09:02 macan>
+ * Time-stamp: <2009-12-28 19:51:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -139,7 +139,7 @@ struct chp *ring_get_point(u64 key, u64 salt, struct chring *r)
 
 struct chp *ring_get_point2(u64 point, struct chring *r)
 {
-    s64 highp = r->used;
+    s64 highp;
     s64 lowp = 0, midp;
     u64 midval, midval1;
     struct chp *p;
@@ -147,6 +147,7 @@ struct chp *ring_get_point2(u64 point, struct chring *r)
     if (!r || !r->used)
         return ERR_PTR(-EINVAL);
 
+    highp = r->used;
     xrwlock_rlock(&r->rwlock);
     while (1) {
         midp = (lowp + highp) / 2;

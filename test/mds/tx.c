@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-24 11:46:42 macan>
+ * Time-stamp: <2009-12-28 19:49:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,7 +40,7 @@ void tx_in(u16 op, struct xnet_msg *req)
 
 int main(int argc, char *argv[])
 {
-    struct xnet_msg m;
+    struct xnet_msg *m;
     struct hvfs_tx *t;
     int hsize, ftx, tc;
     int err, i, seqno;
@@ -61,7 +61,11 @@ int main(int argc, char *argv[])
 
     /* init mds unit test */
     lib_init();
-    mds_init(10);
+    err = mds_init(10);
+    if (err) {
+        hvfs_err(mds, "mds_init() failed %d\n", err);
+        goto out;
+    }
     
     err = mds_init_txc(&hmo.txc, hsize, ftx); /* default free TXs */
     if (err) {
@@ -70,9 +74,15 @@ int main(int argc, char *argv[])
     }
 
     for (i = 0, seqno = 0; i < tc; i++) {
-        m.tx.reqno = seqno++;
-        m.tx.ssite_id = i;
-        tx_in(HVFS_TX_NORMAL, &m);
+        m = xnet_alloc_msg(XNET_MSG_NORMAL);
+        if (!m) {
+            hvfs_err(mds, "xnet_alloc_msg() failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        m->tx.reqno = seqno++;
+        m->tx.ssite_id = i;
+        tx_in(HVFS_TX_NORMAL, m);
     }
 
     hvfs_info(mds, "[TX IN ][%10d] done.\n", hmo.txc.ftx);
@@ -93,9 +103,15 @@ int main(int argc, char *argv[])
     hvfs_info(mds, "[TX DEL][%10d] done.\n", hmo.txc.ftx);
 
     for (i = 0, seqno = 0; i < tc; i++) {
-        m.tx.reqno = seqno++;
-        m.tx.ssite_id = i;
-        tx_in(HVFS_TX_NORMAL, &m);
+        m = xnet_alloc_msg(XNET_MSG_NORMAL);
+        if (!m) {
+            hvfs_err(mds, "xnet_alloc_msg() failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        m->tx.reqno = seqno++;
+        m->tx.ssite_id = i;
+        tx_in(HVFS_TX_NORMAL, m);
     }
 
     hvfs_info(mds, "[TX INr][%10d] done.\n", hmo.txc.ftx);

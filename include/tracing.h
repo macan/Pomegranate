@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-22 22:40:08 macan>
+ * Time-stamp: <2009-12-28 19:38:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -123,7 +123,7 @@
     } while (0)
 
 #define TRACING_FLAG(name, v) u32 hvfs_##name##_tracing_flags = v
-
+#define TRACING_FLAG_DEF(name) extern u32 hvfs_##name##_tracing_flags
 
 #ifdef __KERNEL__
 #define ASSERT(i, m) BUG_ON(!(i))

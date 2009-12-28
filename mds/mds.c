@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-23 15:43:43 macan>
+ * Time-stamp: <2009-12-28 17:00:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -275,6 +275,11 @@ int mds_init(int bdepth)
 
     /* FIXME: register with the Ring server */
 
+    /* FIXME: init the dh subsystem */
+    err = mds_dh_init(&hmo.dh, MDS_DH_DEFAULT_SIZE);
+    if (err)
+        goto out_dh;
+    
     /* FIXME: init the TX subsystem, init the commit threads' pool */
     err = mds_init_tx(0);
     if (err)
@@ -294,8 +299,9 @@ int mds_init(int bdepth)
     /* ok to run */
     hmo.state = HMO_STATE_RUNNING;
 
-out_tx:
 out_cbht:
+out_tx:
+out_dh:
 out_timers:
 out_signal:
     return err;
@@ -309,10 +315,14 @@ void mds_destroy(void)
     hmo.timer_thread_stop = 1;
     if (hmo.timer_thread)
         pthread_join(hmo.timer_thread, NULL);
+
     sem_destroy(&hmo.timer_sem);
 
     /* stop the commit threads */
     mds_destroy_tx();
+
+    /* destroy the dh */
+    mds_dh_destroy(&hmo.dh);
 
     /* destroy the dconf */
     dconf_destroy();

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-24 13:12:29 macan>
+ * Time-stamp: <2009-12-28 20:49:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,7 +97,7 @@ struct hvfs_mds_object
 
     struct mem_ops *mops;         /* memory management operations */
     struct eh cbht;               /* memory hash table */
-    struct dh *dh;                /* directory hash table */
+    struct dh dh;                 /* directory hash table */
 
 #define CH_RING_NUM     2
 #define CH_RING_MDS     0
@@ -232,5 +232,13 @@ void dump_profiling(time_t);
 /* for conf.c */
 int dconf_init(void);
 void dconf_destroy(void);
+
+/* for dh.c */
+int mds_dh_init(struct dh *, int);
+void mds_dh_destroy(struct dh *);
+struct dhe *mds_dh_load(struct dh *, struct hvfs_index *);
+struct dhe *mds_dh_insert(struct dh *, struct hvfs_index *);
+struct dhe *mds_dh_search(struct dh *, struct hvfs_index *);
+int mds_dh_remove(struct dh *, u64);
 
 #endif

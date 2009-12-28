@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-22 19:39:13 macan>
+ * Time-stamp: <2009-12-28 14:09:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,8 +27,9 @@
 #define HVFS_MAX_NAME_LEN       256
 #define MDS_DCONF_MAX_NAME_LEN  64
 
-#define ETXCED  1025            /* TXC Evicted */
-#define ECHP    1026            /* Consistent Hash Point error */
+#define ETXCED          1025    /* TXC Evicted */
+#define ECHP            1026    /* Consistent Hash Point error */
 #define ERINGCHG        1027    /* Ring Changed */
-#define ESPLIT  1028            /* Need SPLIT */
+#define ESPLIT          1028    /* Need SPLIT */
+#define ENOTEXIST       1029    /* Not Exist */
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-24 12:42:46 macan>
+ * Time-stamp: <2009-12-28 19:42:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -274,7 +274,8 @@ int mds_txc_evict(struct hvfs_txc *txc, struct hvfs_tx *tx)
 
     /* free all the TX resources */
     ASSERT(tx->state >= HVFS_TX_DONE, mds);
-    xnet_free_msg(tx->req);
+    if (tx->req)
+        xnet_free_msg(tx->req);
     if (tx->rpy)
         xnet_free_msg(tx->rpy);
 
@@ -370,7 +371,6 @@ int mds_init_tx(u64 txg)
     err = commit_tp_init();
     if (err)
         goto out;
-    
 out:    
     return 0;
 }

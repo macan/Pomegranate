@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-23 15:57:00 macan>
+ * Time-stamp: <2009-12-28 19:26:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -92,7 +92,9 @@ static void *mds_dconf_thread_main(void *arg)
     /* next, we wait for the requests */
     while (!hmo.dconf_thread_stop) {
         err = epoll_wait(hmo.conf.dcepfd, &ev, 1, 50);
-        if (err == -1) {
+        if (err == -1 && errno == EINTR) {
+            continue;
+        } else if (err == -1) {
             hvfs_err(mds, "epoll wait failed %d\n", errno);
             continue;
         }
