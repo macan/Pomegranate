@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-29 15:31:14 macan>
+ * Time-stamp: <2009-12-29 16:59:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,40 +24,50 @@
 #include "hvfs.h"
 #include "xnet.h"
 
-TRACING_FLAG(xnet, HVFS_DEFAULT_LEVEL);
+#ifdef UNIT_TEST
+char *ipaddr1[] = {
+    "10.10.111.117",
+};
 
-struct xnet_msg *xnet_alloc_msg(u8 alloc_flag)
+char *ipaddr2[] = {
+    "10.10.111.117",
+};
+
+short port1[] = {
+    8412,
+};
+
+short port2[] = {
+    8210,
+};
+
+int main(int argc, char *argv[])
 {
-    struct xnet_msg *msg;
+    struct xnet_context *xc;
+    int err = 0;
+    short port;
 
-    /* fast method */
-    if (alloc_flag == XNET_MSG_CACHE)
-        return NULL;
-    
-    /* slow method */
-    if (alloc_flag != XNET_MSG_NORMAL)
-        return NULL;
-    
-    msg = xzalloc(sizeof(struct xnet_msg));
-    if (!msg) {
-        hvfs_err(xnet, "xzalloc() struct xnet_msg failed\n");
-        return NULL;
+    hvfs_info(xnet, "XNET Simple UNIT TESTing ...\n");
+
+    if (argc == 2) {
+        port = 8210;
+    } else
+        port = 8412;
+
+    st_init();
+    xc = xnet_register_type(0, port, NULL);
+    if (IS_ERR(xc)) {
+        err = PTR_ERR(xc);
+        goto out;
     }
 
-    return msg;
-}
+    xnet_update_ipaddr(0, 1, ipaddr1, port1);
+    xnet_update_ipaddr(1, 1, ipaddr2, port2);
 
-void xnet_free_msg(struct xnet_msg *msg)
-{
-    /* FIXME: we should check the alloc_flag and auto free flag */
-    if (msg->pair)
-        xnet_free_msg(msg->pair);
-    xfree(msg);
-}
-
-#ifndef USE_XNET_SIMPLE
-int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
-{
-    return -ENOSYS;
+    xnet_unregister_type(xc);
+    st_destroy();
+    
+out:
+    return err;
 }
 #endif

@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-28 20:55:20 macan>
+# Time-stamp: <2009-12-29 17:04:27 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -27,10 +27,17 @@ $(MDS_LIB) : $(mds_depend_files)
 	@echo -e " " MK"\t" $@
 	@$(MAKE) --no-print-directory -C $(MDS) -e "HOME_PATH=$(HOME_PATH)"
 
+$(XNET_LIB) : $(xnet_depend_files)
+	@echo -e " " CD"\t" $(XNET)
+	@echo -e " " MK"\t" $@
+	@$(MAKE) --no-print-directory -C $(XNET) -e "HOME_PATH=$(HOME_PATH)"
+
 clean :
 	@$(MAKE) --no-print-directory -C $(LIB_PATH) -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(MDS) -e "HOME_PATH=$(HOME_PATH)" clean
+	@$(MAKE) --no-print-directory -C $(XNET) -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(TEST)/mds -e "HOME_PATH=$(HOME_PATH)" clean
+	@$(MAKE) --no-print-directory -C $(TEST)/xnet -e "HOME_PATH=$(HOME_PATH)" clean
 	-@rm -rf $(LIB_PATH)/ring
 
 # Note: the following region is only for UNIT TESTing
@@ -39,9 +46,11 @@ $(LIB_PATH)/ring : $(RING_SOURCES)
 	@echo -e " " CC"\t" $@
 	@$(CC) $(CFLAGS) $^ -o $@ -DUNIT_TEST
 
-unit_test : $(ut_depend_files) $(HVFS_LIB) $(MDS_LIB)
+unit_test : $(ut_depend_files) $(HVFS_LIB) $(MDS_LIB) $(XNET_LIB)
 	@echo -e " " CD"\t" $(TEST)/mds
 	@$(MAKE) --no-print-directory -C $(TEST)/mds -e "HOME_PATH=$(HOME_PATH)"
+	@echo -e " " CD"\t" $(TEST)/xnet
+	@$(MAKE) --no-print-directory -C $(TEST)/xnet -e "HOME_PATH=$(HOME_PATH)"
 	@echo "Targets for unit test are ready."
 
 install: unit_test

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 19:38:29 macan>
+ * Time-stamp: <2009-12-29 16:31:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,14 +23,6 @@
 
 #ifndef __XNET_H__
 #define __XNET_H__
-
-struct xnet_context
-{
-    /* FIXME */
-    u8 type;
-    int pt_num;
-    int service_port;
-};
 
 struct xnet_msg_tx 
 {
@@ -88,7 +80,30 @@ struct xnet_msg
     void *private;
 };
 
+struct xnet_type_ops
+{
+    void *(*buf_alloc)(size_t size, int alloc_flag);
+    void (*buf_free)(void *buf, int alloc_flag);
+    int (*recv_handler)(struct xnet_msg *msg);
+};
+
+struct xnet_context
+{
+    /* FIXME */
+    u8 type;
+    int pt_num;
+    int service_port;
+    struct xnet_type_ops *ops;
+};
+
 /* APIs */
+#ifdef USE_XNET_SIMPLE
+struct xnet_context *xnet_register_type(u8, u16, struct xnet_type_ops *);
+#else
+struct xnet_context *xnet_register_type(u8, struct xnet_type_ops *);
+#endif
+int xnet_unregister_type(struct xnet_context *);
+
 struct xnet_msg *xnet_alloc_msg(u8 alloc_flag);
 void xnet_free_msg(struct xnet_msg *);
 
@@ -121,5 +136,11 @@ void __xnet_msg_fill_cmd(struct xnet_msg *m, u64 cmd, u64 arg0, u64 arg1)
     } while (0)
 
 TRACING_FLAG_DEF(xnet);
+
+#ifdef USE_XNET_SIMPLE
+int st_init(void);
+void st_destroy(void);
+int xnet_update_ipaddr(u64, int, char *ipaddr[], short port[]);
+#endif
 
 #endif
