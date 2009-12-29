@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 09:08:41 macan>
+ * Time-stamp: <2009-12-29 13:58:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,9 +45,9 @@ void mds_fe_dispatch(struct xnet_msg *msg)
         if (msg->tx.cmd & HVFS_CLT2MDS_NOCACHE)
             goto dh_lookup;
         /* FIXME: how to origanize reqin_site? */
-        if (unlikely(mds_get_recent_reqno(msg->reqin_site) >= msg->tx.reqno)) {
+        if (unlikely(mds_get_recent_reqno(msg->tx.ssite_id) >= msg->tx.reqno)) {
             /* resend request */
-            tx = mds_txc_search(&hmo.txc, msg->reqin_site, msg->tx.reqno);
+            tx = mds_txc_search(&hmo.txc, msg->tx.ssite_id, msg->tx.reqno);
             if (!tx) {
                 /* already evicted, respond w/ err */
                 err = -ETXCED;
@@ -64,10 +64,10 @@ void mds_fe_dispatch(struct xnet_msg *msg)
     dh_lookup:
         /* search in the DH */
         /* FIXME: DH load blocking may happen */
-        e = mds_dh_search(hmo.dh, hi);
-        if (!e) {
+        e = mds_dh_search(&hmo.dh, hi->puuid);
+        if (IS_ERR(e)) {
             /* reply err = -ENOENT */
-            err = -ENOENT;
+            err = PTR_ERR(e);
             goto out;
         }
         /* search in the bitmap(optional) */
@@ -90,6 +90,7 @@ void mds_fe_dispatch(struct xnet_msg *msg)
                     goto out;
                 }
             }
+            hi->itbid = itbid;
         }
         return mds_client_dispatch(msg);
     } else if (HVFS_IS_MDS(msg->site)) {
@@ -102,7 +103,7 @@ void mds_fe_dispatch(struct xnet_msg *msg)
         return mds_root_dispatch(msg);
     }
     hvfs_err(mds, "MDS front-end handle INVALID request <0x%lx %ld>\n", 
-             msg->reqin_site, msg->reqno);
+             msg->tx.ssite_id, msg->reqno);
 out:
     mds_fe_handle_err(msg, err);
     return;

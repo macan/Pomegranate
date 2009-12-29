@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 20:48:48 macan>
+ * Time-stamp: <2009-12-29 11:42:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -71,7 +71,8 @@ u32 mds_dh_hash(u64 uuid)
 struct dhe *mds_dh_insert(struct dh *dh, struct hvfs_index *hi)
 {
     struct regular_hash *rh;
-    struct dhe *e;
+    struct dhe *e, *tpos;
+    struct hlist_node *pos;
     int i;
 
     i = mds_dh_hash(hi->uuid);
@@ -88,10 +89,23 @@ struct dhe *mds_dh_insert(struct dh *dh, struct hvfs_index *hi)
     e->puuid = hi->puuid;
     e->salt = hi->psalt;
 
+    i = 0;
     xlock_lock(&rh->lock);
-    hlist_add_head(&e->hlist, &rh->h);
+    hlist_for_each_entry(tpos, pos, &rh->h, hlist) {
+        if (e->uuid == tpos->uuid) {
+            i = 1;
+            break;
+        }
+    }
+    if (!i)
+        hlist_add_head(&e->hlist, &rh->h);
     xlock_unlock(&rh->lock);
 
+    if (i) {
+        xfree(e);
+        return ERR_PTR(-EEXIST);
+    }
+    
     return e;
 }
 
@@ -111,6 +125,7 @@ int mds_dh_remove(struct dh *dh, u64 uuid)
     hlist_for_each_entry_safe(e, pos, n, &rh->h, hlist) {
         if (e->uuid == uuid) {
             hlist_del(&e->hlist);
+            hvfs_debug(mds, "Remove dir:%8ld in DH w/  %p\n", uuid, e);
             xfree(e);
         }
     }
@@ -125,10 +140,10 @@ int mds_dh_remove(struct dh *dh, u64 uuid)
  *
  * Error Conversion: kernel err-ptr
  */
-struct dhe *mds_dh_load(struct dh *dh, struct hvfs_index *hi)
+struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
 {
     struct hvfs_md_reply *hmr;
-    struct hvfs_index *rhi;
+    struct hvfs_index thi, *rhi;
     struct xnet_msg *msg;
     struct chp *p;
     struct dhe *e = ERR_PTR(-ENOTEXIST);
@@ -144,17 +159,43 @@ struct dhe *mds_dh_load(struct dh *dh, struct hvfs_index *hi)
         }
     }
 
+    /* check if we are loading the GDT DH */
+    if (unlikely(duuid == hmi.gdt_uuid)) {
+        /* ok, we should send the request to the ROOT server */
+        
+        goto send_msg;
+    }
+
+    /* prepare the hvfs_index */
+    memset(&thi, 0, sizeof(thi));
+    thi.flag = INDEX_BY_UUID;
+    thi.uuid = duuid;
+    thi.hash = hvfs_hash(duuid, 0, 0, HASH_SEL_GDT);
+
+    e = mds_dh_search(dh, hmi.gdt_uuid);
+    if (IS_ERR(e)) {
+        hvfs_err(mds, "Hoo, we can NOT find the GDT uuid %ld(%ld).\n",
+                 hmi.gdt_uuid, duuid);
+        hvfs_err(mds, "This is a fatal error %ld! We must die.\n", 
+                 PTR_ERR(e));
+        ASSERT(0, mds);
+    }
+    thi.itbid = mds_get_itbid(e, thi.hash);
+
     /* find the MDS server */
-    p = ring_get_point(hi->puuid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
+    p = ring_get_point(thi.itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
     if (IS_ERR(p)) {
-        hvfs_err(mds, "ring_get_point() failed with %ld\n", PTR_ERR(p));
-        e = (struct dhe *)p;
+        hvfs_err(mds, "ring_get_point(%ld) failed with %ld\n", 
+                 thi.itbid, PTR_ERR(p));
+        e = ERR_PTR(-ECHP);
         goto out_free;
     }
     /* prepare the msg */
     xnet_msg_set_site(msg, p->site_id);
-    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_LD, hi->puuid, 0);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_LD, duuid, 0);
+    xnet_msg_add_data(msg, &thi, sizeof(thi));
 
+send_msg:
     err = xnet_send(hmo.xc, msg);
     if (err) {
         hvfs_err(mds, "xnet_send() failed with %d\n", err);
@@ -194,20 +235,22 @@ out_free:
  *
  * NOTE: for now, we do NOT evict any dh entries. If the memory is low, we
  * first try to free the bitmap slices.
+ *
+ * Error Conversion: kernel err-ptr
  */
-struct dhe *mds_dh_search(struct dh *dh, struct hvfs_index *hi)
+struct dhe *mds_dh_search(struct dh *dh, u64 duuid)
 {
     struct dhe *e;
     struct regular_hash *rh;
     struct hlist_node *l;
     int i, found = 0;
 
-    i = mds_dh_hash(hi->puuid);
+    i = mds_dh_hash(duuid);
     rh = dh->ht + i;
 
     xlock_lock(&rh->lock);
     hlist_for_each_entry(e, l, &rh->h, hlist) {
-        if (e->uuid == hi->puuid) {
+        if (e->uuid == duuid) {
             found = 1;
             break;
         }
@@ -217,9 +260,9 @@ struct dhe *mds_dh_search(struct dh *dh, struct hvfs_index *hi)
     if (unlikely(!found)) {
         /* Hoo, we have not found the directory. We need to request the
          * directory information from the GDT server */
-        e = mds_dh_load(dh, hi);
+        e = mds_dh_load(dh, duuid);
         if (IS_ERR(e)) {
-            hvfs_err(mds, "Hoo, loading DH %ld failed\n", hi->puuid);
+            hvfs_err(mds, "Hoo, loading DH %ld failed\n", duuid);
             goto out;
         }
     }
@@ -256,13 +299,14 @@ retry:
         } else if (b->offset > offset) {
             /* it means that we need to load the missing slice */
             xlock_unlock(&e->lock);
-            err = mds_bitmap_load(e, e->uuid, offset);
+            err = mds_bitmap_load(e, offset);
             if (err == -ENOTEXIST) {
                 offset = mds_bitmap_fallback(offset);
             } else if (err) {
                 /* some error occurs, we failed to the 0 position */
-                xlock_unlock(&e->lock);
-                return 0;
+                hvfs_err(mds, "Hoo, loading DHE %ld Bitmap %ld failed\n", 
+                         e->uuid, offset);
+                goto out;
             }
             goto retry;
         } else if (offset >= b->offset + XTABLE_BITMAP_SIZE) {
@@ -278,14 +322,15 @@ retry:
 
     /* Hoo, we have not found the bitmap slice. We need to request the
      * bitmap slice from the GDT server */
-    err = mds_bitmap_load(e, e->uuid, offset);
+    err = mds_bitmap_load(e, offset);
     if (err == -ENOTEXIST) {
         offset = mds_bitmap_fallback(offset);
     } else if (err) {
-        hvfs_err(mds, "Hoo, loading Bitmap %ld failed\n", offset);
+        hvfs_err(mds, "Hoo, loading DHE %ld Bitmap %ld failed\n", 
+                 e->uuid, offset);
         goto out;
     }
     goto retry;
 out:
-    return err;
+    return 0;
 }

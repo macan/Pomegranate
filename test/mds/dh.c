@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 20:53:29 macan>
+ * Time-stamp: <2009-12-29 11:06:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,27 +57,23 @@ int dh_insert(u64 uuid)
         hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
         goto out;
     }
-    hvfs_info(mds, "Insert dir:%ld in DH w/  %p\n", uuid, e);
+    hvfs_info(mds, "Insert dir:%8ld in DH w/  %p\n", uuid, e);
 out:
     return err;
 }
 
 int dh_search(u64 uuid)
 {
-    struct hvfs_index hi;
     struct dhe *e;
     int err = 0;
 
-    memset(&hi, 0, sizeof(hi));
-    hi.puuid = uuid;
-
-    e = mds_dh_search(&hmo.dh, &hi);
+    e = mds_dh_search(&hmo.dh, uuid);
     if (IS_ERR(e)) {
         hvfs_err(mds, "mds_dh_search() failed %ld\n", PTR_ERR(e));
         err = PTR_ERR(e);
         goto out;
     }
-    hvfs_info(mds, "Search dir:%ld in DH hit %p\n", uuid, e);
+    hvfs_info(mds, "Search dir:%8ld in DH hit %p\n", uuid, e);
 out:
     return err;
 }
@@ -85,6 +81,42 @@ out:
 int dh_remove(u64 uuid)
 {
     return mds_dh_remove(&hmo.dh, uuid);
+}
+
+int bitmap_insert(u64 uuid, u64 offset)
+{
+    struct dhe *e;
+    struct itbitmap *b;
+    int err = 0;
+
+    b = xzalloc(sizeof(*b));
+    if (!b) {
+        hvfs_err(mds, "xzalloc() struct itbitmap failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    INIT_LIST_HEAD(&b->list);
+    b->offset = (offset / XTABLE_BITMAP_SIZE) * XTABLE_BITMAP_SIZE;
+    b->flag = BITMAP_END;
+    b->array[0] = 0xff;
+
+    e = mds_dh_search(&hmo.dh, uuid);
+    if (IS_ERR(e)) {
+        hvfs_err(mds, "mds_dh_search() failed %ld\n", PTR_ERR(e));
+        err = PTR_ERR(e);
+        goto out_free;
+    }
+    err = __mds_bitmap_insert(e, b);
+    if (err) {
+        hvfs_err(mds, "__mds_bitmap_insert() failed %d\n", err);
+        goto out_free;
+    }
+
+out:
+    return err;
+out_free:
+    xfree(b);
+    return err;
 }
 
 int main(int argc, char *argv[])
@@ -119,15 +151,22 @@ int main(int argc, char *argv[])
     for (i = 0; i < tc; i++) {
         dh_search(i);
     }
-    
+
     /* remove from DH */
     for (i = 0; i < tc; i++) {
-        dh_remove(10);
+        dh_remove(i);
     }
+
+    /* let us insert the GDT DH */
+    hvfs_info(mds, ">>>>>>>>>>>>\n");
+    dh_insert(0);
+    hvfs_info(mds, ">>>>>>>>>>>>\n");
+    bitmap_insert(0, 0);
+    hvfs_info(mds, ">>>>>>>>>>>>\n");
     
     /* re-search in DH */
     for (i = 0; i < tc; i++) {
-        dh_search(10);
+        dh_search(i);
     }
 
     mds_destroy();

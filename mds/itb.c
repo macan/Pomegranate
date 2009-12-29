@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 19:55:48 macan>
+ * Time-stamp: <2009-12-28 21:34:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,7 +95,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
     p = ring_get_point(itbid, psalt, hmo.chring[CH_RING_MDSL]);
     if (IS_ERR(p)) {
         hvfs_debug(mds, "ring_get_point() failed with %ld\n", PTR_ERR(p));
-        i = (struct itb *)p;
+        i = ERR_PTR(-ECHP);
         goto out;
     }
     /* prepare the msg */

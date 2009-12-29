@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 21:47:46 macan>
+ * Time-stamp: <2009-12-29 14:10:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,8 +26,9 @@
 #include "xtable.h"
 #include "tx.h"
 
-static inline void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr, 
-                                  int err)
+static inline 
+void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr, 
+                    int err)
 {
     tx->rpy = xnet_alloc_msg(XNET_MSG_CACHE);
     if (!tx->rpy) {
@@ -45,7 +46,7 @@ static inline void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr,
     } else
         xnet_msg_set_err(tx->rpy, hmr->err);
         
-    xnet_msg_set_site(tx->rpy, rx->reqin_site);
+    xnet_msg_set_site(tx->rpy, tx->reqin_site);
     xnet_msg_fill_tx(tx->rpy, XNET_MSG_RPY, XNET_NEED_DATA_FREE, hmo.site_id,
                      tx->reqin_site);
     xnet_msg_fill_reqno(tx->rpy, tx->req->tx.reqno);
@@ -53,11 +54,11 @@ static inline void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr,
 
     mds_txc_add(&hmo.txc, tx);
     xnet_wait_group_add(mds_gwg, tx->rpy);
-    if (xnet_isend(tx->rpy)) {
+    if (xnet_isend(hmo.xc, tx->rpy)) {
         hvfs_err(mds, "xnet_isend() failed\n");
         /* do not retry myself, client is forced to retry */
         xnet_wait_group_del(mds_gwg, tx->rpy);
-        /* FIXME: free the tx->rpy! */
+        /* FIXME: should we free the tx->rpy? */
     }
     /* FIXME: state machine of TX, MSG */
     mds_tx_done(tx);

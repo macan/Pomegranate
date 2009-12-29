@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 20:49:00 macan>
+ * Time-stamp: <2009-12-28 22:17:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,7 +79,7 @@ struct hvfs_mds_info
 #define HMI_STATE_LASTPAUSE     0x04
     u32 state;
     u64 gdt_salt;
-    u64 gdt_uuid;
+    u64 gdt_uuid;               /* special UUID for GDT */
     u64 root_salt;
     u64 root_uuid;
     u64 group;
@@ -236,9 +236,10 @@ void dconf_destroy(void);
 /* for dh.c */
 int mds_dh_init(struct dh *, int);
 void mds_dh_destroy(struct dh *);
-struct dhe *mds_dh_load(struct dh *, struct hvfs_index *);
+struct dhe *mds_dh_load(struct dh *, u64);
 struct dhe *mds_dh_insert(struct dh *, struct hvfs_index *);
-struct dhe *mds_dh_search(struct dh *, struct hvfs_index *);
+struct dhe *mds_dh_search(struct dh *, u64);
 int mds_dh_remove(struct dh *, u64);
+u64 mds_get_itbid(struct dhe *, u64);
 
 #endif

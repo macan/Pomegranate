@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 17:56:37 macan>
+ * Time-stamp: <2009-12-29 11:32:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,11 +68,11 @@ int mds_bitmap_lookup(struct itbitmap *b, u64 offset)
  */
 u64 mds_bitmap_fallback(u64 offset)
 {
-    int nr = ffs(offset);       /* NOTE: we just use the low 32 bits */
+    int nr = fls(offset);       /* NOTE: we just use the low 32 bits */
 
     if (!nr)
         return 0;
-    __clear_bit(nr, &offset);
+    __clear_bit(nr - 1, &offset);
     return offset;
 }
 
@@ -97,7 +97,7 @@ void mds_bitmap_update(struct itbitmap *o, struct itbitmap *n)
  *
  * Return Value: -ENOEXIST means the slice is not exist!
  */
-int mds_bitmap_load(struct dhe *e, u64 uuid, u64 offset)
+int mds_bitmap_load(struct dhe *e, u64 offset)
 {
     struct hvfs_md_reply *hmr;
     struct xnet_msg *msg;
@@ -115,16 +115,23 @@ int mds_bitmap_load(struct dhe *e, u64 uuid, u64 offset)
         }
     }
 
+    /* check if we are loading the GDT bitmap */
+    if (unlikely(e->uuid == hmi.gdt_uuid)) {
+        /* ok, we should send the request to the ROOT server */
+        goto send_msg;
+    }
+    
     /* find the MDS server */
-    p = ring_get_point(uuid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
+    p = ring_get_point(e->uuid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
     if (IS_ERR(p)) {
         hvfs_err(mds, "ring_get_point() failed with %ld\n", PTR_ERR(p));
         return PTR_ERR(p);
     }
     /* prepare the msg */
     xnet_msg_set_site(msg, p->site_id);
-    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_LB, uuid, offset);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_LB, e->uuid, offset);
 
+send_msg:
     err = xnet_send(hmo.xc, msg);
     if (err) {
         hvfs_err(mds, "xnet_send() failed with %d\n", err);
@@ -143,22 +150,29 @@ int mds_bitmap_load(struct dhe *e, u64 uuid, u64 offset)
     }
     /* hey, we got some bitmap slice, let us insert them to the dhe list */
     xlock_lock(&e->lock);
-    list_for_each_entry(b, &e->bitmap, list) {
-        if (b->offset < offset)
-            continue;
-        if (b->offset == offset) {
-            /* hoo, someone insert the bitmap prior us, we just update our
-             * bitmap to the previous one */
-            mds_bitmap_update(b, bitmap);
-            break;
+    if (!list_empty(&e->bitmap)) {
+        list_for_each_entry(b, &e->bitmap, list) {
+            if (b->offset < offset)
+                continue;
+            if (b->offset == offset) {
+                /* hoo, someone insert the bitmap prior us, we just update our
+                 * bitmap to the previous one */
+                mds_bitmap_update(b, bitmap);
+                break;
+            }
+            if (b->offset > offset) {
+                /* ok, insert ourself prior this slice */
+                list_add_tail(&bitmap->list, &b->list);
+                /* FIXME: XNET clear the auto free flag */
+                xnet_clear_auto_free(msg->pair);
+                break;
+            }
         }
-        if (b->offset > offset) {
-            /* ok, insert ourself prior this slice */
-            list_add_tail(&bitmap->list, &b->list);
-            /* FIXME: XNET clear the auto free flag */
-            xnet_clear_auto_free(msg->pair);
-            break;
-        }
+    } else {
+        /* ok, this is an empty list */
+        list_add_tail(&bitmap->list, &e->bitmap);
+        /* FIXME: XNET clear the auto free flag */
+        xnet_clear_auto_free(msg->pair);
     }
     xlock_unlock(&e->lock);
 
@@ -167,3 +181,36 @@ out_free:
     return err;
 }
 
+/* __mds_bitmap_insert()
+ *
+ * This function is ONLY used by the UNIT TEST program
+ */
+int __mds_bitmap_insert(struct dhe *e, struct itbitmap *b)
+{
+    struct itbitmap *pos;
+    int err = -EEXIST;
+
+    xlock_lock(&e->lock);
+    if (!list_empty(&e->bitmap)) {
+        list_for_each_entry(pos, &e->bitmap, list) {
+            if (pos->offset < b->offset)
+                continue;
+            if (pos->offset == b->offset) {
+                mds_bitmap_update(pos, b);
+                break;
+            }
+            if (pos->offset > b->offset) {
+                list_add_tail(&b->list, &pos->list);
+                err = 0;
+                break;
+            }
+        }
+    } else {
+        /* ok, this is an empty list */
+        list_add_tail(&b->list, &e->bitmap);
+        err = 0;
+    }
+    xlock_unlock(&e->lock);
+
+    return err;
+}

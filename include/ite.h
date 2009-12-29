@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-09 14:31:09 macan>
+ * Time-stamp: <2009-12-29 13:09:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,10 +46,14 @@ struct gdt_md
         struct mdu mdu;
         struct link_source ls;
     };
-    u64 puuid;
+    u64 puuid;                  /* parent uuid */
+    u64 salt;                   /* salt of myself */
+    u64 psalt;                  /* parent salt */
 };
 
-#define HVFS_MDU_SIZE   (sizeof(struct mdu) + sizeof(u64)) /* include GDT.puuid */
+#define HVFS_MDU_SIZE   (sizeof(struct mdu) + 3 * sizeof(u64)) /* include
+                                                                * GDT.puuid
+                                                                * etc. */
 
 /* ITB index table entry */
 struct ite 
