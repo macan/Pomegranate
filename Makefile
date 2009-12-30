@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-29 17:04:27 macan>
+# Time-stamp: <2009-12-29 17:08:34 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -58,6 +58,7 @@ install: unit_test
 	@scp $(TEST)/mds/cmd_sender.ut root@glnode09:~/cmd_sender
 	@scp $(TEST)/mds/tx.ut root@glnode09:~/tx
 	@scp $(TEST)/mds/dh.ut root@glnode09:~/dh
+	@scp $(TEST)/xnet/xnet.ut root@glnode09:~/xnet
 	@lagent -d glnode09 -u root -sc "time ~/cbht $(CBHT_ARGS)"
 	@lagent -d glnode09 -u root -sc "time ~/tx $(CBHT_ARGS)"
 

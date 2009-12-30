@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 17:00:39 macan>
+ * Time-stamp: <2009-12-30 21:26:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -69,11 +69,14 @@ static int mds_init_signal(void)
         err = errno;
         goto out;
     }
+    /* FIXME: mask the SIGINT for testing */
+#if 0
     err = sigaction(SIGINT, &ac, NULL);
     if (err) {
         err = errno;
         goto out;
     }
+#endif
     err = sigaction(SIGQUIT, &ac, NULL);
     if (err) {
         err = errno;

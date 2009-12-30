@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 21:34:14 macan>
+ * Time-stamp: <2009-12-30 17:29:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -100,7 +100,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
     }
     /* prepare the msg */
     xnet_msg_set_site(msg, p->site_id);
-    xnet_msg_add_data(msg, &si, sizeof(si));
+    xnet_msg_add_sdata(msg, &si, sizeof(si));
     xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_ITB, 0, 0);
     
     ret = xnet_send(hmo.xc, msg);

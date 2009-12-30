@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-29 16:31:32 macan>
+ * Time-stamp: <2009-12-30 20:53:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -53,6 +53,7 @@ struct xnet_msg_tx
     u64 arg1;
     u64 reqno;
     u64 len;                    /* total data len */
+    u64 handle;                 /* this is the pointer to the request */
 };
 
 struct xnet_msg
@@ -69,15 +70,24 @@ struct xnet_msg
 #define XNET_MSG_NORMAL         0x01 /* normal allocation */
 #define XNET_MSG_CACHE          0x02 /* allocation based on cache */
     u8 alloc_flag;
-    u8 iov_alen;                /* alloc length */
-    u8 iov_ulen;                /* used number */
-    struct iovec *iov;
-#define xm_data iov[0].iov_base
+
+    u8 siov_alen;                /* alloc length */
+    u8 siov_ulen;                /* used number */
+    u8 riov_alen;
+    u8 riov_ulen;
+
+    struct iovec *siov;
+    struct iovec *riov;
+#define xm_data riov[0].iov_base
 
     struct xnet_context *xc;
     struct xnet_msg *pair;
     struct list_head list;
     void *private;
+
+#ifdef USE_XNET_SIMPLE
+    sem_t event;
+#endif
 };
 
 struct xnet_type_ops
@@ -93,12 +103,17 @@ struct xnet_context
     u8 type;
     int pt_num;
     int service_port;
-    struct xnet_type_ops *ops;
+    struct xnet_type_ops ops;
+#ifdef USE_XNET_SIMPLE
+    u64 site_id;
+    sem_t wait;
+    struct list_head list;
+#endif
 };
 
 /* APIs */
 #ifdef USE_XNET_SIMPLE
-struct xnet_context *xnet_register_type(u8, u16, struct xnet_type_ops *);
+struct xnet_context *xnet_register_type(u8, u16, u64, struct xnet_type_ops *);
 #else
 struct xnet_context *xnet_register_type(u8, struct xnet_type_ops *);
 #endif
@@ -106,6 +121,9 @@ int xnet_unregister_type(struct xnet_context *);
 
 struct xnet_msg *xnet_alloc_msg(u8 alloc_flag);
 void xnet_free_msg(struct xnet_msg *);
+
+int xnet_msg_add_sdata(struct xnet_msg *, void *, int);
+int xnet_msg_add_rdata(struct xnet_msg *, void *, int);
 
 /* ERR convention:
  *
@@ -116,15 +134,22 @@ int xnet_send(struct xnet_context *xc, struct xnet_msg *m);
 
 #define xnet_msg_set_site(m, id) ((m)->tx.dsite_id = id)
 
-#define xnet_msg_add_data(m, addr, len) do {    \
-    } while (0)
-
 static inline 
 void __xnet_msg_fill_cmd(struct xnet_msg *m, u64 cmd, u64 arg0, u64 arg1) 
 {
     m->tx.arg0 = arg0;
     m->tx.arg1 = arg1;
     m->tx.cmd = cmd;
+}
+
+static inline
+void xnet_msg_fill_tx(struct xnet_msg *m, u8 type, u16 flag, u64 ssite, 
+                      u64 dsite)
+{
+    m->tx.type = type;
+    m->tx.flag = flag;
+    m->tx.ssite_id = ssite;
+    m->tx.dsite_id = dsite;
 }
 
 #define xnet_msg_fill_cmd(m, cmd, arg0, arg1) do {   \
@@ -141,6 +166,7 @@ TRACING_FLAG_DEF(xnet);
 int st_init(void);
 void st_destroy(void);
 int xnet_update_ipaddr(u64, int, char *ipaddr[], short port[]);
+void xnet_wait_any(struct xnet_context *xc);
 #endif
 
 #endif

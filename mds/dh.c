@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-29 11:42:51 macan>
+ * Time-stamp: <2009-12-30 17:31:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -193,7 +193,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     /* prepare the msg */
     xnet_msg_set_site(msg, p->site_id);
     xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_LD, duuid, 0);
-    xnet_msg_add_data(msg, &thi, sizeof(thi));
+    xnet_msg_add_sdata(msg, &thi, sizeof(thi));
 
 send_msg:
     err = xnet_send(hmo.xc, msg);
