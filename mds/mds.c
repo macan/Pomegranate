@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-30 21:26:18 macan>
+ * Time-stamp: <2010-01-04 12:39:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -147,6 +147,8 @@ static void *mds_timer_thread_main(void *arg)
         }
         /* then, checking profiling */
         dump_profiling(time(NULL));
+        /* next, checking async unlink */
+        async_unlink(time(NULL));
         /* FIXME: */
     }
 
@@ -185,6 +187,7 @@ int mds_setup_timers(void)
     }
     interval = __gcd(hmo.conf.profiling_thread_interval,
                      hmo.conf.txg_interval);
+    interval = __gcd(hmo.conf.unlink_interval, interval);
     if (interval) {
         value.it_interval.tv_sec = interval;
         value.it_interval.tv_usec = 1;
@@ -218,6 +221,7 @@ void mds_reset_itimer(void)
     }
     interval = __gcd(hmo.conf.profiling_thread_interval,
                      hmo.conf.txg_interval);
+    interval = __gcd(hmo.conf.unlink_interval, interval);
     if (interval) {
         value.it_interval.tv_sec = interval;
         value.it_interval.tv_usec = 0;
@@ -227,7 +231,7 @@ void mds_reset_itimer(void)
         if (err) {
             goto out;
         }
-        hvfs_debug(mds, "OK, we reset the itimer to %d second(s).\n", 
+        hvfs_info(mds, "OK, we reset the itimer to %d second(s).\n", 
                    interval);
     }
 out:
@@ -293,6 +297,11 @@ int mds_init(int bdepth)
     if (err)
         goto out_cbht;
 
+    /* FIXME: init the local async unlink thead */
+    err = unlink_thread_init();
+    if (err)
+        goto out_unlink;
+    
     /* FIXME: init the async threads' pool */
 
     /* FIXME: waiting for the notification from R2 */
@@ -302,6 +311,7 @@ int mds_init(int bdepth)
     /* ok to run */
     hmo.state = HMO_STATE_RUNNING;
 
+out_unlink:
 out_cbht:
 out_tx:
 out_dh:
@@ -320,6 +330,9 @@ void mds_destroy(void)
         pthread_join(hmo.timer_thread, NULL);
 
     sem_destroy(&hmo.timer_sem);
+
+    /* stop the unlink thread */
+    unlink_thread_destroy();
 
     /* stop the commit threads */
     mds_destroy_tx();

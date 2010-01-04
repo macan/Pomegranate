@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-30 17:29:13 macan>
+ * Time-stamp: <2010-01-04 13:39:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1093,4 +1093,76 @@ void itb_dump(struct itb *i)
         hvfs_info(mds, "%s\n", line);
     }
     return;
+}
+
+/* async_unlink()
+ */
+void async_unlink(time_t t)
+{
+    if (!hmo.conf.unlink_interval)
+        return;
+    if (t < hmo.unlink_ts + hmo.conf.unlink_interval) {
+        return;
+    }
+    hmo.unlink_ts = t;
+    hvfs_debug(mds, "Do unlink dangling ITEs.\n");
+    sem_post(&hmo.unlink_sem);
+}
+
+/* async_unlink_local()
+ *
+ * Delete the dangling ITEs within this local node periodically
+ */
+void *async_unlink_local(void *arg)
+{
+    sigset_t set;
+    int err = 0;
+
+    /* first, let us block the SIGALRM */
+    sigemptyset(&set);
+    sigaddset(&set, SIGALRM);
+    pthread_sigmask(SIG_BLOCK, &set, NULL);
+
+    while (!hmo.unlink_thread_stop) {
+        err = sem_wait(&hmo.unlink_sem);
+        if (err == EINTR)
+            continue;
+        hvfs_debug(mds, "Unlink thread wakeup to clean the dangling ITEs.\n");
+        /* ok, let us scan the ITBs */
+        /* FIXME */
+    }
+
+    return ERR_PTR(err);
+}
+
+/* unlink_thread_init()
+ */
+int unlink_thread_init(void)
+{
+    int err = 0;
+    
+    sem_init(&hmo.unlink_sem, 0, 0);
+    hmo.unlink_thread_stop = 0;
+    hmo.unlink_ts = 0;
+
+    err = pthread_create(&hmo.unlink_thread, NULL, &async_unlink_local,
+                         NULL);
+    if (err) {
+        hvfs_err(mds, "create unlink thread failed %d\n", err);
+        goto out;
+    }
+out:
+    return err;
+}
+
+/* unlink_thread_destroy()
+ */
+void unlink_thread_destroy()
+{
+    hmo.unlink_thread_stop = 1;
+    sem_post(&hmo.unlink_sem);
+    if (hmo.unlink_thread)
+        pthread_join(hmo.unlink_thread, NULL);
+
+    sem_destroy(&hmo.unlink_sem);
 }

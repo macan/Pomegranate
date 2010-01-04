@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 22:17:00 macan>
+ * Time-stamp: <2010-01-04 11:48:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -59,6 +59,7 @@ struct mds_conf
     /* intervals */
     int profiling_thread_interval;
     int txg_interval;
+    int unlink_interval;
 
     /* conf */
 #define HVFS_MDS_CHRECHK        0x01 /* recheck CH ring in fe dispatch */
@@ -118,15 +119,20 @@ struct hvfs_mds_object
     u64 state;
 
     /* the following region is used for threads */
+    time_t unlink_ts;
+
     sem_t timer_sem;            /* for timer thread wakeup */
     sem_t commit_sem;           /* for commit thread wakeup */
+    sem_t unlink_sem;           /* for unlink thread wakeup */
     
     pthread_t timer_thread;
-    pthread_t *commit_thread;
+    pthread_t *commit_thread;   /* array of commit threads */
+    pthread_t unlink_thread;
 
     u8 timer_thread_stop;       /* running flag for timer thread */
     u8 commit_thread_stop;      /* running flag for commit thread */
     u8 dconf_thread_stop;       /* running flag for dconf thread */
+    u8 unlink_thread_stop;      /* running flag for unlink thread */
 };
 
 extern struct hvfs_mds_info hmi;
@@ -138,6 +144,7 @@ struct dconf_req
 #define DCONF_ECHO_CONF         0
 #define DCONF_SET_TXG_INTV      1
 #define DCONF_SET_PROF_INTV     2
+#define DCONF_SET_UNLINK_INTV   3
     u64 cmd;
     u64 arg0;
 };
@@ -185,6 +192,9 @@ int itb_readdir(struct hvfs_index *, struct itb *, struct hvfs_md_reply *);
 int itb_cache_init(struct itb_cache *, int);
 int itb_cache_destroy(struct itb_cache *);
 void itb_dump(struct itb *);
+void async_unlink(time_t t);
+int unlink_thread_init(void);
+void unlink_thread_destroy(void);
 
 /* for tx.c */
 struct hvfs_tx *mds_alloc_tx(u16, struct xnet_msg *);

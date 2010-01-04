@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-23 11:53:56 macan>
+ * Time-stamp: <2010-01-04 11:27:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,7 +52,9 @@ int main(int argc, char *argv[])
         fprintf(stdout, 
                 "CMD [0, echo_info]\n"
                 "    [1, set_txg_intv]\n"
-                "    [2, set_prof_intv]\n");
+                "    [2, set_prof_intv]\n"
+                "    [3, set_unlk_intv]\n"
+            );
         fprintf(stdout,
                 "INPUT CMD > ");
         err = getline(&line, &len, stdin);

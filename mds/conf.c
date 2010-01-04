@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 19:26:53 macan>
+ * Time-stamp: <2010-01-04 11:27:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,6 +50,13 @@ static void __dconf_cmd_action(struct dconf_req *dcr, int fd)
         if (dcr->arg0 >= 0) {
             hvfs_info(mds, "Changing Prof Interval to %ld\n", dcr->arg0);
             hmo.conf.profiling_thread_interval = dcr->arg0;
+        }
+        mds_reset_itimer();
+        break;
+    case DCONF_SET_UNLINK_INTV:
+        if (dcr->arg0 >= 0) {
+            hvfs_info(mds, "Changing UNLK Interval to %ld\n", dcr->arg0);
+            hmo.conf.unlink_interval = dcr->arg0;
         }
         mds_reset_itimer();
         break;
