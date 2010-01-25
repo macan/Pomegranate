@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-29 11:32:22 macan>
+ * Time-stamp: <2010-01-25 19:21:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -179,6 +179,13 @@ send_msg:
 out_free:
     xnet_free_msg(msg);
     return err;
+}
+
+/* mds_bitmap_free()
+ */
+void mds_bitmap_free(struct itbitmap *b)
+{
+    xfree(b);
 }
 
 /* __mds_bitmap_insert()

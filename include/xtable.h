@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 09:00:09 macan>
+ * Time-stamp: <2010-01-25 20:25:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -179,6 +179,7 @@ int mds_bitmap_lookup(struct itbitmap *, u64);
 u64 mds_bitmap_fallback(u64);
 void mds_bitmap_update(struct itbitmap *, struct itbitmap *);
 int mds_bitmap_load(struct dhe *, u64);
+void mds_bitmap_free(struct itbitmap *);
 int __mds_bitmap_insert(struct dhe *, struct itbitmap *);
 
 #endif

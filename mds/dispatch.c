@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 14:07:53 macan>
+ * Time-stamp: <2010-01-25 17:27:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -85,7 +85,7 @@ int mds_client_dispatch(struct xnet_msg *msg)
     return 0;
 }
 
-void mds_mds_dispatch(struct xnet_msg *msg)
+int mds_mds_dispatch(struct xnet_msg *msg)
 {
     if (msg->tx.cmd == HVFS_MDS2MDS_FWREQ) {
         /* FIXME: forward request */
@@ -101,16 +101,20 @@ void mds_mds_dispatch(struct xnet_msg *msg)
         /* FIXME: load dir hash entry, just return the hvfs_index */
 /*         mds_ldh(msg); */
     }
+    return 0;
 }
 
-void mds_mdsl_dispatch(struct xnet_msg *msg)
+int mds_mdsl_dispatch(struct xnet_msg *msg)
 {
+    return 0;
 }
 
-void mds_ring_dispatch(struct xnet_msg *msg)
+int mds_ring_dispatch(struct xnet_msg *msg)
 {
+    return 0;
 }
 
-void mds_root_dispatch(struct xnet_msg *msg)
+int mds_root_dispatch(struct xnet_msg *msg)
 {
+    return 0;
 }

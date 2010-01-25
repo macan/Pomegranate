@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 14:08:40 macan>
+ * Time-stamp: <2010-01-25 17:02:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -67,8 +67,10 @@ void xnet_free_msg(struct xnet_msg *msg)
         if (msg->tx.type == XNET_MSG_REQ) {
             /* check and free the siov */
             xnet_msg_free_sdata(msg);
+            xnet_msg_free_rdata(msg);
         } else if (msg->tx.type == XNET_MSG_RPY) {
             /* check and free the riov */
+            xnet_msg_free_sdata(msg);
             xnet_msg_free_rdata(msg);
         } else {
             /* FIXME: do we need to free the data region */

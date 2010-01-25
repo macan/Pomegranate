@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 22:11:25 macan>
+ * Time-stamp: <2010-01-25 21:19:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -263,6 +263,16 @@ static inline u32 hvfs_hash_gdt(u64 key)
     return RSHash((char *)(&key), sizeof(u64));
 }
 
+static inline u64 hvfs_hash_vsite(u64 key1, u64 key2, u64 key2len)
+{
+    u64 val1;
+
+    val1 = APHash((char *)key2, key2len);
+    val1 <<= 32;
+    val1 ^= RSHash((char *)&key1, sizeof(u64));
+    return val1;
+}
+
 u64 hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel)
 {
     switch (sel) {
@@ -279,6 +289,9 @@ u64 hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel)
         break;
     case HASH_SEL_GDT:
         return hvfs_hash_gdt(key1);
+        break;
+    case HASH_SEL_VSITE:
+        return hvfs_hash_vsite(key1, key2, key2len);
         break;
     default:
         hvfs_err(lib, "Invalid hash function selector.\n");

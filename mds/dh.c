@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 09:53:10 macan>
+ * Time-stamp: <2010-01-25 19:20:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -116,6 +116,7 @@ int mds_dh_remove(struct dh *dh, u64 uuid)
     struct regular_hash *rh;
     struct dhe *e;
     struct hlist_node *pos, *n;
+    struct itbitmap *b, *pos2;
     int i;
 
     i = mds_dh_hash(uuid);
@@ -126,6 +127,11 @@ int mds_dh_remove(struct dh *dh, u64 uuid)
         if (e->uuid == uuid) {
             hlist_del(&e->hlist);
             hvfs_debug(mds, "Remove dir:%8ld in DH w/  %p\n", uuid, e);
+            /* free the bitmap list */
+            list_for_each_entry_safe(b, pos2, &e->bitmap, list) {
+                list_del(&b->list);
+                mds_bitmap_free(b);
+            }
             xfree(e);
         }
     }

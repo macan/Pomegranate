@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 19:51:43 macan>
+ * Time-stamp: <2010-01-25 21:21:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -185,10 +185,10 @@ void ring_dump(struct chring *r)
     if (!r)
         return;
 
-    hvfs_info(lib, "Ring %d with %d(%d) entries:\n", r->group, 
-              r->used, r->alloc);
+    hvfs_debug(lib, "Ring %d with %d(%d) entries:\n", r->group, 
+               r->used, r->alloc);
     for (i = 0; i < r->used; i++) {
-        hvfs_info(lib, "%16d: %50ld\n", i, r->array[i].point);
+        hvfs_debug(lib, "%16d: %50lu\n", i, r->array[i].point);
     }
 }
 

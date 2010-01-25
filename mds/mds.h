@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 10:30:13 macan>
+ * Time-stamp: <2010-01-25 21:10:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,6 +63,7 @@ struct mds_conf
     int cbht_bucket_depth;      /* CBHT bucket depth */
     int itb_cache;
     int async_unlink;           /* enable/disable async unlink */
+    int ring_vid_max;           /* max # of vid in the ring(AUTO) */
 
     /* intervals */
     int profiling_thread_interval;
@@ -166,12 +167,15 @@ int mds_init(int bdepth);
 void mds_destroy(void);
 void mds_reset_itimer(void);
 
+/* for fe.c */
+int mds_fe_dispatch(struct xnet_msg *msg);
+
 /* for dispatch.c */
 int mds_client_dispatch(struct xnet_msg *msg);
-void mds_mds_dispatch(struct xnet_msg *msg);
-void mds_mdsl_dispatch(struct xnet_msg *msg);
-void mds_ring_dispatch(struct xnet_msg *msg);
-void mds_root_dispatch(struct xnet_msg *msg);
+int mds_mds_dispatch(struct xnet_msg *msg);
+int mds_mdsl_dispatch(struct xnet_msg *msg);
+int mds_ring_dispatch(struct xnet_msg *msg);
+int mds_root_dispatch(struct xnet_msg *msg);
 
 /* for cbht.c */
 struct bucket *cbht_bucket_alloc(int);

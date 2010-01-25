@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 08:49:32 macan>
+ * Time-stamp: <2010-01-25 17:11:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -41,7 +41,7 @@
 
 #define HVFS_SITE_TYPE_MASK     (0x7 << 17)
 
-#define HVFS_IS_CLIENT(site) (((site & HVFS_SITE_TYPE_MASK) >> 17) ==   \
+#define HVFS_IS_CLIENT(site) ((((site) & HVFS_SITE_TYPE_MASK) >> 17) == \
                               HVFS_SITE_TYPE_CLIENT)
 
 #define HVFS_IS_MDS(site) (((site & HVFS_SITE_TYPE_MASK) >> 17) ==  \
