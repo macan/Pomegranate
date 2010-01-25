@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 14:35:53 macan>
+ * Time-stamp: <2010-01-25 15:49:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -265,7 +265,7 @@ int mds_init(int bdepth)
     hmo.conf.txg_interval = 0;
     hmo.conf.option = HVFS_MDS_ITB_RWLOCK;
     hmo.conf.max_async_unlink = 1024;
-    hmo.conf.async_unlink = 1;  /* enable async unlink */
+    hmo.conf.async_unlink = 0;  /* enable async unlink */
     hmo.conf.unlink_interval = 2;
     hmo.conf.txc_hash_size = 1024;
     hmo.conf.txc_ftx = 1;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 14:34:51 macan>
+ * Time-stamp: <2010-01-25 15:49:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -423,11 +423,16 @@ void ite_unlink(struct ite *e, struct itb *i, u64 offset, u64 pos)
         /* normal file */
         e->s.mdu.nlink--;
         if (!e->s.mdu.nlink) {
-            e->flag = ((e->flag & ~ITE_STATE_MASK) | ITE_UNLINKED);
             /* ok, we add this itb in the async_unlink list if the
              * configration saied that :) */
-            if (hmo.conf.async_unlink && unlikely(list_empty(&i->h.unlink)))
-                list_add_tail(&i->h.unlink, &hmo.async_unlink);
+            if (hmo.conf.async_unlink) {
+                e->flag = ((e->flag & ~ITE_STATE_MASK) | ITE_UNLINKED);
+                if (unlikely(list_empty(&i->h.unlink)))
+                    list_add_tail(&i->h.unlink, &hmo.async_unlink);
+            } else {
+                /* delete the entry imediately */
+                itb_del_ite(i,e, offset, pos);
+            }
         } else
             e->flag = ((e->flag & ~ITE_STATE_MASK) | ITE_SHADOW);
     } else if (e->flag & ITE_FLAG_LS) {

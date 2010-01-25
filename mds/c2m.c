@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 14:08:12 macan>
+ * Time-stamp: <2010-01-25 15:47:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,11 +54,11 @@ void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr,
                err, tx->reqin_site, hmr->len, hmr->flag);
 
     hmr->err = err;
-    if (!hmr->err) {
 #ifdef XNET_EAGER_WRITEV
-        xnet_msg_add_sdata(tx->rpy, &tx->rpy->tx,
-                           sizeof(struct xnet_msg_tx));
+    xnet_msg_add_sdata(tx->rpy, &tx->rpy->tx,
+                       sizeof(struct xnet_msg_tx));
 #endif
+    if (!hmr->err) {
         xnet_msg_add_sdata(tx->rpy, hmr, sizeof(*hmr));
         if (hmr->len)
             xnet_msg_add_sdata(tx->rpy, hmr->data, hmr->len);

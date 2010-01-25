@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 14:47:54 macan>
+ * Time-stamp: <2010-01-25 15:51:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -493,7 +493,7 @@ int main(int argc, char *argv[])
 //    SET_TRACING_FLAG(mds, HVFS_DEBUG);
 
     if (HVFS_IS_CLIENT(self))
-        msg_send(dsite, 50000);
+        msg_send(dsite, 20000);
     else
         msg_wait(dsite);
 
