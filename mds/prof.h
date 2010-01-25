@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-22 17:18:56 macan>
+ * Time-stamp: <2010-01-25 13:44:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -77,6 +77,7 @@ struct mds_txg_prof
 
 struct mds_cbht_prof
 {
+    atomic64_t aitb;            /* # of active ITBs */
     atomic64_t lookup;          /* # of lookup */
     atomic64_t modify;          /* # of modify ops */
     atomic64_t split;           /* # of splits */
@@ -91,6 +92,7 @@ struct mds_itb_prof
     atomic64_t rsearch_depth;   /* total read search depth */
     atomic64_t wsearch_depth;   /* total write search depth */
     atomic64_t cowed;           /* # of COWed ITBs */
+    atomic64_t async_unlink;    /* # of async unlinks */
 };
 
 struct mds_prof
@@ -103,6 +105,7 @@ struct mds_prof
     struct mds_txg_prof txg;
     struct mds_cbht_prof cbht;
     struct mds_itb_prof itb;
+    struct xnet_prof *xnet;
 };
 
 #define mds_cbht_prof_rw(hi) do {                   \

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 10:22:12 macan>
+ * Time-stamp: <2010-01-25 08:46:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,7 +27,7 @@
 /* the general index structure between HVFS client and MDS */
 struct hvfs_index
 {
-    int len;                    /* the name length */
+    int namelen;                /* the name length */
 
 #define INDEX_BY_NAME           0x00000001 /* search by name */
 #define INDEX_BY_UUID           0x00000002 /* search by uuid */
@@ -60,10 +60,14 @@ struct hvfs_index
     u32 flag;
     u64 uuid;                   /* self uuid */
     u64 hash;                   /* hash value of the name, or manual set */
-    u64 itbid;                  /* uuid computed by client, or true uuid by MDS */
+    u64 itbid;              /* uuid computed by client, or true uuid by MDS */
     u64 puuid;                  /* parent uuid */
     u64 psalt;
-    void *data;                 /* MDS use: pointer to args */
+    union
+    {
+        void *data;                 /* MDS use: pointer to args */
+        u64 dlen;                   /* in transfer data payload */
+    };
     char name[0];
 };
 

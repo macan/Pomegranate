@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-29 14:11:33 macan>
+ * Time-stamp: <2010-01-25 10:19:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,7 +50,7 @@ void mds_send_reply(struct xnet_msg *msg, struct hvfs_md_reply *hmr,
     xnet_msg_fill_tx(rpy, XNET_MSG_RPY, XNET_NEED_DATA_FREE, hmo.site_id,
                      msg->tx.ssite_id);
     xnet_msg_fill_reqno(rpy, msg->tx.reqno);
-    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK | XNET_RPY_DATA);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_DATA, 0, 0);
 
     if (xnet_send(hmo.xc, rpy)) {
         hvfs_err(mds, "xnet_send() failed\n");

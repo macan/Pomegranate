@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 19:42:40 macan>
+ * Time-stamp: <2010-01-25 13:45:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,6 +32,51 @@ static inline u64 mds_rdtx()
     return atomic64_inc_return(&hmi.mi_tx);
 }
 
+/* mds_tx_fix_ccb()
+ *
+ * Note: this function fix the relationship between TX and TXG on COMMIT
+ * requests.
+ */
+static inline
+void mds_tx_fix_ccb(struct hvfs_tx *tx)
+{
+    if (tx->op == HVFS_TX_NORMAL) {
+        if (list_empty(&tx->ccb)) {
+            list_add_tail(&tx->ccb, &tx->txg->ccb_list);
+        }
+    }
+}
+
+/* fast allocate TX in TXC lru list */
+static inline
+struct hvfs_tx *mds_txc_alloc_tx(struct hvfs_txc *txc)
+{
+    struct list_head *l = NULL;
+    struct hvfs_tx *tx = NULL;
+    
+    xlock_lock(&txc->lock);
+    if (atomic_read(&txc->ftx) > MDS_TXC_MAX_FREE) {
+        /* ok, we need to free some memory for other modules */
+    }
+    if (atomic_read(&txc->ftx) > 0) {
+        atomic_dec(&txc->ftx);
+        l = txc->lru.next;
+        ASSERT(l != &txc->lru, mds);
+        list_del_init(l);
+    }
+    xlock_unlock(&txc->lock);
+
+    if (l) {
+        /* remove from the TXC */
+        tx = list_entry(l, struct hvfs_tx, lru);
+        if (!hlist_unhashed(&tx->hlist)) {
+            hvfs_debug(mds, "Remove TX %p from the TXC.\n", tx);
+            mds_txc_evict(txc, tx);
+        }
+    }
+    return tx;
+}
+
 struct hvfs_tx *mds_alloc_tx(u16 op, struct xnet_msg *req)
 {
     struct hvfs_tx *tx;
@@ -46,6 +91,7 @@ struct hvfs_tx *mds_alloc_tx(u16 op, struct xnet_msg *req)
         hvfs_debug(mds, "zalloc() hvfs_tx failed\n");
         return NULL;
     }
+    atomic_inc(&hmo.txc.total);
     
 init_tx:
     tx->op = op;
@@ -58,20 +104,36 @@ init_tx:
     atomic_set(&tx->ref, 1);
     INIT_LIST_HEAD(&tx->lru);
     INIT_LIST_HEAD(&tx->tx_list);
+    INIT_LIST_HEAD(&tx->ccb);
     INIT_HLIST_NODE(&tx->hlist);
 
     /* FIXME: insert in the TXC */
     mds_txc_add(&hmo.txc, tx);
+    mds_tx_fix_ccb(tx);
     /* FIXME: tx_list? */
 
     return tx;
 }
 
+/* mds_free_tx()
+ *
+ * Note: this function should NOT be called unless the TX need to be dropped
+ * immediately!
+ */
 void mds_free_tx(struct hvfs_tx *tx)
 {
     ASSERT(list_empty(&tx->lru), mds);
+    /* evict the TX, and we should set the tx->state to DONE to pass the
+     * assertation */
+    tx->state = HVFS_TX_DONE;
+    mds_txc_evict(&hmo.txc, tx);
+    
+    mds_put_tx(tx);
+    txg_put(tx->txg);
+
     xlock_lock(&hmo.txc.lock);
     list_add_tail(&tx->lru, &hmo.txc.lru);
+    atomic_inc(&hmo.txc.ftx);
     xlock_unlock(&hmo.txc.lock);
 }
 
@@ -144,7 +206,8 @@ int mds_init_txc(struct hvfs_txc *txc, int hsize, int ftx)
     }
 
     txc->hsize = hsize;
-    txc->ftx = ftx;
+    atomic_set(&txc->total, ftx);
+    atomic_set(&txc->ftx, ftx);
 out:
     return err;
 }
@@ -154,40 +217,12 @@ int mds_destroy_txc(struct hvfs_txc *txc)
     /* NOTE: there is no need to destroy the TXC actually */
     if (txc->txht)
         xfree(txc->txht);
-    txc->ftx = 0;
+    atomic_set(&txc->ftx, 0);
     return 0;
 }
 
-/* fast allocate TX in TXC lru list */
-struct hvfs_tx *mds_txc_alloc_tx(struct hvfs_txc *txc)
-{
-    struct list_head *l = NULL;
-    struct hvfs_tx *tx = NULL;
-    
-    xlock_lock(&txc->lock);
-    if (txc->ftx > MDS_TXC_MAX_FREE) {
-        /* ok, we need to free some memory for other modules */
-    }
-    if (txc->ftx > 0) {
-        txc->ftx--;
-        l = txc->lru.next;
-        ASSERT(l != &txc->lru, mds);
-        list_del_init(l);
-    }
-    xlock_unlock(&txc->lock);
-
-    if (l) {
-        /* remove from the TXC */
-        tx = list_entry(l, struct hvfs_tx, lru);
-        if (!hlist_unhashed(&tx->hlist)) {
-            hvfs_debug(mds, "Remove TX %p from the TXC.\n", tx);
-            mds_txc_evict(txc, tx);
-        }
-    }
-    return tx;
-}
-
-inline int mds_txc_hash(u64 site_id, u64 reqno, struct hvfs_txc *txc)
+static inline 
+int mds_txc_hash(u64 site_id, u64 reqno, struct hvfs_txc *txc)
 {
     u64 val1, val2;
 
@@ -231,7 +266,7 @@ int mds_txc_add(struct hvfs_txc *txc, struct hvfs_tx *tx)
 struct hvfs_tx *mds_txc_search(struct hvfs_txc *txc, u64 site, u64 reqno)
 {
     struct regular_hash *rh;
-    struct hvfs_tx *tx;
+    struct hvfs_tx *tx = NULL;
     struct hlist_node *l;
     int i, found = 0;
 
@@ -282,6 +317,38 @@ int mds_txc_evict(struct hvfs_txc *txc, struct hvfs_tx *tx)
     return 0;
 }
 
+/* __tx_send_commit_msg()
+ *
+ * NOTE: send the commit msg to the source site to release the TXs
+ */
+static inline
+void __tx_send_commit_msg(struct hvfs_tx *tx)
+{
+    struct xnet_msg *msg;
+
+    msg = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!msg) {
+        hvfs_warning(mds, "xnet_alloc_msg() faield\n");
+        /* do not retry myself */
+        return;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_RPY, 0, hmo.site_id,
+                     tx->reqin_site);
+    xnet_msg_fill_reqno(msg, tx->req->tx.reqno);
+    xnet_msg_fill_cmd(msg, XNET_RPY_COMMIT, 0, 0);
+    msg->tx.handle = tx->req->tx.handle;
+
+    hvfs_err(mds, "SEND COMMIT to site %ld for reqno %ld\n",
+             tx->reqin_site, tx->reqno);
+    xnet_wait_group_add(mds_gwg, msg);
+    if (xnet_isend(hmo.xc, msg)) {
+        hvfs_err(mds, "xnet_isend() failed\n");
+        /* do not retry myself, client is forced to retry */
+        xnet_wait_group_del(mds_gwg, msg);
+    }
+    /* NOTE: if using XNET_SIMPLE, we need to free the msg here */
+}
+
 /*
  * NOTE: you should got the TX yourself!
  */
@@ -301,7 +368,7 @@ void mds_tx_done(struct hvfs_tx *tx)
     if (tx->op == HVFS_TX_FORGET) {
         xlock_lock(&hmo.txc.lock);
         list_add_tail(&tx->lru, &hmo.txc.lru);
-        hmo.txc.ftx++;
+        atomic_inc(&hmo.txc.ftx);
         xlock_unlock(&hmo.txc.lock);
         mds_pre_free_tx(HVFS_TX_PRE_FREE_HINT);
     }
@@ -323,7 +390,7 @@ void mds_tx_reply(struct hvfs_tx *tx)
         /* need reply, but no commit */
         xlock_lock(&hmo.txc.lock);
         list_add_tail(&tx->lru, &hmo.txc.lru);
-        hmo.txc.ftx++;
+        atomic_inc(&hmo.txc.ftx);
         xlock_unlock(&hmo.txc.lock);
         mds_pre_free_tx(HVFS_TX_PRE_FREE_HINT);
     }
@@ -346,10 +413,12 @@ void mds_tx_commit(struct hvfs_tx *tx)
         return;
 
     if (tx->op == HVFS_TX_NORMAL) {
+        /* try to send the commit msg to source site */
+        __tx_send_commit_msg(tx);
         xlock_lock(&hmo.txc.lock);
         ASSERT(list_empty(&tx->lru), mds);
         list_add_tail(&tx->lru, &hmo.txc.lru);
-        hmo.txc.ftx++;
+        atomic_inc(&hmo.txc.ftx);
         xlock_unlock(&hmo.txc.lock);
         mds_pre_free_tx(HVFS_TX_PRE_FREE_HINT);
     }

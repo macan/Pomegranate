@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 19:38:05 macan>
+ * Time-stamp: <2010-01-25 08:49:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -106,7 +106,7 @@
                  KERN_DEBUG, "exit: " f, ## a)
 
 #define hvfs_warning(module, f, a...)           \
-    hvfs_tracing((HVFS_WARNING | HVFS_PRECISE), \
+    hvfs_tracing((HVFS_WARN | HVFS_PRECISE),    \
                  hvfs_##module##_tracing_flags, \
                  KERN_WARNING, f, ##a)
 

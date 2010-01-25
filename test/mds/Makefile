@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-28 20:03:30 macan>
+# Time-stamp: <2010-01-25 10:44:34 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -20,7 +20,7 @@ all : $(TEST_MDS_SOURCE:.c=.ut)
 
 %.ut : %.o $(MDS_LIB) $(HVFS_LIB)
 	@echo -e " " CC"\t" $@
-	@$(CC) $(CFLAGS) $(TEST_MDS_DEPSRC) $< -o $@ -L$(MDS) -lmds \
+	@$(CC) $(CFLAGS) $(LFLAGS) $(TEST_MDS_DEPSRC) $< -o $@ -L$(MDS) -lmds \
 			-L$(LIB_PATH) -lhvfs
 
 clean :

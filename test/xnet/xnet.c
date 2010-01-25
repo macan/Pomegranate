@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-30 21:36:20 macan>
+ * Time-stamp: <2010-01-25 14:45:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,7 +27,7 @@
 
 #ifdef UNIT_TEST
 char *ipaddr1[] = {
-    "10.10.111.117",
+    "10.10.111.9",
 };
 
 char *ipaddr2[] = {
@@ -49,6 +49,7 @@ struct xnet_context *xc = NULL;
 int xnet_test_handler(struct xnet_msg *msg)
 {
     struct xnet_msg *rpy;
+    char data[100];
 
     rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!rpy) {
@@ -57,6 +58,8 @@ int xnet_test_handler(struct xnet_msg *msg)
     }
     xnet_msg_fill_tx(rpy, XNET_MSG_RPY, XNET_NEED_DATA_FREE, 
                      msg->tx.dsite_id, msg->tx.ssite_id);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, 0, 0);
+    xnet_msg_add_sdata(rpy, data, sizeof(data));
     rpy->tx.handle = msg->tx.handle;
 
     xnet_send(xc, rpy);
@@ -106,21 +109,36 @@ int main(int argc, char *argv[])
         goto out_unreg;
     }
 
-    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
+//    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE | 
                      XNET_NEED_REPLY, !dsite, dsite);
 
-    if (dsite)
-        xnet_send(xc, msg);
-    else
-        xnet_wait_any(xc);
+    if (dsite) {
+        int i;
+
+        lib_timer_def();
+        lib_timer_B();
+        for (i = 0; i < 100; i++) {
+            xnet_send(xc, msg);
+        }
+        lib_timer_E();
+        lib_timer_O(100, "Ping-Pong Latency\t");
+    } else {
+        int i;
+        lib_timer_def();
+        lib_timer_B();
+        for (i = 0; i < 100; i++) {
+            xnet_wait_any(xc);
+        }
+        lib_timer_E();
+        lib_timer_O(100, "Handle    Latency\t");
+    }
     
 out_unreg:
     xnet_unregister_type(xc);
-    st_destroy();
-
-    mds_destroy();
 out:
+    st_destroy();
+    mds_destroy();
     return err;
 }
 #endif

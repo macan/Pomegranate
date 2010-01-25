@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-30 17:31:00 macan>
+ * Time-stamp: <2010-01-25 09:53:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -240,7 +240,7 @@ out_free:
  */
 struct dhe *mds_dh_search(struct dh *dh, u64 duuid)
 {
-    struct dhe *e;
+    struct dhe *e = ERR_PTR(-EINVAL);
     struct regular_hash *rh;
     struct hlist_node *l;
     int i, found = 0;

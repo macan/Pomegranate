@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-29 10:45:37 macan>
+ * Time-stamp: <2010-01-25 09:00:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -77,6 +77,7 @@ struct itbh
     void *be;                   /* bucket_entry myself attatched to */
     struct hlist_node cbht;
     struct list_head list;      /* link into the lru list/dirty list */
+    struct list_head unlink;    /* link into the unlink list */
 
     u64 twin;                   /* twin ITB */
     struct list_head overflow;  /* overflow list */
@@ -139,8 +140,8 @@ struct itbitmap
 #define BITMAP_END      0x80    /* means there is no slice after this slice */
     u64 flag:8;
     u64 ts;
-#define XTABLE_BITMAP_SIZE      (128 * 1024 * 1024)
-    u8 array[XTABLE_BITMAP_SIZE];
+#define XTABLE_BITMAP_SIZE      (128 * 1024 * 8) /* default is 128K */
+    u8 array[XTABLE_BITMAP_SIZE / sizeof(u8)];
 };
 
 struct checkpoint 

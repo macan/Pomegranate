@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-30 20:53:00 macan>
+ * Time-stamp: <2010-01-25 11:31:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -64,8 +64,8 @@ struct xnet_msg
 #define XNET_MSG_SENT           2
 #define XNET_MSG_ACKED          3
 #define XNET_MSG_COMMITED       4
-#define XNET_RX                 5
-#define XNET_PAIRED             6
+#define XNET_MSG_RX             5
+#define XNET_MSG_PAIRED         6
     u8 state;
 #define XNET_MSG_NORMAL         0x01 /* normal allocation */
 #define XNET_MSG_CACHE          0x02 /* allocation based on cache */
@@ -78,6 +78,7 @@ struct xnet_msg
 
     struct iovec *siov;
     struct iovec *riov;
+#define xm_datacheck riov
 #define xm_data riov[0].iov_base
 
     struct xnet_context *xc;
@@ -104,8 +105,8 @@ struct xnet_context
     int pt_num;
     int service_port;
     struct xnet_type_ops ops;
+    u64 site_id;                /* local site id */
 #ifdef USE_XNET_SIMPLE
-    u64 site_id;
     sem_t wait;
     struct list_head list;
 #endif
@@ -124,6 +125,8 @@ void xnet_free_msg(struct xnet_msg *);
 
 int xnet_msg_add_sdata(struct xnet_msg *, void *, int);
 int xnet_msg_add_rdata(struct xnet_msg *, void *, int);
+void xnet_msg_free_sdata(struct xnet_msg *);
+void xnet_msg_free_rdata(struct xnet_msg *);
 
 /* ERR convention:
  *
@@ -135,7 +138,7 @@ int xnet_send(struct xnet_context *xc, struct xnet_msg *m);
 #define xnet_msg_set_site(m, id) ((m)->tx.dsite_id = id)
 
 static inline 
-void __xnet_msg_fill_cmd(struct xnet_msg *m, u64 cmd, u64 arg0, u64 arg1) 
+void xnet_msg_fill_cmd(struct xnet_msg *m, u64 cmd, u64 arg0, u64 arg1) 
 {
     m->tx.arg0 = arg0;
     m->tx.arg1 = arg1;
@@ -152,15 +155,33 @@ void xnet_msg_fill_tx(struct xnet_msg *m, u8 type, u16 flag, u64 ssite,
     m->tx.dsite_id = dsite;
 }
 
-#define xnet_msg_fill_cmd(m, cmd, arg0, arg1) do {   \
-        __xnet_msg_fill_cmd(m, cmd, arg0, arg1);     \
-    } while (0)
-
 #define xnet_clear_auto_free(m) do {            \
         (m)->tx.flag &= (~XNET_NEED_DATA_FREE); \
     } while (0)
 
+#define xnet_set_auto_free(m) do {              \
+        (m)->tx.flag |= (XNET_NEED_DATA_FREE);  \
+    } while (0)
+
+static inline
+void xnet_msg_set_err(struct xnet_msg *msg, int err)
+{
+    msg->tx.err = err;
+}
+
+static inline
+void xnet_msg_fill_reqno(struct xnet_msg *msg, u64 reqno)
+{
+    msg->tx.reqno = reqno;
+}
+
 TRACING_FLAG_DEF(xnet);
+
+extern void *mds_gwg;           /* simulate global wait group */
+int xnet_wait_group_add(void *, struct xnet_msg *);
+int xnet_wait_group_del(void *, struct xnet_msg *);
+
+int xnet_isend(struct xnet_context *xc, struct xnet_msg *m);
 
 #ifdef USE_XNET_SIMPLE
 int st_init(void);
@@ -168,5 +189,13 @@ void st_destroy(void);
 int xnet_update_ipaddr(u64, int, char *ipaddr[], short port[]);
 void xnet_wait_any(struct xnet_context *xc);
 #endif
+
+/* Profiling Section */
+extern struct xnet_prof g_xnet_prof;
+
+/* This section for XNET reply msg */
+#define XNET_RPY_ACK            0x01
+#define XNET_RPY_COMMIT         0x02
+#define XNET_RPY_DATA           0x03
 
 #endif

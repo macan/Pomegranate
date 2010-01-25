@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-29 16:32:50 macan>
+ * Time-stamp: <2010-01-25 08:44:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -41,6 +41,7 @@
 #include <execinfo.h>
 #include <semaphore.h>
 #include <sys/socket.h>
+#include <netinet/tcp.h>
 #include <sys/un.h>
 #include <sys/epoll.h>
 #include <netinet/in.h>

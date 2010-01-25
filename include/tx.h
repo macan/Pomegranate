@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-24 11:33:17 macan>
+ * Time-stamp: <2010-01-25 11:30:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,7 +44,8 @@ struct hvfs_tx
     struct hvfs_txg *txg;
     struct list_head tx_list;   /* tx list for current session */
     struct list_head lru;       /* linked in the LRU list */
-    struct hlist_node hlist;     /* linked in the txc */
+    struct list_head ccb;       /* commit callback list */
+    struct hlist_node hlist;    /* linked in the txc */
 };
 
 struct hvfs_txc 
@@ -53,7 +54,8 @@ struct hvfs_txc
     struct list_head lru;       /* only for commited TX */
     xlock_t lock;               /* protect lru list */
     int hsize;                  /* hash table size */
-    int ftx;                    /* free TXs */
+    atomic_t total;             /* total TXs right now */
+    atomic_t ftx;               /* free TXs */
 };
 
 #define MDS_TXC_DEFAULT_SIZE    (1024 * 8)

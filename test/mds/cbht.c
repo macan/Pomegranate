@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 15:42:42 macan>
+ * Time-stamp: <2010-01-25 14:26:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,6 +34,8 @@
 #include "mds.h"
 
 #ifdef UNIT_TEST
+atomic64_t miss;                /* # of shadow lookup miss */
+
 void hmr_print(struct hvfs_md_reply *hmr)
 {
     struct hvfs_index *hi;
@@ -47,8 +49,8 @@ void hmr_print(struct hvfs_md_reply *hmr)
         return;
     hi = (struct hvfs_index *)p;
     hvfs_info(mds, "hmr-> HI: len %d, flag 0x%x, uuid %ld, hash %ld, itbid %ld, "
-              "puuid %ld, psalt %ld\n", hi->len, hi->flag, hi->uuid, hi->hash,
-              hi->itbid, hi->puuid, hi->psalt);
+              "puuid %ld, psalt %ld\n", hi->namelen, hi->flag, hi->uuid, 
+              hi->hash, hi->itbid, hi->puuid, hi->psalt);
     p += sizeof(struct hvfs_index);
     if (hmr->flag & MD_REPLY_WITH_MDU) {
         m = (struct mdu *)p;
@@ -89,7 +91,7 @@ void insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
     hi->itbid = itbid;
     hi->flag = INDEX_CREATE;
     memcpy(hi->name, name, strlen(name));
-    hi->len = strlen(name);
+    hi->namelen = strlen(name);
     mu = (struct mdu_update *)((void *)hi + sizeof(struct hvfs_index) + 
                                strlen(name));
     memcpy(mu, imu, sizeof(struct mdu_update));
@@ -129,16 +131,19 @@ void remove_ite(u64 puuid, u64 itbid, char *name,
     hi->itbid = itbid;
     hi->flag = INDEX_UNLINK | INDEX_BY_NAME;
     memcpy(hi->name, name, strlen(name));
-    hi->len = strlen(name);
+    hi->namelen = strlen(name);
     hi->data = NULL;
 
     memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
+
     if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
                  puuid, itbid, name, err);
+        mds_cbht_search_dump_itb(hi);
+        ASSERT(0, mds);
     }
 /*     hmr_print(hmr); */
     if (!hmr->err) {
@@ -164,25 +169,104 @@ void lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag ,
     hi->itbid = itbid;
     hi->flag = flag;
     memcpy(hi->name, name, strlen(name));
-    hi->len = strlen(name);
+    hi->namelen = strlen(name);
     
     memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
-    if (err) {
+    if (err && (flag & ITE_ACTIVE)) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s, %lx) failed %d\n", 
                  puuid, itbid, name, hi->hash, err);
         hvfs_err(mds, "ITB hash 0x%20lx.\n", 
                  hvfs_hash(puuid, itbid, sizeof(u64), HASH_SEL_CBHT));
         mds_cbht_search_dump_itb(hi);
+    } else if (err) {
+        atomic64_inc(&miss);
     }
+    
 /*     hmr_print(hmr); */
     if (!hmr->err) {
         xfree(hmr->data);
     }
     
     xfree(hi);
+}
+
+void async_unlink_test(void)
+{
+    char buf[512];
+    struct hvfs_index *hi = (struct hvfs_index *)buf;
+    struct hvfs_md_reply hmr;
+    struct hvfs_txg *txg;
+    struct link_source ls;
+    int a = 0, b = 0, err;
+
+    memset(hi, 0, sizeof(struct hvfs_index));
+    hi->flag = INDEX_CREATE_LINK | INDEX_CREATE;
+    hi->data = &ls;
+
+//    SET_TRACING_FLAG(mds, HVFS_DEBUG | HVFS_VERBOSE);
+
+    /* INSERT REGION */
+    for (a = 0; a < 1024; a++) {
+        sprintf(hi->name, "shit-%d", a);
+        if (lib_random(2)) {
+            hi->flag = INDEX_CREATE | INDEX_CREATE_LINK;
+            b++;
+        } else
+            hi->flag = INDEX_CREATE;
+        hi->namelen = strlen(hi->name);
+        memset(&hmr, 0, sizeof(hmr));
+        txg = mds_get_open_txg(&hmo);
+        err = mds_cbht_search(hi, &hmr, txg, &txg);
+        txg_put(txg);
+        if (err) {
+            hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
+                     0L, 0L, hi->name, err);
+        }
+    }
+    hvfs_info(mds, "=======AFTER INSERT, WE GOT(%d,%d)=======\n", 
+              b, a);
+    mds_cbht_search_dump_itb(hi);
+
+    /* remove one */
+    for (a = 0; a < 1024; a++) {
+        sprintf(hi->name, "shit-%d", a);
+        hi->namelen = strlen(hi->name);
+        hi->flag = INDEX_UNLINK | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
+        memset(&hmr, 0, sizeof(hmr));
+        txg = mds_get_open_txg(&hmo);
+        err = mds_cbht_search(hi, &hmr, txg, &txg);
+        txg_put(txg);
+        if (err) {
+            hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
+                     0L, 0L, hi->name, err);
+        }
+    }
+    hvfs_info(mds, "=======AFTER REMOVE, WE GOT=======\n");
+    mds_cbht_search_dump_itb(hi);
+    hvfs_info(mds, "=======BEGIN ASYNC REMOVE, WE GOT========\n");
+    /* async unlink */
+    {
+        struct itbh *ih;
+        int dc = 0;
+        
+        list_for_each_entry(ih, &hmo.async_unlink, unlink) {
+            xrwlock_rlock(&ih->lock);
+            if (ih->state == ITB_STATE_COWED) {
+                xrwlock_runlock(&ih->lock);
+                continue;
+            }
+            async_unlink_ite((struct itb *)ih, &dc);
+            xrwlock_runlock(&ih->lock);
+            if (dc < hmo.conf.max_async_unlink)
+                break;
+        }
+    }
+
+    mds_cbht_search_dump_itb(hi);
+    exit(0);
 }
 
 int st_main(int argc, char *argv[])
@@ -214,6 +298,7 @@ int st_main(int argc, char *argv[])
 #endif
     hvfs_info(mds, "CBHT UNIT TESTing (single thread)...(%d,%d,%d,%d)\n", 
               k, x, bdepth, icsize);
+    lib_init();
     err = mds_init(bdepth);
     if (err) {
         hvfs_err(mds, "mds_cbht_init failed %d\n", err);
@@ -231,7 +316,10 @@ int st_main(int argc, char *argv[])
     hvfs_info(mds, "sizeof(struct itb) = %ld\n", sizeof(struct itb));
     hvfs_info(mds, "sizeof(struct itbh) = %ld\n", sizeof(struct itbh));
     hvfs_info(mds, "sizeof(struct ite) = %ld\n", sizeof(struct ite));
-    
+
+    /* pre-test the unlink function */
+/*     async_unlink_test(); */
+
     /* insert the ite! */
     lib_timer_start(&begin);
     for (i = 0; i < k; i++) {
@@ -293,7 +381,8 @@ int st_main(int argc, char *argv[])
     }
     lib_timer_stop(&end);
     lib_timer_echo(&begin, &end, x * k);
-    hvfs_info(mds, "Shadow lookup ite is done ...\n");
+    hvfs_info(mds, "Shadow lookup ite is done, total miss %ld ...\n",
+              atomic64_read(&miss));
     
     itb_cache_destroy(&hmo.ic);
     /* print the init cbht */
@@ -547,6 +636,7 @@ int mt_main(int argc, char *argv[])
 #endif
     hvfs_info(mds, "CBHT UNIT TESTing (multi thread M%d)...(%d,%d,%d,%d)\n", 
               model, k, x, bdepth, icsize);
+    lib_init();
     err = mds_init(bdepth);
     if (err) {
         hvfs_err(mds, "mds_cbht_init failed %d\n", err);
@@ -640,6 +730,8 @@ int mt_main(int argc, char *argv[])
               atomic64_read(&hmo.prof.itb.rsearch_depth) / 2.0 / (k * x));
     hvfs_info(mds, "Average ITB write search depth %lf\n", 
               atomic64_read(&hmo.prof.itb.wsearch_depth) / 2.0 / (k * x));
+    hvfs_info(mds, "Total shadow lookup miss %ld.\n",
+              atomic64_read(&miss));
     /* print the dir */
 /*     cbht_print_dir(&hmo.cbht); */
 
@@ -657,6 +749,7 @@ int main(int argc, char *argv[])
 {
     int err;
 
+    atomic64_set(&miss, 0);
     if (argc == 6) {
         /* may be multi-thread test */
         argc--;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-29 13:09:41 macan>
+ * Time-stamp: <2010-01-25 08:44:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -72,7 +72,7 @@ struct ite
 #define ITE_FLAG_NORMAL 0x80000000 /* mdu */
 #define ITE_FLAG_LS     0x40000000 /* link source, means a hard link target */
 #define ITE_FLAG_GDT    0x20000000
-#define ITE_FLAG_SDT    0x10000000
+#define ITE_FLAG_SDT    0x10000000 /* the above two means it is a directory */
 
 #define ITE_FLAG_LARGE  0x08000000 /* large file */
 #define ITE_FLAG_SMALL  0x04000000 /* small file */

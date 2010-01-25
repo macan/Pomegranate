@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-02 15:05:19 macan>
+ * Time-stamp: <2010-01-25 08:36:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -60,6 +60,7 @@ struct mdu
 #define HVFS_MDU_IF_NORMAL      0x08000000 /* normal file */
 #define HVFS_MDU_IF_LARGE       0x04000000 /* large file */
 #define HVFS_MDU_IF_SMALL       0x02000000 /* small file */
+#define HVFS_MDU_IF_SYMLINK     0x01000000 /* symlink file */
 
 #define HVFS_MDU_IF_LINKT       0x00800000 /* hard link target */
     u32 flags;

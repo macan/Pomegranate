@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-04 11:48:46 macan>
+ * Time-stamp: <2010-01-25 10:30:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,6 +55,14 @@ struct mds_conf
     int service_threads;        /* # of service threads, pass this value to
                                      lnet serve-in threads' pool
                                      initialization */
+    int max_async_unlink;       /* max # of async unlink in one unlink wave */
+
+    /* misc configs */
+    int txc_hash_size;          /* TXC hash table size */
+    int txc_ftx;                /* TXC init free TXs */
+    int cbht_bucket_depth;      /* CBHT bucket depth */
+    int itb_cache;
+    int async_unlink;           /* enable/disable async unlink */
 
     /* intervals */
     int profiling_thread_interval;
@@ -84,6 +92,7 @@ struct hvfs_mds_info
     u64 root_salt;
     u64 root_uuid;
     u64 group;
+    u64 uuid_base;              /* the base value of UUID allocation */
     atomic64_t mi_tx;           /* next tx # */
     atomic64_t mi_txg;          /* next txg # */
     atomic64_t mi_uuid;         /* next file and dir uuid */
@@ -117,6 +126,8 @@ struct hvfs_mds_object
 #define HMO_STATE_PAUSE         0x02
 #define HMO_STATE_RDONLY        0x03
     u64 state;
+
+    struct list_head async_unlink;
 
     /* the following region is used for threads */
     time_t unlink_ts;
@@ -156,7 +167,7 @@ void mds_destroy(void);
 void mds_reset_itimer(void);
 
 /* for dispatch.c */
-void mds_client_dispatch(struct xnet_msg *msg);
+int mds_client_dispatch(struct xnet_msg *msg);
 void mds_mds_dispatch(struct xnet_msg *msg);
 void mds_mdsl_dispatch(struct xnet_msg *msg);
 void mds_ring_dispatch(struct xnet_msg *msg);
@@ -195,6 +206,7 @@ void itb_dump(struct itb *);
 void async_unlink(time_t t);
 int unlink_thread_init(void);
 void unlink_thread_destroy(void);
+void async_unlink_ite(struct itb *, int *);
 
 /* for tx.c */
 struct hvfs_tx *mds_alloc_tx(u16, struct xnet_msg *);
@@ -204,7 +216,6 @@ void mds_get_tx(struct hvfs_tx *);
 void mds_put_tx(struct hvfs_tx *);
 int mds_init_txc(struct hvfs_txc *, int, int);
 int mds_destroy_txc(struct hvfs_txc *);
-struct hvfs_tx *mds_txc_alloc_tx(struct hvfs_txc *);
 int mds_txc_add(struct hvfs_txc *, struct hvfs_tx *);
 struct hvfs_tx *mds_txc_search(struct hvfs_txc *, u64, u64);
 int mds_txc_evict(struct hvfs_txc *, struct hvfs_tx *);
@@ -251,5 +262,16 @@ struct dhe *mds_dh_insert(struct dh *, struct hvfs_index *);
 struct dhe *mds_dh_search(struct dh *, u64);
 int mds_dh_remove(struct dh *, u64);
 u64 mds_get_itbid(struct dhe *, u64);
+
+/* for c2m.c, client 2 mds APIs */
+void mds_statfs(struct hvfs_tx *);
+void mds_lookup(struct hvfs_tx *);
+void mds_create(struct hvfs_tx *);
+void mds_release(struct hvfs_tx *);
+void mds_update(struct hvfs_tx *);
+void mds_linkadd(struct hvfs_tx *);
+void mds_unlink(struct hvfs_tx *);
+void mds_symlink(struct hvfs_tx *);
+void mds_lb(struct hvfs_tx *);
 
 #endif

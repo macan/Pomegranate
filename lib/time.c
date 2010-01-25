@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-10 14:56:33 macan>
+ * Time-stamp: <2010-01-25 14:45:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -41,8 +41,19 @@ void lib_timer_echo(struct timeval *begin, struct timeval *end, int loop)
 {
     hvfs_debug(lib, "%ld %ld -> %ld %ld\n", begin->tv_sec, begin->tv_usec,
                end->tv_sec, end->tv_usec);
-    hvfs_info(lib, "ECHO\t %lf us\n", ((end->tv_sec - begin->tv_sec) * 1000000.0 +
+    hvfs_info(lib, "ECHO\t %lf us\n", ((end->tv_sec - begin->tv_sec) * 
+                                       1000000.0 +
                                        end->tv_usec - begin->tv_usec) / loop);
+}
+
+void lib_timer_echo_plus(struct timeval *begin, struct timeval *end, int loop,
+                         char *str)
+{
+    hvfs_debug(lib, "%ld %ld -> %ld %ld\n", begin->tv_sec, begin->tv_usec,
+               end->tv_sec, end->tv_usec);
+    hvfs_info(lib, "ECHO %s \t %lf us\n", str,
+              ((end->tv_sec - begin->tv_sec) * 1000000.0 +
+               end->tv_usec - begin->tv_usec) / loop);
 }
 
 /* accumulate the timer gaps */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 22:11:02 macan>
+ * Time-stamp: <2010-01-25 11:29:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,8 +36,10 @@
 #include "hvfs_common.h"
 #include "hvfs_const.h"
 #include "xhash.h"
+#include "site.h"
+#include "xprof.h"
 
-/* This section for HVFS cmds */
+/* This section for HVFS cmds & reqs */
 /* Client to MDS */
 #define HVFS_CLT2MDS_BASE       0x8000000000000000
 #define HVFS_CLT2MDS_STATFS     0x8001000000000000

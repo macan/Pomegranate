@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-04 12:39:28 macan>
+ * Time-stamp: <2010-01-25 14:35:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -252,6 +252,7 @@ int mds_init(int bdepth)
     /* prepare the hmi & hmo */
     memset(&hmi, 0, sizeof(hmi));
     memset(&hmo, 0, sizeof(hmo));
+    INIT_LIST_HEAD(&hmo.async_unlink);
 #ifdef HVFS_DEBUG_LOCK
     lock_table_init();
 #endif
@@ -263,12 +264,24 @@ int mds_init(int bdepth)
     hmo.conf.profiling_thread_interval = 5;
     hmo.conf.txg_interval = 0;
     hmo.conf.option = HVFS_MDS_ITB_RWLOCK;
+    hmo.conf.max_async_unlink = 1024;
+    hmo.conf.async_unlink = 1;  /* enable async unlink */
+    hmo.conf.unlink_interval = 2;
+    hmo.conf.txc_hash_size = 1024;
+    hmo.conf.txc_ftx = 1;
+    hmo.conf.cbht_bucket_depth = bdepth;
 
     /* Init the signal handlers */
     err = mds_init_signal();
     if (err)
         goto out_signal;
 
+    /* FIXME: init the TXC subsystem */
+    err = mds_init_txc(&hmo.txc, hmo.conf.txc_hash_size, 
+                       hmo.conf.txc_ftx);
+    if (err)
+        goto out_txc;
+    
     /* FIXME: setup the timers */
     err = mds_setup_timers();
     if (err)
@@ -293,10 +306,15 @@ int mds_init(int bdepth)
         goto out_tx;
 
     /* FIXME: init hte CBHT subsystem */
-    err = mds_cbht_init(&hmo.cbht, bdepth);
+    err = mds_cbht_init(&hmo.cbht, hmo.conf.cbht_bucket_depth);
     if (err)
         goto out_cbht;
 
+    /* FIXME: init the ITB cache */
+    err = itb_cache_init(&hmo.ic, hmo.conf.itb_cache);
+    if (err)
+        goto out_itb;
+    
     /* FIXME: init the local async unlink thead */
     err = unlink_thread_init();
     if (err)
@@ -312,9 +330,11 @@ int mds_init(int bdepth)
     hmo.state = HMO_STATE_RUNNING;
 
 out_unlink:
+out_itb:
 out_cbht:
 out_tx:
 out_dh:
+out_txc:
 out_timers:
 out_signal:
     return err;
@@ -334,11 +354,20 @@ void mds_destroy(void)
     /* stop the unlink thread */
     unlink_thread_destroy();
 
+    /* cbht */
+    mds_cbht_destroy(&hmo.cbht);
+
+    /* itb */
+    itb_cache_destroy(&hmo.ic);
+    
     /* stop the commit threads */
     mds_destroy_tx();
 
     /* destroy the dh */
     mds_dh_destroy(&hmo.dh);
+
+    /* destroy the txc */
+    mds_destroy_txc(&hmo.txc);
 
     /* destroy the dconf */
     dconf_destroy();

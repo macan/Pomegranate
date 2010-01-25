@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 19:49:09 macan>
+ * Time-stamp: <2010-01-25 14:12:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -85,7 +85,7 @@ int main(int argc, char *argv[])
         tx_in(HVFS_TX_NORMAL, m);
     }
 
-    hvfs_info(mds, "[TX IN ][%10d] done.\n", hmo.txc.ftx);
+    hvfs_info(mds, "[TX IN ][%10d] done.\n", atomic_read(&hmo.txc.ftx));
 
     for (i = 0, seqno = 0; i < tc; i++) {
         t = mds_txc_search(&hmo.txc, i, seqno++);
@@ -100,7 +100,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    hvfs_info(mds, "[TX DEL][%10d] done.\n", hmo.txc.ftx);
+    hvfs_info(mds, "[TX DEL][%10d] done.\n", atomic_read(&hmo.txc.ftx));
 
     for (i = 0, seqno = 0; i < tc; i++) {
         m = xnet_alloc_msg(XNET_MSG_NORMAL);
@@ -114,7 +114,7 @@ int main(int argc, char *argv[])
         tx_in(HVFS_TX_NORMAL, m);
     }
 
-    hvfs_info(mds, "[TX INr][%10d] done.\n", hmo.txc.ftx);
+    hvfs_info(mds, "[TX INr][%10d] done.\n", atomic_read(&hmo.txc.ftx));
     
     mds_destroy_txc(&hmo.txc);
     mds_destroy();

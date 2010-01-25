@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-23 15:33:05 macan>
+ * Time-stamp: <2010-01-25 08:51:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -64,11 +64,12 @@ struct hvfs_txg
     u8 state;
     u8 dirty;                   /* whether this txg is dirtied, using in the
                                  * SIGALARM handler to changing txg. */
-    xlock_t ckpt_lock, delta_lock, itb_lock;
+    xlock_t ckpt_lock, delta_lock, itb_lock, ccb_lock;
     struct hvfs_rmds_ckpt_buf *ckpt;  /* ckpt list */
     struct hvfs_dir_delta_buf *delta; /* dir delta's list */
     struct bitmap_delta *bda;         /* array of bitmap deltas */
-    struct list_head dirty_list;
+    struct list_head dirty_list;      /* dirty list of ITBs */
+    struct list_head ccb_list;        /* commit callback list */
 };
 
 #define TXG_SET_DIRTY(txg) do { \
