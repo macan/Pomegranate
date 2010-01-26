@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 19:20:34 macan>
+ * Time-stamp: <2010-01-26 22:35:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -340,3 +340,66 @@ retry:
 out:
     return 0;
 }
+
+/* mds_dh_bitmap_update()
+ *
+ * This function only support one bit change on the bitmap region. If the
+ * bitmap slice is not loaded in, we will load it automatically
+ */
+int mds_dh_bitmap_update(struct dh *dh, u64 puuid, u64 itbid, u8 op)
+{
+    struct itbitmap *b;
+    struct dhe *e;
+    int err = 0;
+
+    hvfs_debug(mds, "bitmap updating puuid %ld itbid %ld.\n", puuid, itbid);
+    e = mds_dh_search(dh, puuid);
+    if (!e) {
+        hvfs_err(mds, "The DHE(%ld) is not exist.\n", puuid);
+        return -EINVAL;
+    }
+retry:
+    xlock_lock(&e->lock);
+    list_for_each_entry(b, &e->bitmap, list) {
+        if (b->offset <= itbid && itbid < b->offset + XTABLE_BITMAP_SIZE) {
+            /* ok, we get the bitmap slice, just do it */
+            mds_bitmap_update_bit(b, itbid, op);
+        } else if (b->offset > itbid) {
+            /* it means that we need to load the missing slice */
+            xlock_unlock(&e->lock);
+            err = mds_bitmap_load(e, itbid);
+            if (err == -ENOTEXIST) {
+                /* we just create the slice now */
+                err = mds_bitmap_create(e, itbid);
+                if (err == -EEXIST) {
+                    /* ok, we just retry */
+                    goto retry;
+                } else if (err) {
+                    goto out;
+                }
+            } else if (err) {
+                hvfs_err(mds, "Hoo, loading DHE %ld Bitmap %ld failed\n",
+                         e->uuid, itbid);
+                goto out;
+            }
+            goto retry;
+        } else if (itbid >= b->offset + XTABLE_BITMAP_SIZE) {
+            if (b->flag & BITMAP_END) {
+                /* ok, just create the slice now */
+                xlock_unlock(&e->lock);
+                err = mds_bitmap_create(e, itbid);
+                if (err == -EEXIST) {
+                    /* ok, we just retry */
+                    goto retry;
+                } else if (err) {
+                    goto out;
+                }
+                goto retry;
+            }
+        }
+    }
+    xlock_unlock(&e->lock);
+out:
+    return err;
+}
+

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 14:44:28 macan>
+ * Time-stamp: <2010-01-26 09:52:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,6 +63,7 @@ void __set_bit(int, volatile unsigned long *);
 void __clear_bit(int, volatile unsigned long *);
 int ffs(int);
 int fls(int);
+int fls64(unsigned long);
 
 void lib_init(void);
 u64 lib_random(int hint);

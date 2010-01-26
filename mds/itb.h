@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 16:07:27 macan>
+ * Time-stamp: <2010-01-26 14:46:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,12 +24,41 @@
 #ifndef __HVFS_ITB_H__
 #define __HVFS_ITB_H__
 
-/* FIXME: we should implement a ARC/DULO cache */
-struct itb_cache 
+static inline void itb_index_rlock(struct itb_lock *l)
 {
-    struct list_head lru;
-    atomic_t csize;             /* current cache size */
-    xlock_t lock;
-};
+    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+        xrwlock_rlock((xrwlock_t *)l);
+    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+        xlock_lock((xlock_t *)l);
+    }
+}
+
+static inline void itb_index_wlock(struct itb_lock *l)
+{
+    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+        xrwlock_wlock((xrwlock_t *)l);
+    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+        xlock_lock((xlock_t *)l);
+    }
+}
+
+static inline void itb_index_runlock(struct itb_lock *l)
+{
+    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+        xrwlock_runlock((xrwlock_t *)l);
+    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+        xlock_unlock((xlock_t *)l);
+    }
+}
+
+static inline void itb_index_wunlock(struct itb_lock *l)
+{
+    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+        xrwlock_wunlock((xrwlock_t *)l);
+    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+        xlock_unlock((xlock_t *)l);
+    }
+}
+
 
 #endif

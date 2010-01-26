@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 19:21:36 macan>
+ * Time-stamp: <2010-01-26 22:34:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,13 +30,159 @@
 
 /* ITB split
  *
- * NOTE: 
+ * NOTE: this is the local split function, we need to transafer the new itb to
+ * the destination MDS.
+ *
+ * NOTE: we already do the COW, so we do not consider the COWing in ITB
+ * spliting.
+ *
+ * NOTE: holding the bucket.rlock, be.rlock, itb.rlock, ite.wlock
  */
-int itb_split(struct itb *oi, struct itb **ni)
+int itb_split_local(struct itb *oi, struct itb **ni, struct itb_lock *l)
 {
-    int err = 0;
+    struct bucket_entry *be;
+    struct itb_index *ii;
+    int err = 0, moved = 0, j, offset, done = 0, need_rescan = 0;
 
+    if (*ni)
+        return -EINVAL;
+
+    /* we get one new ITB, and increase the itb->h.depth, and select the
+     * corresponding ites to the new itb. */
+    *ni = get_free_itb(NULL);
+    if (unlikely(!*ni)) {
+        hvfs_debug(mds, "get_free_itb() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    /* we need to get the wlock of the old ITB to prevent any concurrent
+     * access */
+    be = oi->h.be;
+    itb_index_wunlock(l);
+    xrwlock_runlock(&oi->h.lock);
+    xrwlock_runlock(&be->lock);
+
+    /* reget the wlock */
+    xrwlock_wlock(&be->lock);
+    xrwlock_wlock(&oi->h.lock);
+
+    /* sanity checking */
+    if (atomic_read(&oi->h.entries) < (1 << oi->h.adepth)) {
+        /* under the water mark, abort the spliting */
+        oi->h.depth--;
+        goto out_relock;
+    }
+
+retry:
+    oi->h.depth++;
+    (*ni)->h.depth = oi->h.depth;
+    (*ni)->h.itbid = oi->h.itbid + (1 << (oi->h.depth - 1));
+    (*ni)->h.puuid = oi->h.puuid;
+
+    /* check and transfer ite between the two ITBs */
+    for (j = 0; j < (1 << ITB_DEPTH); j++) {
+    rescan:
+        ii = &oi->index[j];
+        if (ii->flag == ITB_INDEX_FREE)
+            continue;
+        offset = j;
+        done = 0;
+        do {
+            int conflict = 0;
+            
+            if (ii->flag == ITB_INDEX_UNIQUE)
+                done = 1;
+            else if (ii->flag == ITB_INDEX_CONFLICT) {
+                conflict = ii->conflict;
+                hvfs_debug(mds, "self %d conflict %d\n", offset, conflict);
+            }
+            if ((oi->ite[ii->entry].hash >> ITB_DEPTH) & 
+                (1 << (oi->h.depth - 1))) {
+                /* move to the new itb */
+                
+                hvfs_debug(mds, "offset %d flag %d, %s hash %lx -- bit %d, "
+                           "moved %d\n",
+                           offset, ii->flag, oi->ite[ii->entry].s.name,
+                           oi->ite[ii->entry].hash >> ITB_DEPTH, 
+                           (1 << (oi->h.depth - 1)), moved);
+                if (ii->flag == 0)
+                    ASSERT(0, mds);
+                __itb_add_ite_blob(*ni, &oi->ite[ii->entry]);
+                itb_del_ite(oi, &oi->ite[ii->entry], offset, j);
+                moved++;
+                if (offset == j)
+                    need_rescan = 1;
+            }
+            if (done)
+                break;
+            if (need_rescan) {
+                need_rescan = 0;
+                goto rescan;
+            }
+            ii = &oi->index[conflict];
+            offset = conflict;
+        } while (1);
+    }
+
+    /* check if we moved sufficient entries */
+    if (moved == 0) {
+        /* this means we should split more deeply, however, the itbid of the
+         * old ITB can not change, so we just retry our access w/ depth++.
+         */
+        goto retry;
+    }
+
+    hvfs_debug(mds, "moved %d entries from %ld to %ld\n", 
+               moved, oi->h.itbid, (*ni)->h.itbid);
+    /* commit the changes and release the locks */
+    oi->h.state = ITB_JUST_SPLIT;
+    mds_dh_bitmap_update(&hmo.dh, oi->h.puuid, oi->h.itbid, MDS_BITMAP_SET);
+    /* FIXME: we should connect the two ITBs for write-back */
+    oi->h.twin = (u64)(*ni);
+    /* FIXME: we should adding the async split update here! */
+#if 1
+    {
+        struct bucket *nb;
+        struct bucket_entry *nbe;
+        struct itb *ti;
+
+        err = mds_cbht_insert_bbrlocked(&hmo.cbht, (*ni), &nb, &nbe, &ti);
+        if (err == -EEXIST) {
+            /* someone create the new ITB, we have data lossing */
+            hvfs_err(mds, "Someone create ITB %ld, data lossing ...\n",
+                     (*ni)->h.itbid);
+        } else if (err) {
+            hvfs_err(mds, "Internal error.\n");
+        } else {
+            /* it is ok, we need free the locks */
+            xrwlock_runlock(&nbe->lock);
+            xrwlock_runlock(&nb->lock);
+        }
+    }
+    mds_dh_bitmap_update(&hmo.dh, oi->h.puuid, (*ni)->h.itbid, MDS_BITMAP_SET);
+#endif
+    
+    xrwlock_wunlock(&oi->h.lock);
+    xrwlock_wunlock(&be->lock);
+
+    itb_index_wlock(l);
+    xrwlock_rlock(&oi->h.lock);
+    xrwlock_rlock(&be->lock);
+    
+out:
     return err;
+out_relock:
+    xrwlock_wunlock(&oi->h.lock);
+    xrwlock_wunlock(&be->lock);
+
+    /* free the new itb */
+    itb_free(*ni);
+
+    itb_index_wlock(l);
+    xrwlock_rlock(&oi->h.lock);
+    xrwlock_rlock(&be->lock);
+    goto out;
 }
 
 /* ITB overflow
@@ -88,9 +234,20 @@ void mds_bitmap_update(struct itbitmap *o, struct itbitmap *n)
     int i;
     
     o->ts = n->ts;
-    for (i = 0; i < (XTABLE_BITMAP_SIZE / sizeof(u64)); i++) {
+    for (i = 0; i < (XTABLE_BITMAP_SIZE / (8 * sizeof(u64))); i++) {
         *(op + i) |= *(np + i);
     }
+}
+
+/* mds_bitmap_update_bit()
+ *
+ * Update the bit in the bitmap
+ */
+void mds_bitmap_update_bit(struct itbitmap *b, u64 offset, u8 op)
+{
+    u64 pos = offset - b->offset;
+
+    __set_bit(pos, (unsigned long *)(b->array));
 }
 
 /* mds_bitmap_load()
@@ -220,4 +377,23 @@ int __mds_bitmap_insert(struct dhe *e, struct itbitmap *b)
     xlock_unlock(&e->lock);
 
     return err;
+}
+
+/* mds_bitmap_create()
+ */
+int mds_bitmap_create(struct dhe *e, u64 itbid)
+{
+    struct itbitmap *b;
+
+    b = xzalloc(sizeof(struct itbitmap));
+    if (!b) {
+        hvfs_err(mds, "xzalloc() itbitmap failed\n");
+        return -ENOMEM;
+    }
+    itbid = (itbid + XTABLE_BITMAP_SIZE - 1) & (~(XTABLE_BITMAP_SIZE - 1));
+    INIT_LIST_HEAD(&b->list);
+    b->offset = itbid;
+    b->ts = 0;                  /* FIXME: set the ts here! */
+
+    return __mds_bitmap_insert(e, b);
 }

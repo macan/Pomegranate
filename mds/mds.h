@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 21:10:01 macan>
+ * Time-stamp: <2010-01-26 22:33:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,10 +29,17 @@
 #include "txg.h"
 #include "tx.h"
 #include "dh.h"
-#include "itb.h"
 #include "cbht.h"
 #include "mds_api.h"
 #include "lib.h"
+
+/* FIXME: we should implement a ARC/DULO cache */
+struct itb_cache 
+{
+    struct list_head lru;
+    atomic_t csize;             /* current cache size */
+    xlock_t lock;
+};
 
 struct mds_conf 
 {
@@ -64,6 +71,7 @@ struct mds_conf
     int itb_cache;
     int async_unlink;           /* enable/disable async unlink */
     int ring_vid_max;           /* max # of vid in the ring(AUTO) */
+    int itb_depth_default;      /* default value of itb depth */
 
     /* intervals */
     int profiling_thread_interval;
@@ -193,6 +201,10 @@ int mds_cbht_search(struct hvfs_index *, struct hvfs_md_reply *,
                     struct hvfs_txg *, struct hvfs_txg **);
 void cbht_print_dir(struct eh *);
 void mds_cbht_search_dump_itb(struct hvfs_index *);
+int mds_cbht_insert_bbrlocked(struct eh *, struct itb *, 
+                              struct bucket **, 
+                              struct bucket_entry **,
+                              struct itb **);
 
 /* for itb.c */
 struct itb *mds_read_itb(u64, u64, u64);
@@ -211,6 +223,8 @@ void async_unlink(time_t t);
 int unlink_thread_init(void);
 void unlink_thread_destroy(void);
 void async_unlink_ite(struct itb *, int *);
+void itb_del_ite(struct itb *, struct ite *, u64, u64);
+int __itb_add_ite_blob(struct itb *, struct ite *);
 
 /* for tx.c */
 struct hvfs_tx *mds_alloc_tx(u16, struct xnet_msg *);
@@ -266,6 +280,7 @@ struct dhe *mds_dh_insert(struct dh *, struct hvfs_index *);
 struct dhe *mds_dh_search(struct dh *, u64);
 int mds_dh_remove(struct dh *, u64);
 u64 mds_get_itbid(struct dhe *, u64);
+int mds_dh_bitmap_update(struct dh *, u64, u64, u8);
 
 /* for c2m.c, client 2 mds APIs */
 void mds_statfs(struct hvfs_tx *);
@@ -277,5 +292,10 @@ void mds_linkadd(struct hvfs_tx *);
 void mds_unlink(struct hvfs_tx *);
 void mds_symlink(struct hvfs_tx *);
 void mds_lb(struct hvfs_tx *);
+
+/* please do not move the follow section */
+/* SECTION BEGIN */
+#include "itb.h"
+/* SECTION END */
 
 #endif

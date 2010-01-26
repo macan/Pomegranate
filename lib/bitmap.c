@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-25 22:43:52 macan>
+ * Time-stamp: <2010-01-26 09:54:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -331,4 +331,29 @@ int fls(int x)
         "1:" : "=r" (r) : "rm" (x));
 #endif
     return r + 1;
+}
+
+/*
+ * __fls64: find last set bit in word
+ * @word: The word to search
+ *
+ * Undefined if no set bit exists, so code should check against 0 first.
+ */
+static inline unsigned long __fls64(unsigned long word)
+{
+    asm("bsr %1,%0"
+        : "=r" (word)
+        : "rm" (word));
+    return word;
+}
+
+/*
+ * fls64: wapper for __fls64(), and return -1 if the word is zero.
+ */
+int fls64(unsigned long word)
+{
+    if (!word)
+        return -1;
+    
+    return __fls64(word);
 }

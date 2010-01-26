@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 15:49:54 macan>
+ * Time-stamp: <2010-01-26 22:34:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,42 +28,6 @@
 #include "mds.h"
 #include "lib.h"
 #include "ring.h"
-
-inline void itb_index_rlock(struct itb_lock *l)
-{
-    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
-        xrwlock_rlock((xrwlock_t *)l);
-    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
-        xlock_lock((xlock_t *)l);
-    }
-}
-
-inline void itb_index_wlock(struct itb_lock *l)
-{
-    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
-        xrwlock_wlock((xrwlock_t *)l);
-    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
-        xlock_lock((xlock_t *)l);
-    }
-}
-
-inline void itb_index_runlock(struct itb_lock *l)
-{
-    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
-        xrwlock_runlock((xrwlock_t *)l);
-    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
-        xlock_unlock((xlock_t *)l);
-    }
-}
-
-inline void itb_index_wunlock(struct itb_lock *l)
-{
-    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
-        xrwlock_wunlock((xrwlock_t *)l);
-    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
-        xlock_unlock((xlock_t *)l);
-    }
-}
 
 void ite_create(struct hvfs_index *hi, struct ite *e);
 
@@ -238,7 +202,8 @@ void __itb_add_index(struct itb *i, u64 offset, long nr, char *name)
  *
  * holding the bucket.rlock and be.rlock and itb.rlock AND ite.wlock
  */
-int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data)
+int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data, 
+                struct itb_lock *l)
 {
     u64 offset;
     struct ite *ite;
@@ -301,15 +266,58 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data)
     } else {
         /* already full, should split */
         /* FIXME: ITB SPLIT! */
+        struct itb *ni = NULL;
+        
         atomic_dec(&i->h.entries);
-        hvfs_err(mds, "entries %d\n", atomic_read(&i->h.entries));
-        err = -ESPLIT;
+        hvfs_err(mds, "ITB itbid %ld, depth %d, entries %d\n", 
+                 i->h.itbid, i->h.depth, atomic_read(&i->h.entries));
+        err = itb_split_local(i, &ni, l);
+        if (!err)
+            err = -ESPLIT;
         goto out;
     }
 
     err = 0;
     
 out:
+    return err;
+}
+
+/* 
+ * __itb_add_ite_blob()
+ *
+ * NOTE: this function can only used in the spliting code, we do not check ANY
+ * condition. You should not call this API!
+ */
+int __itb_add_ite_blob(struct itb *i, struct ite *e)
+{
+    u64 offset;
+    struct ite *ite;
+    long nr;
+    int err = 0;
+
+    /* the entry is in the ite:e */
+    offset = e->hash & ((1 << i->h.adepth) - 1);
+
+retry:
+    nr = find_first_zero_bit((unsigned long *)i->bitmap, (1 << i->h.adepth));
+    if (nr < (1 << i->h.adepth)) {
+        /* ok, find one */
+        /* test and set the bit now */
+        if (lib_bitmap_tas(i->bitmap, nr)) {
+            /* someone has set this bit, let us retry */
+            goto retry;
+        }
+        /* now we got a free ITB entry at position nr */
+        ite = &i->ite[nr];
+        memcpy(ite, e, sizeof(struct ite));
+        /* next step: we try to get a free index entry */
+        __itb_add_index(i, offset, nr, e->s.name);
+    } else {
+        /* hoo, there is no zero bit! */
+        err = -EINVAL;
+    }
+    
     return err;
 }
 
@@ -375,7 +383,7 @@ void itb_del_ite(struct itb *i, struct ite *e, u64 offset, u64 pos)
                        offset, ii->flag, ii->entry, ii->conflict, prev);
             if (ii->flag == ITB_INDEX_FREE)
                 break;
-            if (pos == offset || hit) {
+            if ((pos == offset) || hit) {
                 /* ok, we get the unlink target */
                 if (offset == saved) {
                     needswap = 1;
@@ -479,7 +487,6 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
         struct mdu_update *mu = (struct mdu_update *)hi->data;
 
         /* default fields */
-        memset(e, 0, sizeof(e));
         e->s.mdu.flags |= HVFS_MDU_IF_NORMAL;
         if (e->flag == ITE_FLAG_SMALL)
             e->s.mdu.flags |= HVFS_MDU_IF_SMALL;
@@ -690,7 +697,8 @@ struct itb *get_free_itb(struct hvfs_txg *txg)
     n->h.adepth = ITB_DEPTH;
     n->h.flag = ITB_ACTIVE;       /* 0 */
     n->h.state = ITB_STATE_CLEAN; /* 0 */
-    n->h.txg = txg->txg;
+    if (likely(txg))
+        n->h.txg = txg->txg;
     xrwlock_init(&n->h.lock);
 #ifdef _USE_SPINLOCK
     xspinlock_init(&n->h.ilock);
@@ -1118,10 +1126,13 @@ retry:
                 goto refresh;
             }
         }
-        ret = itb_add_ite(itb, hi, data);
+        ret = itb_add_ite(itb, hi, data, l);
     } else {
         /* other operations means ENOENT */
-        ret = -ENOENT;
+        if (itb->h.state == ITB_JUST_SPLIT)
+            ret = -ESPLIT;
+        else
+            ret = -ENOENT;
     }
 out:
     *oi = itb;

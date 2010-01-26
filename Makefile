@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-01-25 14:48:08 macan>
+# Time-stamp: <2010-01-26 08:47:24 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -54,8 +54,9 @@ unit_test : $(ut_depend_files) $(HVFS_LIB) $(MDS_LIB) $(XNET_LIB)
 	@echo "Targets for unit test are ready."
 
 install: unit_test
-	@rsync -r $(TEST)/mds/*.ut root@glnode09:~/hvfs/
-	@rsync -r $(TEST)/xnet/*.ut root@glnode09:~/hvfs/
+	@rsync -r $(TEST)/*.sh root@glnode09:~/hvfs/test/
+	@rsync -r $(TEST)/mds/*.ut root@glnode09:~/hvfs/test/mds/
+	@rsync -r $(TEST)/xnet/*.ut root@glnode09:~/hvfs/test/xnet/
 
 rut:
 	@lagent -d glnode09 -u root -sc "time ~/cbht $(CBHT_ARGS)"

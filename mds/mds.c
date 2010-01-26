@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 15:49:25 macan>
+ * Time-stamp: <2010-01-26 14:02:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -270,6 +270,7 @@ int mds_init(int bdepth)
     hmo.conf.txc_hash_size = 1024;
     hmo.conf.txc_ftx = 1;
     hmo.conf.cbht_bucket_depth = bdepth;
+    hmo.conf.itb_depth_default = 3;
 
     /* Init the signal handlers */
     err = mds_init_signal();

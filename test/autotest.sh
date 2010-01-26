@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-01-25 10:43:49 macan>
+# Time-stamp: <2010-01-26 08:53:13 macan>
 #
 # This is the autotest script for HVFS project.
 #
@@ -31,7 +31,6 @@ function cbht_unit_test() {
         total=7;
     fi
     loop=0;
-    return
     while [ $loop -lt $total ]; do
         case $loop in
             0) `$1 > /tmp/HVFS-$LOG_PATH/$log_name`;;
@@ -62,6 +61,9 @@ function xnet_unit_test() {
     log_name=`echo $1 | sed -e 's/\//-/g'`
     program_name=`basename $1`
     if [ x$program_name == "xmds.ut" ]; then
+        return;
+    fi
+    if [ x$program_name == "xfpmds.ut" ]; then
         return;
     fi
     echo -n "--> UNIT TEST s($program_name) Start ... "

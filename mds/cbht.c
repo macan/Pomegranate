@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-22 15:56:39 macan>
+ * Time-stamp: <2010-01-26 17:17:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -786,6 +786,10 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
                 err = -ENOMEM;
                 goto out;
             }
+            i->h.depth = fls64(hi->itbid) + 1;
+            if (i->h.depth < hmo.conf.itb_depth_default)
+                i->h.depth = hmo.conf.itb_depth_default;
+
             i->h.itbid = hi->itbid;
             i->h.puuid = hi->puuid;
             err = mds_cbht_insert_bbrlocked(&hmo.cbht, i, &b, &e, &oi);
@@ -983,3 +987,45 @@ out:
     xrwlock_runlock(&b->lock);
     return;
 }
+
+/* mds_cbht_itb_del()
+ *
+ * Just delete the ITB in the CBHT for write-back or reinsert
+ *
+ * NOTE: holding the bucket.wlock, itb.wlock
+ *
+ * Return Value: -errno, w/ NO locks hold
+ */
+int mds_cbht_itb_del(struct bucket_entry *be, struct itb *itb)
+{
+    struct itbh *ih;
+    struct hlist_node *pos;
+    int sanity = 0, err = 0;
+    
+    if (!hlist_empty(&be->h)) {
+        hlist_for_each_entry(ih, pos, &be->h, cbht) {
+            if (ih->puuid == itb->h.puuid && ih->itbid == itb->h.itbid) {
+                /* OK, find the itb in the CBHT */
+                sanity = 1;
+            }
+        }
+    }
+    if (sanity) {
+        xrwlock_wunlock(&itb->h.lock);
+        hlist_del_init(&itb->h.cbht);
+        itb->h.be = NULL;
+    } else {
+        hvfs_err(mds, "Who is cheating me to detelte ITB %ld.\n",
+                 itb->h.itbid);
+        err = -EINVAL;
+        goto out;
+    }
+
+    xrwlock_wunlock(&be->lock);
+    return err;
+out:
+    xrwlock_wunlock(&itb->h.lock);
+    xrwlock_wunlock(&be->lock);
+    return err;
+}
+

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 14:45:22 macan>
+ * Time-stamp: <2010-01-26 09:03:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -59,6 +59,9 @@ int xnet_test_handler(struct xnet_msg *msg)
     xnet_msg_fill_tx(rpy, XNET_MSG_RPY, XNET_NEED_DATA_FREE, 
                      msg->tx.dsite_id, msg->tx.ssite_id);
     xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
     xnet_msg_add_sdata(rpy, data, sizeof(data));
     rpy->tx.handle = msg->tx.handle;
 
@@ -112,6 +115,10 @@ int main(int argc, char *argv[])
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE | 
                      XNET_NEED_REPLY, !dsite, dsite);
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
 
     if (dsite) {
         int i;

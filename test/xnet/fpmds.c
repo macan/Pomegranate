@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 22:13:14 macan>
+ * Time-stamp: <2010-01-26 19:44:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -380,21 +380,17 @@ out_free:
 int msg_send(int dsite, int loop)
 {
     lib_timer_def();
-    int i, j, err;
-    u64 puuid = 0, itbid = 0;
+    int i, err;
+    u64 puuid = 0;
     
     /* create many ites */
     lib_timer_start(&begin);
-    for (i = 0, j = 0; i < loop; i++) {
-        if (i && (i % (1 << ITB_DEPTH) == 0)) {
-            itbid++;
-            j = 0;
-        }
-        err = get_send_msg_create(dsite, j++, puuid, itbid, 
+    for (i = 0; i < loop; i++) {
+        err = get_send_msg_create(dsite, i, puuid, 0, 
                                   INDEX_CREATE, NULL);
         if (err) {
             hvfs_err(xnet, "create 'mds-xnet-test-%ld-%ld-%d' failed\n",
-                     puuid, itbid, (j - 1));
+                     puuid, 0UL, i);
         }
     }
     lib_timer_stop(&end);
@@ -404,16 +400,12 @@ int msg_send(int dsite, int loop)
     
     /* do lookup */
     lib_timer_start(&begin);
-    for (i = 0, j = 0, itbid = 0; i < loop; i++) {
-        if (i && (i % (1 << ITB_DEPTH) == 0)) {
-            itbid++;
-            j = 0;
-        }
-        err = get_send_msg_lookup(dsite, j++, puuid, itbid,
+    for (i = 0; i < loop; i++) {
+        err = get_send_msg_lookup(dsite, i, puuid, 0,
                                   INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_ACTIVE);
         if (err) {
             hvfs_err(xnet, "lookup 'mds-xnet-test-%ld-%ld-%d' failed\n",
-                     puuid, itbid, (j - 1));
+                     puuid, 0UL, i);
         }
     }
     lib_timer_stop(&end);
@@ -423,17 +415,13 @@ int msg_send(int dsite, int loop)
 
     /* then delete them */
     lib_timer_start(&begin);
-    for (i = 0, j = 0, itbid = 0; i < loop; i++) {
-        if (i && (i % (1 << ITB_DEPTH) == 0)) {
-            itbid++;
-            j = 0;
-        }
-        err = get_send_msg_unlink(dsite, j++, puuid, itbid,
+    for (i = 0; i < loop; i++) {
+        err = get_send_msg_unlink(dsite, i, puuid, 0,
                                   INDEX_UNLINK | INDEX_BY_NAME | 
                                   INDEX_ITE_ACTIVE);
         if (err) {
             hvfs_err(xnet, "unlink 'mds-xnet-test-%ld-%ld-%d' failed\n",
-                     puuid, itbid, (j - 1));
+                     puuid, 0UL, i);
         }
     }
     lib_timer_stop(&end);
@@ -509,8 +497,8 @@ int bitmap_insert(u64 uuid, u64 offset)
     INIT_LIST_HEAD(&b->list);
     b->offset = (offset / XTABLE_BITMAP_SIZE) * XTABLE_BITMAP_SIZE;
     b->flag = BITMAP_END;
-    /* set all bits to 1, within the previous 1024 ITBs */
-    for (i = 0; i < (1024 / 8); i++) {
+    /* set all bits to 1, within the previous 8 ITBs */
+    for (i = 0; i < ((1 << hmo.conf.itb_depth_default) / 8); i++) {
         b->array[i] = 0xff;
     }
 
@@ -580,8 +568,16 @@ int main(int argc, char *argv[])
         .recv_handler = mds_fe_dispatch,
     };
     int err = 0;
-    int dsite, self;
+    int dsite, self, loop = 0;
     short port;
+    char *value;
+
+    value = getenv("loop");
+    if (value) {
+        loop = atoi(value);
+    }
+    if (!loop)
+        loop = 100;
     
     if (argc == 2) {
         /* Server Mode */
@@ -623,7 +619,7 @@ int main(int argc, char *argv[])
     bitmap_insert(0, 0);
 
     if (HVFS_IS_CLIENT(self))
-        msg_send(dsite, 100000);
+        msg_send(dsite, loop);
     else
         msg_wait(dsite);
 

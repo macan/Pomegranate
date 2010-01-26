@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 20:25:50 macan>
+ * Time-stamp: <2010-01-26 17:48:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -140,8 +140,8 @@ struct itbitmap
 #define BITMAP_END      0x80    /* means there is no slice after this slice */
     u64 flag:8;
     u64 ts;
-#define XTABLE_BITMAP_SIZE      (128 * 1024 * 8) /* default is 128K */
-    u8 array[XTABLE_BITMAP_SIZE / sizeof(u8)];
+#define XTABLE_BITMAP_SIZE      (128 * 1024 * 8) /* default is 128K storage */
+    u8 array[XTABLE_BITMAP_SIZE / 8];
 };
 
 struct checkpoint 
@@ -181,5 +181,11 @@ void mds_bitmap_update(struct itbitmap *, struct itbitmap *);
 int mds_bitmap_load(struct dhe *, u64);
 void mds_bitmap_free(struct itbitmap *);
 int __mds_bitmap_insert(struct dhe *, struct itbitmap *);
+#define MDS_BITMAP_SET  0x00
+#define MDS_BITMAP_CLR  0x01
+#define MDS_BITMAP_XOR  0x02
+void mds_bitmap_update_bit(struct itbitmap *, u64, u8);
+int mds_bitmap_create(struct dhe *, u64);
+int itb_split_local(struct itb *, struct itb **i, struct itb_lock *);
 
 #endif
