@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 10:43:22 macan>
+ * Time-stamp: <2010-01-27 10:41:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -312,7 +312,7 @@ int commit_tp_init()
         return -ENOMEM;
     }
 
-    cta = xzalloc(hmo.conf.commit_threads * sizeof(pthread_t));
+    cta = xzalloc(hmo.conf.commit_threads * sizeof(struct commit_thread_arg));
     if (!cta) {
         hvfs_err(mds, "xzalloc() struct commit_thread_arg failed\n");
         err = -ENOMEM;

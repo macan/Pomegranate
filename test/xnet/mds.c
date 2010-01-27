@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 21:55:29 macan>
+ * Time-stamp: <2010-01-27 14:13:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -485,6 +485,7 @@ int main(int argc, char *argv[])
         err = PTR_ERR(hmo.xc);
         goto out;
     }
+    hmo.site_id = self;
 
     xnet_update_ipaddr(HVFS_CLIENT(0), 1, ipaddr1, port1);
     xnet_update_ipaddr(HVFS_MDS(0), 1, ipaddr2, port2);

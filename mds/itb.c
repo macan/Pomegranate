@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-26 22:34:22 macan>
+ * Time-stamp: <2010-01-27 16:48:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -260,6 +260,7 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
         } else {
             /* hoo, there is no zero bit! */
             atomic_dec(&i->h.entries);
+            hvfs_err(mds, "Internal Fatal Error, no free bits?\n");
             err = -EINVAL;
             goto out;
         }
@@ -269,8 +270,8 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
         struct itb *ni = NULL;
         
         atomic_dec(&i->h.entries);
-        hvfs_err(mds, "ITB itbid %ld, depth %d, entries %d\n", 
-                 i->h.itbid, i->h.depth, atomic_read(&i->h.entries));
+        hvfs_debug(mds, "ITB itbid %ld, depth %d, entries %d\n", 
+                   i->h.itbid, i->h.depth, atomic_read(&i->h.entries));
         err = itb_split_local(i, &ni, l);
         if (!err)
             err = -ESPLIT;
@@ -313,6 +314,7 @@ retry:
         memcpy(ite, e, sizeof(struct ite));
         /* next step: we try to get a free index entry */
         __itb_add_index(i, offset, nr, e->s.name);
+        atomic_inc(&i->h.entries);
     } else {
         /* hoo, there is no zero bit! */
         err = -EINVAL;
@@ -985,6 +987,16 @@ int itb_search(struct hvfs_index *hi, struct itb *itb, void *data,
     /* NOTE: if we are in retrying, we know that the ITB will not COW
      * again! */
 retry:
+    if ((itb->h.state == ITB_JUST_SPLIT) &&
+        (((hi->hash >> ITB_DEPTH) & ((1 << itb->h.depth) - 1)) != 
+         itb->h.itbid)) {
+            ret = -ESPLIT;
+            hvfs_err(mds, "JUST SPLIT %s...\n", hi->name);
+            goto out_nolock;
+    } else if (itb->h.state == ITB_JUST_SPLIT) {
+        hvfs_err(mds, "JUST SPLIT %s passed\n", hi->name);
+    }
+
     pos = offset = hi->hash & ((1 << itb->h.adepth) - 1);
     /* get the ITE lock */
     l = &itb->lock[offset / ITB_LOCK_GRANULARITY];
@@ -1115,6 +1127,7 @@ retry:
     hvfs_verbose(mds, "OK, the ITE do NOT exist in the ITB.\n");
     if (likely(hi->flag & INDEX_CREATE || hi->flag & INDEX_SYMLINK)) {
         hvfs_verbose(mds, "Not find the ITE and create/symlink it.\n");
+        /* checking the split status */
         *oi= itb_dirty(itb, txg, l, otxg);
         if (unlikely((*oi) != itb)) {
             if (!(*oi)) {
@@ -1135,12 +1148,13 @@ retry:
             ret = -ENOENT;
     }
 out:
-    *oi = itb;
     /* put the lock */
     if (hi->flag & INDEX_LOOKUP)
         itb_index_runlock(l);
     else
         itb_index_wunlock(l);
+out_nolock:
+    *oi = itb;
     return ret;
 refresh:
     /* already released index.lock */

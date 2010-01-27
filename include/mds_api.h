@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 08:46:11 macan>
+ * Time-stamp: <2010-01-27 12:58:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -62,7 +62,11 @@ struct hvfs_index
     u64 hash;                   /* hash value of the name, or manual set */
     u64 itbid;              /* uuid computed by client, or true uuid by MDS */
     u64 puuid;                  /* parent uuid */
-    u64 psalt;
+    union
+    {
+        u64 ssalt;              /* self salt, used within HMR reply */
+        u64 psalt;              /* parent salt, used in CLIENT requst */
+    };
     union
     {
         void *data;                 /* MDS use: pointer to args */

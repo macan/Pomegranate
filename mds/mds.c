@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-26 14:02:21 macan>
+ * Time-stamp: <2010-01-27 11:25:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -271,6 +271,7 @@ int mds_init(int bdepth)
     hmo.conf.txc_ftx = 1;
     hmo.conf.cbht_bucket_depth = bdepth;
     hmo.conf.itb_depth_default = 3;
+    hmo.conf.async_update_N = 4;
 
     /* Init the signal handlers */
     err = mds_init_signal();
@@ -306,6 +307,11 @@ int mds_init(int bdepth)
     if (err)
         goto out_tx;
 
+    /* FIXME: init the async update subsystem */
+    err = async_tp_init();
+    if (err)
+        goto out_async;
+
     /* FIXME: init hte CBHT subsystem */
     err = mds_cbht_init(&hmo.cbht, hmo.conf.cbht_bucket_depth);
     if (err)
@@ -333,6 +339,7 @@ int mds_init(int bdepth)
 out_unlink:
 out_itb:
 out_cbht:
+out_async:
 out_tx:
 out_dh:
 out_txc:
@@ -355,12 +362,15 @@ void mds_destroy(void)
     /* stop the unlink thread */
     unlink_thread_destroy();
 
-    /* cbht */
-    mds_cbht_destroy(&hmo.cbht);
-
     /* itb */
     itb_cache_destroy(&hmo.ic);
     
+    /* cbht */
+    mds_cbht_destroy(&hmo.cbht);
+
+    /* stop the async threads */
+    async_tp_destroy();
+
     /* stop the commit threads */
     mds_destroy_tx();
 

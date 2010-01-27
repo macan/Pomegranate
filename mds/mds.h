@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-26 22:33:40 macan>
+ * Time-stamp: <2010-01-27 13:48:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@
 #include "cbht.h"
 #include "mds_api.h"
 #include "lib.h"
+#include "async.h"
 
 /* FIXME: we should implement a ARC/DULO cache */
 struct itb_cache 
@@ -62,6 +63,7 @@ struct mds_conf
     int service_threads;        /* # of service threads, pass this value to
                                      lnet serve-in threads' pool
                                      initialization */
+    int async_threads;          /* # of async threads */
     int max_async_unlink;       /* max # of async unlink in one unlink wave */
 
     /* misc configs */
@@ -72,6 +74,7 @@ struct mds_conf
     int async_unlink;           /* enable/disable async unlink */
     int ring_vid_max;           /* max # of vid in the ring(AUTO) */
     int itb_depth_default;      /* default value of itb depth */
+    int async_update_N;         /* default # of processing request */
 
     /* intervals */
     int profiling_thread_interval;
@@ -144,13 +147,16 @@ struct hvfs_mds_object
     sem_t timer_sem;            /* for timer thread wakeup */
     sem_t commit_sem;           /* for commit thread wakeup */
     sem_t unlink_sem;           /* for unlink thread wakeup */
+    sem_t async_sem;            /* for async thread wakeup */
     
     pthread_t timer_thread;
     pthread_t *commit_thread;   /* array of commit threads */
+    pthread_t *async_thread;    /* array of async threads */
     pthread_t unlink_thread;
 
     u8 timer_thread_stop;       /* running flag for timer thread */
     u8 commit_thread_stop;      /* running flag for commit thread */
+    u8 async_thread_stop;       /* running flag for async thread */
     u8 dconf_thread_stop;       /* running flag for dconf thread */
     u8 unlink_thread_stop;      /* running flag for unlink thread */
 };
@@ -292,6 +298,10 @@ void mds_linkadd(struct hvfs_tx *);
 void mds_unlink(struct hvfs_tx *);
 void mds_symlink(struct hvfs_tx *);
 void mds_lb(struct hvfs_tx *);
+
+/* for async.c */
+int async_tp_init(void);
+void async_tp_destroy(void);
 
 /* please do not move the follow section */
 /* SECTION BEGIN */

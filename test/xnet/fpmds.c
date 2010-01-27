@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-26 19:44:09 macan>
+ * Time-stamp: <2010-01-27 16:32:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,11 @@
 #include "lib.h"
 
 #ifdef UNIT_TEST
+u64 split_retry = 0;
+u64 create_failed = 0;
+u64 lookup_failed = 0;
+u64 unlink_failed = 0;
+
 char *ipaddr1[] = {
     "10.10.111.9",
 };
@@ -91,7 +96,7 @@ int get_send_msg_create(int dsite, int nid, u64 puuid, u64 itbid, u64 flag,
     struct hvfs_index *hi;
     struct hvfs_md_reply *hmr;
     struct mdu_update *mu;
-    int err = 0;
+    int err = 0, recreate = 0;
 
     /* construct the hvfs_index */
     memset(name, 0, sizeof(name));
@@ -135,6 +140,7 @@ int get_send_msg_create(int dsite, int nid, u64 puuid, u64 itbid, u64 flag,
 
     hvfs_debug(xnet, "MDS dpayload %ld (namelen %d, dlen %ld)\n", 
                msg->tx.len, hi->namelen, hi->dlen);
+resend:
     err = xnet_send(hmo.xc, msg);
     if (err) {
         hvfs_err(xnet, "xnet_send() failed\n");
@@ -142,10 +148,19 @@ int get_send_msg_create(int dsite, int nid, u64 puuid, u64 itbid, u64 flag,
     }
     /* this means we have got the reply, parse it! */
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err) {
+    if (msg->pair->tx.err == -ESPLIT && !recreate) {
+        /* the ITB is under spliting, we need retry */
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        recreate = 1;
+        split_retry++;
+        goto resend;
+    } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "CREATE failed @ MDS site %ld w/ %d\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
         err = msg->pair->tx.err;
+        create_failed++;
         goto out_msg;
     }
     if (msg->pair->xm_datacheck)
@@ -245,6 +260,7 @@ int get_send_msg_unlink(int dsite, int nid, u64 puuid, u64 itbid, u64 flag)
         hvfs_err(xnet, "UNLINK failed @ MDS site %ld w/ %d\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
         err = msg->pair->tx.err;
+        unlink_failed++;
         goto out_msg;
     }
     if (msg->pair->xm_datacheck)
@@ -345,6 +361,7 @@ int get_send_msg_lookup(int dsite, int nid, u64 puuid, u64 itbid, u64 flag)
         hvfs_err(xnet, "LOOKUP failed @ MDS site %ld w/ %d\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
         err = msg->pair->tx.err;
+        lookup_failed++;
         goto out;
     }
     if (msg->pair->xm_datacheck)
@@ -428,6 +445,9 @@ int msg_send(int dsite, int loop)
     lib_timer_echo_plus(&begin, &end, loop, "UNLINK Latency: ");
     
     hvfs_info(xnet, "Unlink %d ITE(s) done.\n", loop);
+    hvfs_info(xnet, "Split_retry %ld, FAILED:[create,lookup,unlink] "
+              "%ld %ld %ld\n",
+              split_retry, create_failed, lookup_failed, unlink_failed);
 
     return 0;
 }
@@ -449,7 +469,7 @@ int dh_insert(u64 uuid, u64 puuid, u64 psalt)
     memset(&hi, 0, sizeof(hi));
     hi.uuid = uuid;
     hi.puuid = puuid;
-    hi.psalt = psalt;
+    hi.ssalt = psalt;
 
     e = mds_dh_insert(&hmo.dh, &hi);
     if (IS_ERR(e)) {
@@ -595,7 +615,7 @@ int main(int argc, char *argv[])
               (HVFS_IS_MDS(self) ? "Server" : "Client"));
 
     st_init();
-    mds_init(10);
+    mds_init(10);                /* max capacity is 2^11 */
     hmo.prof.xnet = &g_xnet_prof;
 
     hmo.xc = xnet_register_type(0, port, self, &ops);
@@ -603,6 +623,7 @@ int main(int argc, char *argv[])
         err = PTR_ERR(hmo.xc);
         goto out;
     }
+    hmo.site_id = self;
 
     xnet_update_ipaddr(HVFS_CLIENT(0), 1, ipaddr1, port1);
     xnet_update_ipaddr(HVFS_MDS(0), 1, ipaddr2, port2);

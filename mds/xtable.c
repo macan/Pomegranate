@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-26 22:34:42 macan>
+ * Time-stamp: <2010-01-27 16:49:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -77,7 +77,7 @@ int itb_split_local(struct itb *oi, struct itb **ni, struct itb_lock *l)
 retry:
     oi->h.depth++;
     (*ni)->h.depth = oi->h.depth;
-    (*ni)->h.itbid = oi->h.itbid + (1 << (oi->h.depth - 1));
+    (*ni)->h.itbid = oi->h.itbid | (1 << (oi->h.depth - 1));
     (*ni)->h.puuid = oi->h.puuid;
 
     /* check and transfer ite between the two ITBs */
@@ -101,7 +101,7 @@ retry:
                 (1 << (oi->h.depth - 1))) {
                 /* move to the new itb */
                 
-                hvfs_debug(mds, "offset %d flag %d, %s hash %lx -- bit %d, "
+                hvfs_err(mds, "offset %d flag %d, %s hash %lx -- bit %d, "
                            "moved %d\n",
                            offset, ii->flag, oi->ite[ii->entry].s.name,
                            oi->ite[ii->entry].hash >> ITB_DEPTH, 
@@ -130,37 +130,43 @@ retry:
         /* this means we should split more deeply, however, the itbid of the
          * old ITB can not change, so we just retry our access w/ depth++.
          */
+        hvfs_err(mds, "HIT\n");
         goto retry;
     }
 
-    hvfs_debug(mds, "moved %d entries from %ld to %ld\n", 
-               moved, oi->h.itbid, (*ni)->h.itbid);
+    hvfs_err(mds, "moved %d entries from %ld(%d,%d) to %ld(%d,%d)\n", 
+             moved, oi->h.itbid, oi->h.depth, atomic_read(&oi->h.entries),
+             (*ni)->h.itbid, (*ni)->h.depth, atomic_read(&(*ni)->h.entries));
     /* commit the changes and release the locks */
     oi->h.state = ITB_JUST_SPLIT;
     mds_dh_bitmap_update(&hmo.dh, oi->h.puuid, oi->h.itbid, MDS_BITMAP_SET);
+
     /* FIXME: we should connect the two ITBs for write-back */
     oi->h.twin = (u64)(*ni);
+    (*ni)->h.twin = (u64)oi;
+
     /* FIXME: we should adding the async split update here! */
 #if 1
     {
-        struct bucket *nb;
-        struct bucket_entry *nbe;
-        struct itb *ti;
+        struct async_update_request *aur = 
+            xzalloc(sizeof(struct async_update_request));
 
-        err = mds_cbht_insert_bbrlocked(&hmo.cbht, (*ni), &nb, &nbe, &ti);
-        if (err == -EEXIST) {
-            /* someone create the new ITB, we have data lossing */
-            hvfs_err(mds, "Someone create ITB %ld, data lossing ...\n",
-                     (*ni)->h.itbid);
-        } else if (err) {
-            hvfs_err(mds, "Internal error.\n");
+        if (!aur) {
+            hvfs_err(mds, "xallloc() AU request failed, data lossing.\n");
+            oi->h.state = ITB_ACTIVE;
+            err = -ENOMEM;
         } else {
-            /* it is ok, we need free the locks */
-            xrwlock_runlock(&nbe->lock);
-            xrwlock_runlock(&nb->lock);
+            aur->op = AU_ITB_SPLIT;
+            aur->arg = (u64)(*ni);
+            INIT_LIST_HEAD(&aur->list);
+            err = au_submit(aur);
+            if (err) {
+                hvfs_err(mds, "submit AU request failed, data lossing.\n");
+                oi->h.state = ITB_ACTIVE;
+                xfree(aur);
+            }
         }
     }
-    mds_dh_bitmap_update(&hmo.dh, oi->h.puuid, (*ni)->h.itbid, MDS_BITMAP_SET);
 #endif
     
     xrwlock_wunlock(&oi->h.lock);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-26 22:35:12 macan>
+ * Time-stamp: <2010-01-27 12:59:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -87,7 +87,8 @@ struct dhe *mds_dh_insert(struct dh *dh, struct hvfs_index *hi)
     xlock_init(&e->lock);
     e->uuid = hi->uuid;
     e->puuid = hi->puuid;
-    e->salt = hi->psalt;
+    /* NOTE: this is the self salt! */
+    e->salt = hi->ssalt;
 
     i = 0;
     xlock_lock(&rh->lock);
