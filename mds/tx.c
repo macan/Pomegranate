@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 13:45:45 macan>
+ * Time-stamp: <2010-01-28 15:09:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -100,6 +100,7 @@ init_tx:
     tx->reqno = req->tx.reqno;
     tx->reqin_site = req->tx.ssite_id;
     tx->req = req;
+    tx->rpy = NULL;
     tx->txg = mds_get_open_txg(&hmo); /* get the current opened TXG */
     atomic_set(&tx->ref, 1);
     INIT_LIST_HEAD(&tx->lru);
@@ -309,10 +310,12 @@ int mds_txc_evict(struct hvfs_txc *txc, struct hvfs_tx *tx)
 
     /* free all the TX resources */
     ASSERT(tx->state >= HVFS_TX_DONE, mds);
-    if (tx->req)
+    if (tx->req) {
         xnet_free_msg(tx->req);
-    if (tx->rpy)
+    }
+    if (tx->rpy) {
         xnet_free_msg(tx->rpy);
+    }
 
     return 0;
 }
@@ -349,6 +352,27 @@ void __tx_send_commit_msg(struct hvfs_tx *tx)
     /* NOTE: if using XNET_SIMPLE, we need to free the msg here */
 }
 
+/* mds_tx_chg2forget()
+ *
+ * We just remove the TX from the TXC, do NOT free any resources
+ */
+void mds_tx_chg2forget(struct hvfs_tx *tx)
+{
+    struct regular_hash *rh;
+    int i;
+
+    if (tx->op == HVFS_TX_FORGET)
+        return;
+    
+    tx->op = HVFS_TX_FORGET;
+
+    i = mds_txc_hash(tx->reqin_site, tx->reqno, &hmo.txc);
+    rh = hmo.txc.txht + i;
+    xlock_lock(&rh->lock);
+    hlist_del_init(&tx->hlist);
+    xlock_unlock(&rh->lock);
+}
+
 /*
  * NOTE: you should got the TX yourself!
  */
@@ -370,7 +394,11 @@ void mds_tx_done(struct hvfs_tx *tx)
         list_add_tail(&tx->lru, &hmo.txc.lru);
         atomic_inc(&hmo.txc.ftx);
         xlock_unlock(&hmo.txc.lock);
-        mds_pre_free_tx(HVFS_TX_PRE_FREE_HINT);
+        /* free the resources */
+        if (tx->req)
+            xnet_free_msg(tx->req);
+        if (tx->rpy)
+            xnet_free_msg(tx->rpy);
     }
     txg_put(tx->txg);
 }

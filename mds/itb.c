@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-27 16:48:09 macan>
+ * Time-stamp: <2010-01-28 14:37:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -987,14 +987,15 @@ int itb_search(struct hvfs_index *hi, struct itb *itb, void *data,
     /* NOTE: if we are in retrying, we know that the ITB will not COW
      * again! */
 retry:
-    if ((itb->h.state == ITB_JUST_SPLIT) &&
-        (((hi->hash >> ITB_DEPTH) & ((1 << itb->h.depth) - 1)) != 
-         itb->h.itbid)) {
+    if (itb->h.flag == ITB_JUST_SPLIT) {
+        if (((hi->hash >> ITB_DEPTH) & ((1 << itb->h.depth) - 1)) !=
+            itb->h.itbid) {
             ret = -ESPLIT;
-            hvfs_err(mds, "JUST SPLIT %s...\n", hi->name);
+            hvfs_err(mds, "JUST SPLIT %s retry\n", hi->name);
             goto out_nolock;
-    } else if (itb->h.state == ITB_JUST_SPLIT) {
-        hvfs_err(mds, "JUST SPLIT %s passed\n", hi->name);
+        } else {
+            hvfs_err(mds, "JUST SPLIT %s passed\n", hi->name);
+        }
     }
 
     pos = offset = hi->hash & ((1 << itb->h.adepth) - 1);
@@ -1142,7 +1143,7 @@ retry:
         ret = itb_add_ite(itb, hi, data, l);
     } else {
         /* other operations means ENOENT */
-        if (itb->h.state == ITB_JUST_SPLIT)
+        if (itb->h.flag == ITB_JUST_SPLIT)
             ret = -ESPLIT;
         else
             ret = -ENOENT;

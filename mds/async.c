@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-27 14:15:34 macan>
+ * Time-stamp: <2010-01-28 14:26:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,10 +79,10 @@ int __aur_itb_split(struct async_update_request *aur)
         /* change the ITB state to NORMAL */
         ti = (struct itb *)i->h.twin;
         i->h.twin = 0;
-        xrwlock_rlock(&ti->h.lock);
-        ti->h.state = ITB_ACTIVE;
+        xrwlock_wlock(&ti->h.lock);
+        ti->h.flag = ITB_ACTIVE;
         ti->h.twin = 0;
-        xrwlock_runlock(&ti->h.lock);
+        xrwlock_wunlock(&ti->h.lock);
         /* then, we set the bitmap now */
         mds_dh_bitmap_update(&hmo.dh, i->h.puuid, i->h.itbid, 
                              MDS_BITMAP_SET);

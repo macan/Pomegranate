@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 15:47:38 macan>
+ * Time-stamp: <2010-01-28 15:17:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,14 +58,15 @@ void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr,
     xnet_msg_add_sdata(tx->rpy, &tx->rpy->tx,
                        sizeof(struct xnet_msg_tx));
 #endif
-    if (!hmr->err) {
+    if (!err) {
         xnet_msg_add_sdata(tx->rpy, hmr, sizeof(*hmr));
         if (hmr->len)
             xnet_msg_add_sdata(tx->rpy, hmr->data, hmr->len);
     } else {
-        /* we should change the TX to the FORGET level */
-        tx->op = HVFS_TX_FORGET;
-        xnet_msg_set_err(tx->rpy, hmr->err);
+        /* we should change the TX to the FORGET level to avoid pollute the
+         * TXCache */
+        mds_tx_chg2forget(tx);
+        xnet_msg_set_err(tx->rpy, err);
         /* then, we should free the hmr and any allocated buffers */
         if (hmr->data)
             xfree(hmr->data);
@@ -166,7 +167,7 @@ void mds_lookup(struct hvfs_tx *tx)
     hvfs_debug(mds, "LOOKUP %ld %ld %lx %s %d\n",
                hi->puuid, hi->itbid, hi->hash, hi->name, hi->namelen);
 
-    if (hi->flag & INDEX_BY_NAME && !hi->hash) {
+    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
         hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 
                              HASH_SEL_EH);
     }
@@ -223,9 +224,10 @@ void mds_create(struct hvfs_tx *tx)
         goto send_rpy;
     }
     
-    if (hi->flag & INDEX_BY_NAME && !hi->hash)
+    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
         hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 
                              HASH_SEL_EH);
+    }
 
     /* alloc hmr */
     hmr = get_hmr();
@@ -292,7 +294,7 @@ void mds_update(struct hvfs_tx *tx)
         goto send_rpy;
     }
     
-    if (hi->flag & INDEX_BY_NAME && !hi->hash) {
+    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
         hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 
                              HASH_SEL_EH);
     }
@@ -352,7 +354,7 @@ void mds_linkadd(struct hvfs_tx *tx)
         goto send_rpy;
     }
     
-    if (hi->flag & INDEX_BY_NAME && !hi->hash) {
+    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
         hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 
                              HASH_SEL_EH);
     }
@@ -405,7 +407,7 @@ void mds_unlink(struct hvfs_tx *tx)
         goto send_rpy;
     }
     
-    if (hi->flag & INDEX_BY_NAME && !hi->hash) {
+    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
         hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 
                              HASH_SEL_EH);
     }
@@ -458,7 +460,7 @@ void mds_symlink(struct hvfs_tx *tx)
         goto send_rpy;
     }
     
-    if (hi->flag & INDEX_BY_NAME && !hi->hash) {
+    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
         hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 
                              HASH_SEL_EH);
     }
@@ -500,4 +502,39 @@ void mds_lb(struct hvfs_tx *tx)
 {
     /* FIXME */
     hvfs_info(mds, "Not Implement yet.\n");
+}
+
+/* DUMP ITB */
+void mds_dump_itb(struct hvfs_tx *tx)
+{
+    struct hvfs_index *hi = NULL;
+    int err;
+
+    /* sanity checking */
+    if (tx->req->tx.len < sizeof(*hi)) {
+        hvfs_err(mds, "Invalid DITB request %ld recieved\n",
+                 tx->req->tx.reqno);
+        err = -EINVAL;
+        goto out;
+    }
+
+    if (tx->req->xm_datacheck)
+        hi = tx->req->xm_data;
+    else {
+        hvfs_err(mds, "Internal error, data lossing ...\n");
+        err = -EFAULT;
+        goto out;
+    }
+
+    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
+        hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen,
+                             HASH_SEL_EH);
+    }
+    mds_cbht_search_dump_itb(hi);
+    /* dump the previous ITB */
+    hi->itbid &= ~(1 << (fls64(hi->itbid)));
+    mds_cbht_search_dump_itb(hi);
+out:
+    mds_tx_done(tx);
+    return;
 }

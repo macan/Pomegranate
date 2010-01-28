@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-27 16:49:54 macan>
+ * Time-stamp: <2010-01-28 14:37:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,9 +68,13 @@ int itb_split_local(struct itb *oi, struct itb **ni, struct itb_lock *l)
     xrwlock_wlock(&oi->h.lock);
 
     /* sanity checking */
+    if (oi->h.flag == ITB_JUST_SPLIT) {
+        hvfs_err(mds, "Another split is progressing, we just wait a little"
+                 " to retry!\n");
+        goto out_relock;
+    }
     if (atomic_read(&oi->h.entries) < (1 << oi->h.adepth)) {
         /* under the water mark, abort the spliting */
-        oi->h.depth--;
         goto out_relock;
     }
 
@@ -91,9 +95,10 @@ retry:
         do {
             int conflict = 0;
             
-            if (ii->flag == ITB_INDEX_UNIQUE)
+            if (ii->flag == ITB_INDEX_UNIQUE) {
+                hvfs_debug(mds, "self %d UNIQUE\n", offset);
                 done = 1;
-            else if (ii->flag == ITB_INDEX_CONFLICT) {
+            } else if (ii->flag == ITB_INDEX_CONFLICT) {
                 conflict = ii->conflict;
                 hvfs_debug(mds, "self %d conflict %d\n", offset, conflict);
             }
@@ -101,7 +106,7 @@ retry:
                 (1 << (oi->h.depth - 1))) {
                 /* move to the new itb */
                 
-                hvfs_err(mds, "offset %d flag %d, %s hash %lx -- bit %d, "
+                hvfs_debug(mds, "offset %d flag %d, %s hash %lx -- bit %d, "
                            "moved %d\n",
                            offset, ii->flag, oi->ite[ii->entry].s.name,
                            oi->ite[ii->entry].hash >> ITB_DEPTH, 
@@ -130,15 +135,15 @@ retry:
         /* this means we should split more deeply, however, the itbid of the
          * old ITB can not change, so we just retry our access w/ depth++.
          */
-        hvfs_err(mds, "HIT\n");
+        hvfs_err(mds, "HIT untested code-path.\n");
         goto retry;
     }
 
-    hvfs_err(mds, "moved %d entries from %ld(%d,%d) to %ld(%d,%d)\n", 
-             moved, oi->h.itbid, oi->h.depth, atomic_read(&oi->h.entries),
-             (*ni)->h.itbid, (*ni)->h.depth, atomic_read(&(*ni)->h.entries));
+    hvfs_debug(mds, "moved %d entries from %ld(%d,%d) to %ld(%d,%d)\n", 
+               moved, oi->h.itbid, oi->h.depth, atomic_read(&oi->h.entries),
+               (*ni)->h.itbid, (*ni)->h.depth, atomic_read(&(*ni)->h.entries));
     /* commit the changes and release the locks */
-    oi->h.state = ITB_JUST_SPLIT;
+    oi->h.flag = ITB_JUST_SPLIT;
     mds_dh_bitmap_update(&hmo.dh, oi->h.puuid, oi->h.itbid, MDS_BITMAP_SET);
 
     /* FIXME: we should connect the two ITBs for write-back */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-27 16:32:57 macan>
+ * Time-stamp: <2010-01-28 14:36:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -83,6 +83,23 @@ void hmr_print(struct hvfs_md_reply *hmr)
     if (hmr->flag & MD_REPLY_WITH_BITMAP) {
         hvfs_info(xnet, "hmr-> BM: ...\n");
     }
+}
+
+/* send_msg_dump()
+ */
+int __send_msg_dump(struct xnet_msg *msg)
+{
+    int err;
+    
+    msg->tx.cmd = HVFS_CLT2MDS_DITB;
+    msg->tx.flag &= ~XNET_NEED_REPLY;
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() DITB request failed\n");
+        goto out;
+    }
+out:
+    return err;
 }
 
 /* get_send_msg_create()
@@ -362,6 +379,8 @@ int get_send_msg_lookup(int dsite, int nid, u64 puuid, u64 itbid, u64 flag)
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
         err = msg->pair->tx.err;
         lookup_failed++;
+        __send_msg_dump(msg);
+        hvfs_err(mds, "DUMP criminal hash 0x%lx\n", hi->hash);
         goto out;
     }
     if (msg->pair->xm_datacheck)
@@ -615,6 +634,7 @@ int main(int argc, char *argv[])
               (HVFS_IS_MDS(self) ? "Server" : "Client"));
 
     st_init();
+    lib_init();
     mds_init(10);                /* max capacity is 2^11 */
     hmo.prof.xnet = &g_xnet_prof;
 
@@ -624,6 +644,8 @@ int main(int argc, char *argv[])
         goto out;
     }
     hmo.site_id = self;
+    hmi.gdt_salt = lib_random(0xfffffff);
+    hvfs_info(xnet, "Select GDT salt to %ld\n", hmi.gdt_salt);
 
     xnet_update_ipaddr(HVFS_CLIENT(0), 1, ipaddr1, port1);
     xnet_update_ipaddr(HVFS_MDS(0), 1, ipaddr2, port2);

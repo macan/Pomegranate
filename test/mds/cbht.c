@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 14:26:50 macan>
+ * Time-stamp: <2010-01-28 15:39:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@
 #include "hvfs.h"
 #include "xtable.h"
 #include "mds.h"
+#include "ring.h"
 
 #ifdef UNIT_TEST
 atomic64_t miss;                /* # of shadow lookup miss */
@@ -269,6 +270,126 @@ void async_unlink_test(void)
     exit(0);
 }
 
+int dh_insert(u64 uuid, u64 puuid, u64 psalt)
+{
+    struct hvfs_index hi;
+    struct dhe *e;
+    int err = 0;
+
+    memset(&hi, 0, sizeof(hi));
+    hi.uuid = uuid;
+    hi.puuid = puuid;
+    hi.ssalt = psalt;
+
+    e = mds_dh_insert(&hmo.dh, &hi);
+    if (IS_ERR(e)) {
+        hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
+        goto out;
+    }
+    hvfs_info(mds, "Insert dir:%8ld in DH w/  %p\n", uuid, e);
+out:
+    return err;
+}
+
+int dh_search(u64 uuid)
+{
+    struct dhe *e;
+    int err = 0;
+
+    e = mds_dh_search(&hmo.dh, uuid);
+    if (IS_ERR(e)) {
+        hvfs_err(mds, "mds_dh_search() failed %ld\n", PTR_ERR(e));
+        err = PTR_ERR(e);
+        goto out;
+    }
+    hvfs_info(mds, "Search dir:%8ld in DH hit %p\n", uuid, e);
+out:
+    return err;
+}
+
+int dh_remove(u64 uuid)
+{
+    return mds_dh_remove(&hmo.dh, uuid);
+}
+
+int bitmap_insert(u64 uuid, u64 offset)
+{
+    struct dhe *e;
+    struct itbitmap *b;
+    int err = 0, i;
+
+    b = xzalloc(sizeof(*b));
+    if (!b) {
+        hvfs_err(mds, "xzalloc() struct itbitmap failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    INIT_LIST_HEAD(&b->list);
+    b->offset = (offset / XTABLE_BITMAP_SIZE) * XTABLE_BITMAP_SIZE;
+    b->flag = BITMAP_END;
+    /* set all bits to 1, within the previous 8 ITBs */
+    for (i = 0; i < ((1 << hmo.conf.itb_depth_default) / 8); i++) {
+        b->array[i] = 0xff;
+    }
+
+    e = mds_dh_search(&hmo.dh, uuid);
+    if (IS_ERR(e)) {
+        hvfs_err(mds, "mds_dh_search() failed %ld\n", PTR_ERR(e));
+        err = PTR_ERR(e);
+        goto out_free;
+    }
+    err = __mds_bitmap_insert(e, b);
+    if (err) {
+        hvfs_err(mds, "__mds_bitmap_insert() failed %d\n", err);
+        goto out_free;
+    }
+
+out:
+    return err;
+out_free:
+    xfree(b);
+    return err;
+}
+
+/* ring_add() add one site to the CH ring
+ */
+int ring_add(struct chring **r, u64 site)
+{
+    struct chp *p;
+    char buf[256];
+    int vid_max, i, err;
+
+    vid_max = hmo.conf.ring_vid_max ? hmo.conf.ring_vid_max : HVFS_RING_VID_MAX;
+
+    if (!*r) {
+        *r = ring_alloc(vid_max << 1, 0);
+        if (!*r) {
+            hvfs_err(mds, "ring_alloc() failed.\n");
+            return -ENOMEM;
+        }
+    }
+
+    p = (struct chp *)xzalloc(vid_max * sizeof(struct chp));
+    if (!p) {
+        hvfs_err(mds, "xzalloc() chp failed\n");
+        return -ENOMEM;
+    }
+
+    for (i = 0; i < vid_max; i++) {
+        snprintf(buf, 256, "%ld.%d", site, i);
+        (p + i)->point = hvfs_hash(site, (u64)buf, strlen(buf), HASH_SEL_VSITE);
+        (p + i)->vid = i;
+        (p + i)->type = CHP_AUTO;
+        (p + i)->site_id = site;
+        err = ring_add_point(p + i, *r);
+        if (err) {
+            hvfs_err(mds, "ring_add_point() failed.\n");
+            return err;
+        }
+    }
+    return 0;
+}
+
 int st_main(int argc, char *argv[])
 {
     struct timeval begin, end;
@@ -304,6 +425,17 @@ int st_main(int argc, char *argv[])
         hvfs_err(mds, "mds_cbht_init failed %d\n", err);
         goto out;
     }
+    /* init misc configrations */
+    hmo.site_id = HVFS_MDS(0);
+    hmi.gdt_salt = lib_random(0xfffffff);
+    hvfs_info(mds, "Select GDT salt to %ld\n", hmi.gdt_salt);    
+    ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
+    ring_dump(hmo.chring[CH_RING_MDS]);
+
+    /* insert the GDT DH */
+    dh_insert(hmi.gdt_uuid, hmi.gdt_uuid, hmi.gdt_salt);
+    bitmap_insert(0, 0);
+
     /* print the init cbht */
     cbht_print_dir(&hmo.cbht);
     /* init hte itb cache */
@@ -642,6 +774,17 @@ int mt_main(int argc, char *argv[])
         hvfs_err(mds, "mds_cbht_init failed %d\n", err);
         goto out;
     }
+    /* init misc configrations */
+    hmo.site_id = HVFS_MDS(0);
+    hmi.gdt_salt = lib_random(0xfffffff);
+    hvfs_info(mds, "Select GDT salt to %ld\n", hmi.gdt_salt);
+    ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
+    ring_dump(hmo.chring[CH_RING_MDS]);
+
+    /* insert the GDT DH */
+    dh_insert(hmi.gdt_uuid, hmi.gdt_uuid, hmi.gdt_salt);
+    bitmap_insert(0, 0);
+    
     /* print the init cbht */
     cbht_print_dir(&hmo.cbht);
     /* init hte itb cache */

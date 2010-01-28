@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-27 12:59:40 macan>
+ * Time-stamp: <2010-01-28 15:23:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -355,7 +355,7 @@ int mds_dh_bitmap_update(struct dh *dh, u64 puuid, u64 itbid, u8 op)
 
     hvfs_debug(mds, "bitmap updating puuid %ld itbid %ld.\n", puuid, itbid);
     e = mds_dh_search(dh, puuid);
-    if (!e) {
+    if (IS_ERR(e)) {
         hvfs_err(mds, "The DHE(%ld) is not exist.\n", puuid);
         return -EINVAL;
     }

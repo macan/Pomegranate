@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-26 17:17:35 macan>
+ * Time-stamp: <2010-01-28 10:52:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -968,7 +968,8 @@ void mds_cbht_search_dump_itb(struct hvfs_index *hi)
     }
 
     offset = hi->hash & ((1 << ITB_DEPTH) - 1);
-    hvfs_info(mds, "criminal: %s @ offset %ld\n", hi->name, offset);
+    hvfs_info(mds, "criminal: %s hash 0x%lx ITB.id %ld @ offset %ld\n", 
+              hi->name, hi->hash, hi->itbid, offset);
 
     /* always holding the bucket.rlock */
     xrwlock_rlock(&be->lock);

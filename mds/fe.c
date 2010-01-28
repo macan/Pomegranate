@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 22:00:43 macan>
+ * Time-stamp: <2010-01-28 10:39:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -118,6 +118,10 @@ int mds_fe_dispatch(struct xnet_msg *msg)
         }
         /* search in the bitmap(optional) */
         /* FIXME: bitmap load blocking may happen */
+        if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
+            hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen,
+                                 HASH_SEL_EH);
+        }
         itbid = mds_get_itbid(e, hi->hash);
         /* recheck CH ring and forward the request on demand */
         if (itbid != hi->itbid || hmo.conf.option & HVFS_MDS_CHRECHK) {

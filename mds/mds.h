@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-27 13:48:07 macan>
+ * Time-stamp: <2010-01-28 15:08:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -248,6 +248,7 @@ void mds_tx_reply(struct hvfs_tx *);
 void mds_tx_commit(struct hvfs_tx *);
 int mds_init_tx(u64);
 void mds_destroy_tx(void);
+void mds_tx_chg2forget(struct hvfs_tx *);
 
 /* for txg.c: DRAFT */
 void txg_add_itb(struct hvfs_txg *, struct itb *);
@@ -298,6 +299,7 @@ void mds_linkadd(struct hvfs_tx *);
 void mds_unlink(struct hvfs_tx *);
 void mds_symlink(struct hvfs_tx *);
 void mds_lb(struct hvfs_tx *);
+void mds_dump_itb(struct hvfs_tx *);
 
 /* for async.c */
 int async_tp_init(void);
