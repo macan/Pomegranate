@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 15:39:50 macan>
+ * Time-stamp: <2010-01-28 16:43:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -150,6 +150,7 @@ void remove_ite(u64 puuid, u64 itbid, char *name,
     if (!hmr->err) {
         xfree(hmr->data);
     }
+    xfree(hi);
 }
 
 void lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag , 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 14:37:38 macan>
+ * Time-stamp: <2010-01-28 21:43:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -256,6 +256,7 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
             /* set up the mdu base on hi->data */
             ite_create(hi, ite);
             /* copy the mdu into the hmr buffer */
+            hi->uuid = ite->uuid;
             memcpy(data, &(ite->g), HVFS_MDU_SIZE);
         } else {
             /* hoo, there is no zero bit! */
@@ -991,10 +992,10 @@ retry:
         if (((hi->hash >> ITB_DEPTH) & ((1 << itb->h.depth) - 1)) !=
             itb->h.itbid) {
             ret = -ESPLIT;
-            hvfs_err(mds, "JUST SPLIT %s retry\n", hi->name);
+            hvfs_debug(mds, "JUST SPLIT %s retry\n", hi->name);
             goto out_nolock;
         } else {
-            hvfs_err(mds, "JUST SPLIT %s passed\n", hi->name);
+            hvfs_debug(mds, "JUST SPLIT %s passed\n", hi->name);
         }
     }
 
@@ -1031,6 +1032,7 @@ retry:
         hvfs_verbose(mds, "OK, the ITE do exist in the ITB.\n");
         if (hi->flag & INDEX_LOOKUP) {
             /* read MDU to buffer */
+            hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
         } else if (unlikely(hi->flag & INDEX_CREATE)) {
             /* already exist, so... */
@@ -1053,6 +1055,7 @@ retry:
                     goto refresh;
                 }
                 ite_update(hi, &itb->ite[ii->entry]);
+                hi->uuid = itb->ite[ii->entry].uuid;
                 memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
             } else if (hi->flag & INDEX_CREATE_LINK) {
                 hvfs_verbose(mds, "Forcely create hard link ...\n");
@@ -1065,6 +1068,7 @@ retry:
                     goto refresh;
                 }
                 ite_update(hi, &itb->ite[ii->entry]);
+                hi->uuid = itb->ite[ii->entry].uuid;
                 memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
             }
         } else if (hi->flag & INDEX_MDU_UPDATE) {
@@ -1079,6 +1083,7 @@ retry:
                 goto refresh;
             }
             ite_update(hi, &itb->ite[ii->entry]);
+            hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
         } else if (hi->flag & INDEX_UNLINK) {
             /* unlink */
@@ -1092,6 +1097,7 @@ retry:
                 goto refresh;
             }
             ite_unlink(&itb->ite[ii->entry], itb, offset, pos);
+            hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
         } else if (hi->flag & INDEX_LINK_ADD) {
             /* hard link */
@@ -1110,6 +1116,7 @@ retry:
                 goto refresh;
             }
             itb->ite[ii->entry].s.mdu.nlink++;
+            hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
         } else if (hi->flag & INDEX_SYMLINK) {
             /* symlink */

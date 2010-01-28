@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 14:37:13 macan>
+ * Time-stamp: <2010-01-28 22:01:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -69,8 +69,9 @@ int itb_split_local(struct itb *oi, struct itb **ni, struct itb_lock *l)
 
     /* sanity checking */
     if (oi->h.flag == ITB_JUST_SPLIT) {
-        hvfs_err(mds, "Another split is progressing, we just wait a little"
-                 " to retry!\n");
+        hvfs_err(mds, "Another split %ld(%ld) is progressing,"
+                 " we just wait a little to retry!\n",
+                 oi->h.itbid, oi->h.depth);
         goto out_relock;
     }
     if (atomic_read(&oi->h.entries) < (1 << oi->h.adepth)) {
@@ -139,7 +140,7 @@ retry:
         goto retry;
     }
 
-    hvfs_debug(mds, "moved %d entries from %ld(%d,%d) to %ld(%d,%d)\n", 
+    hvfs_err(mds, "moved %d entries from %ld(%d,%d) to %ld(%d,%d)\n", 
                moved, oi->h.itbid, oi->h.depth, atomic_read(&oi->h.entries),
                (*ni)->h.itbid, (*ni)->h.depth, atomic_read(&(*ni)->h.entries));
     /* commit the changes and release the locks */
@@ -190,9 +191,9 @@ out_relock:
     /* free the new itb */
     itb_free(*ni);
 
-    itb_index_wlock(l);
-    xrwlock_rlock(&oi->h.lock);
     xrwlock_rlock(&be->lock);
+    xrwlock_rlock(&oi->h.lock);
+    itb_index_wlock(l);
     goto out;
 }
 

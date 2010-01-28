@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-26 09:52:16 macan>
+ * Time-stamp: <2010-01-28 17:45:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -51,6 +51,7 @@ void lib_timer_echo_plus(struct timeval *, struct timeval *, int, char *);
 #define lib_timer_B() lib_timer_start(&begin)
 #define lib_timer_E() lib_timer_stop(&end)
 #define lib_timer_O(loop, str) lib_timer_echo_plus(&begin, &end, loop, str)
+#define lib_timer_A(ACC) lib_timer_acc(&begin, &end, (ACC))
 
 int lib_bitmap_tas(volatile void *, u32);
 int lib_bitmap_tac(volatile void *, u32);
