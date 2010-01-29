@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 15:23:00 macan>
+ * Time-stamp: <2010-01-29 15:57:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -320,7 +320,8 @@ retry:
             if (b->flag & BITMAP_END) {
                 /* ok, let us just fallbacking */
                 xlock_unlock(&e->lock);
-                offset = mds_bitmap_fallback(offset);
+                offset = mds_bitmap_cut(offset,
+                                        b->offset + XTABLE_BITMAP_SIZE);
                 goto retry;
             }
         }
@@ -404,3 +405,29 @@ out:
     return err;
 }
 
+/* mds_dh_bitmap_dump()
+ */
+void mds_dh_bitmap_dump(struct dh *dh, u64 puuid)
+{
+    struct itbitmap *b;
+    struct dhe *e;
+    char line[4096];
+    int i, len = 0;
+
+    e = mds_dh_search(dh, puuid);
+    if (IS_ERR(e)) {
+        hvfs_err(mds, "The DHE(%ld) is not exist.\n", puuid);
+        return;
+    }
+
+    memset(line, 0, 4096);
+    xlock_lock(&e->lock);
+    list_for_each_entry(b, &e->bitmap, list) {
+/*         for (i = 0; i < XTABLE_BITMAP_SIZE / 8; i++) { */
+        for (i = 0; i < 32; i++) {
+            len += snprintf(line + len, 4096, "%x", b->array[i]);
+        }
+        hvfs_plain(mds, "offset: %s\n", line);
+    }
+    xlock_unlock(&e->lock);
+}

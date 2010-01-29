@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 15:08:30 macan>
+ * Time-stamp: <2010-01-29 13:41:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -75,6 +75,7 @@ struct mds_conf
     int ring_vid_max;           /* max # of vid in the ring(AUTO) */
     int itb_depth_default;      /* default value of itb depth */
     int async_update_N;         /* default # of processing request */
+    s8 itbid_check;             /* should we do ITBID check? */
 
     /* intervals */
     int profiling_thread_interval;
@@ -288,6 +289,7 @@ struct dhe *mds_dh_search(struct dh *, u64);
 int mds_dh_remove(struct dh *, u64);
 u64 mds_get_itbid(struct dhe *, u64);
 int mds_dh_bitmap_update(struct dh *, u64, u64, u8);
+void mds_dh_bitmap_dump(struct dh *, u64);
 
 /* for c2m.c, client 2 mds APIs */
 void mds_statfs(struct hvfs_tx *);

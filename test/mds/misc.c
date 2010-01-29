@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-26 09:53:20 macan>
+ * Time-stamp: <2010-01-29 15:53:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,11 +32,13 @@ int main(int argc, char *argv[])
 {
     int err = 0;
     int offset;
-    u64 a = 0;
+    u64 a = XTABLE_BITMAP_SIZE;
     
 
     offset = fls64(a);
-    hvfs_info(mds, "First set bit in 0x%lx is %d.\n", a, offset);
+    hvfs_info(mds, "[FLS64]: First set bit in 0x%lx is %d.\n", a, offset);
+    offset = fls(a);
+    hvfs_info(mds, "[FLS  ]: First set bit in 0x%lx is %d.\n", a, offset);
     
     return err;
 }

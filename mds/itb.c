@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 21:43:23 macan>
+ * Time-stamp: <2010-01-29 21:12:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -906,6 +906,13 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                     n->h.be = be;
                     hlist_add_head(&n->h.cbht, &be->h);
 
+                    /* for ITB split, we need to track the new itb and update
+                     * its state */
+                    if (itb->h.flag == ITB_JUST_SPLIT)
+                        itb->h.twin = (u64)n;
+                    else
+                        itb->h.twin = 0;
+
                     /* ok, recopy the new ITEs */
                     itb_cow_recopy(itb, n);
                     hvfs_debug(mds, "ITB COWing %ld %p to %p\n", 
@@ -979,7 +986,7 @@ int itb_search(struct hvfs_index *hi, struct itb *itb, void *data,
                struct hvfs_txg **otxg)
 {
     u64 offset, pos;
-    u64 total = 1 << (itb->h.adepth + 1);
+    u64 total = 1 << (ITB_DEPTH + 1);
     atomic64_t *as;
     struct itb_index *ii;
     struct itb_lock *l;
@@ -988,14 +995,19 @@ int itb_search(struct hvfs_index *hi, struct itb *itb, void *data,
     /* NOTE: if we are in retrying, we know that the ITB will not COW
      * again! */
 retry:
-    if (itb->h.flag == ITB_JUST_SPLIT) {
+    if (hmo.conf.itbid_check) {
         if (((hi->hash >> ITB_DEPTH) & ((1 << itb->h.depth) - 1)) !=
             itb->h.itbid) {
+            /* This means the ITB we choose has completed one split, and it is
+             * not the target location we should resident in. We need restart
+             * our access. */
             ret = -ESPLIT;
-            hvfs_debug(mds, "JUST SPLIT %s retry\n", hi->name);
+            hvfs_debug(mds, "Under SPLIT, Location Changed.(%ld vs %ld)"
+                       " %s retry\n",
+                       ((hi->hash >> ITB_DEPTH) & ((1 << itb->h.depth) - 1)),
+                       itb->h.itbid,
+                       hi->name);
             goto out_nolock;
-        } else {
-            hvfs_debug(mds, "JUST SPLIT %s passed\n", hi->name);
         }
     }
 

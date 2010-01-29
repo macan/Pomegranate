@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 22:01:46 macan>
+ * Time-stamp: <2010-01-29 20:31:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,15 +63,20 @@ int itb_split_local(struct itb *oi, struct itb **ni, struct itb_lock *l)
     xrwlock_runlock(&oi->h.lock);
     xrwlock_runlock(&be->lock);
 
+    /* NOTE: there may be a COW here! */
+
     /* reget the wlock */
     xrwlock_wlock(&be->lock);
     xrwlock_wlock(&oi->h.lock);
 
     /* sanity checking */
+    if (oi->h.state == ITB_STATE_COWED) {
+        goto out_relock;
+    }
     if (oi->h.flag == ITB_JUST_SPLIT) {
-        hvfs_err(mds, "Another split %ld(%ld) is progressing,"
-                 " we just wait a little to retry!\n",
-                 oi->h.itbid, oi->h.depth);
+        hvfs_debug(mds, "Another split %ld(%d) is progressing,"
+                   " we just wait a little to retry!\n",
+                   oi->h.itbid, oi->h.depth);
         goto out_relock;
     }
     if (atomic_read(&oi->h.entries) < (1 << oi->h.adepth)) {
@@ -140,7 +145,7 @@ retry:
         goto retry;
     }
 
-    hvfs_err(mds, "moved %d entries from %ld(%d,%d) to %ld(%d,%d)\n", 
+    hvfs_debug(mds, "moved %d entries from %ld(%d,%d) to %ld(%d,%d)\n", 
                moved, oi->h.itbid, oi->h.depth, atomic_read(&oi->h.entries),
                (*ni)->h.itbid, (*ni)->h.depth, atomic_read(&(*ni)->h.entries));
     /* commit the changes and release the locks */
@@ -178,9 +183,9 @@ retry:
     xrwlock_wunlock(&oi->h.lock);
     xrwlock_wunlock(&be->lock);
 
-    itb_index_wlock(l);
-    xrwlock_rlock(&oi->h.lock);
     xrwlock_rlock(&be->lock);
+    xrwlock_rlock(&oi->h.lock);
+    itb_index_wlock(l);
     
 out:
     return err;
@@ -206,32 +211,6 @@ int itb_overflow(struct itb *oi, struct itb **ni)
     int err = 0;
 
     return err;
-}
-
-/* mds_bitmap_lookup()
- *
- * Test the offset in this slice, return the bit!
- */
-int mds_bitmap_lookup(struct itbitmap *b, u64 offset)
-{
-    int index = offset - b->offset;
-
-    ASSERT((index >= 0 && index < XTABLE_BITMAP_SIZE), mds);
-    return test_bit(index, (u64 *)(b->array));
-}
-
-/* mds_bitmap_fallback()
- *
- * Fallback to the next location of ITB
- */
-u64 mds_bitmap_fallback(u64 offset)
-{
-    int nr = fls(offset);       /* NOTE: we just use the low 32 bits */
-
-    if (!nr)
-        return 0;
-    __clear_bit(nr - 1, &offset);
-    return offset;
 }
 
 /* mds_bitmap_update()

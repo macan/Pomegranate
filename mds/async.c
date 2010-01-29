@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 14:26:00 macan>
+ * Time-stamp: <2010-01-29 21:41:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,29 +63,54 @@ int __aur_itb_split(struct async_update_request *aur)
         struct bucket *nb;
         struct bucket_entry *nbe;
         struct itb *ti;
+        struct hvfs_txg *t;
 
+        /* pre-dirty this itb */
+        t = mds_get_open_txg(&hmo);
+        i->h.txg = t->txg;
+        txg_add_itb(t, i);
+        i->h.state = ITB_STATE_DIRTY;
+        txg_put(t);
+        /* insert into the CBHT */
         err = mds_cbht_insert_bbrlocked(&hmo.cbht, i, &nb, &nbe, &ti);
         if (err == -EEXIST) {
-            /* someone create the new ITB, we have data lossing */
-            hvfs_err(mds, "Someone create ITB %ld, data lossing ...\n",
+            /* someone create the new ITB, we have data losing */
+            hvfs_err(mds, "Someone create ITB %ld, data losing ...\n",
                      i->h.itbid);
         } else if (err) {
-            hvfs_err(mds, "Internal error %d.\n", err);
+            hvfs_err(mds, "Internal error %d, data losing.\n", err);
         } else {
             /* it is ok, we need free the locks */
             xrwlock_runlock(&nbe->lock);
             xrwlock_runlock(&nb->lock);
         }
-        /* change the ITB state to NORMAL */
+        /* change the splited ITB's state to NORMAL */
         ti = (struct itb *)i->h.twin;
         i->h.twin = 0;
-        xrwlock_wlock(&ti->h.lock);
-        ti->h.flag = ITB_ACTIVE;
-        ti->h.twin = 0;
-        xrwlock_wunlock(&ti->h.lock);
+        /* FIXME: should we just use the rlock? */
+        nbe = ti->h.be;
+        if (nbe == NULL) {
+            /* this means we do not need update the ITB state, but we should
+             * update the new COWed ITB */
+            struct itb *xi = (struct itb *)(ti->h.twin);
+
+            hvfs_info(mds, "can this happen?\n");
+            ASSERT(xi, mds);
+            xrwlock_wlock(&xi->h.lock);
+            xi->h.flag = ITB_ACTIVE;
+            xi->h.twin = 0;
+            xrwlock_wunlock(&xi->h.lock);
+        } else {
+            xrwlock_wlock(&ti->h.lock);
+            ti->h.flag = ITB_ACTIVE;
+            ti->h.twin = 0;
+            xrwlock_wunlock(&ti->h.lock);
+        }
         /* then, we set the bitmap now */
         mds_dh_bitmap_update(&hmo.dh, i->h.puuid, i->h.itbid, 
                              MDS_BITMAP_SET);
+        hvfs_debug(mds, "we update the bit of ITB %ld\n", i->h.itbid);
+/*         mds_dh_bitmap_dump(&hmo.dh, i->h.puuid); */
     }
     
 out:

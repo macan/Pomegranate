@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 17:45:35 macan>
+ * Time-stamp: <2010-01-29 15:19:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -60,16 +60,103 @@ long find_first_zero_bit(const unsigned long *, unsigned long);
 long find_next_zero_bit(const unsigned long *, long, long);
 long find_first_bit(const unsigned long *, unsigned long);
 long find_next_bit(const unsigned long *, long, long);
-void __set_bit(int, volatile unsigned long *);
-void __clear_bit(int, volatile unsigned long *);
-int ffs(int);
-int fls(int);
-int fls64(unsigned long);
 
 void lib_init(void);
 u64 lib_random(int hint);
 
 void *hmr_extract(void *, int, int *);
+
+/* Region for fast bit operations */
+#if __GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 1)
+/* Technically wrong, but this avoids compilation errors on some gcc
+   versions. */
+#define BITOP_ADDR(x) "=m" (*(volatile long *) (x))
+#else
+#define BITOP_ADDR(x) "+m" (*(volatile long *) (x))
+#endif
+
+#define ADDR				BITOP_ADDR(addr)
+
+/**
+ * __set_bit - Set a bit in memory
+ * @nr: the bit to set
+ * @addr: the address to start counting from
+ *
+ * Unlike set_bit(), this function is non-atomic and may be reordered.
+ * If it's called on the same region of memory simultaneously, the effect
+ * may be that only one operation succeeds.
+ */
+static inline
+void __set_bit(int nr, volatile unsigned long *addr)
+{
+    asm volatile("bts %1,%0" : ADDR : "Ir" (nr) : "memory");
+}
+
+/*
+ * __clear_bit - Clears a bit in memory
+ * @nr: Bit to clear
+ * @addr: Address to start counting from
+ */
+static inline
+void __clear_bit(int nr, volatile unsigned long *addr)
+{
+	asm volatile("btr %1,%0" : ADDR : "Ir" (nr));
+}
+
+/**
+ * fls - find last set bit in word
+ * @x: the word to search
+ *
+ * This is defined in a similar way as the libc and compiler builtin
+ * ffs, but returns the position of the most significant set bit.
+ *
+ * fls(value) returns 0 if value is 0 or the position of the last
+ * set bit if value is nonzero. The last (most significant) bit is
+ * at position 32.
+ */
+static inline 
+int fls(int x)
+{
+    int r;
+#ifdef CONFIG_X86_CMOV
+    asm("bsrl %1,%0\n\t"
+        "cmovzl %2,%0"
+        : "=&r" (r) : "rm" (x), "rm" (-1));
+#else
+    asm("bsrl %1,%0\n\t"
+        "jnz 1f\n\t"
+        "movl $-1,%0\n"
+        "1:" : "=r" (r) : "rm" (x));
+#endif
+    return r + 1;
+}
+
+/*
+ * __fls64: find last set bit in word
+ * @word: The word to search
+ *
+ * Undefined if no set bit exists, so code should check against 0 first.
+ */
+static inline 
+unsigned long __fls64(unsigned long word)
+{
+    asm("bsr %1,%0"
+        : "=r" (word)
+        : "rm" (word));
+    return word;
+}
+
+/*
+ * fls64: wapper for __fls64(), and return -1 if the word is zero.
+ */
+static inline
+int fls64(unsigned long word)
+{
+    if (!word)
+        return -1;
+    
+    return __fls64(word);
+}
 
 #ifdef HVFS_DEBUG_LOCK
 void lock_table_init(void);

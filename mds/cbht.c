@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 10:52:36 macan>
+ * Time-stamp: <2010-01-29 20:52:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -716,8 +716,9 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     err = itb_search(hi, i, mdu_rpy, txg, &oi, otxg);
     if (unlikely(err)) {
         hvfs_debug(mds, "Oh, itb_search() return %d."
-                   "(itb [%ld, %ld], hi [%ld, %ld, %s]), itb %p\n", 
-                   err, i->h.puuid, i->h.itbid, hi->puuid, hi->itbid, hi->name, i);
+                   "(itb [%ld,%ld], hi [%ld,%ld,%s]), itb %p\n", 
+                   err, i->h.puuid, i->h.itbid, hi->puuid, 
+                   hi->itbid, hi->name, i);
         goto out;
     }
     /* NOTE: we should use the substituted ITB now */

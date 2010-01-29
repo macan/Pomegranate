@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 21:36:55 macan>
+ * Time-stamp: <2010-01-29 13:53:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -104,10 +104,9 @@ void insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
         goto out_free;
     }
 
-    hi->itbid = mds_get_itbid(e, hi->hash);
-
-    memset(hmr, 0, sizeof(*hmr));
 retry:
+    hi->itbid = mds_get_itbid(e, hi->hash);
+    memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
@@ -155,14 +154,14 @@ void lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag,
         goto out_free;
     }
 
-    hi->itbid = mds_get_itbid(e, hi->hash);
-
-    memset(hmr, 0, sizeof(*hmr));
 retry:
+    hi->itbid = mds_get_itbid(e, hi->hash);
+    memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
     if (err == -ESPLIT) {
+        sleep(0);
         goto retry;
     } else if (err && (flag & ITE_ACTIVE)) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s, %lx) failed %d\n", 
@@ -213,10 +212,9 @@ void remove_ite(u64 puuid, u64 itbid, char *name,
         goto out_free;
     }
 
-    hi->itbid = mds_get_itbid(e, hi->hash);
-
-    memset(hmr, 0, sizeof(*hmr));
 retry:
+    hi->itbid = mds_get_itbid(e, hi->hash);
+    memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
@@ -600,6 +598,7 @@ int main(int argc, char *argv[])
     }
     hmo.site_id = HVFS_MDS(0);
     hmi.gdt_salt = lib_random(0xfffffff);
+    hmo.conf.itbid_check = 1;
     hvfs_info(mds, "Select GDT salt to %ld\n", hmi.gdt_salt);
 
     if (csize) {

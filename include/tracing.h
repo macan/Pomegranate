@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 08:49:53 macan>
+ * Time-stamp: <2010-01-29 11:31:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@
 #define HVFS_INFO       0x80000000
 #define HVFS_WARN       0x40000000
 #define HVFS_ERR        0x20000000
+#define HVFS_PLAIN      0x10000000
 
 #define HVFS_ENTRY      0x00000008
 #define HVFS_VERBOSE    0x00000004 /* more infos than debug mode */
@@ -46,6 +47,7 @@
 #define KERN_WARNING    "[WARN] "
 #define KERN_DEBUG      "[DBG ] "
 #define KERN_VERB       "[VERB] "
+#define KERN_PLAIN      ""
 #endif
 
 #ifdef HVFS_TRACING
@@ -84,6 +86,10 @@
 #define hvfs_info(module, f, a...)                          \
     hvfs_tracing(HVFS_INFO, hvfs_##module##_tracing_flags,  \
                  KERN_INFO, f, ## a)
+
+#define hvfs_plain(module, f, a...)                         \
+    hvfs_tracing(HVFS_PLAIN, hvfs_##module##_tracing_flags, \
+                 KERN_PLAIN, f, ## a)
 
 #define hvfs_verbose(module, f, a...)           \
     hvfs_tracing((HVFS_VERBOSE | HVFS_PRECISE), \

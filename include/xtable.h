@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-26 17:48:06 macan>
+ * Time-stamp: <2010-01-29 16:11:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -174,9 +174,12 @@ struct bitmap_delta
 };
 
 #include "dh.h"
+#include "lib.h"
+
 /* APIs */
-int mds_bitmap_lookup(struct itbitmap *, u64);
-u64 mds_bitmap_fallback(u64);
+/* int mds_bitmap_lookup(struct itbitmap *, u64); */
+/* u64 mds_bitmap_fallback(u64); */
+/* u64 mds_bitmap_cut(u64, u64); */
 void mds_bitmap_update(struct itbitmap *, struct itbitmap *);
 int mds_bitmap_load(struct dhe *, u64);
 void mds_bitmap_free(struct itbitmap *);
@@ -187,5 +190,53 @@ int __mds_bitmap_insert(struct dhe *, struct itbitmap *);
 void mds_bitmap_update_bit(struct itbitmap *, u64, u8);
 int mds_bitmap_create(struct dhe *, u64);
 int itb_split_local(struct itb *, struct itb **i, struct itb_lock *);
+
+/* Region for fast xtable operations */
+/* mds_bitmap_lookup()
+ *
+ * Test the offset in this slice, return the bit!
+ */
+static inline
+int mds_bitmap_lookup(struct itbitmap *b, u64 offset)
+{
+    int index = offset - b->offset;
+
+    /* we cant do any ASSERT here :( */
+#if 0
+    ASSERT((index >= 0 && index < XTABLE_BITMAP_SIZE), mds);
+#endif
+    return test_bit(index, (u64 *)(b->array));
+}
+
+/* mds_bitmap_fallback()
+ *
+ * Fallback to the next location of ITB
+ */
+static inline
+u64 mds_bitmap_fallback(u64 offset)
+{
+    int nr = fls64(offset);       /* NOTE: we just use the low 32 bits */
+
+    if (nr < 0)
+        return 0;
+    __clear_bit(nr, &offset);
+    return offset;
+}
+
+/* mds_bitmap_cut()
+ *
+ * Cut the offset to the [0, end_offset) region
+ */
+static inline
+u64 mds_bitmap_cut(u64 offset, u64 end_offset)
+{
+    u64 mask;
+    int nr = fls64(end_offset);
+
+    if (nr < 0)
+        return 0;
+    mask = (1 << nr) - 1;
+    return offset & mask;
+}
 
 #endif

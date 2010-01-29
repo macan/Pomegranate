@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 21:19:39 macan>
+ * Time-stamp: <2010-01-29 17:04:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,10 +21,8 @@
  *
  */
 
-#include "lib.h"
-
 /* BEGIN OF General Hash Functions */
-inline unsigned int RSHash(char* str, unsigned int len)
+static inline unsigned int RSHash(char* str, unsigned int len)
 {
    unsigned int b    = 378551;
    unsigned int a    = 63689;
@@ -42,7 +40,7 @@ inline unsigned int RSHash(char* str, unsigned int len)
 /* End Of RS Hash Function */
 
 
-inline unsigned int JSHash(char* str, unsigned int len)
+static inline unsigned int JSHash(char* str, unsigned int len)
 {
    unsigned int hash = 1315423911;
    unsigned int i    = 0;
@@ -57,7 +55,7 @@ inline unsigned int JSHash(char* str, unsigned int len)
 /* End Of JS Hash Function */
 
 
-inline unsigned int PJWHash(char* str, unsigned int len)
+static inline unsigned int PJWHash(char* str, unsigned int len)
 {
    const unsigned int BitsInUnsignedInt = (unsigned int)(sizeof(unsigned int) * 8);
    const unsigned int ThreeQuarters     = (unsigned int)((BitsInUnsignedInt  * 3) / 4);
@@ -82,7 +80,7 @@ inline unsigned int PJWHash(char* str, unsigned int len)
 /* End Of  P. J. Weinberger Hash Function */
 
 
-inline unsigned int ELFHash(char* str, unsigned int len)
+static inline unsigned int ELFHash(char* str, unsigned int len)
 {
    unsigned int hash = 0;
    unsigned int x    = 0;
@@ -103,7 +101,7 @@ inline unsigned int ELFHash(char* str, unsigned int len)
 /* End Of ELF Hash Function */
 
 
-inline unsigned int BKDRHash(char* str, unsigned int len)
+static inline unsigned int BKDRHash(char* str, unsigned int len)
 {
    unsigned int seed = 131; /* 31 131 1313 13131 131313 etc.. */
    unsigned int hash = 0;
@@ -119,7 +117,7 @@ inline unsigned int BKDRHash(char* str, unsigned int len)
 /* End Of BKDR Hash Function */
 
 
-inline unsigned int SDBMHash(char* str, unsigned int len)
+static inline unsigned int SDBMHash(char* str, unsigned int len)
 {
    unsigned int hash = 0;
    unsigned int i    = 0;
@@ -134,7 +132,7 @@ inline unsigned int SDBMHash(char* str, unsigned int len)
 /* End Of SDBM Hash Function */
 
 
-inline unsigned int DJBHash(char* str, unsigned int len)
+static inline unsigned int DJBHash(char* str, unsigned int len)
 {
    unsigned int hash = 5381;
    unsigned int i    = 0;
@@ -149,7 +147,7 @@ inline unsigned int DJBHash(char* str, unsigned int len)
 /* End Of DJB Hash Function */
 
 
-inline unsigned int DEKHash(char* str, unsigned int len)
+static inline unsigned int DEKHash(char* str, unsigned int len)
 {
    unsigned int hash = len;
    unsigned int i    = 0;
@@ -163,7 +161,7 @@ inline unsigned int DEKHash(char* str, unsigned int len)
 /* End Of DEK Hash Function */
 
 
-inline unsigned int BPHash(char* str, unsigned int len)
+static inline unsigned int BPHash(char* str, unsigned int len)
 {
    unsigned int hash = 0;
    unsigned int i    = 0;
@@ -177,7 +175,7 @@ inline unsigned int BPHash(char* str, unsigned int len)
 /* End Of BP Hash Function */
 
 
-inline unsigned int FNVHash(char* str, unsigned int len)
+static inline unsigned int FNVHash(char* str, unsigned int len)
 {
    const unsigned int fnv_prime = 0x811C9DC5;
    unsigned int hash      = 0;
@@ -194,7 +192,7 @@ inline unsigned int FNVHash(char* str, unsigned int len)
 /* End Of FNV Hash Function */
 
 
-inline unsigned int APHash(char* str, unsigned int len)
+static inline unsigned int APHash(char* str, unsigned int len)
 {
    unsigned int hash = 0xAAAAAAAA;
    unsigned int i    = 0;
@@ -273,6 +271,7 @@ static inline u64 hvfs_hash_vsite(u64 key1, u64 key2, u64 key2len)
     return val1;
 }
 
+static inline
 u64 hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel)
 {
     switch (sel) {
@@ -294,7 +293,8 @@ u64 hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel)
         return hvfs_hash_vsite(key1, key2, key2len);
         break;
     default:
-        hvfs_err(lib, "Invalid hash function selector.\n");
+        /* we just fall through to zero */
+        ;
     }
     return 0;
 }

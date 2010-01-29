@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-01-28 17:01:26 macan>
+# Time-stamp: <2010-01-29 16:49:23 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -38,7 +38,7 @@ TEST_MDS_SOURCE = cbht.c tx.c dh.c cmd_sender.c misc.c itbsplit.c
 TEST_XNET_SOURCE = xnet.c mds.c fpmds.c
 MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \
 				dispatch.c c2m.c fe.c async.c
-LIB_AR_SOURCE = lib.c ring.c hash.c time.c bitmap.c xlock.c
+LIB_AR_SOURCE = lib.c ring.c time.c bitmap.c xlock.c
 XNET_AR_SOURCE = xnet.c xnet_simple.c
 INC_H_SOURCE = atomic.h err.h hvfs.h hvfs_common.h hvfs_const.h hvfs_k.h \
 				hvfs_u.h ite.h mds_api.h mdsl_api.h memory.h site.h tx.h \
@@ -47,7 +47,8 @@ INC_H_SOURCE = atomic.h err.h hvfs.h hvfs_common.h hvfs_const.h hvfs_k.h \
 MDS_H_SOURCE = mds.h cbht.h dh.h itb.h prof.h async.h
 LIB_H_SOURCE = lib.h ring.h
 
-inc_h_depend_files = $(patsubst %.h, $(INC_PATH)/%.h, $(INC_H_SOURCE))
+inc_h_depend_files = $(patsubst %.h, $(INC_PATH)/%.h, $(INC_H_SOURCE)) \
+						$(LIB_PATH)/hash.c
 mds_h_depend_files = $(patsubst %.h, $(MDS)/%.h, $(MDS_H_SOURCE))
 lib_h_depend_files = $(patsubst %.h, $(LIB_PATH)/%.h, $(LIB_H_SOURCE))
 header_depend_files = $(inc_h_depend_files) $(mds_h_depend_files) \
