@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-22 15:36:31 macan>
+ * Time-stamp: <2010-02-01 16:15:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -103,9 +103,9 @@ void __add_tid(struct lock_entry *le)
     t->size = backtrace(t->bt, BT_SIZE);
 
     xlock_lock(&le->lock);
-    list_add(&t->list, &le->tid);
+    list_add_tail(&t->list, &le->tid);
     hvfs_debug(lib, "add %lx le %p to list\n", t->tid, le->p);
-    xlock_unlock(&le->lock);    
+    xlock_unlock(&le->lock);
 }
 
 void __del_tid(struct lock_entry *le)
@@ -113,8 +113,11 @@ void __del_tid(struct lock_entry *le)
     pthread_t tid = pthread_self();
     struct __tid *pos, *n;
 
+    if (!le)
+        return;
+    
     xlock_lock(&le->lock);
-    list_for_each_entry_safe(pos, n, &le->tid, list) {
+    list_for_each_entry_safe_reverse(pos, n, &le->tid, list) {
         if (pos->tid == tid) {
             list_del(&pos->list);
             xfree(pos);
@@ -126,17 +129,31 @@ void __del_tid(struct lock_entry *le)
     xlock_unlock(&le->lock);
     hvfs_err(lib, "Internal error on deleting TID %lx on le %p.\n", 
              tid, le->p);
-    exit(0);
+    lock_table_print();
+    *((int *)0) = 1;
 }
 
-void __add_lock_entry(struct lock_entry *le)
+struct lock_entry *__add_lock_entry(struct lock_entry *le)
 {
     u32 hash = __lock_hash(le->p);
     u32 index = hash % LOCK_TABLE_SIZE;
+    struct lock_entry *pos;
+    int found = 0;
 
     xlock_lock(&lt.ht[index].lock);
-    list_add(&le->list, &lt.ht[index].h);
+    list_for_each_entry(pos, &lt.ht[index].h, list) {
+        if (pos->p == le->p) {
+            found = 1;
+            xfree(le);
+            le = pos;
+            break;
+        }
+    }
+    if (!found)
+        list_add(&le->list, &lt.ht[index].h);
     xlock_unlock(&lt.ht[index].lock);
+
+    return le;
 }
 
 void __del_lock_entry(struct lock_entry *le)
@@ -184,7 +201,7 @@ struct lock_entry *__find_create_lock_entry(void *p)
         xlock_init(&le->lock);
         le->p = p;
         /* add to the list */
-        __add_lock_entry(le);
+        le = __add_lock_entry(le);
     }
 
     return le;
@@ -198,6 +215,7 @@ void lock_table_print(void)
     int i, len, n;
 
     for (i = 0; i < LOCK_TABLE_SIZE; i++) {
+        xlock_lock(&lt.ht[i].lock);
         list_for_each_entry(pos, &lt.ht[i].h, list) {
             p = line;
             n = 520;
@@ -216,11 +234,13 @@ void lock_table_print(void)
                     len = snprintf(p, n, "rl <");
                     p += len;
                     n -= len;
+                    xlock_lock(&pos->lock);
                     list_for_each_entry(t, &pos->tid, list) {
                         len = snprintf(p, n, "%lx, ", t->tid);
                         p += len;
                         n -= len;
                     }
+                    xlock_unlock(&pos->lock);
                     len = snprintf(p, n, ">");
                     p += len;
                     n -= len;
@@ -229,11 +249,13 @@ void lock_table_print(void)
                     len = snprintf(p, n, "wl <");
                     p += len;
                     n -= len;
+                    xlock_lock(&pos->lock);
                     list_for_each_entry(t, &pos->tid, list) {
                         len = snprintf(p, n, "%lx, ", t->tid);
                         p += len;
                         n -= len;
                     }
+                    xlock_unlock(&pos->lock);
                     len = snprintf(p, n, ">");
                     p += len;
                     n -= len;
@@ -242,27 +264,42 @@ void lock_table_print(void)
                 hvfs_info(lib, "%s", line);
                 /* ok, print the locking backtrace */
                 if (atomic64_read(&pos->rl)) {
+                    xlock_lock(&pos->lock);
                     list_for_each_entry(t, &pos->tid, list) {
                         char **bts = backtrace_symbols(t->bt, t->size);
                         int i;
-                        for (i = 0; i < t->size; i++) {
-                            hvfs_info(lib, "[%lx] -> %s\n", t->tid, bts[i]);
+                        if (bts){
+                            for (i = 0; i < t->size; i++) {
+                                hvfs_info(lib, "[%lx] -> %s\n", t->tid, bts[i]);
+                            }
+                            free(bts);
+                        } else {
+                            hvfs_info(lib, "[%lx] -> BACKTRACE SYMBOLS ERROR.\n",
+                                t->tid);
                         }
-                        free(bts);
                     }
+                    xlock_unlock(&pos->lock);
                 }
                 if (atomic64_read(&pos->wl)) {
+                    xlock_lock(&pos->lock);
                     list_for_each_entry(t, &pos->tid, list) {
                         char **bts = backtrace_symbols(t->bt, t->size);
                         int i;
-                        for (i = 0; i < t->size; i++) {
-                            hvfs_info(lib, "[%lx] -> %s\n", t->tid, bts[i]);
+                        if (bts) {
+                            for (i = 0; i < t->size; i++) {
+                                hvfs_info(lib, "[%lx] -> %s\n", t->tid, bts[i]);
+                            }
+                            free(bts);
+                        } else {
+                            hvfs_info(lib, "[%lx] -> BACKTRACE SYMBOLS ERROR.\n",
+                                t->tid);
                         }
-                        free(bts);
                     }
+                    xlock_unlock(&pos->lock);
                 }
             }
         }
+        xlock_unlock(&lt.ht[i].lock);
     }
     return;
 }

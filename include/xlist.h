@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 14:04:41 macan>
+ * Time-stamp: <2010-02-01 10:04:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -178,6 +178,22 @@ static inline int list_empty(const struct list_head *head)
              n = list_entry(pos->member.next, typeof(*pos), member);	\
          &pos->member != (head);                                        \
          pos = n, n = list_entry(n->member.next, typeof(*n), member))
+
+/**
+ * list_for_each_entry_safe_reverse
+ * @pos:	the type * to use as a loop cursor.
+ * @n:		another type * to use as temporary storage
+ * @head:	the head for your list.
+ * @member:	the name of the list_struct within the struct.
+ *
+ * Iterate backwards over list of given type, safe against removal
+ * of list entry.
+ */
+#define list_for_each_entry_safe_reverse(pos, n, head, member)          \
+    for (pos = list_entry((head)->prev, typeof(*pos), member),          \
+             n = list_entry(pos->member.prev, typeof(*pos), member);	\
+         &pos->member != (head);                                        \
+         pos = n, n = list_entry(n->member.prev, typeof(*n), member))
 
 /*
  * Double linked lists with a single pointer list head.

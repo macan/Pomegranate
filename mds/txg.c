@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-27 10:41:52 macan>
+ * Time-stamp: <2010-02-01 11:43:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -270,14 +270,14 @@ void *txg_commit(void *arg)
         list_for_each_entry_safe(ih, n, &t->dirty_list, list) {
             i = (struct itb *)ih;
             list_del_init(&ih->list);
-            xrwlock_rlock(&ih->lock);
+            xrwlock_wlock(&ih->lock);
             if (ih->state == ITB_STATE_COWED) {
-                xrwlock_runlock(&ih->lock);
+                xrwlock_wunlock(&ih->lock);
                 itb_free(i);
                 freed++;
             } else {
                 ih->state = ITB_STATE_CLEAN;
-                xrwlock_runlock(&ih->lock);
+                xrwlock_wunlock(&ih->lock);
                 clean++;
             }
         }

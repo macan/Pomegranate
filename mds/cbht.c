@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-29 20:52:04 macan>
+ * Time-stamp: <2010-02-01 17:20:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -680,7 +680,7 @@ retry:
                 found = 0;
                 goto retry;
             } else if (err){
-                b = ERR_PTR(err);
+                b = ERR_PTR(-err);
             }
         }
     }
@@ -703,6 +703,7 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     char mdu_rpy[HVFS_MDU_SIZE];
 
     xrwlock_rlock(&i->h.lock);
+    itb_get(i);
     /* check the ITB state */
     if (i->h.state == ITB_STATE_COWED) {
         xrwlock_runlock(&i->h.lock);
@@ -714,6 +715,8 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
         goto out;
     }
     err = itb_search(hi, i, mdu_rpy, txg, &oi, otxg);
+    /* NOTE: we should use the substituted ITB now */
+    i = oi;
     if (unlikely(err)) {
         hvfs_debug(mds, "Oh, itb_search() return %d."
                    "(itb [%ld,%ld], hi [%ld,%ld,%s]), itb %p\n", 
@@ -721,8 +724,6 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
                    hi->itbid, hi->name, i);
         goto out;
     }
-    /* NOTE: we should use the substituted ITB now */
-    i = oi;
     /* FIXME: fill hmr with mdu_rpy */
     /* determine the flags */
     m = (struct mdu *)(mdu_rpy);
@@ -757,6 +758,7 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
         memcpy(hmr->data + sizeof(*hi), mdu_rpy, HVFS_MDU_SIZE);
 out:
     xrwlock_runlock(&i->h.lock);
+    itb_put(i);
     return err;
 }
 

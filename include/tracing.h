@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-29 11:31:23 macan>
+ * Time-stamp: <2010-02-01 16:42:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,8 +40,10 @@
 
 #ifdef __KERNEL__
 #define PRINTK printk
+#define FFLUSH
 #else  /* !__KERNEL__ */
 #define PRINTK printf
+#define FFLUSH(f) fflush(f)
 #define KERN_INFO       "[INFO] "
 #define KERN_ERR        "[ERR ] "
 #define KERN_WARNING    "[WARN] "
@@ -57,6 +59,7 @@
                 PRINTK(lvl "HVFS (%16s, %5d): %s[%lx]: " f,     \
                        __FILE__, __LINE__, __func__,            \
                        pthread_self(), ## a);                   \
+                FFLUSH(stdout);                                 \
             } else                                              \
                 PRINTK(lvl f, ## a);                            \
         }                                                       \

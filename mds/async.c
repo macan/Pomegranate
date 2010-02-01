@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-29 21:41:29 macan>
+ * Time-stamp: <2010-02-01 10:47:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -81,27 +81,30 @@ int __aur_itb_split(struct async_update_request *aur)
             hvfs_err(mds, "Internal error %d, data losing.\n", err);
         } else {
             /* it is ok, we need free the locks */
-            xrwlock_runlock(&nbe->lock);
             xrwlock_runlock(&nb->lock);
+            xrwlock_runlock(&nbe->lock);
         }
         /* change the splited ITB's state to NORMAL */
         ti = (struct itb *)i->h.twin;
         i->h.twin = 0;
         /* FIXME: should we just use the rlock? */
+        xrwlock_wlock(&ti->h.lock);
         nbe = ti->h.be;
         if (nbe == NULL) {
             /* this means we do not need update the ITB state, but we should
              * update the new COWed ITB */
-            struct itb *xi = (struct itb *)(ti->h.twin);
+            struct itb *xi = (struct itb *)(ti->h.split_rlink);
 
-            hvfs_info(mds, "can this happen?\n");
+            hvfs_info(mds, "SPLIT -> COW?\n");
             ASSERT(xi, mds);
+            ASSERT(ti->h.state == ITB_STATE_COWED, mds);
+            xrwlock_wunlock(&ti->h.lock);
             xrwlock_wlock(&xi->h.lock);
             xi->h.flag = ITB_ACTIVE;
+            /* FIXME: is it possible the twin is chained as a list. */
             xi->h.twin = 0;
             xrwlock_wunlock(&xi->h.lock);
         } else {
-            xrwlock_wlock(&ti->h.lock);
             ti->h.flag = ITB_ACTIVE;
             ti->h.twin = 0;
             xrwlock_wunlock(&ti->h.lock);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-29 13:53:44 macan>
+ * Time-stamp: <2010-02-01 09:28:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -590,6 +590,9 @@ int main(int argc, char *argv[])
     hvfs_info(mds, "ITB SPLIT UNIT TESTing (%ld,%d,%d) Model(%s)...\n",
               entry, thread, csize, model2str(model));
 
+#ifdef HVFS_DEBUG_LOCK
+    lock_table_init();
+#endif
     lib_init();
     err = mds_init(10);
     if (err) {

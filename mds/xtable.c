@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-29 20:31:36 macan>
+ * Time-stamp: <2010-02-01 17:31:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -71,6 +71,8 @@ int itb_split_local(struct itb *oi, struct itb **ni, struct itb_lock *l)
 
     /* sanity checking */
     if (oi->h.state == ITB_STATE_COWED) {
+        hvfs_err(mds, "COW -> SPLIT?\n");
+        err = -EAGAIN;
         goto out_relock;
     }
     if (oi->h.flag == ITB_JUST_SPLIT) {
@@ -92,7 +94,12 @@ retry:
 
     /* check and transfer ite between the two ITBs */
     for (j = 0; j < (1 << ITB_DEPTH); j++) {
+        static int a = 0;
     rescan:
+        a++;
+        if (a >= 10000000) {
+            ASSERT(0, mds);
+        }
         ii = &oi->index[j];
         if (ii->flag == ITB_INDEX_FREE)
             continue;
@@ -145,9 +152,10 @@ retry:
         goto retry;
     }
 
-    hvfs_debug(mds, "moved %d entries from %ld(%d,%d) to %ld(%d,%d)\n", 
-               moved, oi->h.itbid, oi->h.depth, atomic_read(&oi->h.entries),
-               (*ni)->h.itbid, (*ni)->h.depth, atomic_read(&(*ni)->h.entries));
+    hvfs_debug(mds, "moved %d entries from %ld(%p,%d,%d) to %ld(%p,%d,%d)\n", 
+             moved, oi->h.itbid, oi, oi->h.depth, atomic_read(&oi->h.entries),
+             (*ni)->h.itbid, (*ni), (*ni)->h.depth, 
+               atomic_read(&(*ni)->h.entries));
     /* commit the changes and release the locks */
     oi->h.flag = ITB_JUST_SPLIT;
     mds_dh_bitmap_update(&hmo.dh, oi->h.puuid, oi->h.itbid, MDS_BITMAP_SET);
@@ -164,7 +172,7 @@ retry:
 
         if (!aur) {
             hvfs_err(mds, "xallloc() AU request failed, data lossing.\n");
-            oi->h.state = ITB_ACTIVE;
+            oi->h.flag = ITB_ACTIVE;
             err = -ENOMEM;
         } else {
             aur->op = AU_ITB_SPLIT;
@@ -173,7 +181,7 @@ retry:
             err = au_submit(aur);
             if (err) {
                 hvfs_err(mds, "submit AU request failed, data lossing.\n");
-                oi->h.state = ITB_ACTIVE;
+                oi->h.flag = ITB_ACTIVE;
                 xfree(aur);
             }
         }
@@ -183,11 +191,22 @@ retry:
     xrwlock_wunlock(&oi->h.lock);
     xrwlock_wunlock(&be->lock);
 
+    /* COW here? */
+
     xrwlock_rlock(&be->lock);
     xrwlock_rlock(&oi->h.lock);
     itb_index_wlock(l);
     
 out:
+    /* recheck the ITB state, if there is a ITB cow occured, we should do
+     * what? */
+    if (oi->h.state == ITB_STATE_COWED) {
+        hvfs_err(mds, "HIT Corner case ITB %p %ld, entries %d, flag %d\n",
+                 oi, oi->h.itbid, atomic_read(&oi->h.entries),
+                 oi->h.flag);
+        err = -EAGAIN;
+    }
+        
     return err;
 out_relock:
     xrwlock_wunlock(&oi->h.lock);

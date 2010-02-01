@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-29 21:12:01 macan>
+ * Time-stamp: <2010-02-01 19:54:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -260,8 +260,9 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
             memcpy(data, &(ite->g), HVFS_MDU_SIZE);
         } else {
             /* hoo, there is no zero bit! */
+            hvfs_err(mds, "Internal Fatal Error, no free bits? nr %ld, "
+                     "entries %d\n", nr, atomic_read(&i->h.entries));
             atomic_dec(&i->h.entries);
-            hvfs_err(mds, "Internal Fatal Error, no free bits?\n");
             err = -EINVAL;
             goto out;
         }
@@ -723,6 +724,7 @@ struct itb *get_free_itb(struct hvfs_txg *txg)
         }
     }
 
+    atomic_set(&n->h.ref, 1);
     atomic64_inc(&hmo.prof.cbht.aitb);
     return n;
 }
@@ -733,7 +735,7 @@ void itb_free(struct itb *i)
 {
     int j;
 
-    /* free the locks */
+    /* free the locks, but do not touch the locks in the header region */
     if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
         for (j = 0; j < ((1 << ITB_DEPTH) / ITB_LOCK_GRANULARITY); j++) {
             xrwlock_destroy((xrwlock_t *)(&i->lock[j]));
@@ -743,10 +745,7 @@ void itb_free(struct itb *i)
             xlock_destroy((xlock_t *)(&i->lock[j]));
         }
     }
-    xlock_lock(&hmo.ic.lock);
-    list_add_tail(&i->h.list, &hmo.ic.lru);
-    xlock_unlock(&hmo.ic.lock);
-    atomic64_dec(&hmo.prof.cbht.aitb);
+    itb_put(i);
 }
 
 /* ITB COW
@@ -878,11 +877,19 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
             xrwlock_runlock(&itb->h.lock);
             xrwlock_runlock(&be->lock);
 
+            /* NOTE: we can split here! */
+
             /* Step2: get BE.wlock & ITB.wlock */
             xrwlock_wlock(&be->lock);
             xrwlock_wlock(&itb->h.lock);
 
             /* Step3: check the ITB txg */
+            if (itb->h.flag == ITB_JUST_SPLIT && n->h.flag != ITB_JUST_SPLIT) {
+                hvfs_err(mds, "Someone split ITB %ld, eer, retry!\n",
+                    itb->h.itbid);
+                should_retry = 1;
+                goto split_skip;
+            }
 
             /* Step3.0: is this ITB deleted or moved? */
 
@@ -909,9 +916,9 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                     /* for ITB split, we need to track the new itb and update
                      * its state */
                     if (itb->h.flag == ITB_JUST_SPLIT)
-                        itb->h.twin = (u64)n;
+                        itb->h.split_rlink = (u64)n;
                     else
-                        itb->h.twin = 0;
+                        itb->h.split_rlink = -1;
 
                     /* ok, recopy the new ITEs */
                     itb_cow_recopy(itb, n);
@@ -921,6 +928,7 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                 }
             }
             
+        split_skip:
             /* Step4: release BE.wlock */
             xrwlock_wunlock(&itb->h.lock);
             xrwlock_wunlock(&be->lock);
@@ -940,6 +948,8 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
             /* Step6: get BE.rlock */
             xrwlock_rlock(&be->lock);
             xrwlock_rlock(&n->h.lock);
+            itb_put(itb);
+            itb_get(n);
 
             txg_add_itb(t, n);
             itb = n;

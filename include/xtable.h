@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-29 16:11:03 macan>
+ * Time-stamp: <2010-02-01 09:16:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -80,6 +80,7 @@ struct itbh
     struct list_head unlink;    /* link into the unlink list */
 
     u64 twin;                   /* twin ITB */
+    u64 split_rlink;            /* reverse link for COW the spliting ITB */
     struct list_head overflow;  /* overflow list */
 
     /* section for compression */
@@ -89,6 +90,9 @@ struct itbh
     /* section for itb_index allocation */
     u16 inf;            /* index next free */
     u16 itu;            /* index totally used, not including the first half */
+
+    /* reference count */
+    atomic_t ref;
 };
 
 /* ITB index entry */
