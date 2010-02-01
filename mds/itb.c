@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 19:54:41 macan>
+ * Time-stamp: <2010-02-01 22:20:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -259,11 +259,18 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
             hi->uuid = ite->uuid;
             memcpy(data, &(ite->g), HVFS_MDU_SIZE);
         } else {
-            /* hoo, there is no zero bit! */
-            hvfs_err(mds, "Internal Fatal Error, no free bits? nr %ld, "
-                     "entries %d\n", nr, atomic_read(&i->h.entries));
+            /* NOTE: if there is no zero bit, it means that ourself is racing
+             * with other threads, we should force the ITB split actually!
+             *
+             * However, I have observed the silly racing if we do ITB split
+             * here, so I disable the ITB split here.
+             */
             atomic_dec(&i->h.entries);
-            err = -EINVAL;
+            if (atomic_read(&i->h.entries) < (1 << (ITB_DEPTH - 1))) {
+                hvfs_err(mds, "Internal Fatal Error, no free bits? nr %ld, "
+                         "entries %d\n", nr, atomic_read(&i->h.entries));
+            }
+            err = -EAGAIN;
             goto out;
         }
     } else {
@@ -274,6 +281,7 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
         atomic_dec(&i->h.entries);
         hvfs_debug(mds, "ITB itbid %ld, depth %d, entries %d\n", 
                    i->h.itbid, i->h.depth, atomic_read(&i->h.entries));
+        sleep(0);
         err = itb_split_local(i, &ni, l);
         if (!err)
             err = -ESPLIT;
@@ -724,7 +732,6 @@ struct itb *get_free_itb(struct hvfs_txg *txg)
         }
     }
 
-    atomic_set(&n->h.ref, 1);
     atomic64_inc(&hmo.prof.cbht.aitb);
     return n;
 }
@@ -745,7 +752,11 @@ void itb_free(struct itb *i)
             xlock_destroy((xlock_t *)(&i->lock[j]));
         }
     }
-    itb_put(i);
+
+    xlock_lock(&hmo.ic.lock);
+    list_add_tail(&i->h.list, &hmo.ic.lru);
+    xlock_unlock(&hmo.ic.lock);
+    atomic64_dec(&hmo.prof.cbht.aitb);
 }
 
 /* ITB COW
@@ -917,7 +928,10 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                      * its state */
                     if (itb->h.flag == ITB_JUST_SPLIT)
                         itb->h.split_rlink = (u64)n;
-                    else
+                    else if (n->h.flag == ITB_JUST_SPLIT) {
+                        n->h.flag = ITB_ACTIVE;
+                        n->h.twin = 0;
+                    } else
                         itb->h.split_rlink = -1;
 
                     /* ok, recopy the new ITEs */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 10:47:00 macan>
+ * Time-stamp: <2010-02-01 21:48:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,7 +95,7 @@ int __aur_itb_split(struct async_update_request *aur)
              * update the new COWed ITB */
             struct itb *xi = (struct itb *)(ti->h.split_rlink);
 
-            hvfs_info(mds, "SPLIT -> COW?\n");
+            hvfs_debug(mds, "SPLIT -> COW?\n");
             ASSERT(xi, mds);
             ASSERT(ti->h.state == ITB_STATE_COWED, mds);
             xrwlock_wunlock(&ti->h.lock);

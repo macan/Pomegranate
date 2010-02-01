@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 17:31:00 macan>
+ * Time-stamp: <2010-02-01 21:58:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -71,7 +71,7 @@ int itb_split_local(struct itb *oi, struct itb **ni, struct itb_lock *l)
 
     /* sanity checking */
     if (oi->h.state == ITB_STATE_COWED) {
-        hvfs_err(mds, "COW -> SPLIT?\n");
+        hvfs_debug(mds, "COW -> SPLIT?\n");
         err = -EAGAIN;
         goto out_relock;
     }
@@ -94,12 +94,7 @@ retry:
 
     /* check and transfer ite between the two ITBs */
     for (j = 0; j < (1 << ITB_DEPTH); j++) {
-        static int a = 0;
     rescan:
-        a++;
-        if (a >= 10000000) {
-            ASSERT(0, mds);
-        }
         ii = &oi->index[j];
         if (ii->flag == ITB_INDEX_FREE)
             continue;
@@ -198,13 +193,18 @@ retry:
     itb_index_wlock(l);
     
 out:
-    /* recheck the ITB state, if there is a ITB cow occured, we should do
-     * what? */
+    /* Recheck the ITB state, if there is a ITB cow occured, we should do
+     * what?
+     *
+     * NOTE: we add one sleep(0) to avoid the corner case clustering, can
+     * anyone help me describe what actually should i do here?
+     */
     if (oi->h.state == ITB_STATE_COWED) {
-        hvfs_err(mds, "HIT Corner case ITB %p %ld, entries %d, flag %d\n",
+        hvfs_debug(mds, "HIT Corner case ITB %p %ld, entries %d, flag %d\n",
                  oi, oi->h.itbid, atomic_read(&oi->h.entries),
                  oi->h.flag);
         err = -EAGAIN;
+        sleep(0);
     }
         
     return err;

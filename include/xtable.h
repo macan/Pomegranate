@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 09:16:21 macan>
+ * Time-stamp: <2010-02-01 20:35:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -90,9 +90,6 @@ struct itbh
     /* section for itb_index allocation */
     u16 inf;            /* index next free */
     u16 itu;            /* index totally used, not including the first half */
-
-    /* reference count */
-    atomic_t ref;
 };
 
 /* ITB index entry */

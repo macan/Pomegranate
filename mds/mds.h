@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 11:41:43 macan>
+ * Time-stamp: <2010-02-01 20:34:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -234,16 +234,9 @@ void itb_del_ite(struct itb *, struct ite *, u64, u64);
 int __itb_add_ite_blob(struct itb *, struct ite *);
 static inline void itb_get(struct itb *i)
 {
-    atomic_inc(&i->h.ref);
 }
 static inline void itb_put(struct itb *i)
 {
-    if (atomic_dec_return(&i->h.ref) == 0) {
-        xlock_lock(&hmo.ic.lock);
-        list_add_tail(&i->h.list, &hmo.ic.lru);
-        xlock_unlock(&hmo.ic.lock);
-        atomic64_dec(&hmo.prof.cbht.aitb);
-    }
 }
 
 /* for tx.c */
