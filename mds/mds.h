@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 20:34:55 macan>
+ * Time-stamp: <2010-02-02 13:59:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -259,7 +259,6 @@ void mds_tx_chg2forget(struct hvfs_tx *);
 
 /* for txg.c: DRAFT */
 void txg_add_itb(struct hvfs_txg *, struct itb *);
-struct hvfs_txg *mds_get_open_txg(struct hvfs_mds_object *);
 int txg_switch(struct hvfs_mds_info *, struct hvfs_mds_object *);
 static inline void txg_get(struct hvfs_txg *t)
 {
@@ -317,5 +316,57 @@ void async_tp_destroy(void);
 /* SECTION BEGIN */
 #include "itb.h"
 /* SECTION END */
+
+/* APIs */
+/* APIs */
+/* __txg_busy_loop_detector()
+ *
+ * NOTE: I observe the busy loop situation in the test cast this day, but it
+ * is very hard to reproduce it, so I put this loop detector() here in the
+ * following test cases to catch it.
+ */
+#define BLD_COUNT       0
+#define BLD_RESET       1
+static inline 
+void __txg_busy_loop_detector(struct hvfs_txg *t, int bld)
+{
+    static int i = 0;
+    if (bld == BLD_COUNT) {
+        i++;
+    } else if (bld == BLD_RESET) {
+        i = 0;
+    }
+    if (i == 100000000) {
+        HVFS_VV("TXG %p %ld state %x\n", t, t->txg, t->state);
+        HVFS_BUG();
+    }
+}
+
+static inline
+struct hvfs_txg *mds_get_open_txg(struct hvfs_mds_object *hmo)
+{
+    struct hvfs_txg *t;
+
+retry:
+    /* get the txg first */
+    t = hmo->txg[TXG_OPEN];     /* atomic read */
+    txg_get(t);
+    /* checking the txg state */
+    if (t->state != TXG_STATE_OPEN) {
+        /* oh, txg switched, for correctness, retry myself */
+        txg_put(t);
+        __txg_busy_loop_detector(t, BLD_COUNT);
+        goto retry;
+    }
+
+    __txg_busy_loop_detector(t, BLD_RESET);
+    return t;
+}
+
+static inline
+struct hvfs_txg *mds_get_wb_txg(struct hvfs_mds_object *hmo)
+{
+    return hmo->txg[TXG_WB];
+}
 
 #endif

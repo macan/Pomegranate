@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-29 17:04:07 macan>
+ * Time-stamp: <2010-02-02 13:58:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -294,6 +294,7 @@ u64 hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel)
         break;
     default:
         /* we just fall through to zero */
+        HVFS_VV("Invalid hash selector %d\n", sel);
         ;
     }
     return 0;

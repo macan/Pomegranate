@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 16:42:43 macan>
+ * Time-stamp: <2010-02-02 13:57:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -144,5 +144,9 @@
         }                                               \
     } while (0)
 #endif
+
+#define HVFS_VV PRINTK
+/* Use HVFS_BUG() to get the SIGSEGV signal to debug in the GDB */
+#define HVFS_BUG() (*((int *)0) = 1)
 
 #endif  /* !__TRACING_H__ */

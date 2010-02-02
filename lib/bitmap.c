@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-29 15:09:20 macan>
+ * Time-stamp: <2010-02-02 11:26:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,8 +35,8 @@ int lib_bitmap_tas(volatile void *addr, u32 offset)
 {
     int oldbit;
 
-    asm volatile("lock ; btsl %2,%1\n\t"
-                 "sbbl %0,%0" 
+    asm volatile("lock; bts %2,%1\n\t"
+                 "sbb %0,%0" 
                  : "=r" (oldbit), ADDR : "Ir" (offset) : "memory");
 
     return oldbit;

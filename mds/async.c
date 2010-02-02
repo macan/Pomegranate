@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 09:14:59 macan>
+ * Time-stamp: <2010-02-02 16:07:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,6 +65,7 @@ int __aur_itb_split(struct async_update_request *aur)
         struct itb *ti;
         struct hvfs_txg *t;
 
+        atomic64_inc(&hmo.prof.itb.split_local);
         /* pre-dirty this itb */
         t = mds_get_open_txg(&hmo);
         i->h.txg = t->txg;
@@ -142,7 +143,7 @@ int __au_req_handle()
     xlock_unlock(&g_aum.lock);
 
     if (!aur)
-        return err;
+        return -EHSTOP;
     
     /* ok, deal with it */
     switch (aur->op) {
@@ -153,7 +154,7 @@ int __au_req_handle()
         err = __aur_itb_bitmap(aur);
         break;
     default:
-        hvfs_warning(mds, "Invalid AU Request: op %ld arg 0x%lx\n",
+        hvfs_err(mds, "Invalid AU Request: op %ld arg 0x%lx\n",
                      aur->op, aur->arg);
     }
     return err;
@@ -164,6 +165,7 @@ int au_submit(struct async_update_request *aur)
     xlock_lock(&g_aum.lock);
     list_add_tail(&aur->list, &g_aum.aurlist);
     xlock_unlock(&g_aum.lock);
+    atomic64_inc(&hmo.prof.itb.split_submit);
     sem_post(&hmo.async_sem);
 
     return 0;
@@ -190,7 +192,9 @@ void *async_update(void *arg)
         /* processing N request in the list */
         for (c = 0; c < hmo.conf.async_update_N; c++) {
             err = __au_req_handle();
-            if (err) {
+            if (err == -EHSTOP)
+                break;
+            else if (err) {
                 hvfs_err(mds, "AU handle error %d\n", err);
             }
         }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-29 15:57:11 macan>
+ * Time-stamp: <2010-02-02 14:26:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -133,6 +133,7 @@ int mds_dh_remove(struct dh *dh, u64 uuid)
                 list_del(&b->list);
                 mds_bitmap_free(b);
             }
+            xlock_destroy(&e->lock);
             xfree(e);
         }
     }

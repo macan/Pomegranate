@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 09:26:29 macan>
+ * Time-stamp: <2010-02-02 16:17:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -265,24 +265,38 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
              * However, I have observed the silly racing if we do ITB split
              * here, so I disable the ITB split here.
              */
-            atomic_dec(&i->h.entries);
-            if (atomic_read(&i->h.entries) < (1 << (ITB_DEPTH - 1))) {
+            if (unlikely(atomic_read(&i->h.entries) < (1 << (ITB_DEPTH - 1)))) {
                 hvfs_err(mds, "Internal Fatal Error, no free bits? nr %ld, "
                          "entries %d\n", nr, atomic_read(&i->h.entries));
             }
-            err = -EAGAIN;
-            goto out;
+            /* NOTE: you can NOT return the EAGAIN, because it has nothing to
+             * help the retring. */
+#if 0
+            static int a = 0;
+            int j, l;
+            a++;
+            if (a >= 1999999) {
+                char line[1024];
+                memset(line, 0, sizeof(line));
+                for (j = 0, l = 0; j < (1 << (ITB_DEPTH - 3)); j++) {
+                    l += sprintf(line + l, "%x", i->bitmap[j]);
+                }
+                hvfs_err(mds, ". ITB %p id %ld, state %d, entries %d nr %ld [%s]\n", 
+                         i, i->h.itbid, i->h.state, 
+                         atomic_read(&i->h.entries), nr, line);
+                a = 0;
+            }
+#endif
+            goto retry;
         }
     } else {
         /* already full, should split */
         /* FIXME: ITB SPLIT! */
-        struct itb *ni = NULL;
-        
+
         atomic_dec(&i->h.entries);
         hvfs_debug(mds, "ITB itbid %ld, depth %d, entries %d\n", 
                    i->h.itbid, i->h.depth, atomic_read(&i->h.entries));
-        sleep(0);
-        err = itb_split_local(i, &ni, l);
+        err = itb_split_local(i, i->h.depth, l);
         if (!err)
             err = -ESPLIT;
         goto out;
@@ -351,8 +365,12 @@ static inline void __ite_unlink(struct itb *i, u64 offset)
     atomic_dec(&i->h.entries);
     if (atomic_read(&i->h.entries) == 0)
         atomic_set(&i->h.max_offset, 0);
+    atomic_set(&i->h.len, sizeof(struct itb) + 
+               (atomic_read(&i->h.max_offset) + 1) * sizeof(struct ite));
     /* clear the bitmap */
-    lib_bitmap_tac(i->bitmap, ii->entry);
+    if (unlikely(!lib_bitmap_tac(i->bitmap, ii->entry))) {
+        hvfs_err(mds, "Test-and-Clear a zero bit?\n");
+    }
 }
 
 /* 
@@ -372,11 +390,11 @@ void itb_del_ite(struct itb *i, struct ite *e, u64 offset, u64 pos)
 
     /* NOTE that the offset is the target to del, and io is the offset! */
     ii = &i->index[pos];
-    if (ii->flag == ITB_INDEX_FREE) {
+    if (unlikely(ii->flag == ITB_INDEX_FREE)) {
         /* hooray, nothing should be deleted */
         return;
     }
-    if (ii->flag == ITB_INDEX_UNIQUE) {
+    if (likely(ii->flag == ITB_INDEX_UNIQUE)) {
         if (offset == pos) {
             __ite_unlink(i, offset);
         }
@@ -807,12 +825,12 @@ void itb_cow_recopy(struct itb *oi, struct itb *ni)
     memcpy(ni->ite, oi->ite,
            atomic_read(&oi->h.len) - sizeof(struct itb));
 
+    atomic_set(&ni->h.entries, atomic_read(&oi->h.entries));
     /* some changes in header region */
     if (atomic_read(&ni->h.len) != atomic_read(&oi->h.len)) {
         atomic_set(&ni->h.len, atomic_read(&oi->h.len));
         ni->h.inf = oi->h.inf;
         ni->h.itu = oi->h.itu;
-        atomic_set(&ni->h.entries, atomic_read(&oi->h.entries));
         atomic_set(&ni->h.max_offset, atomic_read(&oi->h.max_offset));
         atomic_set(&ni->h.conflicts, atomic_read(&oi->h.conflicts));
         atomic_set(&ni->h.pseudo_conflicts, atomic_read(&oi->h.pseudo_conflicts));
@@ -896,7 +914,7 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
 
             /* Step3: check the ITB txg */
             if (itb->h.flag == ITB_JUST_SPLIT && n->h.flag != ITB_JUST_SPLIT) {
-                hvfs_err(mds, "Someone split ITB %ld, eer, retry!\n",
+                hvfs_debug(mds, "Someone split ITB %ld, eer, retry!\n",
                     itb->h.itbid);
                 should_retry = 2;
                 goto split_skip;
@@ -926,13 +944,15 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
 
                     /* for ITB split, we need to track the new itb and update
                      * its state */
-                    if (itb->h.flag == ITB_JUST_SPLIT)
+                    if (itb->h.flag == ITB_JUST_SPLIT) {
                         itb->h.split_rlink = (u64)n;
-                    else if (n->h.flag == ITB_JUST_SPLIT) {
-                        n->h.flag = ITB_ACTIVE;
-                        n->h.twin = 0;
-                    } else
-                        itb->h.split_rlink = -1;
+                    } else {
+                        if (n->h.flag == ITB_JUST_SPLIT) {
+                            n->h.flag = ITB_ACTIVE;
+                            n->h.twin = 0;
+                        }
+                        itb->h.split_rlink = 0;
+                    }
 
                     /* ok, recopy the new ITEs */
                     itb_cow_recopy(itb, n);
@@ -956,11 +976,11 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                            be, itb->h.be);
                 xrwlock_rlock(&be->lock);
                 xrwlock_rlock(&itb->h.lock);
-                itb_index_wlock(l);
                 if (should_retry > 1)
                     return ERR_PTR(-ESPLIT);
-                else
+                else {
                     return NULL;
+                }
             }
             /* Step6: get BE.rlock */
             xrwlock_rlock(&be->lock);
@@ -1022,7 +1042,7 @@ int itb_search(struct hvfs_index *hi, struct itb *itb, void *data,
     /* NOTE: if we are in retrying, we know that the ITB will not COW
      * again! */
 retry:
-    if (hmo.conf.itbid_check) {
+    if (likely(hmo.conf.itbid_check)) {
         if (((hi->hash >> ITB_DEPTH) & ((1 << itb->h.depth) - 1)) !=
             itb->h.itbid) {
             /* This means the ITB we choose has completed one split, and it is
@@ -1086,12 +1106,15 @@ retry:
             } else if (hi->flag & INDEX_CREATE_COPY) {
                 hvfs_debug(mds, "Forcely create with MDU ...\n");
                 *oi = itb_dirty(itb, txg, l, otxg);
-                if (!(*oi)) {
-                    ret = -EAGAIN;
-                    goto out;
-                } else if ((*oi) != itb) {
-                    /* this means the itb is cowed, we should refresh ourself */
-                    goto refresh;
+                if (unlikely((*oi) != itb)) {
+                    if (!(*oi)) {
+                        ret = -EAGAIN;  /* w/ itb.rlocked */
+                        goto out_nolock;
+                    } else {
+                        /* this means the itb is cowed, we should refresh ourself */
+                        /* w/ itb.runlocked and oi->rlocked */
+                        goto refresh;
+                    }
                 }
                 ite_update(hi, &itb->ite[ii->entry]);
                 hi->uuid = itb->ite[ii->entry].uuid;
@@ -1101,7 +1124,7 @@ retry:
                 *oi = itb_dirty(itb, txg, l, otxg);
                 if (!(*oi)) {
                     ret = -EAGAIN;
-                    goto out;
+                    goto out_nolock;
                 } else if ((*oi) != itb) {
                     /* this measn the itb is cowed, we should refresh ourself */
                     goto refresh;
@@ -1114,12 +1137,15 @@ retry:
             /* setattr, no failure */
             hvfs_verbose(mds, "Find the ITE and update the MDU.\n");
             *oi = itb_dirty(itb, txg, l, otxg);
-            if (!(*oi)) {
-                ret = -EAGAIN;
-                goto out;
-            } else if ((*oi) != itb) {
-                /* this means the itb is cowd, we should refresh ourself */
-                goto refresh;
+            if (unlikely((*oi) != itb)) {
+                if (!(*oi)) {
+                    ret = -EAGAIN;  /* w/ itb.rlocked */
+                    goto out_nolock;
+                } else {
+                    /* this means the itb is cowed, we should refresh ourself */
+                    /* w/ itb.runlocked and oi->rlocked */
+                    goto refresh;
+                }
             }
             ite_update(hi, &itb->ite[ii->entry]);
             hi->uuid = itb->ite[ii->entry].uuid;
@@ -1128,12 +1154,15 @@ retry:
             /* unlink */
             hvfs_verbose(mds, "Find the ITE and unlink it.\n");
             *oi = itb_dirty(itb, txg, l, otxg);
-            if (!(*oi)) {
-                ret = -EAGAIN;
-                goto out;
-            } else if ((*oi) != itb) {
-                /* this means the itb is cowed, we should refresh ourself */
-                goto refresh;
+            if (unlikely((*oi) != itb)) {
+                if (!(*oi)) {
+                    ret = -EAGAIN;  /* w/ itb.rlocked */
+                    goto out_nolock;
+                } else {
+                    /* this means the itb is cowed, we should refresh ourself */
+                    /* w/ itb.runlocked and oi->rlocked */
+                    goto refresh;
+                }
             }
             ite_unlink(&itb->ite[ii->entry], itb, offset, pos);
             hi->uuid = itb->ite[ii->entry].uuid;
@@ -1149,7 +1178,7 @@ retry:
             *oi = itb_dirty(itb, txg, l, otxg);
             if (!(*oi)) {
                 ret = -EAGAIN;
-                goto out;
+                goto out_nolock;
             } else if ((*oi) != itb) {
                 /* this means the itb is cowed, we should refresh ourself */
                 goto refresh;
@@ -1178,11 +1207,12 @@ retry:
         *oi= itb_dirty(itb, txg, l, otxg);
         if (unlikely((*oi) != itb)) {
             if (!(*oi)) {
-                ret = -EAGAIN;  /* w/ itb.rlocked */
-                goto out;
+                ret = -EAGAIN;  /* w/ itb.rlocked, index lock dropped */
+                goto out_nolock;
             } else {
                 /* this means the itb is cowed, we should refresh ourself */
                 /* w/ itb.runlocked and oi->rlocked */
+                /* NOTE: maybe return -ESPLIT to redo the access */
                 goto refresh;
             }
         }
@@ -1204,10 +1234,10 @@ out_nolock:
     *oi = itb;
     return ret;
 refresh:
-    if ((*oi) == ERR_PTR(-ESPLIT)) {
+    if (unlikely((*oi) == ERR_PTR(-ESPLIT))) {
         /* all locks are hold */
         ret = -ESPLIT;
-        goto out;
+        goto out_nolock;
     } else {
         /* already released index.lock */
         itb = *oi;

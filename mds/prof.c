@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 14:14:42 macan>
+ * Time-stamp: <2010-02-02 15:23:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,10 +48,13 @@ void dump_profiling(time_t t)
               atomic64_read(&hmo.prof.cbht.buckets),
               HVFS_COLOR_END, 
               atomic64_read(&hmo.prof.cbht.depth));
-    hvfs_info(mds, "|  ITB Prof: active %ld, cowed %ld, async_unlink %ld\n",
+    hvfs_info(mds, "|  ITB Prof: active %ld, cowed %ld, async_unlink %ld, "
+              "split_submit %ld, split_local %ld\n",
               atomic64_read(&hmo.prof.cbht.aitb),
               atomic64_read(&hmo.prof.itb.cowed),
-              atomic64_read(&hmo.prof.itb.async_unlink));
+              atomic64_read(&hmo.prof.itb.async_unlink),
+              atomic64_read(&hmo.prof.itb.split_submit),
+              atomic64_read(&hmo.prof.itb.split_local));
     if (hmo.prof.xnet) {
         hvfs_info(mds, "|  XNET Prof: alloc %ld, free %ld, inb %ld, outb %ld\n",
                   atomic64_read(&hmo.prof.xnet->msg_alloc),

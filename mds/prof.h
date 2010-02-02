@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 13:44:41 macan>
+ * Time-stamp: <2010-02-02 15:21:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -93,6 +93,8 @@ struct mds_itb_prof
     atomic64_t wsearch_depth;   /* total write search depth */
     atomic64_t cowed;           /* # of COWed ITBs */
     atomic64_t async_unlink;    /* # of async unlinks */
+    atomic64_t split_submit;    /* # of submitted ITB splits */
+    atomic64_t split_local;     /* # of splited ITBs in local site */
 };
 
 struct mds_prof

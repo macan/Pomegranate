@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 20:48:55 macan>
+ * Time-stamp: <2010-02-02 16:07:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,4 +61,5 @@ static char *hvfs_ccolor[] __attribute__((unused)) =
 #define ERINGCHG        1027    /* Ring Changed */
 #define ESPLIT          1028    /* Need SPLIT */
 #define ENOTEXIST       1029    /* Not Exist */
+#define EHSTOP          1030    /* Stop */
 #endif

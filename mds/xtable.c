@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 08:53:49 macan>
+ * Time-stamp: <2010-02-02 15:42:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,19 +38,17 @@
  *
  * NOTE: holding the bucket.rlock, be.rlock, itb.rlock, ite.wlock
  */
-int itb_split_local(struct itb *oi, struct itb **ni, struct itb_lock *l)
+int itb_split_local(struct itb *oi, int odepth, struct itb_lock *l)
 {
     struct bucket_entry *be;
     struct itb_index *ii;
+    struct itb *ni;
     int err = 0, moved = 0, j, offset, done = 0, need_rescan = 0;
-
-    if (*ni)
-        return -EINVAL;
 
     /* we get one new ITB, and increase the itb->h.depth, and select the
      * corresponding ites to the new itb. */
-    *ni = get_free_itb(NULL);
-    if (unlikely(!*ni)) {
+    ni = get_free_itb(NULL);
+    if (unlikely(!ni)) {
         hvfs_debug(mds, "get_free_itb() failed\n");
         err = -ENOMEM;
         goto out;
@@ -70,9 +68,10 @@ int itb_split_local(struct itb *oi, struct itb **ni, struct itb_lock *l)
     xrwlock_wlock(&oi->h.lock);
 
     /* sanity checking */
-    if (oi->h.state == ITB_STATE_COWED) {
+    if (unlikely(be != oi->h.be))
+        goto out_relock;
+    if (unlikely(oi->h.state == ITB_STATE_COWED)) {
         hvfs_debug(mds, "COW -> SPLIT?\n");
-        err = -ESPLIT;
         goto out_relock;
     }
     if (oi->h.flag == ITB_JUST_SPLIT) {
@@ -81,16 +80,20 @@ int itb_split_local(struct itb *oi, struct itb **ni, struct itb_lock *l)
                    oi->h.itbid, oi->h.depth);
         goto out_relock;
     }
-    if (atomic_read(&oi->h.entries) < (1 << oi->h.adepth)) {
+    if (odepth < oi->h.depth) {
+        goto out_relock;
+    }
+    if (unlikely(atomic_read(&oi->h.entries) < (1 << oi->h.adepth))) {
         /* under the water mark, abort the spliting */
         goto out_relock;
     }
 
+    oi->h.flag = ITB_JUST_SPLIT;
 retry:
     oi->h.depth++;
-    (*ni)->h.depth = oi->h.depth;
-    (*ni)->h.itbid = oi->h.itbid | (1 << (oi->h.depth - 1));
-    (*ni)->h.puuid = oi->h.puuid;
+    (ni)->h.depth = oi->h.depth;
+    (ni)->h.itbid = oi->h.itbid | (1 << (oi->h.depth - 1));
+    (ni)->h.puuid = oi->h.puuid;
 
     /* check and transfer ite between the two ITBs */
     for (j = 0; j < (1 << ITB_DEPTH); j++) {
@@ -121,7 +124,7 @@ retry:
                            (1 << (oi->h.depth - 1)), moved);
                 if (ii->flag == 0)
                     ASSERT(0, mds);
-                __itb_add_ite_blob(*ni, &oi->ite[ii->entry]);
+                __itb_add_ite_blob(ni, &oi->ite[ii->entry]);
                 itb_del_ite(oi, &oi->ite[ii->entry], offset, j);
                 moved++;
                 if (offset == j)
@@ -149,15 +152,14 @@ retry:
 
     hvfs_debug(mds, "moved %d entries from %ld(%p,%d,%d) to %ld(%p,%d,%d)\n", 
              moved, oi->h.itbid, oi, oi->h.depth, atomic_read(&oi->h.entries),
-             (*ni)->h.itbid, (*ni), (*ni)->h.depth, 
-               atomic_read(&(*ni)->h.entries));
+             (ni)->h.itbid, (ni), (ni)->h.depth, 
+               atomic_read(&(ni)->h.entries));
     /* commit the changes and release the locks */
-    oi->h.flag = ITB_JUST_SPLIT;
     mds_dh_bitmap_update(&hmo.dh, oi->h.puuid, oi->h.itbid, MDS_BITMAP_SET);
 
     /* FIXME: we should connect the two ITBs for write-back */
-    oi->h.twin = (u64)(*ni);
-    (*ni)->h.twin = (u64)oi;
+    oi->h.twin = (u64)(ni);
+    (ni)->h.twin = (u64)oi;
 
     /* FIXME: we should adding the async split update here! */
 #if 1
@@ -171,7 +173,7 @@ retry:
             err = -ENOMEM;
         } else {
             aur->op = AU_ITB_SPLIT;
-            aur->arg = (u64)(*ni);
+            aur->arg = (u64)(ni);
             INIT_LIST_HEAD(&aur->list);
             err = au_submit(aur);
             if (err) {
@@ -204,7 +206,7 @@ out:
                  oi, oi->h.itbid, atomic_read(&oi->h.entries),
                  oi->h.flag);
         err = -ESPLIT;
-        sleep(0);
+        sched_yield();
     }
         
     return err;
@@ -213,7 +215,7 @@ out_relock:
     xrwlock_wunlock(&be->lock);
 
     /* free the new itb */
-    itb_free(*ni);
+    itb_free(ni);
 
     xrwlock_rlock(&be->lock);
     xrwlock_rlock(&oi->h.lock);

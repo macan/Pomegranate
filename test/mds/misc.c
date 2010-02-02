@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 21:27:22 macan>
+ * Time-stamp: <2010-02-02 13:06:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
     u64 a = XTABLE_BITMAP_SIZE;
     u8 bitmap[1 << (ITB_DEPTH - 3)];
     long nr;
-    int i = 0;
+    atomic_t i;
 
     offset = fls64(a);
     hvfs_info(mds, "[FLS64]: First set bit in 0x%lx is %d.\n", a, offset);
@@ -43,18 +43,29 @@ int main(int argc, char *argv[])
     hvfs_info(mds, "[FLS  ]: First set bit in 0x%lx is %d.\n", a, offset);
 
     /* find first zero bit */
+    atomic_set(&i, 0);
     memset(bitmap, 0, sizeof(bitmap));
-    while (++i <= 1025) {
+    while (atomic_inc_return(&i) <= 1024) {
     retry:
         nr = find_first_zero_bit((unsigned long *)bitmap, (1 << ITB_DEPTH));
         if (nr < (1 << ITB_DEPTH)) {
             if (lib_bitmap_tas(bitmap, nr)) {
                 goto retry;
             }
+            if (nr == 0)
+                hvfs_info(mds, "nr can be zero.\n");
         } else {
             hvfs_info(mds, "nr %ld\n", nr);
         }
     }
+
+    int j, l;
+    char line[1024];
+    memset(line, 0, sizeof(line));
+    for (j = 0, l = 0; j < (1 << (ITB_DEPTH - 3)); j++) {
+        l += sprintf(line + l, "%x", bitmap[j]);
+    }
+    hvfs_err(mds, "Bitmap [%s]\n", line);
 
     return err;
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 11:43:47 macan>
+ * Time-stamp: <2010-02-02 13:51:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,29 +25,6 @@
 #include "xnet.h"
 #include "tx.h"
 #include "mds.h"
-
-/* __txg_busy_loop_detector()
- *
- * NOTE: I observe the busy loop situation in the test cast this day, but it
- * is very hard to reproduce it, so I put this loop detector() here in the
- * following test cases to catch it.
- */
-#define BLD_COUNT       0
-#define BLD_RESET       1
-static inline void __txg_busy_loop_detector(struct hvfs_txg *t, int bld)
-{
-    static int i = 0;
-    if (bld == BLD_COUNT) {
-        i++;
-    } else if (bld == BLD_RESET) {
-        i = 0;
-    }
-    if (i == 100000000) {
-        hvfs_err(mds, "TXG %p %ld state %x\n", t, t->txg, t->state);
-        exit(0);
-    }
-}
-
 
 struct hvfs_txg *txg_alloc(void)
 {
@@ -88,33 +65,6 @@ int txg_init(u64 txg)
 
     return 0;
 }
-
-struct hvfs_txg *mds_get_open_txg(struct hvfs_mds_object *hmo)
-{
-    struct hvfs_txg *t;
-
-retry:
-    /* get the txg first */
-    t = hmo->txg[TXG_OPEN];     /* atomic read */
-    txg_get(t);
-    /* checking the txg state */
-    if (t->state != TXG_STATE_OPEN) {
-        /* oh, txg switched, for correctness, retry myself */
-        txg_put(t);
-        __txg_busy_loop_detector(t, BLD_COUNT);
-        goto retry;
-    }
-
-    __txg_busy_loop_detector(t, BLD_RESET);
-    return t;
-}
-
-struct hvfs_txg *mds_get_wb_txg(struct hvfs_mds_object *hmo)
-{
-    return hmo->txg[TXG_WB];
-}
-
-    
 
 /* txg_switch()
  *
