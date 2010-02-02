@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 09:28:47 macan>
+ * Time-stamp: <2010-02-02 09:30:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -111,6 +111,7 @@ retry:
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
     if (err == -ESPLIT) {
+        sleep(0);
         goto retry;
     } else if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 

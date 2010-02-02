@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 17:20:55 macan>
+ * Time-stamp: <2010-02-02 09:29:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -622,17 +622,17 @@ int __cbht mds_cbht_del(struct eh *eh, struct itb *i)
 
     /* is the bucket will underflow? FIXME: no underflow for now */
     xrwlock_wlock(&be->lock);
-    xrwlock_rlock(&i->h.lock);
+    xrwlock_wlock(&i->h.lock);
     /* recheck whether this itb has been moved? */
     if (i->h.be != be) {
-        xrwlock_runlock(&i->h.lock);
+        xrwlock_wunlock(&i->h.lock);
         xrwlock_wunlock(&be->lock);
         xrwlock_runlock(&b->lock);
         return 0;
     }
     hlist_del_init(&i->h.cbht);
     i->h.be = NULL;
-    xrwlock_runlock(&i->h.lock);
+    xrwlock_wunlock(&i->h.lock);
     xrwlock_wunlock(&be->lock);
 
     xrwlock_runlock(&b->lock);

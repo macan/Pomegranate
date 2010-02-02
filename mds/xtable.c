@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 21:58:17 macan>
+ * Time-stamp: <2010-02-02 08:53:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -72,7 +72,7 @@ int itb_split_local(struct itb *oi, struct itb **ni, struct itb_lock *l)
     /* sanity checking */
     if (oi->h.state == ITB_STATE_COWED) {
         hvfs_debug(mds, "COW -> SPLIT?\n");
-        err = -EAGAIN;
+        err = -ESPLIT;
         goto out_relock;
     }
     if (oi->h.flag == ITB_JUST_SPLIT) {
@@ -203,7 +203,7 @@ out:
         hvfs_debug(mds, "HIT Corner case ITB %p %ld, entries %d, flag %d\n",
                  oi, oi->h.itbid, atomic_read(&oi->h.entries),
                  oi->h.flag);
-        err = -EAGAIN;
+        err = -ESPLIT;
         sleep(0);
     }
         

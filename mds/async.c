@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 21:48:23 macan>
+ * Time-stamp: <2010-02-02 09:14:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -77,12 +77,14 @@ int __aur_itb_split(struct async_update_request *aur)
             /* someone create the new ITB, we have data losing */
             hvfs_err(mds, "Someone create ITB %ld, data losing ...\n",
                      i->h.itbid);
+            xrwlock_runlock(&nbe->lock);
+            xrwlock_runlock(&nb->lock);
         } else if (err) {
             hvfs_err(mds, "Internal error %d, data losing.\n", err);
         } else {
             /* it is ok, we need free the locks */
-            xrwlock_runlock(&nb->lock);
             xrwlock_runlock(&nbe->lock);
+            xrwlock_runlock(&nb->lock);
         }
         /* change the splited ITB's state to NORMAL */
         ti = (struct itb *)i->h.twin;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 22:20:02 macan>
+ * Time-stamp: <2010-02-02 09:26:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -898,7 +898,7 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
             if (itb->h.flag == ITB_JUST_SPLIT && n->h.flag != ITB_JUST_SPLIT) {
                 hvfs_err(mds, "Someone split ITB %ld, eer, retry!\n",
                     itb->h.itbid);
-                should_retry = 1;
+                should_retry = 2;
                 goto split_skip;
             }
 
@@ -957,7 +957,10 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                 xrwlock_rlock(&be->lock);
                 xrwlock_rlock(&itb->h.lock);
                 itb_index_wlock(l);
-                return NULL;
+                if (should_retry > 1)
+                    return ERR_PTR(-ESPLIT);
+                else
+                    return NULL;
             }
             /* Step6: get BE.rlock */
             xrwlock_rlock(&be->lock);
@@ -1201,9 +1204,15 @@ out_nolock:
     *oi = itb;
     return ret;
 refresh:
-    /* already released index.lock */
-    itb = *oi;
-    goto retry;
+    if ((*oi) == ERR_PTR(-ESPLIT)) {
+        /* all locks are hold */
+        ret = -ESPLIT;
+        goto out;
+    } else {
+        /* already released index.lock */
+        itb = *oi;
+        goto retry;
+    }
 }
 
 /* itb_readdir()
