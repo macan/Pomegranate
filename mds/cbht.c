@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 09:29:34 macan>
+ * Time-stamp: <2010-02-03 10:26:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -676,7 +676,7 @@ retry:
                 /* EAGAIN: max rlock got, retry */
                 /* OK: retry myself! */
                 xrwlock_runlock(&eh->lock);
-                xsleep(0);      /* do we need this? */
+                sched_yield();  /* do we need this? */
                 found = 0;
                 goto retry;
             } else if (err){

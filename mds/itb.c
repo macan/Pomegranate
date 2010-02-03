@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 16:17:46 macan>
+ * Time-stamp: <2010-02-03 10:05:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -825,7 +825,10 @@ void itb_cow_recopy(struct itb *oi, struct itb *ni)
     memcpy(ni->ite, oi->ite,
            atomic_read(&oi->h.len) - sizeof(struct itb));
 
+    /* adjust the header for ITB split */
     atomic_set(&ni->h.entries, atomic_read(&oi->h.entries));
+    ni->h.depth = oi->h.depth;
+    
     /* some changes in header region */
     if (atomic_read(&ni->h.len) != atomic_read(&oi->h.len)) {
         atomic_set(&ni->h.len, atomic_read(&oi->h.len));
@@ -944,6 +947,17 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
 
                     /* for ITB split, we need to track the new itb and update
                      * its state */
+#if 1
+                    if (n->h.flag == ITB_JUST_SPLIT) {
+                        itb->h.split_rlink = (u64)n;
+                        if (itb->h.flag != ITB_JUST_SPLIT) {
+                            /* maybe the cowed ITB is not submitted to the AU
+                             * list, we modify the flag manually. */
+                            n->h.flag = ITB_ACTIVE;
+                            n->h.twin = 0;
+                        }
+                    }
+#else                    
                     if (itb->h.flag == ITB_JUST_SPLIT) {
                         itb->h.split_rlink = (u64)n;
                     } else {
@@ -953,6 +967,7 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                         }
                         itb->h.split_rlink = 0;
                     }
+#endif
 
                     /* ok, recopy the new ITEs */
                     itb_cow_recopy(itb, n);

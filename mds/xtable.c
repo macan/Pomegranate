@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 15:42:47 macan>
+ * Time-stamp: <2010-02-03 10:20:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -146,7 +146,13 @@ retry:
         /* this means we should split more deeply, however, the itbid of the
          * old ITB can not change, so we just retry our access w/ depth++.
          */
-        hvfs_err(mds, "HIT untested code-path.\n");
+        hvfs_err(mds, "HIT untested code-path w/ depth %d.\n", 
+                 oi->h.depth);
+        if (unlikely(oi->h.depth == 50)) {
+            hvfs_err(mds, "We should consider the hash conflicts in "
+                     "the same bucket!\n");
+            ASSERT(0, mds);
+        }
         goto retry;
     }
 
