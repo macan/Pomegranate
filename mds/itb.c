@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 10:05:30 macan>
+ * Time-stamp: <2010-02-03 16:12:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -750,6 +750,7 @@ struct itb *get_free_itb(struct hvfs_txg *txg)
         }
     }
 
+    atomic_set(&n->h.ref, 1);
     atomic64_inc(&hmo.prof.cbht.aitb);
     return n;
 }
@@ -828,6 +829,7 @@ void itb_cow_recopy(struct itb *oi, struct itb *ni)
     /* adjust the header for ITB split */
     atomic_set(&ni->h.entries, atomic_read(&oi->h.entries));
     ni->h.depth = oi->h.depth;
+    ni->h.split_rlink = 0;
     
     /* some changes in header region */
     if (atomic_read(&ni->h.len) != atomic_read(&oi->h.len)) {
@@ -956,6 +958,10 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                             n->h.flag = ITB_ACTIVE;
                             n->h.twin = 0;
                         }
+                    } else if (itb->h.flag == ITB_JUST_SPLIT) {
+                        itb->h.split_rlink = (u64)n;
+                        n->h.flag = ITB_JUST_SPLIT;
+                        n->h.twin = itb->h.twin;
                     }
 #else                    
                     if (itb->h.flag == ITB_JUST_SPLIT) {
@@ -991,17 +997,17 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                            be, itb->h.be);
                 xrwlock_rlock(&be->lock);
                 xrwlock_rlock(&itb->h.lock);
-                if (should_retry > 1)
+                if (should_retry > 1) {
+                    /* let us lay off */
+                    sched_yield();
                     return ERR_PTR(-ESPLIT);
-                else {
+                } else {
                     return NULL;
                 }
             }
             /* Step6: get BE.rlock */
             xrwlock_rlock(&be->lock);
             xrwlock_rlock(&n->h.lock);
-            itb_put(itb);
-            itb_get(n);
 
             txg_add_itb(t, n);
             itb = n;

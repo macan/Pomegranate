@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 13:51:49 macan>
+ * Time-stamp: <2010-02-03 14:42:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -223,7 +223,7 @@ void *txg_commit(void *arg)
             xrwlock_wlock(&ih->lock);
             if (ih->state == ITB_STATE_COWED) {
                 xrwlock_wunlock(&ih->lock);
-                itb_free(i);
+                itb_put(i);
                 freed++;
             } else {
                 ih->state = ITB_STATE_CLEAN;

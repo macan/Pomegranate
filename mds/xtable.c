@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 10:20:21 macan>
+ * Time-stamp: <2010-02-03 14:41:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -166,6 +166,7 @@ retry:
     /* FIXME: we should connect the two ITBs for write-back */
     oi->h.twin = (u64)(ni);
     (ni)->h.twin = (u64)oi;
+    itb_get(oi);
 
     /* FIXME: we should adding the async split update here! */
 #if 1

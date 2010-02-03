@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 22:27:07 macan>
+ * Time-stamp: <2010-02-03 16:48:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -149,6 +149,8 @@ static void *mds_timer_thread_main(void *arg)
         dump_profiling(time(NULL));
         /* next, checking async unlink */
         async_unlink(time(NULL));
+        /* next, checking the CBHT slow down */
+        async_update_checking(time(NULL));
         /* FIXME: */
     }
 
@@ -248,6 +250,9 @@ out:
 int mds_init(int bdepth)
 {
     int err;
+    
+    /* lib init */
+    lib_init();
     
     /* prepare the hmi & hmo */
     memset(&hmi, 0, sizeof(hmi));

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 16:07:32 macan>
+ * Time-stamp: <2010-02-03 16:49:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,6 +30,41 @@
 #include "ring.h"
 
 struct async_update_mlist g_aum;
+
+void async_update_checking(time_t t)
+{
+    static time_t last_ts;
+    static int last_requested, last_handled;
+
+    if (atomic64_read(&hmo.prof.itb.split_submit) == 
+        atomic64_read(&hmo.prof.itb.split_local)) {
+        last_ts = t;
+        /* for now, we do not go back to fast mode */
+#if 0
+        if (hmo.conf.cbht_slow_down) {
+            hmo.conf.cbht_slow_down = 0;
+            hvfs_info(mds, "OK, back to fast mode @ %s", ctime(&t));
+        }
+#endif
+        last_requested = last_handled = 
+            atomic64_read(&hmo.prof.itb.split_submit);
+    }
+    
+    if (t < last_ts + 30) {
+        last_requested = atomic64_read(&hmo.prof.itb.split_submit);
+        last_handled = atomic64_read(&hmo.prof.itb.split_local);
+        return;
+    }
+    
+    if (atomic64_read(&hmo.prof.itb.split_submit) >= last_requested &&
+        atomic64_read(&hmo.prof.itb.split_local) == last_handled) {
+        /* going into slow mode now */
+        if (!hmo.conf.cbht_slow_down) {
+            hvfs_info(mds, "Ho, going into slow mode @ %s", ctime(&t));
+            hmo.conf.cbht_slow_down = 1;
+        }
+    }
+}
 
 int __aur_itb_split(struct async_update_request *aur)
 {
@@ -62,10 +97,9 @@ int __aur_itb_split(struct async_update_request *aur)
     } else {
         struct bucket *nb;
         struct bucket_entry *nbe;
-        struct itb *ti;
+        struct itb *ti, *saved_ti;
         struct hvfs_txg *t;
 
-        atomic64_inc(&hmo.prof.itb.split_local);
         /* pre-dirty this itb */
         t = mds_get_open_txg(&hmo);
         i->h.txg = t->txg;
@@ -82,39 +116,53 @@ int __aur_itb_split(struct async_update_request *aur)
             xrwlock_runlock(&nb->lock);
         } else if (err) {
             hvfs_err(mds, "Internal error %d, data losing.\n", err);
-        } else {
-            /* it is ok, we need free the locks */
-            xrwlock_runlock(&nbe->lock);
-            xrwlock_runlock(&nb->lock);
         }
+
         /* change the splited ITB's state to NORMAL */
-        ti = (struct itb *)i->h.twin;
+        saved_ti = ti = (struct itb *)i->h.twin;
         i->h.twin = 0;
+        /* it is ok, we need free the locks */
+        xrwlock_runlock(&nbe->lock);
+        xrwlock_runlock(&nb->lock);
         /* FIXME: should we just use the rlock? */
+    reupdate:
         xrwlock_wlock(&ti->h.lock);
         nbe = ti->h.be;
         if (nbe == NULL) {
             /* this means we do not need update the ITB state, but we should
              * update the new COWed ITB */
-            struct itb *xi = (struct itb *)(ti->h.split_rlink);
+            struct itb *xi;
+
+            xi = (struct itb *)(ti->h.split_rlink);
 
             hvfs_debug(mds, "SPLIT -> COW?\n");
-            ASSERT(xi, mds);
             ASSERT(ti->h.state == ITB_STATE_COWED, mds);
+            ASSERT(xi, mds);
             xrwlock_wunlock(&ti->h.lock);
+
+            /* FIXME: is it possible the twin is chained as a list. */
             xrwlock_wlock(&xi->h.lock);
             xi->h.flag = ITB_ACTIVE;
-            /* FIXME: is it possible the twin is chained as a list. */
+            ti = (struct itb *)i->h.twin;
             xi->h.twin = 0;
+            if (ti == saved_ti) {
+                hvfs_err(mds, "Chained twin @ %p\n", xi);
+                ti = xi;
+                xrwlock_wunlock(&xi->h.lock);
+                goto reupdate;
+            }
             xrwlock_wunlock(&xi->h.lock);
         } else {
             ti->h.flag = ITB_ACTIVE;
             ti->h.twin = 0;
             xrwlock_wunlock(&ti->h.lock);
         }
+        itb_put(saved_ti);
         /* then, we set the bitmap now */
         mds_dh_bitmap_update(&hmo.dh, i->h.puuid, i->h.itbid, 
                              MDS_BITMAP_SET);
+        atomic64_inc(&hmo.prof.itb.split_local);
+
         hvfs_debug(mds, "we update the bit of ITB %ld\n", i->h.itbid);
 /*         mds_dh_bitmap_dump(&hmo.dh, i->h.puuid); */
     }

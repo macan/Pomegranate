@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 10:26:20 macan>
+ * Time-stamp: <2010-02-03 14:39:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,8 +95,29 @@ struct bucket *__cbht cbht_bucket_alloc(int depth)
         xrwlock_init(&(be + i)->lock);
     }
 
-    mds_cbht_prof_buckets();
+    mds_cbht_prof_buckets_add();
     return b;
+}
+
+void __cbht cbht_bucket_free(struct bucket *b)
+{
+    struct bucket_entry *be;
+    int i;
+    
+    if (!b)
+        return;
+
+    xrwlock_destroy(&b->lock);
+    be = (struct bucket_entry *)(b->content);
+    if (!be)
+        goto free_bucket;
+    for (i = 0; i < (1 << b->adepth); i++) {
+        xrwlock_destroy(&(be + i)->lock);
+    }
+    xfree(b->content);
+free_bucket:
+    xfree(b);
+    mds_cbht_prof_buckets_del();
 }
 
 /*
@@ -256,6 +277,10 @@ int __cbht cbht_update_dir(struct eh *eh, struct bucket *b)
 {
     int err;
 
+    /* NOTE THAT:
+     *
+     * We use timed lock to detect livelock and retry ourself.
+     */
     xrwlock_wlock(&eh->lock);
 
     /* enlarge dir? */
@@ -359,7 +384,11 @@ retry:
     err = cbht_update_dir(eh, nb);
     if (err) {
         xrwlock_wunlock(&nb->lock);
-        goto out_lock;
+        if (err == -EAGAIN) {
+            atomic_dec(&ob->depth);
+            /* we should re-move the entries from nb to ob! */
+        }
+        goto out_free;
     }
 
     hvfs_debug(mds, "%lx, in %d: ob[%ld] %d nb[%ld] %d. eh->depth %d\n", 
@@ -394,6 +423,8 @@ retry:
     err = 0;
     return err;
 
+out_free:
+    cbht_bucket_free(nb);
 out_lock:
     xrwlock_wunlock(&ob->lock);
     return err;
@@ -655,7 +686,6 @@ struct bucket * __cbht mds_cbht_search_dir(u64 hash, u32 *ldepth)
     
 retry:
     xrwlock_rlock(&eh->lock);
-    *ldepth = eh->dir_depth;
     offset = (hash >> eh->bucket_depth) & ((1 << eh->dir_depth) - 1);
     list_for_each_entry(s, &eh->dir, list) {
         if (s->offset <= offset && offset < (s->offset + s->len)) {
@@ -676,7 +706,14 @@ retry:
                 /* EAGAIN: max rlock got, retry */
                 /* OK: retry myself! */
                 xrwlock_runlock(&eh->lock);
+                /* NOTE THAT: the eh->lock is under heavy using in a
+                 * create-cluster test case, a lot of threads holding the
+                 * rlock will block the bucket_split() progressing. What
+                 * should we do? */
                 sched_yield();  /* do we need this? */
+                if (unlikely(hmo.conf.cbht_slow_down)) {
+                    xsleep(lib_random(100));
+                }
                 found = 0;
                 goto retry;
             } else if (err){
@@ -685,6 +722,7 @@ retry:
         }
     }
             
+    *ldepth = eh->dir_depth;
     xrwlock_runlock(&eh->lock);
 
     return b;
@@ -703,9 +741,8 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     char mdu_rpy[HVFS_MDU_SIZE];
 
     xrwlock_rlock(&i->h.lock);
-    itb_get(i);
     /* check the ITB state */
-    if (i->h.state == ITB_STATE_COWED) {
+    if (unlikely(i->h.state == ITB_STATE_COWED)) {
         xrwlock_runlock(&i->h.lock);
         return -EAGAIN;
     }
@@ -758,7 +795,6 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
         memcpy(hmr->data + sizeof(*hi), mdu_rpy, HVFS_MDU_SIZE);
 out:
     xrwlock_runlock(&i->h.lock);
-    itb_put(i);
     return err;
 }
 

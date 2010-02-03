@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-24 09:27:10 macan>
+ * Time-stamp: <2010-02-03 11:21:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,9 +61,11 @@ int xlock_destroy(xlock_t *);
 typedef pthread_rwlock_t xrwlock_t;
 #define xrwlock_rlock pthread_rwlock_rdlock
 #define xrwlock_tryrlock pthread_rwlock_tryrdlock
+#define xrwlock_timedrlock pthread_rwlock_timedrdlock
 #define xrwlock_runlock pthread_rwlock_unlock
 #define xrwlock_wlock pthread_rwlock_wrlock
 #define xrwlock_trywlock pthread_rwlock_trywrlock
+#define xrwlock_timedwlock pthread_rwlock_timedwrlock
 #define xrwlock_wunlock pthread_rwlock_unlock
 #define xrwlock_init(l) pthread_rwlock_init(l, NULL)
 #define xrwlock_destroy pthread_rwlock_destroy

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 13:59:14 macan>
+ * Time-stamp: <2010-02-03 14:43:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -76,6 +76,8 @@ struct mds_conf
     int itb_depth_default;      /* default value of itb depth */
     int async_update_N;         /* default # of processing request */
     s8 itbid_check;             /* should we do ITBID check? */
+    u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
+                                 * conflicts */
 
     /* intervals */
     int profiling_thread_interval;
@@ -234,9 +236,12 @@ void itb_del_ite(struct itb *, struct ite *, u64, u64);
 int __itb_add_ite_blob(struct itb *, struct ite *);
 static inline void itb_get(struct itb *i)
 {
+    atomic_inc(&i->h.ref);
 }
 static inline void itb_put(struct itb *i)
 {
+    if (atomic_dec_return(&i->h.ref) == 0)
+        itb_free(i);
 }
 
 /* for tx.c */
@@ -311,6 +316,7 @@ void mds_dump_itb(struct hvfs_tx *);
 /* for async.c */
 int async_tp_init(void);
 void async_tp_destroy(void);
+void async_update_checking(time_t);
 
 /* please do not move the follow section */
 /* SECTION BEGIN */

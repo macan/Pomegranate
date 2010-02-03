@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 15:21:06 macan>
+ * Time-stamp: <2010-02-03 11:07:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -121,7 +121,11 @@ struct mds_prof
         atomic64_inc(&hmo.prof.cbht.split);     \
     } while (0)
 
-#define mds_cbht_prof_buckets() do {            \
+#define mds_cbht_prof_buckets_add() do {        \
+        atomic64_inc(&hmo.prof.cbht.buckets);   \
+    } while (0)
+
+#define mds_cbht_prof_buckets_del() do {        \
         atomic64_inc(&hmo.prof.cbht.buckets);   \
     } while (0)
 
