@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 14:41:08 macan>
+ * Time-stamp: <2010-02-03 19:09:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -74,13 +74,7 @@ int itb_split_local(struct itb *oi, int odepth, struct itb_lock *l)
         hvfs_debug(mds, "COW -> SPLIT?\n");
         goto out_relock;
     }
-    if (oi->h.flag == ITB_JUST_SPLIT) {
-        hvfs_debug(mds, "Another split %ld(%d) is progressing,"
-                   " we just wait a little to retry!\n",
-                   oi->h.itbid, oi->h.depth);
-        goto out_relock;
-    }
-    if (odepth < oi->h.depth) {
+    if (unlikely(odepth < oi->h.depth)) {
         goto out_relock;
     }
     if (unlikely(atomic_read(&oi->h.entries) < (1 << oi->h.adepth))) {
@@ -88,7 +82,6 @@ int itb_split_local(struct itb *oi, int odepth, struct itb_lock *l)
         goto out_relock;
     }
 
-    oi->h.flag = ITB_JUST_SPLIT;
 retry:
     oi->h.depth++;
     (ni)->h.depth = oi->h.depth;
@@ -164,7 +157,6 @@ retry:
     mds_dh_bitmap_update(&hmo.dh, oi->h.puuid, oi->h.itbid, MDS_BITMAP_SET);
 
     /* FIXME: we should connect the two ITBs for write-back */
-    oi->h.twin = (u64)(ni);
     (ni)->h.twin = (u64)oi;
     itb_get(oi);
 
@@ -176,7 +168,6 @@ retry:
 
         if (!aur) {
             hvfs_err(mds, "xallloc() AU request failed, data lossing.\n");
-            oi->h.flag = ITB_ACTIVE;
             err = -ENOMEM;
         } else {
             aur->op = AU_ITB_SPLIT;
@@ -185,7 +176,6 @@ retry:
             err = au_submit(aur);
             if (err) {
                 hvfs_err(mds, "submit AU request failed, data lossing.\n");
-                oi->h.flag = ITB_ACTIVE;
                 xfree(aur);
             }
         }

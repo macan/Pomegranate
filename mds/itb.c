@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 16:12:32 macan>
+ * Time-stamp: <2010-02-03 19:11:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -772,6 +772,8 @@ void itb_free(struct itb *i)
         }
     }
 
+    xrwlock_destroy(&i->h.lock);
+    
     xlock_lock(&hmo.ic.lock);
     list_add_tail(&i->h.list, &hmo.ic.lru);
     xlock_unlock(&hmo.ic.lock);
@@ -918,12 +920,6 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
             xrwlock_wlock(&itb->h.lock);
 
             /* Step3: check the ITB txg */
-            if (itb->h.flag == ITB_JUST_SPLIT && n->h.flag != ITB_JUST_SPLIT) {
-                hvfs_debug(mds, "Someone split ITB %ld, eer, retry!\n",
-                    itb->h.itbid);
-                should_retry = 2;
-                goto split_skip;
-            }
 
             /* Step3.0: is this ITB deleted or moved? */
 
@@ -947,34 +943,6 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                     n->h.be = be;
                     hlist_add_head(&n->h.cbht, &be->h);
 
-                    /* for ITB split, we need to track the new itb and update
-                     * its state */
-#if 1
-                    if (n->h.flag == ITB_JUST_SPLIT) {
-                        itb->h.split_rlink = (u64)n;
-                        if (itb->h.flag != ITB_JUST_SPLIT) {
-                            /* maybe the cowed ITB is not submitted to the AU
-                             * list, we modify the flag manually. */
-                            n->h.flag = ITB_ACTIVE;
-                            n->h.twin = 0;
-                        }
-                    } else if (itb->h.flag == ITB_JUST_SPLIT) {
-                        itb->h.split_rlink = (u64)n;
-                        n->h.flag = ITB_JUST_SPLIT;
-                        n->h.twin = itb->h.twin;
-                    }
-#else                    
-                    if (itb->h.flag == ITB_JUST_SPLIT) {
-                        itb->h.split_rlink = (u64)n;
-                    } else {
-                        if (n->h.flag == ITB_JUST_SPLIT) {
-                            n->h.flag = ITB_ACTIVE;
-                            n->h.twin = 0;
-                        }
-                        itb->h.split_rlink = 0;
-                    }
-#endif
-
                     /* ok, recopy the new ITEs */
                     itb_cow_recopy(itb, n);
                     hvfs_debug(mds, "ITB COWing %ld %p to %p\n", 
@@ -983,7 +951,6 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                 }
             }
             
-        split_skip:
             /* Step4: release BE.wlock */
             xrwlock_wunlock(&itb->h.lock);
             xrwlock_wunlock(&be->lock);
@@ -997,13 +964,7 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
                            be, itb->h.be);
                 xrwlock_rlock(&be->lock);
                 xrwlock_rlock(&itb->h.lock);
-                if (should_retry > 1) {
-                    /* let us lay off */
-                    sched_yield();
-                    return ERR_PTR(-ESPLIT);
-                } else {
-                    return NULL;
-                }
+                return NULL;
             }
             /* Step6: get BE.rlock */
             xrwlock_rlock(&be->lock);

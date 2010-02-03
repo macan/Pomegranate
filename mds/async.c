@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 16:49:12 macan>
+ * Time-stamp: <2010-02-03 18:43:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,7 +97,7 @@ int __aur_itb_split(struct async_update_request *aur)
     } else {
         struct bucket *nb;
         struct bucket_entry *nbe;
-        struct itb *ti, *saved_ti;
+        struct itb *ti;
         struct hvfs_txg *t;
 
         /* pre-dirty this itb */
@@ -119,45 +119,14 @@ int __aur_itb_split(struct async_update_request *aur)
         }
 
         /* change the splited ITB's state to NORMAL */
-        saved_ti = ti = (struct itb *)i->h.twin;
+        ti = (struct itb *)i->h.twin;
         i->h.twin = 0;
         /* it is ok, we need free the locks */
         xrwlock_runlock(&nbe->lock);
         xrwlock_runlock(&nb->lock);
+
         /* FIXME: should we just use the rlock? */
-    reupdate:
-        xrwlock_wlock(&ti->h.lock);
-        nbe = ti->h.be;
-        if (nbe == NULL) {
-            /* this means we do not need update the ITB state, but we should
-             * update the new COWed ITB */
-            struct itb *xi;
-
-            xi = (struct itb *)(ti->h.split_rlink);
-
-            hvfs_debug(mds, "SPLIT -> COW?\n");
-            ASSERT(ti->h.state == ITB_STATE_COWED, mds);
-            ASSERT(xi, mds);
-            xrwlock_wunlock(&ti->h.lock);
-
-            /* FIXME: is it possible the twin is chained as a list. */
-            xrwlock_wlock(&xi->h.lock);
-            xi->h.flag = ITB_ACTIVE;
-            ti = (struct itb *)i->h.twin;
-            xi->h.twin = 0;
-            if (ti == saved_ti) {
-                hvfs_err(mds, "Chained twin @ %p\n", xi);
-                ti = xi;
-                xrwlock_wunlock(&xi->h.lock);
-                goto reupdate;
-            }
-            xrwlock_wunlock(&xi->h.lock);
-        } else {
-            ti->h.flag = ITB_ACTIVE;
-            ti->h.twin = 0;
-            xrwlock_wunlock(&ti->h.lock);
-        }
-        itb_put(saved_ti);
+        itb_put(ti);
         /* then, we set the bitmap now */
         mds_dh_bitmap_update(&hmo.dh, i->h.puuid, i->h.itbid, 
                              MDS_BITMAP_SET);
