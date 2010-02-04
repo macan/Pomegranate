@@ -1,0 +1,230 @@
+Title: Client-MDS APIs ABIs
+
+Writter: Ma Can <macan@ncic.ac.cn>
+Time-stamp: <2010-02-04 13:27:40 macan>
+
+
+1. Structures for Interactive 
+
+1.1 Client to MDS: describing the reqeust
+
+struct hvfs_index
+{
+    int namelen;                /* the name length */
+
+#define INDEX_BY_NAME           0x00000001 /* search by name */
+#define INDEX_BY_UUID           0x00000002 /* search by uuid */
+#define INDEX_BY_ITB            0x00000004 /* for READDIR, start address in
+                                            * .hash and current depth of ITB
+                                            * is in the low bits of .itb */
+
+#define INDEX_LOOKUP            0x00000010 /* LOOKUP */
+#define INDEX_INTENT_OPEN       0x00000020 /* open with ITE.ct++ */
+
+#define INDEX_LINK_ADD          0x00000100 /* lookup & nlink++, TXC */
+
+#define INDEX_CREATE            0x00001000 /* create, TXC */
+#define INDEX_CREATE_LINK       0x00002000 /* hard link, TXC */
+#define INDEX_CREATE_DIR        0x00004000 /* create new dir in SDT */
+#define INDEX_CREATE_COPY       0x00008000 /* use the MDU to create */
+#define INDEX_CREATE_FORCE      0x00010000 /* forced create */
+
+#define INDEX_CREATE_LARGE      0x00020000 /* create large file */
+#define INDEX_CREATE_SMALL      0x00040000 /* create small file */
+
+#define INDEX_MDU_UPDATE        0x00100000 /* setattr, TXC */
+#define INDEX_UNLINK            0x00200000 /* unlink, TXC */
+#define INDEX_SYMLINK           0x00400000 /* symlink, TXC */
+
+#define INDEX_ITE_ACTIVE        0x01000000 /* active ITE */
+#define INDEX_ITE_SHADOW        0x02000000 /* shadow/unlinked ITE */
+
+#define INDEX_ITB_LOAD          0x10000000 /* load ITB */
+    u32 flag;
+    u64 uuid;                   /* self uuid */
+    u64 hash;                   /* hash value of the name, or manual set */
+    u64 itbid;              /* uuid computed by client, or true uuid by MDS */
+    u64 puuid;                  /* parent uuid */
+    union
+    {
+        u64 ssalt;              /* self salt, used within HMR reply */
+        u64 psalt;              /* parent salt, used in CLIENT requst */
+    };
+    union
+    {
+        void *data;                 /* MDS use: pointer to args */
+        u64 dlen;                   /* in transfer data payload */
+    };
+    char name[0];
+};
+
+1.2 MDS to Client: describing the reply
+
+struct hvfs_md_reply
+{
+    short err;
+    short mdu_no;               /* # of MDUs */
+    short ls_no;                /* # of LSs */
+    short bitmap_no;            /* # of BITMAPs */
+    int len;                    /* the data length */
+
+#define MD_REPLY_DIR_SDT        0x01 /* SDT result */
+#define MD_REPLY_READDIR        0x02 /* piggyback the ITB depth in h8 of flag */
+
+    /* please do NOT change the following defines, they should be consistent
+     * with the defines in lib.h */
+#define MD_REPLY_WITH_HI        0x10
+#define MD_REPLY_WITH_MDU       0x20
+#define MD_REPLY_WITH_LS        0x40
+#define MD_REPLY_WITH_BITMAP    0x80 /* bitmap info in data area */
+
+    u32 flag;
+    void *data;                 /* how to alloc data region more faster? */
+    /* Layout of data region
+     *
+     * |---HI---|---MDU---|---LS---|---BITMAP---|
+     */
+    /*
+     * Layout of the data region: low->high, selected by flags
+     *
+     * struct hvfs_index hi;
+     * struct mdu mdu; + u64; (HVFS_MDU_SIZE)
+     * struct link_source ls;
+     * struct itbitmap + 128KB;
+     */
+};
+
+2. API and ABI
+
+2.0 General Requirements
+
+    REQUIRED: means you must set.
+    OPTIONAL: means you must check to detemine whether it is set.
+    POSSIBLE: means in some scene it IS
+
+      REQUIRED: hvfs_index {
+                    IF .flag & INDEX_BY_NAME then
+                        REQUIRED: .namelen .name
+                        OPTIONAL: .hash
+                    FI
+                    IF .flag & INDEX_BY_UUID then
+                        REQUIRED: .uuid, .hash
+                    FI
+                    REQUIRED: .puuid, .psalt
+                    OPTIONAL: .itbid
+                }
+
+      REQUIRED: hvfs_md_reply->hvfs_index {
+                    REQUIRED: .uuid, .itbid
+                    POSSIBLE: .ssalt
+                }
+
+
+2.1 LOOKUP operation
+
+2.1.1 Arguments
+
+      REQUIRED: hvfs_index {
+                    OPTIONAL: .flag & INDEX_LOOKUP
+                    IF .flag & INDEX_BY_UUID then
+                        REQUIRED: .hash
+                    FI
+                    REQUIRED: .flag & INDEX_ITE_ACTIVE
+                }
+      OPTIONAL: NONE
+
+2.1.2 Reply
+
+      REQUIRED: hvfs_md_reply {
+                    REQUIRED: .mdu_no = 1/0, .ls_no = 1/0, bitmap_no = 1/0
+                    REQUIRED: .flag & MD_REPLY_WITH_HI
+                    REQUIRED: .flag & (MD_REPLY_WITH_MDU | MD_REPLY_WITH_LS)
+                    OPTIONAL: .flag & MD_REPLY_WITH_BITMAP
+                }
+
+      API: hmr_extract()
+
+2.2 CREATE operation
+
+2.2.1 Arguments
+
+      REQUIRED: hvfs_index {
+                    OPTIONAL: .flag & INDEX_CREATE
+                    OPTIONAL: .flag & INDEX_CREATE_DIR
+                    OPTIONAL: .flag & INDEX_CREATE_COPY
+                    OPTIONAL: .flag & INDEX_CREATE_FORCE
+                    OPTIONAL: .flag & INDEX_CREATE_LINK
+                    OPTIONAL: .flag & INDEX_CREATE_LARGE
+                    OPTIONAL: .flag & INDEX_CREATE_SMALL
+                    OPTIONAL: .flag & INDEX_BY_NAME
+                    REQUIRED: .namelen, .name
+                }
+      OPTIONAL: mdu_update { /* refer to include/mds_api.h */
+                    .valid
+                }
+
+2.2.2 Reply
+
+      REQUIRED: hvfs_md_reply {
+                    REQUIRED: .mdu_no = 1/0, .ls_no = 1/0, bitmap_no = 1/0
+                    REQUIRED: .flag & MD_REPLY_WITH_HI
+                    REQUIRED: .flag & (MD_REPLY_WITH_MDU | MD_REPLY_WITH_LS)
+                    OPTIONAL: .flag & MD_REPLY_WITH_BITMAP
+                }
+
+      API: hmr_extract()
+
+2.3 UPDATE operation
+
+2.3.1 Arguments
+
+      REQUIRED: hvfs_index {
+                    OPTIONAL: .flag & INDEX_MDU_UPDATE
+                }
+      OPTIONAL: mdu_update {
+                    .valid
+                }
+
+2.3.2 Reply
+
+      REQUIRED: hvfs_md_reply {
+                    REQUIRED: .mdu_no = 1/0, .ls_no = 1/0, bitmap_no = 1/0
+                    REQUIRED: .flag & MD_REPLY_WITH_HI
+                    REQUIRED: .flag & (MD_REPLY_WITH_MDU | MD_REPLY_WITH_LS)
+                    OPTIONAL: .flag & MD_REPLY_WITH_BITMAP
+                }
+
+      API: hmr_extract()
+
+2.4 LINKADD operation
+
+2.5 UNLINK operation
+
+2.5.1 Arguments
+
+      REQUIRED: hvfs_index {
+                    OPTIONAL: .flag & INDEX_UNLINK
+                    REQUIRED: .flag & INDEX_ITE_ACTIVE
+                }
+      OPTIONAL: NONE
+
+2.5.2 Reply
+
+      REQUIRED: hvfs_md_reply {
+                    REQUIRED: .mdu_no = 1/0, .ls_no = 1/0, bitmap_no = 1/0
+                    REQUIRED: .flag & MD_REPLY_WITH_HI
+                    REQUIRED: .flag & (MD_REPLY_WITH_MDU | MD_REPLY_WITH_LS)
+                    OPTIONAL: .flag & MD_REPLY_WITH_BITMAP
+                }
+
+      API: hmr_extract()
+
+2.6 SYMLINK operation
+
+2.7 LB operation
+
+    LB means "Load Bitmap".
+
+2.8 DITB operation
+
+    DITB means "Dump ITB".

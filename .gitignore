@@ -1,2 +1,5 @@
 gmon.out
+*.o
+*.ut
+*.a
 *~
