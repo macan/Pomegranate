@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 19:11:11 macan>
+ * Time-stamp: <2010-02-04 08:02:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1216,15 +1216,9 @@ out_nolock:
     *oi = itb;
     return ret;
 refresh:
-    if (unlikely((*oi) == ERR_PTR(-ESPLIT))) {
-        /* all locks are hold */
-        ret = -ESPLIT;
-        goto out_nolock;
-    } else {
-        /* already released index.lock */
-        itb = *oi;
-        goto retry;
-    }
+    /* already released index.lock */
+    itb = *oi;
+    goto retry;
 }
 
 /* itb_readdir()

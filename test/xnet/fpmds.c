@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 14:36:29 macan>
+ * Time-stamp: <2010-02-03 22:24:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -607,16 +607,16 @@ int main(int argc, char *argv[])
         .recv_handler = mds_fe_dispatch,
     };
     int err = 0;
-    int dsite, self, loop = 0;
+    int dsite, self, entry = 0;
     short port;
     char *value;
 
-    value = getenv("loop");
+    value = getenv("entry");
     if (value) {
-        loop = atoi(value);
+        entry = atoi(value);
     }
-    if (!loop)
-        loop = 100;
+    if (!entry)
+        entry = 100;
     
     if (argc == 2) {
         /* Server Mode */
@@ -637,6 +637,7 @@ int main(int argc, char *argv[])
     lib_init();
     mds_init(10);                /* max capacity is 2^11 */
     hmo.prof.xnet = &g_xnet_prof;
+    hmo.conf.itbid_check = 1;
 
     hmo.xc = xnet_register_type(0, port, self, &ops);
     if (IS_ERR(hmo.xc)) {
@@ -662,7 +663,7 @@ int main(int argc, char *argv[])
     bitmap_insert(0, 0);
 
     if (HVFS_IS_CLIENT(self))
-        msg_send(dsite, loop);
+        msg_send(dsite, entry);
     else
         msg_wait(dsite);
 
