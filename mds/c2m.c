@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 15:17:16 macan>
+ * Time-stamp: <2010-02-04 14:15:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,13 +26,6 @@
 #include "xtable.h"
 #include "tx.h"
 #include "xnet.h"
-
-/* NOTE: how to alloc a hmr very fast? */
-static inline
-struct hvfs_md_reply *get_hmr(void)
-{
-    return xzalloc(sizeof(struct hvfs_md_reply));
-}
 
 static inline 
 void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr, 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 22:24:43 macan>
+ * Time-stamp: <2010-02-05 19:49:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -173,6 +173,8 @@ resend:
         recreate = 1;
         split_retry++;
         goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "CREATE failed @ MDS site %ld w/ %d\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
@@ -266,6 +268,7 @@ int get_send_msg_unlink(int dsite, int nid, u64 puuid, u64 itbid, u64 flag)
 
     hvfs_debug(xnet, "MDS dpayload %ld (namelen %d, dlen %ld)\n",
                msg->tx.len, hi->namelen, hi->dlen);
+resend:
     err = xnet_send(hmo.xc, msg);
     if (err) {
         hvfs_err(xnet, "xnet_send() failed\n");
@@ -273,7 +276,11 @@ int get_send_msg_unlink(int dsite, int nid, u64 puuid, u64 itbid, u64 flag)
     }
     /* this means we hvae got the reply, parse it! */
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err) {
+    if (msg->pair->tx.err == -ESPLIT) {
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        goto resend;
+    } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "UNLINK failed @ MDS site %ld w/ %d\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
         err = msg->pair->tx.err;
@@ -367,6 +374,7 @@ int get_send_msg_lookup(int dsite, int nid, u64 puuid, u64 itbid, u64 flag)
 
     hvfs_debug(xnet, "MSG dpayload %ld (namelen %d, dlen %ld)\n", 
                msg->tx.len, hi->namelen, hi->dlen);
+resend:
     err = xnet_send(hmo.xc, msg);
     if (err) {
         hvfs_err(xnet, "xnet_send() failed\n");
@@ -374,7 +382,11 @@ int get_send_msg_lookup(int dsite, int nid, u64 puuid, u64 itbid, u64 flag)
     }
     /* this means we have got the reply, parse it! */
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err) {
+    if (msg->pair->tx.err == -ESPLIT) {
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        goto resend;
+    } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "LOOKUP failed @ MDS site %ld w/ %d\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
         err = msg->pair->tx.err;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 14:39:33 macan>
+ * Time-stamp: <2010-02-05 14:08:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -682,7 +682,7 @@ struct bucket * __cbht mds_cbht_search_dir(u64 hash, u32 *ldepth)
     struct segment *s;
     struct bucket *b = ERR_PTR(-ENOENT); /* ENOENT means can not find it */
     u64 offset;
-    int found = 0, err = 0;
+    int found = 0, err = 0, nr = 0;
     
 retry:
     xrwlock_rlock(&eh->lock);
@@ -712,11 +712,13 @@ retry:
                  * should we do? */
                 sched_yield();  /* do we need this? */
                 if (unlikely(hmo.conf.cbht_slow_down)) {
-                    xsleep(lib_random(100));
+                    if (nr < 12)
+                        nr++;
+                    xsleep(lib_random(100 << nr));
                 }
                 found = 0;
                 goto retry;
-            } else if (err){
+            } else if (err) {
                 b = ERR_PTR(-err);
             }
         }
@@ -842,8 +844,8 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
             err = cbht_itb_hit(i, hi, hmr, txg, otxg);
             if (err == -EAGAIN) {
                 /* release all the locks */
-                xrwlock_runlock(&b->lock);
                 xrwlock_runlock(&e->lock);
+                xrwlock_runlock(&b->lock);
                 goto out;
             }
             xrwlock_runlock(&e->lock);
@@ -868,8 +870,8 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
         err = cbht_itb_hit(i, hi, hmr, txg, otxg);
         if (err == -EAGAIN) {
             /* release all the lockes */
-            xrwlock_runlock(&b->lock);
             xrwlock_runlock(&e->lock);
+            xrwlock_runlock(&b->lock);
             goto out;
         }
         xrwlock_runlock(&e->lock);
@@ -967,6 +969,11 @@ out:
     /* put the bucket lock */
     xrwlock_runlock(&b->lock);
     hmr->err = err;
+    if (unlikely(err == -ESPLIT)) {
+        /* NOTE THAT: if we get -ESPLIT error, we should check whether there
+         * are pending ASYNC UPDATES */
+        au_handle_split_sync();
+    }
     return err;
 }
 

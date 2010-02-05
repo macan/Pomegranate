@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 09:30:43 macan>
+ * Time-stamp: <2010-02-05 19:47:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,6 +33,10 @@
 #include "ring.h"
 
 atomic64_t miss;                /* # of shadow lookup miss */
+u64 split_retry = 0;
+u64 create_failed = 0;
+u64 lookup_failed = 0;
+u64 unlink_failed = 0;
 
 void hmr_print(struct hvfs_md_reply *hmr)
 {
@@ -111,11 +115,15 @@ retry:
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
     if (err == -ESPLIT) {
-        sleep(0);
+        sched_yield();
+        split_retry++;
+        goto retry;
+    } else if (err == -ERESTART) {
         goto retry;
     } else if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
                  puuid, itbid, name, err);
+        create_failed++;
     }
 /*     hmr_print(hmr); */
     if (!hmr->err) {
@@ -162,7 +170,9 @@ retry:
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
     if (err == -ESPLIT) {
-        sleep(0);
+        sched_yield();
+        goto retry;
+    } else if (err == -ERESTART) {
         goto retry;
     } else if (err && (flag & ITE_ACTIVE)) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s, %lx) failed %d\n", 
@@ -170,6 +180,7 @@ retry:
         hvfs_err(mds, "ITB hash 0x%20lx.\n", 
                  hvfs_hash(puuid, itbid, sizeof(u64), HASH_SEL_CBHT));
         mds_cbht_search_dump_itb(hi);
+        lookup_failed++;
     } else if (err) {
         atomic64_inc(&miss);
     }
@@ -221,12 +232,16 @@ retry:
     txg_put(txg);
 
     if (err == -ESPLIT) {
+        sched_yield();
+        goto retry;
+    } else if (err == -ERESTART) {
         goto retry;
     } else if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
                  puuid, itbid, name, err);
         mds_cbht_search_dump_itb(hi);
         ASSERT(0, mds);
+        unlink_failed++;
     }
 /*     hmr_print(hmr); */
     if (!hmr->err) {
@@ -389,9 +404,16 @@ void *random_main(void *arg)
     lib_timer_def();
     struct mdu_update mu;
     struct hvfs_md_reply hmr;
+    sigset_t set;
     u64 flag;
     int i;
     char name[HVFS_MAX_NAME_LEN];
+
+    /* block the SIGALRM */
+    sigemptyset(&set);
+    sigaddset(&set, SIGALRM);
+    pthread_sigmask(SIG_BLOCK, &set, NULL); /* oh, we do not care about the
+                                             * errs */
 
     /* wait for other threads */
     pthread_barrier_wait(pa->pb);
@@ -516,6 +538,9 @@ void __ut_random(u64 entry, int thread)
               atomic64_read(&hmo.prof.itb.wsearch_depth) / 2.0 / (entry));
     hvfs_info(mds, "Total shadow lookup miss %ld.\n",
               atomic64_read(&miss));
+    hvfs_info(xnet, "Split_retry %ld, FAILED:[create,lookup,unlink] "
+              "%ld %ld %ld\n",
+              split_retry, create_failed, lookup_failed, unlink_failed);
 
 out_free2:
     xfree(pa);

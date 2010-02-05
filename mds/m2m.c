@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 10:19:48 macan>
+ * Time-stamp: <2010-02-04 14:22:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +25,9 @@
 #include "mds.h"
 #include "xtable.h"
 #include "tx.h"
+#include "xnet.h"
+#include "ring.h"
+#include "lib.h"
 
 static inline 
 void mds_send_reply(struct xnet_msg *msg, struct hvfs_md_reply *hmr,
@@ -39,14 +42,20 @@ void mds_send_reply(struct xnet_msg *msg, struct hvfs_md_reply *hmr,
     }
 
     hmr->err = err;
-    if (!hmr->err) {
-        xnet_msg_add_data(rpy, hmr, sizeof(hmr));
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(struct xnet_msg_tx));
+#endif
+    if (!err) {
+        xnet_msg_add_sdata(rpy, hmr, sizeof(hmr));
         if (hmr->len)
-            xnet_msg_add_data(rpy, hmr->data, hmr->len);
-    } else
+            xnet_msg_add_sdata(rpy, hmr->data, hmr->len);
+    } else {
         xnet_msg_set_err(rpy, hmr->err);
+        if (hmr->data)
+            xfree(hmr->data);
+        xfree(hmr);
+    }
 
-    xnet_msg_set_site(rpy, msg->tx.ssite_id);
     xnet_msg_fill_tx(rpy, XNET_MSG_RPY, XNET_NEED_DATA_FREE, hmo.site_id,
                      msg->tx.ssite_id);
     xnet_msg_fill_reqno(rpy, msg->tx.reqno);
@@ -61,18 +70,29 @@ void mds_send_reply(struct xnet_msg *msg, struct hvfs_md_reply *hmr,
 
 void mds_ldh(struct xnet_msg *msg)
 {
-    struct hvfs_index *hi = msg->xm_data;
-    struct hvfs_md_reply *hmr;
+    struct hvfs_index *hi = NULL;
+    struct hvfs_md_reply *hmr = NULL;
     struct hvfs_txg *txg;
     struct dhe *e;
     struct chp *p;
+    u64 itbid;
     int err = 0;
 
-    if (msg->len < sizeof(*hi)) {
-        hvfs_err(mds, "Invalid LDH request %d received\n", msg->tx.reqno);
+    /* sanity checking */
+    if (msg->tx.len < sizeof(*hi)) {
+        hvfs_err(mds, "Invalid LDH request %ld received\n", msg->tx.reqno);
         err = -EINVAL;
         goto send_rpy;
     }
+
+    if (msg->xm_datacheck)
+        hi = msg->xm_data;
+    else {
+        hvfs_err(mds, "Internal error, data lossing ...\n");
+        err = -EINVAL;
+        goto send_rpy;
+    }
+
 
     if (!(hi->flag & INDEX_BY_UUID)) {
         err = -EINVAL;
@@ -83,15 +103,16 @@ void mds_ldh(struct xnet_msg *msg)
     if (IS_ERR(e)) {
         /* fatal error */
         hvfs_err(mds, "This is a fatal error, we can not find the GDT DHE.\n");
-        goto out;
+        err = PTR_ERR(e);
+        goto send_rpy;
     }
     itbid = mds_get_itbid(e, hi->hash);
     if (itbid != hi->itbid || hmo.conf.option & HVFS_MDS_CHRECHK) {
-        p = ring_get_point(itbid, hmi.gdt_salt, hmo.ring[CH_RING_MDS]);
+        p = ring_get_point(itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
         if (IS_ERR(p)) {
             hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
             err = -ECHP;
-            goto out;
+            goto send_rpy;
         }
         if (hmo.site_id != p->site_id) {
             /* FIXME: forward */
@@ -116,14 +137,23 @@ void mds_ldh(struct xnet_msg *msg)
     hi->puuid = hmi.gdt_uuid;
     hi->psalt = hmi.gdt_salt;
 
-    txg = mds_get_open_txg();
+    /* search in the CBHT */
+    txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
 
-send_rpy:
+actually_send:
     mds_send_reply(msg, hmr, err);
 out:
     xnet_free_msg(msg);
     return;
+send_rpy:
+    hmr = get_hmr();
+    if (!hmr) {
+        hvfs_err(mds, "get_hmr() failed\n");
+        /* do not retry myself */
+        return;
+    }
+    goto actually_send;
 }
 

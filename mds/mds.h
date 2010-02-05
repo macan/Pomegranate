@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 14:43:37 macan>
+ * Time-stamp: <2010-02-05 13:30:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -313,10 +313,14 @@ void mds_symlink(struct hvfs_tx *);
 void mds_lb(struct hvfs_tx *);
 void mds_dump_itb(struct hvfs_tx *);
 
+/* for m2m.c, mds 2 mds APIs */
+void mds_ldh(struct xnet_msg *msg);
+
 /* for async.c */
 int async_tp_init(void);
 void async_tp_destroy(void);
 void async_update_checking(time_t);
+void au_handle_split_sync(void);
 
 /* please do not move the follow section */
 /* SECTION BEGIN */

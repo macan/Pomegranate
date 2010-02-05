@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 08:49:38 macan>
+ * Time-stamp: <2010-02-05 14:07:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -85,6 +85,7 @@ int mds_client_dispatch(struct xnet_msg *msg)
     lib_timer_E();
     lib_timer_O(1, "ALLOC TX and HANDLE.");
 #endif
+    
     return 0;
 }
 
@@ -102,7 +103,7 @@ int mds_mds_dispatch(struct xnet_msg *msg)
         /* FIXME: load bitmap */
     } else if (msg->tx.cmd == HVFS_MDS2MDS_LD) {
         /* FIXME: load dir hash entry, just return the hvfs_index */
-/*         mds_ldh(msg); */
+        mds_ldh(msg);
     }
     return 0;
 }

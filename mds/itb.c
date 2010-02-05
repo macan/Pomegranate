@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-04 08:02:15 macan>
+ * Time-stamp: <2010-02-05 19:16:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -969,6 +969,17 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
             /* Step6: get BE.rlock */
             xrwlock_rlock(&be->lock);
             xrwlock_rlock(&n->h.lock);
+            /* NOTE THAT: if the new ITB's state is COWED, it means that the
+             * new ITB is dirtied by the next TXG. We should not return the
+             * new ITB for writing, and we should restart the access. */
+            if (unlikely(n->h.state != ITB_STATE_DIRTY)) {
+                hvfs_err(mds, "New ITB's state is %x, re-COWed\n.", n->h.state);
+                if (likely(n->h.state == ITB_STATE_COWED)) {
+                    xrwlock_runlock(&n->h.lock);
+                    xrwlock_rlock(&itb->h.lock);
+                    return ERR_PTR(-ERESTART);
+                }
+            }
 
             txg_add_itb(t, n);
             itb = n;
@@ -1217,8 +1228,13 @@ out_nolock:
     return ret;
 refresh:
     /* already released index.lock */
-    itb = *oi;
-    goto retry;
+    if (unlikely((*oi) == ERR_PTR(-ERESTART))) {
+        ret = -ERESTART;
+        goto out_nolock;
+    } else {
+        itb = *oi;
+        goto retry;
+    }
 }
 
 /* itb_readdir()

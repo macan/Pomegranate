@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 18:43:57 macan>
+ * Time-stamp: <2010-02-05 13:45:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,7 +97,7 @@ int __aur_itb_split(struct async_update_request *aur)
     } else {
         struct bucket *nb;
         struct bucket_entry *nbe;
-        struct itb *ti;
+        struct itb *ti, *saved_oi;
         struct hvfs_txg *t;
 
         /* pre-dirty this itb */
@@ -106,6 +106,10 @@ int __aur_itb_split(struct async_update_request *aur)
         txg_add_itb(t, i);
         i->h.state = ITB_STATE_DIRTY;
         txg_put(t);
+        /* change the splited ITB's state to NORMAL */
+        saved_oi = (struct itb *)i->h.twin;
+        i->h.twin = 0;
+
         /* insert into the CBHT */
         err = mds_cbht_insert_bbrlocked(&hmo.cbht, i, &nb, &nbe, &ti);
         if (err == -EEXIST) {
@@ -118,15 +122,12 @@ int __aur_itb_split(struct async_update_request *aur)
             hvfs_err(mds, "Internal error %d, data losing.\n", err);
         }
 
-        /* change the splited ITB's state to NORMAL */
-        ti = (struct itb *)i->h.twin;
-        i->h.twin = 0;
         /* it is ok, we need free the locks */
         xrwlock_runlock(&nbe->lock);
         xrwlock_runlock(&nb->lock);
 
         /* FIXME: should we just use the rlock? */
-        itb_put(ti);
+        itb_put(saved_oi);
         /* then, we set the bitmap now */
         mds_dh_bitmap_update(&hmo.dh, i->h.puuid, i->h.itbid, 
                              MDS_BITMAP_SET);
@@ -145,7 +146,7 @@ int __aur_itb_bitmap(struct async_update_request *aur)
     return 0;
 }
 
-int __au_req_handle()
+int __au_req_handle(void)
 {
     struct async_update_request *aur = NULL, *n;
     int err = 0;
@@ -175,6 +176,39 @@ int __au_req_handle()
                      aur->op, aur->arg);
     }
     return err;
+}
+
+/* Handle the split in synchronous mode
+ */
+void au_handle_split_sync(void)
+{
+    struct async_update_request *aur = NULL, *n;
+    int err = 0;
+
+    /* test only */
+    if (list_empty(&g_aum.aurlist))
+        return;
+
+    xlock_lock(&g_aum.lock);
+    if (!list_empty(&g_aum.aurlist)) {
+        list_for_each_entry_safe(aur, n, &g_aum.aurlist, list) {
+            if (aur->op == AU_ITB_SPLIT) {
+                list_del(&aur->list);
+                break;
+            }
+        }
+    }
+    xlock_unlock(&g_aum.lock);
+
+    if (!aur)
+        return;
+
+    err = __aur_itb_split(aur);
+    if (err) {
+        hvfs_err(mds, "AU (split) handle error %d\n", err);
+    }
+
+    return;
 }
 
 int au_submit(struct async_update_request *aur)
