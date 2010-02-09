@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-05 19:49:58 macan>
+ * Time-stamp: <2010-02-09 15:34:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -188,7 +188,7 @@ resend:
         hvfs_err(xnet, "Invalid CREATE reply from site %ld.\n",
                  msg->pair->tx.ssite_id);
         err = -EFAULT;
-        goto out;
+        goto out_msg;
     }
     /* now, checking the hmr err */
     if (hmr->err) {

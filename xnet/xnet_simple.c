@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 14:52:26 macan>
+ * Time-stamp: <2010-02-09 19:46:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -253,7 +253,8 @@ int __xnet_handle_tx(int fd)
         } else {
             sem_post(&xc->wait);
         }
-        hvfs_debug(xnet, "We got a REQ message\n");
+        hvfs_debug(xnet, "We got a REQ message (%ld to %ld)\n",
+                   msg->tx.ssite_id, msg->tx.dsite_id);
         if (xc->ops.recv_handler)
             xc->ops.recv_handler(msg);
     } else if (msg->tx.type == XNET_MSG_RPY) {
@@ -261,6 +262,7 @@ int __xnet_handle_tx(int fd)
         hvfs_debug(xnet, "We got a RPY(%lx) message, handle to msg %p\n", 
                    msg->tx.cmd, (void *)msg->tx.handle);
         req = (struct xnet_msg *)msg->tx.handle;
+        ASSERT(req, xnet);
         msg->state = XNET_MSG_PAIRED;
 
         /* switch for REPLY/ACK/COMMIT */

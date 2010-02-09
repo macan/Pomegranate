@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-05 19:16:23 macan>
+ * Time-stamp: <2010-02-09 20:27:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -239,6 +239,7 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
             
             if (unlikely(hi->flag &INDEX_CREATE_COPY)) {
                 ite->flag |= ITE_FLAG_GDT;
+                ite->uuid = hi->uuid;
             } else {
                 ite->uuid = atomic64_inc_return(&hmi.mi_uuid) | hmi.uuid_base;
                 if (hi->flag & INDEX_CREATE_DIR) {
@@ -486,13 +487,19 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
 {
     /* there is always a struct mdu_update with normal create request */
 
-    memcpy(&e->s.name, hi->name, hi->namelen);
-    if (hi->namelen < HVFS_MAX_NAME_LEN)
-        e->s.name[hi->namelen] = '\0';
+    if (likely(hi->namelen)) {
+        memcpy(&e->s.name, hi->name, hi->namelen);
+        if (hi->namelen < HVFS_MAX_NAME_LEN)
+            e->s.name[hi->namelen] = '\0';
+    }
     
     if (unlikely(hi->flag & INDEX_CREATE_COPY)) {
         /* hi->data is MDU */
-        memcpy(&e->s.mdu, hi->data, sizeof(struct mdu));
+        if (hi->flag & INDEX_CREATE_GDT) {
+            memcpy(&e->g, hi->data, HVFS_MDU_SIZE);
+            e->g.salt = lib_random(0xfffffff);
+        } else 
+            memcpy(&e->s.mdu, hi->data, sizeof(struct mdu));
     } else if (unlikely(hi->flag & INDEX_CREATE_LINK)) {
         /* hi->data is LS */
         memcpy(&e->s.ls, hi->data, sizeof(struct link_source));
@@ -523,6 +530,11 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
         else if (e->flag == ITE_FLAG_LARGE)
             e->s.mdu.flags |= HVFS_MDU_IF_LARGE;
         e->s.mdu.nlink = 1;
+
+        if (hi->flag & INDEX_CREATE_DIR) {
+            e->g.puuid = hi->puuid;
+            e->g.psalt = hi->psalt;
+        }
 
         if (!mu || !mu->valid)
             return;

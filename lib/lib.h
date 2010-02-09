@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-29 15:19:33 macan>
+ * Time-stamp: <2010-02-09 15:10:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -60,6 +60,8 @@ long find_first_zero_bit(const unsigned long *, unsigned long);
 long find_next_zero_bit(const unsigned long *, long, long);
 long find_first_bit(const unsigned long *, unsigned long);
 long find_next_bit(const unsigned long *, long, long);
+
+void lib_segv(int, siginfo_t *, void *);
 
 void lib_init(void);
 u64 lib_random(int hint);
@@ -157,6 +159,19 @@ int fls64(unsigned long word)
     
     return __fls64(word);
 }
+
+static char *si_code[] 
+__attribute__((unused)) = {"",
+                           "address not mapped to object",
+                           "invalid permissions for mapped object",
+};
+#define SIGCODES(i) ({                                      \
+        char *res = NULL;                                   \
+        if (likely(i == SEGV_MAPERR || i == SEGV_ACCERR)) { \
+            res = si_code[i];                               \
+        }                                                   \
+        res;                                                \
+    })
 
 #ifdef HVFS_DEBUG_LOCK
 void lock_table_init(void);
