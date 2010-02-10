@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-09 20:52:59 macan>
+ * Time-stamp: <2010-02-10 20:28:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,7 +46,7 @@ void mds_send_reply(struct xnet_msg *msg, struct hvfs_md_reply *hmr,
     xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(struct xnet_msg_tx));
 #endif
     if (!err) {
-        xnet_msg_add_sdata(rpy, hmr, sizeof(hmr));
+        xnet_msg_add_sdata(rpy, hmr, sizeof(*hmr));
         if (hmr->len)
             xnet_msg_add_sdata(rpy, hmr->data, hmr->len);
     } else {

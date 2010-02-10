@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-09 20:52:20 macan>
+ * Time-stamp: <2010-02-10 20:53:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,13 +63,15 @@ short port3[] = {
 
 
 int dh_insert(u64 uuid, u64 puuid, u64 psalt);
+int dh_search(u64 uuid);
 
 int get_send_msg_loaddh(u64 dsite, int nid, u64 uuid, u64 itbid, u64 flag)
 {
     struct xnet_msg *msg;
     struct hvfs_index *hi;
     struct hvfs_md_reply *hmr;
-    int err = 0;
+    struct gdt_md *mdu;
+    int err = 0, nr = 0;
 
     /* construct the hvfs_index */
     hi = (struct hvfs_index *)xzalloc(sizeof(*hi));
@@ -130,8 +132,28 @@ int get_send_msg_loaddh(u64 dsite, int nid, u64 uuid, u64 itbid, u64 flag)
     } else if (hmr->len) {
         hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
     }
-    hvfs_info(xnet, "Check the reply here!\n");
 
+    /* ok, we got the correct respond, insert it to the DH */
+    hi = hmr_extract(hmr, EXTRACT_HI, &nr);
+    if (!hi) {
+        hvfs_err(xnet, "Invalid reply w/o hvfs_index as expected.\n");
+        goto skip;
+    }
+    mdu = hmr_extract(hmr, EXTRACT_MDU, &nr);
+    if (!mdu) {
+        hvfs_err(xnet, "Invalid reply w/o MDU as expacted.\n");
+        goto skip;
+    }
+    hvfs_debug(xnet, "Got suuid 0x%lx ssalt %lx puuid %lx psalt %lx.\n", 
+               hi->uuid, mdu->salt, mdu->puuid, mdu->psalt);
+
+    dh_insert(hi->uuid, mdu->puuid, mdu->salt);
+    err = dh_search(hi->uuid);
+    if (err) {
+        hvfs_err(xnet, "dh_search() uuid: %lx failed\n", hi->uuid);
+    }
+
+skip:
     xnet_set_auto_free(msg->pair);
 
 out_msg:
@@ -463,7 +485,7 @@ int msg_wait(int dsite)
     return 0;
 }
 
-int dh_insert(u64 uuid, u64 puuid, u64 psalt)
+int dh_insert(u64 uuid, u64 puuid, u64 ssalt)
 {
     struct hvfs_index hi;
     struct dhe *e;
@@ -472,14 +494,14 @@ int dh_insert(u64 uuid, u64 puuid, u64 psalt)
     memset(&hi, 0, sizeof(hi));
     hi.uuid = uuid;
     hi.puuid = puuid;
-    hi.ssalt = psalt;
+    hi.ssalt = ssalt;
 
     e = mds_dh_insert(&hmo.dh, &hi);
     if (IS_ERR(e)) {
         hvfs_err(xnet, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
         goto out;
     }
-    hvfs_info(xnet, "Insert dir:%8ld in DH w/  %p\n", uuid, e);
+    hvfs_debug(xnet, "Insert dir:%lx in DH w/  %p\n", uuid, e);
 out:
     return err;
 }
@@ -495,7 +517,7 @@ int dh_search(u64 uuid)
         err = PTR_ERR(e);
         goto out;
     }
-    hvfs_info(xnet, "Search dir:%8ld in DH hit %p\n", uuid, e);
+    hvfs_debug(xnet, "Search dir:%lx in DH hit %p\n", uuid, e);
 out:
     return err;
 }
@@ -658,8 +680,8 @@ int main(int argc, char *argv[])
     xnet_update_ipaddr(HVFS_MDS(0), 1, ipaddr2, port2);
     xnet_update_ipaddr(HVFS_CLIENT(0), 1, ipaddr3, port3);
 
-    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
-    SET_TRACING_FLAG(mds, HVFS_DEBUG | HVFS_VERBOSE);
+//    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
+//    SET_TRACING_FLAG(mds, HVFS_DEBUG | HVFS_VERBOSE);
 //    SET_TRACING_FLAG(lib, HVFS_DEBUG);
 
     ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
