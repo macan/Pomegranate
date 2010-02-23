@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 11:31:06 macan>
+ * Time-stamp: <2010-02-22 21:50:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -115,6 +115,7 @@ struct xnet_context
 /* APIs */
 #ifdef USE_XNET_SIMPLE
 struct xnet_context *xnet_register_type(u8, u16, u64, struct xnet_type_ops *);
+struct xnet_context *xnet_register_lw(u8, u16, u64, struct xnet_type_ops *);
 #else
 struct xnet_context *xnet_register_type(u8, struct xnet_type_ops *);
 #endif

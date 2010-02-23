@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-09 19:46:13 macan>
+ * Time-stamp: <2010-02-23 15:27:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,11 +37,17 @@ struct xnet_prof g_xnet_prof;
 
 /* First, how do we handle the site_id to ip address translation?
  */
+#ifndef XNET_CONNS
+#define XNET_CONNS      4
+#endif
 struct xnet_addr
 {
     struct list_head list;
     struct sockaddr sa;
-    int sockfd;
+    int index;                  /* used index */
+    int sockfd[XNET_CONNS];
+    xlock_t socklock[XNET_CONNS];
+    xlock_t lock;
 };
 struct xnet_site
 {
@@ -185,8 +191,8 @@ int __xnet_handle_tx(int fd)
                 next = 0;
                 goto out_free;
             }
-            hvfs_err(xnet, "read() err %d w/ br %d(%ld)\n", 
-                     errno, br, sizeof(struct xnet_msg_tx));
+            hvfs_verbose(xnet, "read() err %d w/ br %d(%ld)\n", 
+                         errno, br, sizeof(struct xnet_msg_tx));
             if (errno == EAGAIN || errno == EINTR)
                 continue;
             /* FIXME: how to handle this err? */
@@ -220,8 +226,8 @@ int __xnet_handle_tx(int fd)
         do {
             bt = read(fd, buf + br, msg->tx.len - br);
             if (bt < 0) {
-                hvfs_debug(xnet, "read() err %d w/ br %d(%ld)\n", 
-                           errno, br, msg->tx.len);
+                hvfs_verbose(xnet, "read() err %d w/ br %d(%ld)\n", 
+                             errno, br, msg->tx.len);
                 if (errno == EAGAIN || errno == EINTR) {
                     sleep(0);
                     continue;
@@ -253,8 +259,9 @@ int __xnet_handle_tx(int fd)
         } else {
             sem_post(&xc->wait);
         }
-        hvfs_debug(xnet, "We got a REQ message (%ld to %ld)\n",
+        hvfs_debug(xnet, "We got a REQ message (%lx to %lx)\n",
                    msg->tx.ssite_id, msg->tx.dsite_id);
+        msg->xc = xc;
         if (xc->ops.recv_handler)
             xc->ops.recv_handler(msg);
     } else if (msg->tx.type == XNET_MSG_RPY) {
@@ -312,6 +319,7 @@ void *pollin_thread_main(void *arg)
     /* first, let us block the SIGALRM */
     sigemptyset(&set);
     sigaddset(&set, SIGALRM);
+    sigaddset(&set, SIGCHLD);
     pthread_sigmask(SIG_BLOCK, &set, NULL);
 
     memset(&ev, 0, sizeof(ev));
@@ -347,7 +355,12 @@ void *pollin_thread_main(void *arg)
                 INIT_LIST_HEAD(&ac->list);
                 ac->sockfd = asock;
                 list_add_tail(&ac->list, &accept_list);
-                st_update_sockfd(&gst, &addr, asock);
+                err = st_update_sockfd(&gst, &addr, asock);
+                if (err) {
+                    st_clean_sockfd(&gst, asock);
+                    close(asock);
+                    continue;
+                }
                 
                 setnonblocking(asock);
                 setnodelay(asock);
@@ -386,8 +399,8 @@ void *pollin_thread_main(void *arg)
                         st_clean_sockfd(&gst, events[i].data.fd);
                         break;
                     }
-                } while (!next); /* if we have successfully handle one TX,
-                                  * then we out */
+                } while (next); /* if we have successfully handle one TX, then
+                                 * we out. This note is out-of-date! */
             }
         }
     }
@@ -446,7 +459,8 @@ int st_lookup(struct site_table *st, struct xnet_site **xs, u64 site_id)
 {
     *xs = st->site[site_id];
     if (!(*xs)) {
-        hvfs_debug(xnet, "The site_id(%ld) is not mapped.\n", site_id);
+        hvfs_debug(xnet, "The site_id(%lx) is not mapped.\n", site_id);
+        return -1;
     }
     return 0;
 }
@@ -476,13 +490,22 @@ int st_update_sockfd(struct site_table *st, struct sockaddr_in *sin, int fd)
             if (st->site[i]->flag & XNET_SITE_LOCAL)
                 continue;
             list_for_each_entry(xa, &st->site[i]->addr, list) {
+                xlock_lock(&xa->lock);
                 if ((((struct sockaddr_in *)&xa->sa)->sin_addr.s_addr == 
                      sin->sin_addr.s_addr)) {
                     /* ok, find it */
-                    hvfs_debug(xnet, "Hoo, find it @ %d <- %d.\n", i, fd);
-                    xa->sockfd = fd;
+                    hvfs_debug(xnet, "Hoo, find it @ %x{%d} <- %d.\n", 
+                               i, xa->index, fd);
+                    if (xa->index == XNET_CONNS) {
+                        xlock_unlock(&xa->lock);
+                        return -1;
+                    }
+                    xa->sockfd[xa->index++] = fd;
+#if 0
                     ((struct sockaddr_in *)&xa->sa)->sin_port = sin->sin_port;
+#endif
                 }
+                xlock_unlock(&xa->lock);
             }
         }
     }
@@ -495,17 +518,28 @@ int st_update_sockfd(struct site_table *st, struct sockaddr_in *sin, int fd)
 int st_clean_sockfd(struct site_table *st, int fd)
 {
     struct xnet_addr *xa;
-    int i;
+    int i, j, k;
 
     for (i = 0; i < (1 << 20); i++) {
         if (st->site[i]) {
             if (st->site[i]->flag & XNET_SITE_LOCAL)
                 continue;
             list_for_each_entry(xa, &st->site[i]->addr, list) {
-                if (xa->sockfd == fd) {
-                    hvfs_debug(xnet, "Hoo, clean it @ %d <- %d.\n", i, fd);
-                    xa->sockfd = 0; /* clean the invalid fd */
+                xlock_lock(&xa->lock);
+                for (j = 0; j < xa->index; j++) {
+                    if (xa->sockfd[j] == fd) {
+                        hvfs_debug(xnet, "Hoo, clean it @ %d[%d] <- %d.\n", 
+                                   i, j, fd);
+                        /* move the following entries */
+                        for (k = j + 1; k < xa->index; k++, j++) {
+                            xlock_lock(&xa->socklock[k]);
+                            xa->sockfd[j] = xa->sockfd[k];
+                            xlock_unlock(&xa->socklock[k]);
+                        }
+                        xa->sockfd[xa->index--] = 0;
+                    }
                 }
+                xlock_unlock(&xa->lock);
             }
         }
     }
@@ -514,7 +548,7 @@ int st_clean_sockfd(struct site_table *st, int fd)
     return 0;
 }
 
-int xnet_update_ipaddr(u64 site_id, int argc, char *ipaddr[], short port[])
+int xnet_update_ipaddr(u64 site_id, int argc, char **ipaddr, short *port)
 {
     struct xnet_site *xs;
     struct xnet_addr *xa;
@@ -537,10 +571,10 @@ int xnet_update_ipaddr(u64 site_id, int argc, char *ipaddr[], short port[])
     }
     
     for (i = 0; i < argc; i++) {
-        inet_aton(ipaddr[i], &((struct sockaddr_in *)&
+        inet_aton(*(ipaddr + i), &((struct sockaddr_in *)&
                                ((xa + i)->sa))->sin_addr);
         ((struct sockaddr_in *)&((xa + i)->sa))->sin_family = AF_INET;
-        ((struct sockaddr_in *)&((xa + i)->sa))->sin_port = htons(port[i]);
+        ((struct sockaddr_in *)&((xa + i)->sa))->sin_port = htons(*(port + i));
     }
 
     /* set the local flag now */
@@ -549,10 +583,108 @@ int xnet_update_ipaddr(u64 site_id, int argc, char *ipaddr[], short port[])
     }
     INIT_LIST_HEAD(&xs->addr);
     INIT_LIST_HEAD(&xa->list);
+    for (i = 0; i < XNET_CONNS; i++) {
+        xlock_init(&xa->socklock[i]);
+    }
+    xlock_init(&xa->lock);
     list_add_tail(&xa->list, &xs->addr);
     st_update(&gst, xs, site_id);
+
+    i = st_lookup(&gst, &xs, site_id);
+    hvfs_debug(xnet, "Update Site %lx port %d %d\n", site_id, *port, i);
     
     return 0;
+}
+
+struct xnet_context *xnet_register_lw(u8 type, u16 port, u64 site_id,
+                                      struct xnet_type_ops *ops)
+{
+    struct xnet_context *xc;
+    struct sockaddr addr;
+    struct sockaddr_in *ia = (struct sockaddr_in *)&addr;
+    struct epoll_event ev;
+    int val = 1;
+    int lsock;
+    int err = 0;
+
+    xc = __find_xc(site_id);
+    if (xc) {
+        return xc;
+    }
+
+    /* we need to alloc one new XC */
+    xc = xzalloc(sizeof(*xc));
+    if (!xc) {
+        hvfs_err(xnet, "xzalloc() xnet_context failed\n");
+        return ERR_PTR(-ENOMEM);
+    }
+
+    xc->type = type;
+    if (ops)
+        xc->ops = *ops;
+    xc->site_id = site_id;
+    xc->service_port = port;
+    sem_init(&xc->wait, 0, 0);
+    INIT_LIST_HEAD(&xc->list);
+    list_add_tail(&xc->list, &global_xc_list);
+
+    /* ok, let us create the listening socket now */
+    err = socket(AF_INET, SOCK_STREAM, 0);
+    if (err < 0) {
+        hvfs_err(xnet, "socket() failed %d\n", errno);
+        err = -errno;
+        goto out_free;
+    }
+    lsock = err;
+
+    /* next, we should set the REUSE sockopt */
+    err = setsockopt(lsock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
+    if (err < 0) {
+        hvfs_err(xnet, "setsockopt() failed %d\n", errno);
+        err = -errno;
+        goto out_free;
+    }
+
+    /* it is ok to bind and listen now */
+    ia->sin_family = AF_INET;
+    ia->sin_addr.s_addr = htonl(INADDR_ANY);
+    ia->sin_port = htons(port);
+    err = bind(lsock, &addr, sizeof(addr));
+    if (err < 0) {
+        hvfs_err(xnet, "bind() failed %d\n", errno);
+        err = -errno;
+        goto out_close;
+    }
+
+    err = listen(lsock, 10);
+    if (err < 0) {
+        hvfs_err(xnet, "listen() failed %d\n", errno);
+        err = -errno;
+        goto out_close;
+    }
+    
+    hvfs_debug(xnet, "Listener start @ %s %d\n", inet_ntoa(ia->sin_addr),
+               port);
+
+    /* do not need to create epfd here */
+    ASSERT(epfd != 0, xnet);
+    memset(&ev, 0, sizeof(ev));
+    ev.events = EPOLLIN;
+    ev.data.fd = lsock;
+    err = epoll_ctl(epfd, EPOLL_CTL_ADD, lsock, &ev);
+    if (err < 0) {
+        hvfs_err(xnet, "epoll_ctl() add fd %d failed %d\n",
+                 lsock, errno);
+        err = -errno;
+        goto out_close;
+    }
+    
+    return xc;
+out_close:
+    close(lsock);
+out_free:
+    xfree(xc);
+    return ERR_PTR(err);
 }
 
 struct xnet_context *xnet_register_type(u8 type, u16 port, u64 site_id,
@@ -660,6 +792,43 @@ int xnet_unregister_type(struct xnet_context *xc)
     return 0;
 }
 
+static inline
+int IS_CONNECTED(struct xnet_addr *xa, struct xnet_context *xc)
+{
+    int i, ret = 0;
+
+    for (i = 0; i < xa->index; i++) {
+        if (xa->sockfd[i])
+            ret++;
+    }
+
+    /* FIXME: do not doing active connect */
+    if (!HVFS_IS_CLIENT(xc->site_id)) {
+        return ret;
+    } else {
+        if (ret == XNET_CONNS)
+            return 1;
+        else
+            return 0;
+    }
+}
+
+static inline
+int SELECT_CONNECTION(struct xnet_addr *xa, int *idx)
+{
+    int ssock = -1;
+
+    if (!xa->index)
+        return ssock;
+
+    ssock = lib_random(xa->index);
+    *idx = ssock;
+    xlock_lock(&xa->socklock[ssock]);
+    ssock = xa->sockfd[ssock];
+    
+    return ssock;
+}
+
 /* xnet_send()
  */
 int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
@@ -668,12 +837,19 @@ int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
     struct xnet_site *xs;
     struct xnet_addr *xa;
     int err = 0, csock = 0, found = 0, reconn = 0;
+    int ssock = 0;              /* selected socket */
+    int nr_conn = 0;
+    int lock_idx = 0;
     int __attribute__((unused))bw, bt;
     
-    st_lookup(&gst, &xs, msg->tx.dsite_id);
+    err = st_lookup(&gst, &xs, msg->tx.dsite_id);
+    if (err) {
+        hvfs_err(xnet, "Dest Site(%lx) unreachable.\n", msg->tx.dsite_id);
+        return -EINVAL;
+    }
 retry:
     list_for_each_entry(xa, &xs->addr, list) {
-        if (!xa->sockfd) {
+        if (!IS_CONNECTED(xa, xc)) {
             /* not connected, dynamic connect */
             if (!csock) {
                 csock = socket(AF_INET, SOCK_STREAM, 0);
@@ -710,8 +886,14 @@ retry:
                 INIT_LIST_HEAD(&ac->list);
                 ac->sockfd = csock;
                 list_add_tail(&ac->list, &accept_list);
-                st_update_sockfd(&gst, (struct sockaddr_in *)&xa->sa, csock);
-                
+                err = st_update_sockfd(&gst, (struct sockaddr_in *)&xa->sa, 
+                                       csock);
+                if (err) {
+                    st_clean_sockfd(&gst, csock);
+                    close(csock);
+                    goto retry;
+                }
+
                 setnonblocking(csock);
                 setnodelay(csock);
                 ev.events = EPOLLIN | EPOLLET;
@@ -729,8 +911,12 @@ retry:
                            inet_ntoa(((struct sockaddr_in *)&xa->sa)->sin_addr),
                            ntohs(((struct sockaddr_in *)&xa->sa)->sin_port), 
                            csock);
+                nr_conn++;
+                if (nr_conn < XNET_CONNS) {
+                    csock = 0;
+                    goto retry;
+                }
             }
-            xa->sockfd = csock;
             found = 1;
             break;
         } else {
@@ -753,23 +939,24 @@ retry:
     if (msg->tx.type != XNET_MSG_RPY)
         msg->tx.handle = (u64)msg;
 
+    ssock = SELECT_CONNECTION(xa, &lock_idx);
     /* already connected, just send the message */
     hvfs_debug(xnet, "OK, select connection %d, we will send the msg "
-               "site %ld -> %ld ...\n", xa->sockfd, 
+               "site %lx -> %lx ...\n", ssock, 
                msg->tx.ssite_id, msg->tx.dsite_id);
     
 #ifndef XNET_EAGER_WRITEV
     /* send the msg tx by the selected connection */
     bw = 0;
     do {
-        bt = write(xa->sockfd, ((void *)&msg->tx) + bw, 
+        bt = write(ssock, ((void *)&msg->tx) + bw, 
                    sizeof(struct xnet_msg_tx) - bw);
         if (bt < 0) {
             hvfs_err(xnet, "write() err %d\n", errno);
             if (errno == EINTR || errno == EAGAIN)
                 continue;
             err = -errno;
-            goto out;
+            goto out_unlock;
         }
         bw += bt;
     } while (bw < sizeof(struct xnet_msg_tx));
@@ -781,13 +968,23 @@ retry:
         hvfs_debug(xnet, "There is some data to send (iov_len %d) len %ld.\n",
                    msg->siov_ulen, msg->tx.len);
 #if XNET_BLOCKING
-        bt = writev(xa->sockfd, msg->siov, msg->siov_ulen);
+        bt = writev(ssock, msg->siov, msg->siov_ulen);
         if (bt < 0 || msg->tx.len > bt) {
             hvfs_err(xnet, "writev() err %d, for now we do not "
                      "support redo:(\n", 
                      errno);
             err = -errno;
-            goto out;
+            goto out_unlock;
+        }
+        atomic64_add(bt, &g_xnet_prof.outbytes);
+#elif 1
+        bt = writev(ssock, msg->siov, msg->siov_ulen);
+        if (bt < 0 || msg->tx.len > bt) {
+            hvfs_err(xnet, "writev() err %d, for now we do not "
+                     "support redo:(\n", 
+                     errno);
+            err = -errno;
+            goto out_unlock;
         }
         atomic64_add(bt, &g_xnet_prof.outbytes);
 #else
@@ -796,14 +993,14 @@ retry:
         for (i = 0; i < msg->siov_ulen; i++) {
             bw = 0;
             do {
-                bt = write(xa->sockfd, msg->siov[i].iov_base + bw, 
+                bt = write(ssock, msg->siov[i].iov_base + bw, 
                            msg->siov[i].iov_len - bw);
                 if (bt < 0) {
                     hvfs_err(xnet, "write() err %d\n", errno);
                     if (errno == EINTR || errno == EAGAIN)
                         continue;
                     err = -errno;
-                    goto out;
+                    goto out_unlock;
                 }
                 bw += bt;
             } while (bw < msg->siov[i].iov_len);
@@ -811,6 +1008,8 @@ retry:
         }
 #endif
     }
+
+    xlock_unlock(&xa->socklock[lock_idx]);
 
     hvfs_debug(xnet, "We have sent the msg %p\n", msg);
 
@@ -830,6 +1029,9 @@ retry:
     }
     
 out:
+    return err;
+out_unlock:
+    xlock_unlock(&xa->socklock[lock_idx]);
     return err;
 }
 
