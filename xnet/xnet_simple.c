@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-23 15:27:53 macan>
+ * Time-stamp: <2010-02-24 21:57:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,7 +38,8 @@ struct xnet_prof g_xnet_prof;
 /* First, how do we handle the site_id to ip address translation?
  */
 #ifndef XNET_CONNS
-#define XNET_CONNS      4
+#define XNET_CONNS      8
+#define XNET_CONNS_DEF  4       /* default to setup 4 connections */
 #endif
 struct xnet_addr
 {
@@ -67,14 +68,37 @@ struct accept_conn
     int sockfd;
 };
 
+struct active_conn
+{
+    struct list_head list;
+    int sockfd;
+};
+
 struct site_table gst;
 pthread_t pollin_thread;        /* poll-in any requests */
 LIST_HEAD(accept_list);         /* recored the accepted sockets */
+LIST_HEAD(active_list);         /* recored the actived sockets */
 int lsock = 0;                  /* local listening socket */
 int epfd = 0;
 int pollin_thread_stop = 0;
 int global_reqno = 0;
 LIST_HEAD(global_xc_list);
+
+static inline
+int accept_lookup(int fd)
+{
+    struct accept_conn *pos, *n;
+    int ret = 0;
+
+    list_for_each_entry_safe(pos, n, &accept_list, list) {
+        if (pos->sockfd == fd) {
+            ret = 1;
+            list_del(&pos->list);
+            break;
+        }
+    }
+    return ret;
+}
 
 void setnodelay(int fd)
 {
@@ -152,7 +176,7 @@ struct xnet_context *__find_xc(u64 site_id)
 }
 
 
-int st_update_sockfd(struct site_table *st, struct sockaddr_in *sin, int fd);
+int st_update_sockfd(struct site_table *st, int fd, u64 dsid);
 int st_clean_sockfd(struct site_table *st, int fd);
 
 /* __xnet_handle_tx()
@@ -209,6 +233,17 @@ int __xnet_handle_tx(int fd)
 
     hvfs_debug(xnet, "We have recieved the MSG_TX, dpayload %ld\n",
                msg->tx.len);
+
+    {
+        int err;
+
+        if (unlikely(accept_lookup(fd))) {
+            err = st_update_sockfd(&gst, fd, msg->tx.ssite_id);
+            if (err) {
+                st_clean_sockfd(&gst, fd);
+            }
+        }
+    }
 
     /* receive the data if exists */
 #ifdef XNET_EAGER_WRITEV
@@ -355,12 +390,6 @@ void *pollin_thread_main(void *arg)
                 INIT_LIST_HEAD(&ac->list);
                 ac->sockfd = asock;
                 list_add_tail(&ac->list, &accept_list);
-                err = st_update_sockfd(&gst, &addr, asock);
-                if (err) {
-                    st_clean_sockfd(&gst, asock);
-                    close(asock);
-                    continue;
-                }
                 
                 setnonblocking(asock);
                 setnodelay(asock);
@@ -480,33 +509,24 @@ int st_update(struct site_table *st, struct xnet_site *xs, u64 site_id)
 
 /* st_update_sockfd() update the related addr with the new connection fd
  */
-int st_update_sockfd(struct site_table *st, struct sockaddr_in *sin, int fd)
+int st_update_sockfd(struct site_table *st, int fd, u64 dsid)
 {
     struct xnet_addr *xa;
-    int i;
 
-    for (i = 0; i < (1 << 20); i++) {
-        if (st->site[i]) {
-            if (st->site[i]->flag & XNET_SITE_LOCAL)
-                continue;
-            list_for_each_entry(xa, &st->site[i]->addr, list) {
-                xlock_lock(&xa->lock);
-                if ((((struct sockaddr_in *)&xa->sa)->sin_addr.s_addr == 
-                     sin->sin_addr.s_addr)) {
-                    /* ok, find it */
-                    hvfs_debug(xnet, "Hoo, find it @ %x{%d} <- %d.\n", 
-                               i, xa->index, fd);
-                    if (xa->index == XNET_CONNS) {
-                        xlock_unlock(&xa->lock);
-                        return -1;
-                    }
-                    xa->sockfd[xa->index++] = fd;
-#if 0
-                    ((struct sockaddr_in *)&xa->sa)->sin_port = sin->sin_port;
-#endif
-                }
+    if (st->site[dsid]) {
+        if (st->site[dsid]->flag & XNET_SITE_LOCAL)
+            return 0;
+        list_for_each_entry(xa, &st->site[dsid]->addr, list) {
+            xlock_lock(&xa->lock);
+            /* ok, find it */
+            hvfs_debug(xnet, "Hoo, find it @ %lx{%d} <- %d.\n", 
+                       dsid, xa->index, fd);
+            if (xa->index == XNET_CONNS) {
                 xlock_unlock(&xa->lock);
+                return -1;
             }
+            xa->sockfd[xa->index++] = fd;
+            xlock_unlock(&xa->lock);
         }
     }
 
@@ -806,7 +826,7 @@ int IS_CONNECTED(struct xnet_addr *xa, struct xnet_context *xc)
     if (!HVFS_IS_CLIENT(xc->site_id)) {
         return ret;
     } else {
-        if (ret == XNET_CONNS)
+        if (ret == XNET_CONNS_DEF)
             return 1;
         else
             return 0;
@@ -874,20 +894,19 @@ retry:
                 close(csock);
                 goto out;
             } else {
-                struct accept_conn *ac;
+                struct active_conn *ac;
 
             realloc:                
-                ac = xzalloc(sizeof(struct accept_conn));
+                ac = xzalloc(sizeof(struct active_conn));
                 if (!ac) {
-                    hvfs_err(xnet, "xzalloc() struct accept_conn failed\n");
+                    hvfs_err(xnet, "xzalloc() struct active_conn failed\n");
                     sleep(1);
                     goto realloc;
                 }
                 INIT_LIST_HEAD(&ac->list);
                 ac->sockfd = csock;
-                list_add_tail(&ac->list, &accept_list);
-                err = st_update_sockfd(&gst, (struct sockaddr_in *)&xa->sa, 
-                                       csock);
+                list_add_tail(&ac->list, &active_list);
+                err = st_update_sockfd(&gst, csock, msg->tx.dsite_id);
                 if (err) {
                     st_clean_sockfd(&gst, csock);
                     close(csock);
@@ -912,7 +931,7 @@ retry:
                            ntohs(((struct sockaddr_in *)&xa->sa)->sin_port), 
                            csock);
                 nr_conn++;
-                if (nr_conn < XNET_CONNS) {
+                if (nr_conn < XNET_CONNS_DEF) {
                     csock = 0;
                     goto retry;
                 }
@@ -980,8 +999,8 @@ retry:
 #elif 1
         bt = writev(ssock, msg->siov, msg->siov_ulen);
         if (bt < 0 || msg->tx.len > bt) {
-            hvfs_err(xnet, "writev() err %d, for now we do not "
-                     "support redo:(\n", 
+            hvfs_err(xnet, "writev(%d[%lx]) err %d, for now we do not "
+                     "support redo:(\n", ssock, msg->tx.dsite_id,
                      errno);
             err = -errno;
             goto out_unlock;

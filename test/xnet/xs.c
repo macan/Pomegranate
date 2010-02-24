@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-23 16:02:08 macan>
+ * Time-stamp: <2010-02-24 17:20:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,12 +42,21 @@ char *ipaddr[] = {
     "10.10.111.9",              /* ring */
 };
 
-short port[] = {
-    8210,                       /* mds */
-    8412,                       /* client */
-    8810,                       /* mdsl */
-    8710,                       /* ring */
+#if 1
+short port[4][4] = {
+    {8210, 8210, 8210, 8210,},  /* mds */
+    {8412, 8412, 8412, 8412,},  /* client */
+    {8810, 8810, 8810, 8810,},  /* mdsl */
+    {8710, 8710, 8710, 8710,},  /* ring */
 };
+#else
+short port[4][4] = {
+    {8210, 8211, 8212, 8213,},  /* mds */
+    {8412, 8413, 8414, 8415,},  /* client */
+    {8810, 8811, 8812, 8813,},  /* mdsl */
+    {8710, 8711, 8712, 8713,},  /* ring */
+};
+#endif
 
 struct thread_args
 {
@@ -222,6 +231,11 @@ int main(int argc, char *argv[])
     int self, sport, i, j;
     char *value;
 
+    hvfs_info(xnet, "%sNOTICE: this test case is conflict w/ XNET-simple "
+              "New Version!\n work <= %s%s\n",
+              HVFS_COLOR_RED, 
+              "commit 520319349415c6160dab5328ad132bbe6b1585f1", 
+              HVFS_COLOR_END);
     hvfs_info(xnet, "type: 0/1/2/3 => mds/client/mdsl/ring\n");
     value = getenv("type");
     if (value) {
@@ -251,11 +265,12 @@ int main(int argc, char *argv[])
 
     for (i = 0; i < 2; i++) {
         for (j = 0; j < 4; j++) {
-            xnet_update_ipaddr(HVFS_TYPE(i, j), 1, &ipaddr[i], &port[i]);
+            xnet_update_ipaddr(HVFS_TYPE(i, j), 1, &ipaddr[i], 
+                               (short *)(&port[i][j]));
         }
     }
 
-    sport = port[type] + self;
+    sport = port[type][self];
 
     switch (type) {
     case TYPE_MDS:
@@ -280,7 +295,7 @@ int main(int argc, char *argv[])
     }
 
     for (i = 0; i < 4; i++) {
-        ta[i].xc = xnet_register_lw(type, port[type] + i, 
+        ta[i].xc = xnet_register_lw(type, port[type][i] + i, 
                                     HVFS_TYPE_SEL(type, i), &ops);
         ta[i].tid = i;
         ta[i].site_id = self + i;
