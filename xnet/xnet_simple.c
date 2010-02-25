@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-24 21:57:53 macan>
+ * Time-stamp: <2010-02-25 16:05:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -190,6 +190,7 @@ int __xnet_handle_tx(int fd)
     struct xnet_msg *msg, *req;
     int br, bt;
     int next = 1;               /* this means we should retry the read */
+    int flag = MSG_DONTWAIT;
 
 #ifdef HVFS_DEBUG_LATENCY
     lib_timer_def();
@@ -207,8 +208,8 @@ int __xnet_handle_tx(int fd)
     /* receive the tx */
     br = 0;
     do {
-        bt = read(fd, ((void *)&msg->tx) + br, 
-                  sizeof(struct xnet_msg_tx) - br);
+        bt = recv(fd, ((void *)&msg->tx) + br, 
+                  sizeof(struct xnet_msg_tx) - br, flag);
         if (bt < 0) {
             if (errno == EAGAIN && !br) {
                 /* pseudo calling, just return */
@@ -228,6 +229,7 @@ int __xnet_handle_tx(int fd)
             goto out_free;
         }
         br += bt;
+        flag = 0;
     } while (br < sizeof(struct xnet_msg_tx));
     atomic64_add(br, &g_xnet_prof.inbytes);
 
@@ -315,6 +317,7 @@ int __xnet_handle_tx(int fd)
             req->state = XNET_MSG_COMMITED;
             /* auto free the commit msg */
         } else if (msg->tx.cmd == XNET_RPY_ACK) {
+            hvfs_err(xnet, "RECV RPY_ACK!\n");
             req->state = XNET_MSG_ACKED;
             /* auto free the ack msg */
             req->pair = msg;
@@ -409,6 +412,7 @@ void *pollin_thread_main(void *arg)
             } else {
                 /* handle input requests */
                 int next;
+
                 hvfs_debug(xnet, "RECV from fd %d.......\n", 
                            events[i].data.fd);
                 if (events[i].events & EPOLLERR) {
@@ -987,15 +991,22 @@ retry:
         hvfs_debug(xnet, "There is some data to send (iov_len %d) len %ld.\n",
                    msg->siov_ulen, msg->tx.len);
 #if XNET_BLOCKING
-        bt = writev(ssock, msg->siov, msg->siov_ulen);
-        if (bt < 0 || msg->tx.len > bt) {
-            hvfs_err(xnet, "writev() err %d, for now we do not "
-                     "support redo:(\n", 
-                     errno);
-            err = -errno;
-            goto out_unlock;
+        {
+            struct msghdr __msg = {
+                .msg_iov = msg->siov,
+                .msg_iovlen = msg->siov_ulen,
+            };
+            
+            bt = sendmsg(ssock, &__msg, 0);
+            if (bt < 0 || msg->tx.len > bt) {
+                hvfs_err(xnet, "sendmsg(%d[%lx]) err %d, for now we do not "
+                         "support redo:(\n", ssock, msg->tx.dsite_id,
+                         errno);
+                err = -errno;
+                goto out_unlock;
+            }
+            atomic64_add(bt, &g_xnet_prof.outbytes);
         }
-        atomic64_add(bt, &g_xnet_prof.outbytes);
 #elif 1
         bt = writev(ssock, msg->siov, msg->siov_ulen);
         if (bt < 0 || msg->tx.len > bt) {

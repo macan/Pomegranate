@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-09 20:34:00 macan>
+ * Time-stamp: <2010-02-25 11:42:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -51,7 +51,7 @@ void mds_update_recent_reqno(u64 site, u64 reqno)
  */
 void mds_fe_handle_err(struct xnet_msg *msg, int err)
 {
-    hvfs_warning(mds, "MSG(%ld->%ld)(reqno %ld) can't be handled w/ %d\n",
+    hvfs_warning(mds, "MSG(%lx->%lx)(reqno %ld) can't be handled w/ %d\n",
                  msg->tx.ssite_id, msg->tx.dsite_id, msg->tx.reqno, err);
     xnet_free_msg(msg);
 }
@@ -133,12 +133,15 @@ int mds_fe_dispatch(struct xnet_msg *msg)
             }
             if (hmo.site_id != p->site_id) {
                 /* FIXME: need forward, for now we just ignore the mismatch */
-            } else {
                 if (itbid == hi->itbid) {
                     /* itbid is correct, but ring changed */
+                    hvfs_err(mds, "RING CHANGED (%lx vs %lx)\n",
+                             hmo.site_id, p->site_id);
                     err = -ERINGCHG;
                     goto out;
                 }
+                hvfs_err(mds, "NEED FORWARD the request to Site %lx.\n",
+                         p->site_id);
             }
             hi->itbid = itbid;
         }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 11:07:44 macan>
+ * Time-stamp: <2010-02-25 17:18:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,6 +97,12 @@ struct mds_itb_prof
     atomic64_t split_local;     /* # of splited ITBs in local site */
 };
 
+struct mds_misc_prof
+{
+    atomic64_t reqin_total;     /* # of total requests coming in */
+    atomic64_t reqin_handle;    /* # of handled requests */
+};
+
 struct mds_prof
 {
     time_t ts;
@@ -107,6 +113,7 @@ struct mds_prof
     struct mds_txg_prof txg;
     struct mds_cbht_prof cbht;
     struct mds_itb_prof itb;
+    struct mds_misc_prof misc;
     struct xnet_prof *xnet;
 };
 

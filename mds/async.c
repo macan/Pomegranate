@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-24 22:02:45 macan>
+ * Time-stamp: <2010-02-25 16:38:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -109,7 +109,7 @@ int __aur_itb_split(struct async_update_request *aur)
         mds_dh_bitmap_update(&hmo.dh, i->h.puuid, i->h.itbid,
                              MDS_BITMAP_SET);
         /* Step 2: we begin to transfer the ITB to the dest site */
-        xnet_msg_fill_tx(msg, XNET_MSG_RPY, XNET_NEED_REPLY, 
+        xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
                          hmo.site_id, p->site_id);
         xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_SPITB, i->h.itbid, 0);
 #ifdef XNET_EAGER_WRITEV
@@ -130,6 +130,7 @@ int __aur_itb_split(struct async_update_request *aur)
         }
         /* Step 3.inf we should free the ITB */
         itb_free(i);
+        hvfs_err(mds, "Receive the AU split reply.\n");
     msg_free:
         xnet_free_msg(msg);
         if (err) {
@@ -273,6 +274,7 @@ void *async_update(void *arg)
     /* first, let us block the SIGALRM */
     sigemptyset(&set);
     sigaddset(&set, SIGALRM);
+    sigaddset(&set, SIGCHLD);
     pthread_sigmask(SIG_BLOCK, &set, NULL); /* oh, we do not care about the
                                              * errs */
 

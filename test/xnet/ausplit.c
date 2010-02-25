@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-24 21:26:57 macan>
+ * Time-stamp: <2010-02-25 16:54:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -661,7 +661,8 @@ int main(int argc, char *argv[])
     struct xnet_type_ops ops = {
         .buf_alloc = NULL,
         .buf_free = NULL,
-        .recv_handler = mds_fe_dispatch,
+        .recv_handler = spool_dispatch,
+        .dispatcher = mds_fe_dispatch,
     };
     int err = 0;
     int type = 0;

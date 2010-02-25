@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-22 21:50:12 macan>
+ * Time-stamp: <2010-02-25 16:52:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,7 +95,8 @@ struct xnet_type_ops
 {
     void *(*buf_alloc)(size_t size, int alloc_flag);
     void (*buf_free)(void *buf, int alloc_flag);
-    int (*recv_handler)(struct xnet_msg *msg);
+    int (*recv_handler)(struct xnet_msg *msg); /* first dispatcher */
+    int (*dispatcher)(struct xnet_msg *msg);   /* secondary dispatcher */
 };
 
 struct xnet_context

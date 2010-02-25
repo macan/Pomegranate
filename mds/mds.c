@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-09 15:11:10 macan>
+ * Time-stamp: <2010-02-25 16:17:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -280,7 +280,7 @@ int mds_init(int bdepth)
     dconf_init();
     hmo.conf.profiling_thread_interval = 5;
     hmo.conf.txg_interval = 3;
-    hmo.conf.option = HVFS_MDS_ITB_RWLOCK;
+    hmo.conf.option = HVFS_MDS_ITB_RWLOCK | HVFS_MDS_CHRECHK;
     hmo.conf.max_async_unlink = 1024;
     hmo.conf.async_unlink = 0;  /* enable async unlink */
     hmo.conf.unlink_interval = 2;
@@ -289,6 +289,7 @@ int mds_init(int bdepth)
     hmo.conf.cbht_bucket_depth = bdepth;
     hmo.conf.itb_depth_default = 3;
     hmo.conf.async_update_N = 4;
+    hmo.conf.spool_threads = 8;
 
     /* Init the signal handlers */
     err = mds_init_signal();
@@ -344,7 +345,10 @@ int mds_init(int bdepth)
     if (err)
         goto out_unlink;
     
-    /* FIXME: init the async threads' pool */
+    /* FIXME: init the service threads' pool */
+    err = spool_create();
+    if (err)
+        goto out_spool;
 
     /* FIXME: waiting for the notification from R2 */
 
@@ -353,6 +357,7 @@ int mds_init(int bdepth)
     /* ok to run */
     hmo.state = HMO_STATE_RUNNING;
 
+out_spool:
 out_unlink:
 out_itb:
 out_cbht:
@@ -399,5 +404,8 @@ void mds_destroy(void)
 
     /* destroy the dconf */
     dconf_destroy();
+
+    /* destroy the service thread pool */
+    spool_destroy();
 }
 

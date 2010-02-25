@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-24 15:20:23 macan>
+ * Time-stamp: <2010-02-25 15:29:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -242,6 +242,8 @@ send_rpy:
         if (xnet_send(hmo.xc, rpy)) {
             hvfs_err(mds, "xnet_send() failed\n");
         }
+        hvfs_err(mds, "We have sent the AU reply msg from %lx to %lx\n",
+                   rpy->tx.ssite_id, rpy->tx.dsite_id);
         xnet_free_msg(rpy);
     }
     xnet_free_msg(msg);         /* do not free the allocated ITB */

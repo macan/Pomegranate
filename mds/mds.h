@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-24 14:02:50 macan>
+ * Time-stamp: <2010-02-25 16:26:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -64,6 +64,7 @@ struct mds_conf
                                      lnet serve-in threads' pool
                                      initialization */
     int async_threads;          /* # of async threads */
+    int spool_threads;          /* # of service threads */
     int max_async_unlink;       /* max # of async unlink in one unlink wave */
 
     /* misc configs */
@@ -156,12 +157,14 @@ struct hvfs_mds_object
     pthread_t *commit_thread;   /* array of commit threads */
     pthread_t *async_thread;    /* array of async threads */
     pthread_t unlink_thread;
+    pthread_t *spool_thread;    /* array of service threads */
 
     u8 timer_thread_stop;       /* running flag for timer thread */
     u8 commit_thread_stop;      /* running flag for commit thread */
     u8 async_thread_stop;       /* running flag for async thread */
     u8 dconf_thread_stop;       /* running flag for dconf thread */
     u8 unlink_thread_stop;      /* running flag for unlink thread */
+    u8 spool_thread_stop;       /* running flag for service thread */
 };
 
 extern struct hvfs_mds_info hmi;
@@ -329,6 +332,11 @@ void au_handle_split_sync(void);
 /* SECTION END */
 
 /* APIs */
+/* for spool.c */
+int spool_create(void);
+void spool_destroy(void);
+int spool_dispatch(struct xnet_msg *);
+
 /* APIs */
 /* __txg_busy_loop_detector()
  *

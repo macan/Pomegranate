@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 17:02:09 macan>
+ * Time-stamp: <2010-02-25 16:48:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,6 +45,8 @@ struct xnet_msg *xnet_alloc_msg(u8 alloc_flag)
         hvfs_err(xnet, "xzalloc() struct xnet_msg failed\n");
         return NULL;
     }
+
+    INIT_LIST_HEAD(&msg->list);
 
 #ifdef USE_XNET_SIMPLE
     sem_init(&msg->event, 0, 0);
