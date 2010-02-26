@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-25 16:05:08 macan>
+ * Time-stamp: <2010-02-26 15:21:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -188,6 +188,7 @@ int st_clean_sockfd(struct site_table *st, int fd);
 int __xnet_handle_tx(int fd)
 {
     struct xnet_msg *msg, *req;
+    struct xnet_context *xc;
     int br, bt;
     int next = 1;               /* this means we should retry the read */
     int flag = MSG_DONTWAIT;
@@ -247,13 +248,25 @@ int __xnet_handle_tx(int fd)
         }
     }
 
+    /* lookup the target xnet_context */
+    xc = __find_xc(msg->tx.dsite_id);
+    if (!xc) {
+        /* just return, nobody cares this msg */
+        goto out_free;
+    }
+
     /* receive the data if exists */
 #ifdef XNET_EAGER_WRITEV
     msg->tx.len -= sizeof(struct xnet_msg_tx);
 #endif
     if (msg->tx.len) {
         /* we should pre-alloc the buffer */
-        void *buf = xmalloc(msg->tx.len);
+        void *buf;
+
+        if (xc->ops.buf_alloc)
+            buf = xc->ops.buf_alloc(msg->tx.len, msg->tx.cmd);
+        else
+            buf = xzalloc(msg->tx.len);
         if (!buf) {
             hvfs_err(xnet, "xmalloc() buffer failed\n");
             ASSERT(0, xnet);
@@ -287,17 +300,9 @@ int __xnet_handle_tx(int fd)
     /* find the related msg */
     if (msg->tx.type == XNET_MSG_REQ) {
         /* this is a fresh requst msg, just receive the data */
-        struct xnet_context *xc;
-
-        xc = __find_xc(msg->tx.dsite_id);
-        if (!xc) {
-            /* just return, nobody cares this msg */
-            goto out_free;
-        } else {
-            sem_post(&xc->wait);
-        }
         hvfs_debug(xnet, "We got a REQ message (%lx to %lx)\n",
                    msg->tx.ssite_id, msg->tx.dsite_id);
+        sem_post(&xc->wait);
         msg->xc = xc;
         if (xc->ops.recv_handler)
             xc->ops.recv_handler(msg);
@@ -317,7 +322,6 @@ int __xnet_handle_tx(int fd)
             req->state = XNET_MSG_COMMITED;
             /* auto free the commit msg */
         } else if (msg->tx.cmd == XNET_RPY_ACK) {
-            hvfs_err(xnet, "RECV RPY_ACK!\n");
             req->state = XNET_MSG_ACKED;
             /* auto free the ack msg */
             req->pair = msg;
@@ -958,7 +962,8 @@ retry:
     }
     
     msg->tx.ssite_id = xc->site_id;
-    msg->tx.reqno = global_reqno++;
+    if (msg->tx.type == XNET_MSG_REQ)
+        msg->tx.reqno = global_reqno++;
     if (msg->tx.type != XNET_MSG_RPY)
         msg->tx.handle = (u64)msg;
 

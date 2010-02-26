@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-25 11:42:50 macan>
+ * Time-stamp: <2010-02-26 17:14:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -51,9 +51,73 @@ void mds_update_recent_reqno(u64 site, u64 reqno)
  */
 void mds_fe_handle_err(struct xnet_msg *msg, int err)
 {
-    hvfs_warning(mds, "MSG(%lx->%lx)(reqno %ld) can't be handled w/ %d\n",
-                 msg->tx.ssite_id, msg->tx.dsite_id, msg->tx.reqno, err);
+    if (unlikely(err)) {
+        hvfs_warning(mds, "MSG(%lx->%lx)(reqno %ld) can't be handled w/ %d\n",
+                     msg->tx.ssite_id, msg->tx.dsite_id, msg->tx.reqno, err);
+    }
+
+    xnet_set_auto_free(msg);
     xnet_free_msg(msg);
+}
+
+int mds_do_forward(struct xnet_msg *msg, u64 dsite)
+{
+    int err = 0, i;
+    
+    /* Note that lots of forward request may incur the system performance, we
+     * should do fast forwarding and fast bitmap changing. */
+    struct mds_fwd *mf = NULL;
+    struct xnet_msg *fmsg;
+
+    mf = xzalloc(sizeof(*mf) + sizeof(u64));
+    if (!mf) {
+        hvfs_err(mds, "alloc mds_fwd failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    mf->len = sizeof(u64) + sizeof(*mf);
+    mf->route[0] = hmo.site_id;
+
+    fmsg = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!fmsg) {
+        hvfs_err(mds, "xnet_alloc_msg() failed, we should retry!\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(fmsg, &fmsg->tx, sizeof(fmsg->tx));
+#endif
+    xnet_msg_set_err(fmsg, err);
+    xnet_msg_fill_tx(fmsg, XNET_MSG_REQ, 0, hmo.site_id, dsite);
+    xnet_msg_fill_cmd(fmsg, HVFS_MDS2MDS_FWREQ, 0, 0);
+    xnet_msg_add_sdata(fmsg, &msg->tx, sizeof(msg->tx));
+
+    if (msg->xm_datacheck) {
+        for (i = 0; i < msg->riov_ulen; i++) {
+            xnet_msg_add_sdata(fmsg, msg->riov[i].iov_base, 
+                               msg->riov[i].iov_len);
+        }
+    }
+
+    /* piggyback the route info @ the last iov entry */
+    xnet_msg_add_sdata(fmsg, mf, mf->len);
+
+    err = xnet_send(hmo.xc, fmsg);
+
+    if (err) {
+        hvfs_err(mds, "Forwarding the request to %lx failed w/ %d.\n",
+                 dsite, err);
+    }
+
+    /* cleaning */
+    xnet_clear_auto_free(fmsg);
+    xnet_free_msg(fmsg);
+    
+out_free:
+    xfree(mf);
+out:
+    return err;
 }
 
 /* Callback for XNET, should be thread-safe!
@@ -122,6 +186,7 @@ int mds_fe_dispatch(struct xnet_msg *msg)
             hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen,
                                  HASH_SEL_EH);
         }
+    recal_itbid:
         itbid = mds_get_itbid(e, hi->hash);
         /* recheck CH ring and forward the request on demand */
         if (itbid != hi->itbid || hmo.conf.option & HVFS_MDS_CHRECHK) {
@@ -135,13 +200,23 @@ int mds_fe_dispatch(struct xnet_msg *msg)
                 /* FIXME: need forward, for now we just ignore the mismatch */
                 if (itbid == hi->itbid) {
                     /* itbid is correct, but ring changed */
-                    hvfs_err(mds, "RING CHANGED (%lx vs %lx)\n",
+                    hvfs_err(mds, "itbid %ld %d RING CHANGED (%lx vs %lx)\n",
+                             itbid, (msg->tx.flag & XNET_FWD), 
                              hmo.site_id, p->site_id);
-                    err = -ERINGCHG;
-                    goto out;
+                    if (msg->tx.flag & XNET_FWD) {
+                        goto recal_itbid;
+                    } else {
+                        HVFS_BUG();
+                        err = -ERINGCHG;
+                        goto out;
+                    }
                 }
-                hvfs_err(mds, "NEED FORWARD the request to Site %lx.\n",
-                         p->site_id);
+                hvfs_debug(mds, "NEED FORWARD the request to Site %lx.\n",
+                           p->site_id);
+                /* doing the forward now */
+                hi->flag |= INDEX_BIT_FLIP;
+                err = mds_do_forward(msg, p->site_id);
+                goto out;
             }
             hi->itbid = itbid;
         }

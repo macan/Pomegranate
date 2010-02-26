@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 14:42:40 macan>
+ * Time-stamp: <2010-02-26 20:53:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -176,7 +176,7 @@ void *txg_commit(void *arg)
     struct itb *i;
     struct timespec ts;
     sigset_t set;
-    int err, freed, clean;
+    int err, freed, clean, notknown;
     
     /* first, let us block the SIGALRM */
     sigemptyset(&set);
@@ -216,25 +216,31 @@ void *txg_commit(void *arg)
 
         hvfs_debug(mds, "TXG %ld is write-backing.\n", t->txg);
         /* Step2: no reference to this TXG, we can write back now */
-        freed = clean = 0;
+        freed = clean = notknown = 0;
         list_for_each_entry_safe(ih, n, &t->dirty_list, list) {
             i = (struct itb *)ih;
             list_del_init(&ih->list);
             xrwlock_wlock(&ih->lock);
+            hvfs_debug(mds, "T %ld ITB %ld %p state %x.\n", 
+                       t->txg, ih->itbid, i, ih->state);
             if (ih->state == ITB_STATE_COWED) {
                 xrwlock_wunlock(&ih->lock);
                 itb_put(i);
                 freed++;
-            } else {
+            } else if (ih->state == ITB_STATE_DIRTY) {
                 ih->state = ITB_STATE_CLEAN;
                 xrwlock_wunlock(&ih->lock);
                 clean++;
+            } else {
+                ih->state = ITB_STATE_CLEAN;
+                xrwlock_wunlock(&ih->lock);
+                notknown++;
             }
         }
         hmo.txg[TXG_WB] = NULL;
         /* free the TXG */
-        hvfs_info(mds, "TXG %ld is released (free:%d, clean:%d).\n", 
-                  t->txg, freed, clean);
+        hvfs_info(mds, "TXG %ld is released (free:%d, clean:%d, ntkwn:%d).\n", 
+                  t->txg, freed, clean, notknown);
         mcond_destroy(&t->cond);
         /* trigger the commit callback on the TXs */
         txg_trigger_ccb(t);

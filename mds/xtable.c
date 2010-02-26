@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 19:09:37 macan>
+ * Time-stamp: <2010-02-26 21:01:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -88,6 +88,7 @@ retry:
     (ni)->h.itbid = oi->h.itbid | (1 << (oi->h.depth - 1));
     (ni)->h.puuid = oi->h.puuid;
 
+    ASSERT(list_empty(&ni->h.list), mds);
     /* check and transfer ite between the two ITBs */
     for (j = 0; j < (1 << ITB_DEPTH); j++) {
     rescan:

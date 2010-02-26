@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-25 16:48:21 macan>
+ * Time-stamp: <2010-02-26 16:10:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,6 +65,9 @@ void xnet_free_msg(struct xnet_msg *msg)
     /* FIXME: we should check the alloc_flag and auto free flag */
     if (msg->pair)
         xnet_free_msg(msg->pair);
+    if (unlikely(msg->tx.flag & XNET_PTRESTORE)) {
+        msg->xm_data = (void *)msg->tx.arg1;
+    }
     if (msg->tx.flag & XNET_NEED_DATA_FREE) {
         if (msg->tx.type == XNET_MSG_REQ) {
             /* check and free the siov */

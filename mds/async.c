@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-25 16:38:49 macan>
+ * Time-stamp: <2010-02-26 21:38:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -111,10 +111,12 @@ int __aur_itb_split(struct async_update_request *aur)
         /* Step 2: we begin to transfer the ITB to the dest site */
         xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
                          hmo.site_id, p->site_id);
-        xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_SPITB, i->h.itbid, 0);
+        xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_SPITB, 0, 0);
 #ifdef XNET_EAGER_WRITEV
         xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
+        /* FIXME: for now we just send the whole ITB */
+        ASSERT(list_empty(&i->h.list), mds);
         xnet_msg_add_sdata(msg, i, atomic_read(&i->h.len));
         err = xnet_send(hmo.xc, msg);
         if (err) {
@@ -130,7 +132,8 @@ int __aur_itb_split(struct async_update_request *aur)
         }
         /* Step 3.inf we should free the ITB */
         itb_free(i);
-        hvfs_err(mds, "Receive the AU split reply.\n");
+        hvfs_debug(mds, "Receive the AU split reply.\n");
+        atomic64_inc(&hmo.prof.mds.split);
     msg_free:
         xnet_free_msg(msg);
         if (err) {
@@ -146,8 +149,9 @@ int __aur_itb_split(struct async_update_request *aur)
         /* pre-dirty this itb */
         t = mds_get_open_txg(&hmo);
         i->h.txg = t->txg;
-        txg_add_itb(t, i);
         i->h.state = ITB_STATE_DIRTY;
+        INIT_LIST_HEAD(&i->h.list);
+        txg_add_itb(t, i);
         txg_put(t);
         /* change the splited ITB's state to NORMAL */
         saved_oi = (struct itb *)i->h.twin;

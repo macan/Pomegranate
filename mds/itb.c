@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-09 20:27:42 macan>
+ * Time-stamp: <2010-02-26 20:53:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -892,11 +892,14 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
         if (likely(itb->h.state == ITB_STATE_DIRTY))
             return itb;
         else {
-            hvfs_debug(mds, "Hoo, ITB state 0x%x in TXG: 0x%lx\n", itb->h.state, 
+            hvfs_debug(mds, "Hoo, ITB %ld state 0x%x in TXG: 0x%lx\n", 
+                       itb->h.itbid, itb->h.state, 
                        t->txg);
             if (itb->h.state == ITB_STATE_CLEAN) {
                 /* init TXG, corner case */
                 txg_add_itb(t, itb);
+            } else if (itb->h.state == ITB_STATE_COWED) {
+                HVFS_BUG();
             }
             itb->h.state = ITB_STATE_DIRTY;
         }
@@ -957,8 +960,9 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
 
                     /* ok, recopy the new ITEs */
                     itb_cow_recopy(itb, n);
-                    hvfs_debug(mds, "ITB COWing %ld %p to %p\n", 
-                               itb->h.itbid, itb, n);
+                    hvfs_debug(mds, "T %ld ITB COWing %ld %p to %p [%d]\n",
+                               t->txg, 
+                               itb->h.itbid, itb, n, list_empty(&itb->h.list));
                     mds_itb_prof_cow();
                 }
             }
@@ -1002,6 +1006,7 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
 #endif
         }
     } else if (t->txg > itb->h.txg + 1) {
+        ASSERT(itb->h.state != ITB_STATE_COWED, mds);
         itb->h.txg = t->txg;
         itb->h.state = ITB_STATE_DIRTY;
         txg_add_itb(t, itb);

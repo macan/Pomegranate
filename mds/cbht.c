@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-05 14:08:00 macan>
+ * Time-stamp: <2010-02-26 15:36:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -779,7 +779,10 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
         hmr->len += HVFS_MDU_SIZE;
         hmr->mdu_no = 1;        /* only ONE mdu */
     }
-    
+
+    if (unlikely(hi->flag & INDEX_BIT_FLIP)) {
+        hmr->flag |= MD_REPLY_WITH_BFLIP;
+    }
     hmr->flag |= MD_REPLY_WITH_HI;
     hmr->len += sizeof(*hi);
 

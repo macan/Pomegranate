@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-25 16:26:14 macan>
+ * Time-stamp: <2010-02-26 21:38:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -181,6 +181,14 @@ struct dconf_req
     u64 arg0;
 };
 
+/* this is the mds forward request header, we should save the route list
+ * here. */
+struct mds_fwd
+{
+    int len;
+    u64 route[0];
+};
+
 /* APIs */
 /* for mds.c */
 int mds_init(int bdepth);
@@ -319,6 +327,7 @@ void mds_dump_itb(struct hvfs_tx *);
 /* for m2m.c, mds 2 mds APIs */
 void mds_ldh(struct xnet_msg *msg);
 void mds_ausplit(struct xnet_msg *msg);
+void mds_forward(struct xnet_msg *msg);
 
 /* for async.c */
 int async_tp_init(void);

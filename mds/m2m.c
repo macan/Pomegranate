@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-25 15:29:20 macan>
+ * Time-stamp: <2010-02-26 21:35:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -189,8 +189,14 @@ void mds_ausplit(struct xnet_msg *msg)
     /* pre-dirty the itb */
     t = mds_get_open_txg(&hmo);
     i->h.txg = t->txg;
-    txg_add_itb(t, i);
     i->h.state = ITB_STATE_DIRTY;
+    /* re-init */
+    xrwlock_init(&i->h.lock);
+    INIT_HLIST_NODE(&i->h.cbht);
+    INIT_LIST_HEAD(&i->h.list);
+    INIT_LIST_HEAD(&i->h.unlink);
+    INIT_LIST_HEAD(&i->h.overflow);
+    txg_add_itb(t, i);
     txg_put(t);
 
     /* insert the ITB to CBHT */
@@ -215,6 +221,7 @@ void mds_ausplit(struct xnet_msg *msg)
      * csize counter */
     atomic_inc(&hmo.ic.csize);
     atomic64_inc(&hmo.prof.cbht.aitb);
+    atomic64_inc(&hmo.prof.mds.ausplit);
 
     hvfs_debug(mds, "We update the bit of ITB %ld\n", i->h.itbid);
 
@@ -242,9 +249,55 @@ send_rpy:
         if (xnet_send(hmo.xc, rpy)) {
             hvfs_err(mds, "xnet_send() failed\n");
         }
-        hvfs_err(mds, "We have sent the AU reply msg from %lx to %lx\n",
+        hvfs_debug(mds, "We have sent the AU reply msg from %lx to %lx\n",
                    rpy->tx.ssite_id, rpy->tx.dsite_id);
         xnet_free_msg(rpy);
     }
     xnet_free_msg(msg);         /* do not free the allocated ITB */
+}
+
+void mds_forward(struct xnet_msg *msg)
+{
+    struct mds_fwd *mf;
+    struct xnet_msg_tx *tx;
+    /* FIXME: we know we are using xnet-simple, so all the receiving iovs are
+     * packed into one buf, we should save the begin address here */
+    
+    xnet_set_auto_free(msg);
+
+    /* sanity checking */
+    if (likely(msg->xm_datacheck)) {
+        tx = msg->xm_data;
+        mf = msg->xm_data + tx->len + sizeof(*tx);
+    } else {
+        hvfs_err(mds, "Internal error, data lossing ...\n");
+        goto out;
+    }
+#if 0
+    {
+        int i, pos = 0;
+        char line[256];
+
+        memset(line, 0, sizeof(line));
+        pos += snprintf(line, 256, "FW request from %lx route ", tx->ssite_id);
+        for (i = 0; i < ((mf->len - sizeof(*mf)) / sizeof(u64)); i++) {
+            pos += snprintf(line + pos, 256 - pos, "%lx->", mf->route[i]);
+        }
+        pos += snprintf(line + pos, 256 - pos, "%lx(E).\n", hmo.site_id);
+        hvfs_err(mds, "%s", line);
+    }
+#endif
+    memcpy(&msg->tx, tx, sizeof(*tx));
+    /* FIXME: we know there is only one iov entry */
+    msg->tx.flag |= (XNET_PTRESTORE | XNET_FWD);
+    msg->tx.arg1 = (u64)msg->xm_data;
+    msg->xm_data += sizeof(*tx);
+    msg->tx.dsite_id = hmo.site_id;
+
+    atomic64_inc(&hmo.prof.mds.forward);
+    mds_fe_dispatch(msg);
+
+    return;
+out:
+    xnet_free_msg(msg);
 }

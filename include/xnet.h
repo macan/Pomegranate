@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-25 16:52:39 macan>
+ * Time-stamp: <2010-02-26 15:29:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,6 +43,10 @@ struct xnet_msg_tx
                                         * region */
 
 #define XNET_NEED_RESEND        0x0100 /* otherwise, return on send err */
+#define XNET_FWD                0x0200 /* forwarded msg */
+
+#define XNET_PTRESTORE          0x8000 /* temp flag for xnet-simple pointer
+                                        * restore */
     u16 flag;                          /* msg flags */
     int err;
     u64 ssite_id;               /* source site */

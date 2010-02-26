@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-24 15:20:47 macan>
+ * Time-stamp: <2010-02-26 10:30:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -93,6 +93,7 @@ int mds_mds_dispatch(struct xnet_msg *msg)
 {
     if (msg->tx.cmd == HVFS_MDS2MDS_FWREQ) {
         /* FIXME: forward request */
+        mds_forward(msg);
     } else if (msg->tx.cmd == HVFS_MDS2MDS_SPITB) {
         /* FIXME: split itb */
         mds_ausplit(msg);

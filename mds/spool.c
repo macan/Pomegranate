@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-25 17:19:48 macan>
+ * Time-stamp: <2010-02-26 18:40:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,14 +57,13 @@ int spool_dispatch(struct xnet_msg *msg)
 static inline
 int __serv_request(void)
 {
-    struct xnet_msg *msg = NULL, *n;
+    struct xnet_msg *msg = NULL, *pos, *n;
 
     xlock_lock(&spool_mgr.rin_lock);
-    if (!list_empty(&spool_mgr.reqin)) {
-        list_for_each_entry_safe(msg, n, &spool_mgr.reqin, list) {
-            list_del_init(&msg->list);
-            break;
-        }
+    list_for_each_entry_safe(pos, n, &spool_mgr.reqin, list) {
+        list_del_init(&pos->list);
+        msg = pos;
+        break;
     }
     xlock_unlock(&spool_mgr.rin_lock);
 

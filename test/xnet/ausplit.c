@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-25 16:54:21 macan>
+ * Time-stamp: <2010-02-26 18:33:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,6 +36,7 @@
 #define OP_CREATE       0
 #define OP_LOOKUP       1
 #define OP_UNLINK       2
+#define OP_ALL          100
 
 u64 __attribute__((unused)) split_retry = 0;
 u64 __attribute__((unused)) create_failed = 0;
@@ -236,6 +237,17 @@ resend:
         goto out_msg;
     } else if (hmr->len) {
         hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+        if (hmr->flag & MD_REPLY_WITH_BFLIP) {
+            struct hvfs_index *rhi;
+            int no = 0;
+
+            rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+            if (!rhi) {
+                hvfs_err(xnet, "extract HI failed, not found.\n");
+            }
+            mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
+                                 MDS_BITMAP_SET);
+        }
     }
 
     /* finally, we wait for the commit respond */
@@ -496,11 +508,11 @@ int msg_send(int entry, int op)
     case OP_CREATE:
         lib_timer_B();
         for (i = 0; i < entry; i++) {
-            err = get_send_msg_create(i, hmi.root_uuid, 0, NULL,
+            err = get_send_msg_create(i, hmi.root_uuid, hmo.site_id, NULL,
                                       (void *)data);
             if (err) {
                 hvfs_err(xnet, "create 'ausplit-xnet-test-%ld-%ld-%d' failed\n",
-                         hmi.root_uuid, 0UL, i);
+                         hmi.root_uuid, hmo.site_id, i);
             }
         }
         lib_timer_E();
@@ -509,10 +521,10 @@ int msg_send(int entry, int op)
     case OP_LOOKUP:
         lib_timer_B();
         for (i = 0; i < entry; i++) {
-            err = get_send_msg_lookup(i, hmi.root_uuid, 0);
+            err = get_send_msg_lookup(i, hmi.root_uuid, hmo.site_id);
             if (err) {
                 hvfs_err(xnet, "lookup 'ausplit-xnet-test-%ld-%ld-%d' failed\n",
-                         hmi.root_uuid, 0UL, i);
+                         hmi.root_uuid, hmo.site_id, i);
             }
         }
         lib_timer_E();
@@ -521,10 +533,10 @@ int msg_send(int entry, int op)
     case OP_UNLINK:
         lib_timer_B();
         for (i = 0; i < entry; i++) {
-            err = get_send_msg_unlink(i, hmi.root_uuid, 0);
+            err = get_send_msg_unlink(i, hmi.root_uuid, hmo.site_id);
             if (err) {
                 hvfs_err(xnet, "unlink 'ausplit-xnet-test-%ld-%ld-%d' failed\n",
-                         hmi.root_uuid, 0UL, i);
+                         hmi.root_uuid, hmo.site_id, i);
             }
         }
         lib_timer_E();
@@ -656,10 +668,20 @@ int ring_add(struct chring **r, u64 site)
     return 0;
 }
 
+void *ausplit_buf_alloc(size_t size, int aflag)
+{
+    if (unlikely(aflag == HVFS_MDS2MDS_SPITB)) {
+        /* alloc the whole ITB */
+        return xzalloc(sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE);
+    } else {
+        return xzalloc(size);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     struct xnet_type_ops ops = {
-        .buf_alloc = NULL,
+        .buf_alloc = ausplit_buf_alloc,
         .buf_free = NULL,
         .recv_handler = spool_dispatch,
         .dispatcher = mds_fe_dispatch,
@@ -766,7 +788,12 @@ int main(int argc, char *argv[])
         msg_wait();
         break;
     case TYPE_CLIENT:
-        msg_send(entry, op);
+        if (op == OP_ALL) {
+            msg_send(entry, OP_CREATE);
+            msg_send(entry, OP_LOOKUP);
+            msg_send(entry, OP_UNLINK);
+        }else
+            msg_send(entry, op);
         break;
     default:;
     }

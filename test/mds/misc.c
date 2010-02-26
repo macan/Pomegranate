@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 13:06:38 macan>
+ * Time-stamp: <2010-02-26 19:04:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,6 +36,9 @@ int main(int argc, char *argv[])
     u8 bitmap[1 << (ITB_DEPTH - 3)];
     long nr;
     atomic_t i;
+
+    hvfs_info(mds, "ITB Size: %ld B\n", 
+              sizeof(struct itb) + ITB_SIZE * sizeof(struct ite));
 
     offset = fls64(a);
     hvfs_info(mds, "[FLS64]: First set bit in 0x%lx is %d.\n", a, offset);
