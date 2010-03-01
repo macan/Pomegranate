@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 15:21:18 macan>
+ * Time-stamp: <2010-03-01 14:27:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -215,7 +215,7 @@ int __xnet_handle_tx(int fd)
             if (errno == EAGAIN && !br) {
                 /* pseudo calling, just return */
                 next = 0;
-                goto out_free;
+                goto out_raw_free;
             }
             hvfs_verbose(xnet, "read() err %d w/ br %d(%ld)\n", 
                          errno, br, sizeof(struct xnet_msg_tx));
@@ -223,11 +223,11 @@ int __xnet_handle_tx(int fd)
                 continue;
             /* FIXME: how to handle this err? */
             next = -1;
-            goto out_free;
+            goto out_raw_free;
         } else if (bt == 0) {
             /* hoo, we got the EOF of the socket stream */
             next = -1;
-            goto out_free;
+            goto out_raw_free;
         }
         br += bt;
         flag = 0;
@@ -274,7 +274,7 @@ int __xnet_handle_tx(int fd)
         }
         br = 0;
         do {
-            bt = read(fd, buf + br, msg->tx.len - br);
+            bt = recv(fd, buf + br, msg->tx.len - br, MSG_WAITALL);
             if (bt < 0) {
                 hvfs_verbose(xnet, "read() err %d w/ br %d(%ld)\n", 
                              errno, br, msg->tx.len);
@@ -345,6 +345,9 @@ int __xnet_handle_tx(int fd)
     return next;
 out_free:
     xnet_free_msg(msg);
+    return next;
+out_raw_free:
+    xnet_raw_free_msg(msg);
     return next;
 }
 
@@ -825,16 +828,18 @@ int IS_CONNECTED(struct xnet_addr *xa, struct xnet_context *xc)
 {
     int i, ret = 0;
 
+    xlock_lock(&xa->lock);
     for (i = 0; i < xa->index; i++) {
         if (xa->sockfd[i])
             ret++;
     }
+    xlock_unlock(&xa->lock);
 
     /* FIXME: do not doing active connect */
     if (!HVFS_IS_CLIENT(xc->site_id)) {
         return ret;
     } else {
-        if (ret == XNET_CONNS_DEF)
+        if (ret >= XNET_CONNS_DEF)
             return 1;
         else
             return 0;
@@ -967,18 +972,23 @@ retry:
     if (msg->tx.type != XNET_MSG_RPY)
         msg->tx.handle = (u64)msg;
 
+reselect_conn:
     ssock = SELECT_CONNECTION(xa, &lock_idx);
     /* already connected, just send the message */
     hvfs_debug(xnet, "OK, select connection %d, we will send the msg "
                "site %lx -> %lx ...\n", ssock, 
                msg->tx.ssite_id, msg->tx.dsite_id);
+    if (ssock < 0) {
+        err = -EINVAL;
+        goto out;
+    }
     
 #ifndef XNET_EAGER_WRITEV
     /* send the msg tx by the selected connection */
     bw = 0;
     do {
-        bt = write(ssock, ((void *)&msg->tx) + bw, 
-                   sizeof(struct xnet_msg_tx) - bw);
+        bt = send(ssock, ((void *)&msg->tx) + bw, 
+                  sizeof(struct xnet_msg_tx) - bw, MSG_MORE);
         if (bt < 0) {
             hvfs_err(xnet, "write() err %d\n", errno);
             if (errno == EINTR || errno == EAGAIN)
@@ -1007,6 +1017,12 @@ retry:
                 hvfs_err(xnet, "sendmsg(%d[%lx]) err %d, for now we do not "
                          "support redo:(\n", ssock, msg->tx.dsite_id,
                          errno);
+                if (errno == ECONNRESET) {
+                    /* select another link and resend the whole msg */
+                    xlock_unlock(&xa->socklock[lock_idx]);
+                    hvfs_err(xnet, "Reselect Conn [%d] --> ?\n", ssock);
+                    goto reselect_conn;
+                }
                 err = -errno;
                 goto out_unlock;
             }

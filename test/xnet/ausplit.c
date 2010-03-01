@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 18:33:35 macan>
+ * Time-stamp: <2010-03-01 13:22:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -498,7 +498,7 @@ out_free:
     return err;
 }
 
-int msg_send(int entry, int op)
+int msg_send(int entry, int op, int base)
 {
     lib_timer_def();
     u8 data[HVFS_MDU_SIZE];
@@ -508,11 +508,11 @@ int msg_send(int entry, int op)
     case OP_CREATE:
         lib_timer_B();
         for (i = 0; i < entry; i++) {
-            err = get_send_msg_create(i, hmi.root_uuid, hmo.site_id, NULL,
-                                      (void *)data);
+            err = get_send_msg_create(i + base, hmi.root_uuid, hmo.site_id, 
+                                      NULL, (void *)data);
             if (err) {
                 hvfs_err(xnet, "create 'ausplit-xnet-test-%ld-%ld-%d' failed\n",
-                         hmi.root_uuid, hmo.site_id, i);
+                         hmi.root_uuid, hmo.site_id, i + base);
             }
         }
         lib_timer_E();
@@ -521,10 +521,10 @@ int msg_send(int entry, int op)
     case OP_LOOKUP:
         lib_timer_B();
         for (i = 0; i < entry; i++) {
-            err = get_send_msg_lookup(i, hmi.root_uuid, hmo.site_id);
+            err = get_send_msg_lookup(i + base, hmi.root_uuid, hmo.site_id);
             if (err) {
                 hvfs_err(xnet, "lookup 'ausplit-xnet-test-%ld-%ld-%d' failed\n",
-                         hmi.root_uuid, hmo.site_id, i);
+                         hmi.root_uuid, hmo.site_id, i + base);
             }
         }
         lib_timer_E();
@@ -533,10 +533,10 @@ int msg_send(int entry, int op)
     case OP_UNLINK:
         lib_timer_B();
         for (i = 0; i < entry; i++) {
-            err = get_send_msg_unlink(i, hmi.root_uuid, hmo.site_id);
+            err = get_send_msg_unlink(i + base, hmi.root_uuid, hmo.site_id);
             if (err) {
                 hvfs_err(xnet, "unlink 'ausplit-xnet-test-%ld-%ld-%d' failed\n",
-                         hmi.root_uuid, hmo.site_id, i);
+                         hmi.root_uuid, hmo.site_id, i + base);
             }
         }
         lib_timer_E();
@@ -545,6 +545,82 @@ int msg_send(int entry, int op)
     default:;
     }
 
+    return err;
+}
+
+struct msg_send_args
+{
+    int tid, thread;
+    int entry, op;
+    pthread_barrier_t *pb;
+};
+
+pthread_barrier_t barrier;
+
+void *__msg_send(void *arg)
+{
+    struct msg_send_args *msa = (struct msg_send_args *)arg;
+    lib_timer_def();
+
+    pthread_barrier_wait(msa->pb);
+    if (msa->tid == 0)
+        lib_timer_B();
+    if (msa->op == OP_ALL) {
+        msg_send(msa->entry, OP_CREATE, msa->tid * msa->entry);
+        pthread_barrier_wait(msa->pb);
+        if (msa->tid == 0) {
+            lib_timer_E();
+            lib_timer_O(msa->entry * msa->thread, "Create Aggr Lt: ");
+            lib_timer_B();
+        }
+        msg_send(msa->entry, OP_LOOKUP, msa->tid * msa->entry);
+        pthread_barrier_wait(msa->pb);
+        if (msa->tid == 0) {
+            lib_timer_E();
+            lib_timer_O(msa->entry * msa->thread, "Lookup Aggr Lt: ");
+            lib_timer_B();
+        }
+        msg_send(msa->entry, OP_UNLINK, msa->tid * msa->entry);
+        pthread_barrier_wait(msa->pb);
+        if (msa->tid == 0) {
+            lib_timer_E();
+            lib_timer_O(msa->entry * msa->thread, "Unlink Aggr Lt: ");
+        }
+    } else {
+        msg_send(msa->entry, OP_CREATE, msa->tid * msa->entry);
+        pthread_barrier_wait(msa->pb);
+        if (msa->tid == 0) {
+            lib_timer_E();
+            lib_timer_O(msa->entry * msa->thread, "Aggr Latency: ");
+        }
+    }
+
+    pthread_exit(0);
+}
+
+int msg_send_mt(int entry, int op, int thread)
+{
+    pthread_t pt[thread];
+    struct msg_send_args msa[thread];
+    int i, err = 0;
+
+    entry /= thread;
+
+    for (i = 0; i < thread; i++) {
+        msa[i].tid = i;
+        msa[i].thread = thread;
+        msa[i].entry = entry;
+        msa[i].op = op;
+        msa[i].pb = &barrier;
+        err = pthread_create(&pt[i], NULL, __msg_send, &msa[i]);
+        if (err)
+            goto out;
+    }
+
+    for (i = 0; i < thread; i++) {
+        pthread_join(pt[i], NULL);
+    }
+out:
     return err;
 }
 
@@ -688,7 +764,7 @@ int main(int argc, char *argv[])
     };
     int err = 0;
     int type = 0;
-    int self, sport, i, j;
+    int self, sport, i, j, thread;
     long entry;
     int op;
     char *value;
@@ -711,6 +787,14 @@ int main(int argc, char *argv[])
     } else {
         op = OP_LOOKUP;
     }
+    value = getenv("thread");
+    if (value) {
+        thread = atoi(value);
+    } else {
+        thread = 1;
+    }
+
+    pthread_barrier_init(&barrier, NULL, thread);
 
     if (argc < 2) {
         hvfs_err(xnet, "Self ID is not provided.\n");
@@ -788,16 +872,12 @@ int main(int argc, char *argv[])
         msg_wait();
         break;
     case TYPE_CLIENT:
-        if (op == OP_ALL) {
-            msg_send(entry, OP_CREATE);
-            msg_send(entry, OP_LOOKUP);
-            msg_send(entry, OP_UNLINK);
-        }else
-            msg_send(entry, op);
+        msg_send_mt(entry, op, thread);
         break;
     default:;
     }
     
+    pthread_barrier_destroy(&barrier);
     xnet_unregister_type(hmo.xc);
 out:
     return err;

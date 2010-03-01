@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 11:30:18 macan>
+ * Time-stamp: <2010-03-01 16:00:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@ struct hvfs_tx
 #define HVFS_TX_NOCOMMIT        0x01
 #define HVFS_TX_FORGET          0x02
     u16 op;
+#define HVFS_TX_FREE            0x00
 #define HVFS_TX_PROCESSING      0x01
 #define HVFS_TX_DONE            0x02
 #define HVFS_TX_ACKED           0x03

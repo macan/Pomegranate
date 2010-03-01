@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 15:09:37 macan>
+ * Time-stamp: <2010-03-01 16:36:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -390,15 +390,19 @@ void mds_tx_done(struct hvfs_tx *tx)
     mds_put_tx(tx);
 
     if (tx->op == HVFS_TX_FORGET) {
+        /* free the resources */
+        if (tx->req) {
+            xnet_free_msg(tx->req);
+            tx->req = NULL;
+        }
+        if (tx->rpy) {
+            xnet_free_msg(tx->rpy);
+            tx->rpy = NULL;
+        }
         xlock_lock(&hmo.txc.lock);
         list_add_tail(&tx->lru, &hmo.txc.lru);
         atomic_inc(&hmo.txc.ftx);
         xlock_unlock(&hmo.txc.lock);
-        /* free the resources */
-        if (tx->req)
-            xnet_free_msg(tx->req);
-        if (tx->rpy)
-            xnet_free_msg(tx->rpy);
     }
     txg_put(tx->txg);
 }

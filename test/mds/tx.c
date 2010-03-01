@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 14:12:42 macan>
+ * Time-stamp: <2010-03-01 15:12:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -116,7 +116,6 @@ int main(int argc, char *argv[])
 
     hvfs_info(mds, "[TX INr][%10d] done.\n", atomic_read(&hmo.txc.ftx));
     
-    mds_destroy_txc(&hmo.txc);
     mds_destroy();
 out:
     return err;

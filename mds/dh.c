@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 14:26:16 macan>
+ * Time-stamp: <2010-03-01 13:05:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -198,9 +198,14 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         e = ERR_PTR(-ECHP);
         goto out_free;
     }
+    hvfs_err(mds, "Load DH: itbid %ld, site %lx\n", thi.itbid, p->site_id);
     /* prepare the msg */
-    xnet_msg_set_site(msg, p->site_id);
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.xc->site_id, 
+                     p->site_id);
     xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_LD, duuid, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
     xnet_msg_add_sdata(msg, &thi, sizeof(thi));
 
 send_msg:

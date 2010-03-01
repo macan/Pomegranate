@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 15:29:31 macan>
+ * Time-stamp: <2010-03-01 14:27:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -128,6 +128,7 @@ int xnet_unregister_type(struct xnet_context *);
 
 struct xnet_msg *xnet_alloc_msg(u8 alloc_flag);
 void xnet_free_msg(struct xnet_msg *);
+void xnet_raw_free_msg(struct xnet_msg *);
 
 int xnet_msg_add_sdata(struct xnet_msg *, void *, int);
 int xnet_msg_add_rdata(struct xnet_msg *, void *, int);

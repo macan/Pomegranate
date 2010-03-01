@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 16:10:34 macan>
+ * Time-stamp: <2010-03-01 16:20:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,6 +55,15 @@ struct xnet_msg *xnet_alloc_msg(u8 alloc_flag)
 #endif
 
     return msg;
+}
+
+void xnet_raw_free_msg(struct xnet_msg *msg)
+{
+    /* FIXME: check whether this msg is in the cache */
+    xfree(msg);
+#ifdef USE_XNET_SIMPLE
+    atomic64_inc(&g_xnet_prof.msg_free);
+#endif
 }
 
 void xnet_free_msg(struct xnet_msg *msg)
