@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 21:38:49 macan>
+ * Time-stamp: <2010-03-01 09:22:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -131,6 +131,7 @@ int __aur_itb_split(struct async_update_request *aur)
                      p->site_id, msg->pair->tx.err);
         }
         /* Step 3.inf we should free the ITB */
+        itb_put((struct itb *)i->h.twin);
         itb_free(i);
         hvfs_debug(mds, "Receive the AU split reply.\n");
         atomic64_inc(&hmo.prof.mds.split);
