@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 14:27:37 macan>
+ * Time-stamp: <2010-03-01 21:29:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -243,7 +243,16 @@ int __xnet_handle_tx(int fd)
         if (unlikely(accept_lookup(fd))) {
             err = st_update_sockfd(&gst, fd, msg->tx.ssite_id);
             if (err) {
-                st_clean_sockfd(&gst, fd);
+                struct accept_conn *ac;
+
+                ac = xzalloc(sizeof(struct accept_conn));
+                if (!ac) {
+                    hvfs_err(xnet, "xzalloc() struct accept_conn failed\n");
+                } else {
+                    INIT_LIST_HEAD(&ac->list);
+                    ac->sockfd = fd;
+                    list_add_tail(&ac->list, &accept_list);
+                }
             }
         }
     }
@@ -922,7 +931,7 @@ retry:
                 err = st_update_sockfd(&gst, csock, msg->tx.dsite_id);
                 if (err) {
                     st_clean_sockfd(&gst, csock);
-                    close(csock);
+                    csock = 0;
                     goto retry;
                 }
 
@@ -1017,9 +1026,10 @@ reselect_conn:
                 hvfs_err(xnet, "sendmsg(%d[%lx]) err %d, for now we do not "
                          "support redo:(\n", ssock, msg->tx.dsite_id,
                          errno);
-                if (errno == ECONNRESET) {
+                if (errno == ECONNRESET || errno == EBADF) {
                     /* select another link and resend the whole msg */
                     xlock_unlock(&xa->socklock[lock_idx]);
+                    st_clean_sockfd(&gst, ssock);
                     hvfs_err(xnet, "Reselect Conn [%d] --> ?\n", ssock);
                     goto reselect_conn;
                 }
