@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 17:14:06 macan>
+ * Time-stamp: <2010-03-01 17:26:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -200,12 +200,12 @@ int mds_fe_dispatch(struct xnet_msg *msg)
                 /* FIXME: need forward, for now we just ignore the mismatch */
                 if (itbid == hi->itbid) {
                     /* itbid is correct, but ring changed */
-                    hvfs_err(mds, "itbid %ld %d RING CHANGED (%lx vs %lx)\n",
-                             itbid, (msg->tx.flag & XNET_FWD), 
-                             hmo.site_id, p->site_id);
                     if (msg->tx.flag & XNET_FWD) {
                         goto recal_itbid;
                     } else {
+                        hvfs_debug(mds, "itbid %ld %d RING CHANGED (%lx vs %lx)\n",
+                                   itbid, (msg->tx.flag & XNET_FWD), 
+                                   hmo.site_id, p->site_id);
                         HVFS_BUG();
                         err = -ERINGCHG;
                         goto out;

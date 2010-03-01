@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-07 21:47:03 macan>
+ * Time-stamp: <2010-03-01 21:40:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,8 @@
 
 #ifndef __MDSL_H__
 #define __MDSL_H__
+
+#include "hvfs.h"
 
 #ifdef HVFS_TRACING
 extern u32 hvfs_mdsl_tracing_flags;
@@ -49,8 +51,40 @@ struct txg_compact_cache
 {
     struct list_head open_list; /* txg_open_entry list */
     struct list_head wbed_list; /* txg entry waiting for TXG_END */
-    rwlock_t open_lock;
-    rwlock_t wbed_lock;
+    xrwlock_t open_lock;
+    xrwlock_t wbed_lock;
+};
+
+struct directw_log
+{
+};
+
+struct mdsl_conf
+{
+    /* section for dynamic configuration */
+    char dcaddr[MDS_DCONF_MAX_NAME_LEN];
+    int dcfd, dcepfd;
+    pthread_t dcpt;
+
+    /* section for file name */
+    char *profiling_file;
+    char *conf_file;
+    char *log_file;
+
+    /* section for file fd */
+    int pf_fd, cf_fd, lf_fd;
+
+    /* # of threads */
+    /* NOTE: # of profiling thread is always ONE */
+
+    /* misc configs */
+
+    /* intervals */
+    int profiling_thread_interval;
+    int gc_interval;
+
+    /* conf */
+    u64 option;
 };
 
 struct hvfs_mdsl_info
@@ -77,11 +111,26 @@ struct hvfs_mdsl_object
     struct mmap_window_cache mwc;
     struct txg_compact_cache tcc;
     struct directw_log dl;
+    struct mdsl_conf conf;
 #define HMO_STATE_LAUNCH        0x00
 #define HMO_STATE_RUNNING       0x01
 #define HMO_STATE_PAUSE         0x02
 #define HMO_STATE_RDONLY        0x03
     u32 state;
+
+    /* the following region is used for threads */
+    sem_t timer_sem;            /* for timer thread wakeup */
+    
+    pthread_t timer_thread;
+
+    u8 timer_thread_stop;       /* running flag for timer thread */
 };
+
+extern struct hvfs_mdsl_info hmi;
+extern struct hvfs_mdsl_object hmo;
+
+/* APIs */
+int mdsl_init(void);
+int mdsl_destroy(void);
 
 #endif

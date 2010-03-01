@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 13:22:26 macan>
+ * Time-stamp: <2010-03-01 17:29:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -877,6 +877,10 @@ int main(int argc, char *argv[])
     default:;
     }
     
+    hvfs_info(xnet, "Split_retry %ld, FAILED:[create,lookup,unlink] "
+              "%ld %ld %ld\n",
+              split_retry, create_failed, lookup_failed, unlink_failed);
+
     pthread_barrier_destroy(&barrier);
     xnet_unregister_type(hmo.xc);
 out:

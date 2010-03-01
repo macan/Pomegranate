@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 20:40:57 macan>
+ * Time-stamp: <2010-03-01 21:27:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,25 +22,19 @@
  */
 
 #include "hvfs.h"
-#include "mds.h"
+#include "mdsl.h"
 #include "lib.h"
 
 #ifdef HVFS_TRACING
-//u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG;
-u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL;
+u32 hvfs_mdsl_tracing_flags = HVFS_DEFAULT_LEVEL;
 #endif
 
 /* Global variable */
-struct hvfs_mds_info hmi;
-struct hvfs_mds_object hmo = {.conf.option = HVFS_MDS_ITB_MUTEX,};
+struct hvfs_mdsl_info hmi;
+struct hvfs_mdsl_object hmo;
 
-void mds_sigaction_default(int signo, siginfo_t *info, void *arg)
+void mdsl_sigaction_default(int signo, siginfo_t *info, void *arg)
 {
-#ifdef HVFS_DEBUG_LOCK
-    if (signo == SIGINT) {
-        lock_table_print();
-    }
-#endif
     if (signo == SIGSEGV) {
         hvfs_info(lib, "Recv %sSIGSEGV%s %s\n",
                   HVFS_COLOR_RED,
@@ -51,14 +45,14 @@ void mds_sigaction_default(int signo, siginfo_t *info, void *arg)
     return;
 }
 
-/* mds_init_signal()
+/* mdsl_init_signal()
  */
-static int mds_init_signal(void)
+static int mdsl_init_signal(void)
 {
     struct sigaction ac;
     int err;
-    
-    ac.sa_sigaction = mds_sigaction_default;
+
+    ac.sa_sigaction = mdsl_sigaction_default;
     err = sigemptyset(&ac.sa_mask);
     if (err) {
         err = errno;
@@ -100,10 +94,10 @@ out:
     return err;
 }
 
-void mds_itimer_default(int signo, siginfo_t *info, void *arg)
+void mdsl_itimer_default(int signo, siginfo_t *info, void *arg)
 {
     sem_post(&hmo.timer_sem);
-    hvfs_verbose(mds, "Did this signal handler called?\n");
+    hvfs_verbose(mdsl, "Did this signal handler called?\n");
 
     return;
 }
@@ -111,6 +105,7 @@ void mds_itimer_default(int signo, siginfo_t *info, void *arg)
 static int __gcd(int m, int n)
 {
     int r, temp;
+
     if (!m && !n)
         return 0;
     else if (!m)
@@ -133,12 +128,12 @@ static int __gcd(int m, int n)
     return m;
 }
 
-static void *mds_timer_thread_main(void *arg)
+static void *mdsl_timer_thread_main(void *arg)
 {
     sigset_t set;
     int v, err;
 
-    hvfs_debug(mds, "I am running...\n");
+    hvfs_debug(mdsl, "I am running...\n");
 
     /* first, let us block the SIGALRM */
     sigemptyset(&set);
@@ -151,26 +146,15 @@ static void *mds_timer_thread_main(void *arg)
         if (err == EINTR)
             continue;
         sem_getvalue(&hmo.timer_sem, &v);
-        hvfs_debug(mds, "OK, we receive a SIGALRM event(remain %d).\n", v);
+        hvfs_debug(mdsl, "OK, we receive a SIGALRM event(remain %d).\n", v);
         /* should we work now */
-        if (hmo.state > HMO_STATE_LAUNCH) {
-            /* ok, checking txg */
-            txg_changer(time(NULL));
-        }
-        /* then, checking profiling */
-        dump_profiling(time(NULL));
-        /* next, checking async unlink */
-        async_unlink(time(NULL));
-        /* next, checking the CBHT slow down */
-        async_update_checking(time(NULL));
-        /* FIXME: */
     }
 
-    hvfs_debug(mds, "Hooo, I am exiting...\n");
+    hvfs_debug(mdsl, "Hooo, I am exiting...\n");
     pthread_exit(0);
 }
 
-int mds_setup_timers(void)
+int mdsl_setup_timers(void)
 {
     struct sigaction ac;
     struct itimerval value, ovalue, pvalue;
@@ -178,7 +162,7 @@ int mds_setup_timers(void)
     int err;
 
     /* ok, we create the timer thread now */
-    err = pthread_create(&hmo.timer_thread, NULL, &mds_timer_thread_main,
+    err = pthread_create(&hmo.timer_thread, NULL, &mdsl_timer_thread_main,
                          NULL);
     if (err)
         goto out;
@@ -188,7 +172,7 @@ int mds_setup_timers(void)
     memset(&ac, 0, sizeof(ac));
     sigemptyset(&ac.sa_mask);
     ac.sa_flags = 0;
-    ac.sa_sigaction = mds_itimer_default;
+    ac.sa_sigaction = mdsl_itimer_default;
     err = sigaction(SIGALRM, &ac, NULL);
     if (err) {
         err = errno;
@@ -200,8 +184,7 @@ int mds_setup_timers(void)
         goto out;
     }
     interval = __gcd(hmo.conf.profiling_thread_interval,
-                     hmo.conf.txg_interval);
-    interval = __gcd(hmo.conf.unlink_interval, interval);
+                     hmo.conf.gc_interval);
     if (interval) {
         value.it_interval.tv_sec = interval;
         value.it_interval.tv_usec = 1;
@@ -212,10 +195,10 @@ int mds_setup_timers(void)
             err = errno;
             goto out;
         }
-        hvfs_debug(mds, "OK, we have created a timer thread to handle txg change"
+        hvfs_debug(mdsl, "OK, we have created a timer thread to handle txg change"
                    " and profiling events every %d second(s).\n", interval);
     } else {
-        hvfs_debug(mds, "Hoo, there is no need to setup itimers based on the"
+        hvfs_debug(mdsl, "Hoo, there is no need to setup itimers based on the"
                    " configration.\n");
         hmo.timer_thread_stop = 1;
     }
@@ -224,7 +207,7 @@ out:
     return err;
 }
 
-void mds_reset_itimer(void)
+void mdsl_reset_itimer(void)
 {
     struct itimerval value, ovalue, pvalue;
     int err, interval;
@@ -234,8 +217,7 @@ void mds_reset_itimer(void)
         goto out;
     }
     interval = __gcd(hmo.conf.profiling_thread_interval,
-                     hmo.conf.txg_interval);
-    interval = __gcd(hmo.conf.unlink_interval, interval);
+                     hmo.conf.gc_interval);
     if (interval) {
         value.it_interval.tv_sec = interval;
         value.it_interval.tv_usec = 0;
@@ -245,134 +227,58 @@ void mds_reset_itimer(void)
         if (err) {
             goto out;
         }
-        hvfs_info(mds, "OK, we reset the itimer to %d second(s).\n", 
-                   interval);
+        hvfs_info(mdsl, "OK, we reset the itimer to %d second(s).\n",
+                  interval);
     }
 out:
     return;
 }
 
-
-/* mds_init()
- *
- *@bdepth: bucket depth
- *
- * init the MDS threads' pool
+/* mdsl_init()
  */
-int mds_init(int bdepth)
+int mdsl_init(void)
 {
     int err;
-    
+
     /* lib init */
     lib_init();
-    
+
     /* prepare the hmi & hmo */
     memset(&hmi, 0, sizeof(hmi));
     memset(&hmo, 0, sizeof(hmo));
-    INIT_LIST_HEAD(&hmo.async_unlink);
 #ifdef HVFS_DEBUG_LOCK
     lock_table_init();
 #endif
-    
+
     /* FIXME: decode the cmdline */
 
-    /* FIXME: configations */
-    dconf_init();
+    /* FIXME: configurations */
     hmo.conf.profiling_thread_interval = 5;
-    hmo.conf.txg_interval = 3;
-    hmo.conf.option = HVFS_MDS_ITB_RWLOCK | HVFS_MDS_CHRECHK;
-    hmo.conf.max_async_unlink = 1024;
-    hmo.conf.async_unlink = 0;  /* enable async unlink */
-    hmo.conf.unlink_interval = 2;
-    hmo.conf.txc_hash_size = 1024;
-    hmo.conf.txc_ftx = 1;
-    hmo.conf.cbht_bucket_depth = bdepth;
-    hmo.conf.itb_depth_default = 3;
-    hmo.conf.async_update_N = 4;
-    hmo.conf.spool_threads = 8;
+    hmo.conf.gc_interval = 5;
 
     /* Init the signal handlers */
-    err = mds_init_signal();
+    err = mdsl_init_signal();
     if (err)
         goto out_signal;
 
-    /* FIXME: init the TXC subsystem */
-    err = mds_init_txc(&hmo.txc, hmo.conf.txc_hash_size, 
-                       hmo.conf.txc_ftx);
-    if (err)
-        goto out_txc;
-    
     /* FIXME: setup the timers */
-    err = mds_setup_timers();
+    err = mdsl_setup_timers();
     if (err)
         goto out_timers;
-
-    /* FIXME: init the xnet subsystem */
-
-    /* FIXME: init the profiling subsystem */
-
-    /* FIXME: init the fault tolerant subsystem */
-
-    /* FIXME: register with the Ring server */
-
-    /* FIXME: init the dh subsystem */
-    err = mds_dh_init(&hmo.dh, MDS_DH_DEFAULT_SIZE);
-    if (err)
-        goto out_dh;
-    
-    /* FIXME: init the TX subsystem, init the commit threads' pool */
-    err = mds_init_tx(0);
-    if (err)
-        goto out_tx;
-
-    /* FIXME: init the async update subsystem */
-    err = async_tp_init();
-    if (err)
-        goto out_async;
-
-    /* FIXME: init hte CBHT subsystem */
-    err = mds_cbht_init(&hmo.cbht, hmo.conf.cbht_bucket_depth);
-    if (err)
-        goto out_cbht;
-
-    /* FIXME: init the ITB cache */
-    err = itb_cache_init(&hmo.ic, hmo.conf.itb_cache);
-    if (err)
-        goto out_itb;
-    
-    /* FIXME: init the local async unlink thead */
-    err = unlink_thread_init();
-    if (err)
-        goto out_unlink;
     
     /* FIXME: init the service threads' pool */
-    err = spool_create();
-    if (err)
-        goto out_spool;
-
-    /* FIXME: waiting for the notification from R2 */
-
-    /* FIXME: waiting for the requests from client/mds/mdsl/r2 */
 
     /* ok to run */
     hmo.state = HMO_STATE_RUNNING;
 
-out_spool:
-out_unlink:
-out_itb:
-out_cbht:
-out_async:
-out_tx:
-out_dh:
-out_txc:
 out_timers:
 out_signal:
     return err;
 }
 
-void mds_destroy(void)
+void mdsl_destroy(void)
 {
-    hvfs_verbose(mds, "OK, stop it now...\n");
+    hvfs_verbose(mdsl, "OK, stop it now...\n");
 
     /* stop the timer thread */
     hmo.timer_thread_stop = 1;
@@ -381,31 +287,5 @@ void mds_destroy(void)
 
     sem_destroy(&hmo.timer_sem);
 
-    /* stop the unlink thread */
-    unlink_thread_destroy();
-
-    /* itb */
-    itb_cache_destroy(&hmo.ic);
-    
-    /* cbht */
-    mds_cbht_destroy(&hmo.cbht);
-
-    /* stop the async threads */
-    async_tp_destroy();
-
-    /* stop the commit threads */
-    mds_destroy_tx();
-
-    /* destroy the dh */
-    mds_dh_destroy(&hmo.dh);
-
-    /* destroy the txc */
-    mds_destroy_txc(&hmo.txc);
-
-    /* destroy the dconf */
-    dconf_destroy();
-
-    /* destroy the service thread pool */
-    spool_destroy();
+    /* destroy the service threads' pool */
 }
-

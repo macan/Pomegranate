@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 15:33:57 macan>
+ * Time-stamp: <2010-03-01 20:08:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -82,7 +82,8 @@ void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr,
     }
     /* FIXME: state machine of TX, MSG */
     mds_tx_done(tx);
-    mds_tx_reply(tx);
+    if (!err)
+        mds_tx_reply(tx);
 #ifdef HVFS_DEBUG_LATENCY
     lib_timer_E();
     lib_timer_O(1, "REPLY");

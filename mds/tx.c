@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 16:36:53 macan>
+ * Time-stamp: <2010-03-01 20:07:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -361,7 +361,7 @@ void mds_tx_chg2forget(struct hvfs_tx *tx)
     struct regular_hash *rh;
     int i;
 
-    if (tx->op == HVFS_TX_FORGET)
+    if (unlikely(tx->op == HVFS_TX_FORGET))
         return;
     
     tx->op = HVFS_TX_FORGET;
@@ -378,7 +378,7 @@ void mds_tx_chg2forget(struct hvfs_tx *tx)
  */
 void mds_tx_done(struct hvfs_tx *tx)
 {
-    if (tx->state == HVFS_TX_PROCESSING)
+    if (likely(tx->state == HVFS_TX_PROCESSING))
         tx->state = HVFS_TX_DONE;
     else {
         hvfs_err(mds, "Invalid TX %p state 0x%x when calling mds_tx_done.\n", 
@@ -412,7 +412,7 @@ void mds_tx_done(struct hvfs_tx *tx)
  */
 void mds_tx_reply(struct hvfs_tx *tx)
 {
-    if (tx->state <= HVFS_TX_DONE)
+    if (likely(tx->state <= HVFS_TX_DONE))
         tx->state = HVFS_TX_ACKED;
     else
         return;
