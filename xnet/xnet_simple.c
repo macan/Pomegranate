@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 09:05:21 macan>
+ * Time-stamp: <2010-03-02 14:56:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -78,6 +78,7 @@ struct site_table gst;
 pthread_t pollin_thread;        /* poll-in any requests */
 LIST_HEAD(accept_list);         /* recored the accepted sockets */
 LIST_HEAD(active_list);         /* recored the actived sockets */
+xlock_t active_list_lock;
 int lsock = 0;                  /* local listening socket */
 int epfd = 0;
 int pollin_thread_stop = 0;
@@ -467,6 +468,7 @@ int st_init(void)
     atomic64_set(&g_xnet_prof.msg_free, 0);
     atomic64_set(&g_xnet_prof.inbytes, 0);
     atomic64_set(&g_xnet_prof.outbytes, 0);
+    xlock_init(&active_list_lock);
 
     return 0;
 }
@@ -865,8 +867,10 @@ int SELECT_CONNECTION(struct xnet_addr *xa, int *idx)
 {
     int ssock = -1;
 
-    if (!xa->index)
+    /* we do not need any lock here actually */
+    if (!xa->index) {
         return ssock;
+    }
 
     ssock = lib_random(xa->index);
     *idx = ssock;
@@ -932,11 +936,14 @@ retry:
                 }
                 INIT_LIST_HEAD(&ac->list);
                 ac->sockfd = csock;
+                xlock_lock(&active_list_lock);
                 list_add_tail(&ac->list, &active_list);
+                xlock_unlock(&active_list_lock);
                 err = st_update_sockfd(&gst, csock, msg->tx.dsite_id);
                 if (err) {
                     st_clean_sockfd(&gst, csock);
                     csock = 0;
+                    sleep(1);
                     goto retry;
                 }
 

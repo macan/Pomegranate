@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-04 10:13:01 macan>
+ * Time-stamp: <2010-03-02 15:53:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -134,6 +134,42 @@ struct storage_result
 {
     struct storage_result_core src;
     void *data;
+};
+
+/* Region for TXG write back */
+struct txg_begin
+{
+    u32 magic;                  /* begin symbol: 0x529be9a8 */
+    u32 len;                    /* data length */
+    u64 txg;                    /* committed txg */
+    u64 site_id;                /* committer site id */
+    u64 session_id;             /* committer session id */
+    u32 itb_nr;                 /* # of ITBs */
+    u32 dir_delta_nr;           /* # of dir deltas */
+    u32 bitmap_delta_nr;        /* # of bitmap deltas */
+    u32 ckpt_nr;                /* # of checkpoints */
+};
+
+struct itb_info
+{
+    u64 duuid;
+    u64 itbid;
+    u64 location;
+};
+
+struct txg_open_entry
+{
+    struct list_head list;
+    struct txg_begin begin;
+    void *other_region;
+};
+
+struct txg_end
+{
+    u32 magic;
+    u32 len;
+    u64 txg;
+    u64 site_id;
 };
 
 #endif

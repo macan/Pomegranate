@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-03-01 21:39:40 macan>
+# Time-stamp: <2010-03-02 09:56:58 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -65,6 +65,7 @@ install: unit_test
 	@rsync -r $(TEST)/*.sh root@glnode09:~/hvfs/test/
 	@rsync -r $(TEST)/mds/*.ut root@glnode09:~/hvfs/test/mds/
 	@rsync -r $(TEST)/xnet/*.ut root@glnode09:~/hvfs/test/xnet/
+	@rsync -r $(TEST)/mdsl/*.ut root@glnode09:~/hvfs/test/mdsl/
 
 rut:
 	@lagent -d glnode09 -u root -sc "time ~/cbht $(CBHT_ARGS)"

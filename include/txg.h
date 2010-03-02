@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 13:58:55 macan>
+ * Time-stamp: <2010-03-02 16:05:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -69,6 +69,7 @@ struct hvfs_txg
     struct hvfs_dir_delta_buf *delta; /* dir delta's list */
     struct bitmap_delta *bda;         /* array of bitmap deltas */
     struct list_head dirty_list;      /* dirty list of ITBs */
+    struct list_head wb_list;         /* ITBs that need to writeback */
     struct list_head ccb_list;        /* commit callback list */
 };
 

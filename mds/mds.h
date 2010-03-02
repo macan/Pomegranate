@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 21:38:26 macan>
+ * Time-stamp: <2010-03-02 11:56:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -89,6 +89,7 @@ struct mds_conf
 #define HVFS_MDS_CHRECHK        0x01 /* recheck CH ring in fe dispatch */
 #define HVFS_MDS_ITB_RWLOCK     0x02 /* use pthread rwlock as index lock */
 #define HVFS_MDS_ITB_MUTEX      0x04 /* use pthread mutex as index lock */
+#define HVFS_MDS_MEMONLY        0x08 /* memory only service */
     u64 option;
 };
 
@@ -230,6 +231,7 @@ int mds_cbht_insert_bbrlocked(struct eh *, struct itb *,
 struct itb *mds_read_itb(u64, u64, u64);
 void ite_update(struct hvfs_index *, struct ite *);
 struct itb *get_free_itb();
+void itb_reinit(struct itb *);
 void itb_free(struct itb *);
 struct itb *itb_dirty(struct itb *, struct hvfs_txg *, struct itb_lock *,
                       struct hvfs_txg **);
@@ -342,9 +344,9 @@ void au_handle_split_sync(void);
 
 /* APIs */
 /* for spool.c */
-int spool_create(void);
-void spool_destroy(void);
-int spool_dispatch(struct xnet_msg *);
+int mds_spool_create(void);
+void mds_spool_destroy(void);
+int mds_spool_dispatch(struct xnet_msg *);
 
 /* APIs */
 /* __txg_busy_loop_detector()

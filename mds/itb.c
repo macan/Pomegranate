@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 09:19:25 macan>
+ * Time-stamp: <2010-03-02 11:09:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,6 +43,9 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
     struct chp *p;
     struct itb *i;
     int ret;
+
+    if (unlikely(hmo.conf.option & HVFS_MDS_MEMONLY))
+        return ERR_PTR(-EINVAL);
 
     si.sic.uuid = puuid;
     si.sic.arg0 = itbid;
@@ -765,6 +768,39 @@ struct itb *get_free_itb(struct hvfs_txg *txg)
     atomic_set(&n->h.ref, 1);
     atomic64_inc(&hmo.prof.cbht.aitb);
     return n;
+}
+
+/* itb_reinit()
+ *
+ * NOTE: this function only used for reinit the headers and lock region for a
+ * transfered ITB.
+ */
+void itb_reinit(struct itb *n)
+{
+    int i;
+    
+    xrwlock_init(&n->h.lock);
+#ifdef _USE_SPINLOCK
+    xspinlock_init(&n->h.ilock);
+#else
+    xlock_init(&n->h.ilock);
+#endif
+    INIT_HLIST_NODE(&n->h.cbht);
+    INIT_LIST_HEAD(&n->h.list);
+    INIT_LIST_HEAD(&n->h.unlink);
+    INIT_LIST_HEAD(&n->h.overflow);
+
+    /* init the lock region */
+    if (hmo.conf.option & HVFS_MDS_ITB_RWLOCK) {
+        for (i = 0; i < ((1 << ITB_DEPTH) / ITB_LOCK_GRANULARITY); i++) {
+            xrwlock_init((xrwlock_t *)(&n->lock[i]));
+        }
+    } else if (hmo.conf.option & HVFS_MDS_ITB_MUTEX) {
+        for (i = 0; i < ((1 << ITB_DEPTH) / ITB_LOCK_GRANULARITY); i++) {
+            xlock_init((xlock_t *)(&n->lock[i]));
+        }
+    }
+    atomic_set(&n->h.ref, 1);
 }
 
 /* itb_free()

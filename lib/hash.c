@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 13:58:29 macan>
+ * Time-stamp: <2010-03-02 11:02:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -267,7 +267,8 @@ static inline u64 hvfs_hash_vsite(u64 key1, u64 key2, u64 key2len)
 
     val1 = APHash((char *)key2, key2len);
     val1 <<= 32;
-    val1 ^= RSHash((char *)&key1, sizeof(u64));
+    val1 |= RSHash((char *)&key1, sizeof(u64));
+    val1 ^= hash_64(key1, 64);
     return val1;
 }
 

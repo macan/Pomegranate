@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 08:28:56 macan>
+ * Time-stamp: <2010-03-02 15:58:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +25,11 @@
 #define __MDSL_H__
 
 #include "hvfs.h"
+#include "txg.h"
+#include "mdsl_api.h"
+#include "lprof.h"
+#include "lib.h"
+#include "ring.h"
 
 #ifdef HVFS_TRACING
 extern u32 hvfs_mdsl_tracing_flags;
@@ -53,6 +58,7 @@ struct txg_compact_cache
     struct list_head wbed_list; /* txg entry waiting for TXG_END */
     xrwlock_t open_lock;
     xrwlock_t wbed_lock;
+    atomic_t size, used;
 };
 
 struct directw_log
@@ -76,8 +82,11 @@ struct mdsl_conf
 
     /* # of threads */
     /* NOTE: # of profiling thread is always ONE */
+    int spool_threads;          /* # of service threads */
 
     /* misc configs */
+    int ring_vid_max;           /* max # of vid in the ring(AUTO) */
+    int tcc_size;               /* # of tcc cache size */
 
     /* intervals */
     int profiling_thread_interval;
@@ -96,7 +105,10 @@ struct hvfs_mdsl_info
     u32 state;
     u64 gdt_salt;
     u64 gdt_uuid;
+    u64 root_salt;
+    u64 root_uuid;
     u64 group;
+    u64 uuid_base;
     atomic64_t mi_tx;           /* next tx # */
     atomic64_t mi_txg;          /* next txg # */
     atomic64_t mi_uuid;         /* next file uuid */
@@ -111,6 +123,12 @@ struct hvfs_mdsl_object
     struct mmap_window_cache mwc;
     struct txg_compact_cache tcc;
     struct directw_log dl;
+
+#define CH_RING_NUM     2
+#define CH_RING_MDS     0
+#define CH_RING_MDSL    1
+    struct chring *chring[CH_RING_NUM];
+    struct mdsl_prof prof;
     struct mdsl_conf conf;
 #define HMO_STATE_LAUNCH        0x00
 #define HMO_STATE_RUNNING       0x01
@@ -122,8 +140,10 @@ struct hvfs_mdsl_object
     sem_t timer_sem;            /* for timer thread wakeup */
     
     pthread_t timer_thread;
+    pthread_t *spool_thread;    /* array of service threads */
 
     u8 timer_thread_stop;       /* running flag for timer thread */
+    u8 spool_thread_stop;       /* running flag for service thread */
 };
 
 extern struct hvfs_mdsl_info hmi;
@@ -132,5 +152,12 @@ extern struct hvfs_mdsl_object hmo;
 /* APIs */
 int mdsl_init(void);
 void mdsl_destroy(void);
+
+int mdsl_spool_create(void);
+void mdsl_spool_destroy(void);
+int mdsl_spool_dispatch(struct xnet_msg *);
+
+int mdsl_tcc_init(void);
+void mdsl_tcc_destroy(void);
 
 #endif

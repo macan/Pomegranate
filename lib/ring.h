@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-27 09:47:00 macan>
+ * Time-stamp: <2010-03-02 11:51:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,6 +20,9 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  */
+
+#ifndef __LIB_RING_H__
+#define __LIB_RING_H__
 
 #include "lib.h"
 
@@ -83,3 +86,5 @@ u64 ring_hash(u64 key, u64 salt);
         r->array[i] = *(p);         \
         r->used++;                  \
     } while (0)
+
+#endif

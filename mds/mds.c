@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 20:40:57 macan>
+ * Time-stamp: <2010-03-02 14:34:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -177,13 +177,14 @@ int mds_setup_timers(void)
     int which = ITIMER_REAL, interval;
     int err;
 
+    /* init the timer semaphore */
+    sem_init(&hmo.timer_sem, 0, 0);
+
     /* ok, we create the timer thread now */
     err = pthread_create(&hmo.timer_thread, NULL, &mds_timer_thread_main,
                          NULL);
     if (err)
         goto out;
-    /* init the timer semaphore */
-    sem_init(&hmo.timer_sem, 0, 0);
     /* then, we setup the itimers */
     memset(&ac, 0, sizeof(ac));
     sigemptyset(&ac.sa_mask);
@@ -346,7 +347,7 @@ int mds_init(int bdepth)
         goto out_unlink;
     
     /* FIXME: init the service threads' pool */
-    err = spool_create();
+    err = mds_spool_create();
     if (err)
         goto out_spool;
 
@@ -406,6 +407,6 @@ void mds_destroy(void)
     dconf_destroy();
 
     /* destroy the service thread pool */
-    spool_destroy();
+    mds_spool_destroy();
 }
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 16:15:25 macan>
+ * Time-stamp: <2010-03-02 15:08:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,33 +21,25 @@
  *
  */
 
-#ifndef __MDS_ASYNC_H__
-#define __MDS_ASYNC_H__
-
 #include "hvfs.h"
+#include "xnet.h"
+#include "mdsl.h"
 
-struct async_thread_arg
+void mdsl_itb(struct xnet_msg *msg)
 {
-    int tid;                    /* thread id */
-};
+}
 
-struct async_update_request
+void mdsl_bitmap(struct xnet_msg *msg)
 {
-#define AU_ITB_SPLIT    0x01    /* w/ itb pointer in arg */
-#define AU_ITB_BITMAP   0x02    /* w/ bit operations in arg */
-#define AU_TXG_WB       0x03    /* w/ txg pointer in arg */
-    u64 op;
-    u64 arg;
-    struct list_head list;
-};
+}
 
-struct async_update_mlist
+void mdsl_wbtxg(struct xnet_msg *msg)
 {
-    struct list_head aurlist;
-    xlock_t lock;
-};
+    /* sanity checking */
+    if (msg->tx.len < 
+}
 
-/* APIs */
-int au_submit(struct async_update_request *);
+void mdsl_wdata(struct xnet_msg *msg)
+{
+}
 
-#endif

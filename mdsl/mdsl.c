@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 21:27:09 macan>
+ * Time-stamp: <2010-03-02 15:57:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
  */
 
 #include "hvfs.h"
+#include "xnet.h"
 #include "mdsl.h"
 #include "lib.h"
 
@@ -161,13 +162,14 @@ int mdsl_setup_timers(void)
     int which = ITIMER_REAL, interval;
     int err;
 
+    /* init the timer semaphore */
+    sem_init(&hmo.timer_sem, 0, 0);
+
     /* ok, we create the timer thread now */
     err = pthread_create(&hmo.timer_thread, NULL, &mdsl_timer_thread_main,
                          NULL);
     if (err)
         goto out;
-    /* init the timer semaphore */
-    sem_init(&hmo.timer_sem, 0, 0);
     /* then, we setup the itimers */
     memset(&ac, 0, sizeof(ac));
     sigemptyset(&ac.sa_mask);
@@ -255,6 +257,12 @@ int mdsl_init(void)
     /* FIXME: configurations */
     hmo.conf.profiling_thread_interval = 5;
     hmo.conf.gc_interval = 5;
+    hmo.conf.spool_threads = 8;
+
+    /* init the txg_compact_cache */
+    err = mdsl_tcc_init();
+    if (err)
+        goto out_tcc;
 
     /* Init the signal handlers */
     err = mdsl_init_signal();
@@ -267,12 +275,17 @@ int mdsl_init(void)
         goto out_timers;
     
     /* FIXME: init the service threads' pool */
+    err = mdsl_spool_create();
+    if (err)
+        goto out_spool;
 
     /* ok to run */
     hmo.state = HMO_STATE_RUNNING;
 
+out_spool:
 out_timers:
 out_signal:
+out_tcc:
     return err;
 }
 
@@ -288,4 +301,8 @@ void mdsl_destroy(void)
     sem_destroy(&hmo.timer_sem);
 
     /* destroy the service threads' pool */
+    mdsl_spool_destroy();
+
+    /* destroy the tcc */
+    mdsl_tcc_destroy();
 }

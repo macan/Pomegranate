@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 09:19:57 macan>
+ * Time-stamp: <2010-03-02 16:25:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -41,6 +41,7 @@ struct hvfs_txg *txg_alloc(void)
     xlock_init(&t->itb_lock);
     xlock_init(&t->ccb_lock);
     INIT_LIST_HEAD(&t->dirty_list);
+    INIT_LIST_HEAD(&t->wb_list);
     INIT_LIST_HEAD(&t->ccb_list);
 
     return t;
@@ -163,6 +164,15 @@ void txg_trigger_ccb(struct hvfs_txg *txg)
     }
 }
 
+/* txg_commit_ll()
+ *
+ * NOTE: low-level txg committer, responded for writing the TXG to MDSL.
+ */
+int txg_commit_ll(struct hvfs_txg *t)
+{
+    return 0;
+}
+
 /* txg_commit()
  *
  * NOTE: this is the main function for commit thread
@@ -226,6 +236,8 @@ void *txg_commit(void *arg)
             if (ih->state == ITB_STATE_COWED) {
                 xrwlock_wunlock(&ih->lock);
                 ASSERT(atomic_read(&ih->ref) == 1, mds);
+                /* adding the COWed ITB in the WB list */
+                list_add_tail(&ih->list, &t->wb_list);
                 itb_put(i);
                 freed++;
             } else if (ih->state == ITB_STATE_DIRTY) {
@@ -243,6 +255,33 @@ void *txg_commit(void *arg)
         hvfs_info(mds, "TXG %ld is released (free:%d, clean:%d, ntkwn:%d).\n", 
                   t->txg, freed, clean, notknown);
         mcond_destroy(&t->cond);
+#if 0
+        {
+            struct async_update_request *aur =
+                xzalloc(sizeof(struct async_update_request));
+
+            if (!aur) {
+                hvfs_err(mds, "xzalloc() AU request failed, data lossing.\n");
+            } else {
+                aur->op = AU_TXG_WB;
+                aur->arg = (u64)(t);
+                INIT_LIST_HEAD(&aur->list);
+                err = au_submit(aur);
+                if (err) {
+                    hvfs_err(mds, "submit AU request failed, data lossing.\n");
+                    xfree(aur);
+                }
+            }
+        }
+#else
+        {
+            err = txg_commit_ll(t);
+            if (err) {
+                hvfs_err(mds, "TXG %ld commit_ll failed w/ %d\n",
+                         t->txg, err);
+            }
+        }
+#endif
         /* trigger the commit callback on the TXs */
         txg_trigger_ccb(t);
         xfree(t);

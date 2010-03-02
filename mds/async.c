@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 09:22:49 macan>
+ * Time-stamp: <2010-03-02 16:22:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -194,6 +194,12 @@ int __aur_itb_bitmap(struct async_update_request *aur)
     return 0;
 }
 
+int __aur_txg_wb(struct async_update_request *aur)
+{
+    hvfs_err(mds, "AU TXG write-back has not been implemented yet.\n");
+    return 0;
+}
+
 int __au_req_handle(void)
 {
     struct async_update_request *aur = NULL, *n;
@@ -218,6 +224,9 @@ int __au_req_handle(void)
         break;
     case AU_ITB_BITMAP:
         err = __aur_itb_bitmap(aur);
+        break;
+    case AU_TXG_WB:
+        err = __aur_txg_wb(aur);
         break;
     default:
         hvfs_err(mds, "Invalid AU Request: op %ld arg 0x%lx\n",

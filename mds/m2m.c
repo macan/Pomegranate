@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 21:35:11 macan>
+ * Time-stamp: <2010-03-02 09:22:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -191,11 +191,8 @@ void mds_ausplit(struct xnet_msg *msg)
     i->h.txg = t->txg;
     i->h.state = ITB_STATE_DIRTY;
     /* re-init */
-    xrwlock_init(&i->h.lock);
-    INIT_HLIST_NODE(&i->h.cbht);
-    INIT_LIST_HEAD(&i->h.list);
-    INIT_LIST_HEAD(&i->h.unlink);
-    INIT_LIST_HEAD(&i->h.overflow);
+    itb_reinit(i);
+
     txg_add_itb(t, i);
     txg_put(t);
 

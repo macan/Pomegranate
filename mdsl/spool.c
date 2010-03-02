@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 11:58:18 macan>
+ * Time-stamp: <2010-03-02 11:57:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,10 +22,8 @@
  */
 
 #include "hvfs.h"
-#include "mds.h"
-#include "xtable.h"
-#include "tx.h"
 #include "xnet.h"
+#include "mdsl.h"
 #include "ring.h"
 #include "lib.h"
 
@@ -43,7 +41,7 @@ struct spool_thread_arg
 
 static struct spool_mgr spool_mgr;
 
-int mds_spool_dispatch(struct xnet_msg *msg)
+int mdsl_spool_dispatch(struct xnet_msg *msg)
 {
     xlock_lock(&spool_mgr.rin_lock);
     list_add_tail(&msg->list, &spool_mgr.reqin);
@@ -71,7 +69,8 @@ int __serv_request(void)
         return -EHSTOP;
 
     /* ok, deal with it, we just calling the secondary dispatcher */
-    ASSERT(msg->xc, mds);
+    ASSERT(msg->xc, mdsl);
+    ASSERT(msg->xc->ops.dispatcher, mdsl);
     atomic64_inc(&hmo.prof.misc.reqin_handle);
     return msg->xc->ops.dispatcher(msg);
 }
@@ -93,7 +92,7 @@ void *spool_main(void *arg)
         err = sem_wait(&spool_mgr.rin_sem);
         if (err == EINTR)
             continue;
-        hvfs_debug(mds, "Service thread %d wakeup to handle the requests.\n",
+        hvfs_debug(mdsl, "Service thread %d wakeup to handle the requests.\n",
                    sta->tid);
         /* trying to handle more and more requsts. */
         while (1) {
@@ -101,7 +100,7 @@ void *spool_main(void *arg)
             if (err == -EHSTOP)
                 break;
             else if (err) {
-                hvfs_err(mds, "Service thread handle request w/ error %d\n",
+                hvfs_err(mdsl, "Service thread handle request w/ error %d\n",
                          err);
             }
         }
@@ -109,7 +108,7 @@ void *spool_main(void *arg)
     pthread_exit(0);
 }
 
-int mds_spool_create(void)
+int mdsl_spool_create(void)
 {
     struct spool_thread_arg *sta;
     int i, err = 0;
@@ -125,13 +124,13 @@ int mds_spool_create(void)
 
     hmo.spool_thread = xzalloc(hmo.conf.spool_threads * sizeof(pthread_t));
     if (!hmo.spool_thread) {
-        hvfs_err(mds, "xzalloc() pthread_t failed\n");
+        hvfs_err(mdsl, "xzalloc() pthread_t failed\n");
         return -ENOMEM;
     }
 
     sta = xzalloc(hmo.conf.spool_threads * sizeof(struct spool_thread_arg));
     if (!sta) {
-        hvfs_err(mds, "xzalloc() struct spool_thread_arg failed\n");
+        hvfs_err(mdsl, "xzalloc() struct spool_thread_arg failed\n");
         err = -ENOMEM;
         goto out_free;
     }
@@ -151,7 +150,7 @@ out_free:
     goto out;
 }
 
-void mds_spool_destroy(void)
+void mdsl_spool_destroy(void)
 {
     int i;
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 17:29:45 macan>
+ * Time-stamp: <2010-03-02 11:37:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -759,7 +759,7 @@ int main(int argc, char *argv[])
     struct xnet_type_ops ops = {
         .buf_alloc = ausplit_buf_alloc,
         .buf_free = NULL,
-        .recv_handler = spool_dispatch,
+        .recv_handler = mds_spool_dispatch,
         .dispatcher = mds_fe_dispatch,
     };
     int err = 0;
@@ -814,10 +814,11 @@ int main(int argc, char *argv[])
     mds_init(10);
     hmo.prof.xnet = &g_xnet_prof;
     hmo.conf.itbid_check = 1;
+    hmo.conf.option |= HVFS_MDS_MEMONLY;
 
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
 
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < 4; i++) {
         for (j = 0; j < 4; j++) {
             xnet_update_ipaddr(HVFS_TYPE(i, j), 1, &ipaddr[i], 
                                (short *)(&port[i][j]));
@@ -857,7 +858,11 @@ int main(int argc, char *argv[])
 
     ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
     ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(1));
+    ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(0));
+    ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(1));
+
     ring_dump(hmo.chring[CH_RING_MDS]);
+    ring_dump(hmo.chring[CH_RING_MDSL]);
 
     /* insert the GDT DH */
     dh_insert(hmi.gdt_uuid, hmi.gdt_uuid, hmi.gdt_salt);
@@ -883,6 +888,7 @@ int main(int argc, char *argv[])
 
     pthread_barrier_destroy(&barrier);
     xnet_unregister_type(hmo.xc);
+    mds_destroy();
 out:
     return err;
 }

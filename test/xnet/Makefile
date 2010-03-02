@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-01-25 10:51:24 macan>
+# Time-stamp: <2010-03-02 11:35:20 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -19,7 +19,7 @@ all : $(TEST_XNET_SOURCE:.c=.ut)
 %.ut : %.o $(XNET_LIB) $(MDS_LIB) $(HVFS_LIB)
 	@echo -e " " CC"\t" $@
 	@$(CC) $(CFLAGS) $(LFLAGS) $< -o $@ -L$(XNET) -lxnet -L$(MDS) -lmds \
-			-L$(LIB_PATH) -lhvfs
+			-L$(LIB_PATH) -lhvfs -L$(MDSL) -lmdsl
 
 clean :
 	-@rm -rf $(TEST_XNET_SOURCE:.c=.o)

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 21:43:19 macan>
+ * Time-stamp: <2010-03-02 11:59:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,14 +22,26 @@
  */
 
 #include "hvfs.h"
-#include "mdsl.h"
 #include "xnet.h"
+#include "mdsl.h"
 
+#ifdef UNIT_TEST
 int main(int argc, char *argv[])
 {
-    int err;
+    int err = 0;
+    int self;
 
     hvfs_info(mdsl, "MDSL Unit Testing...\n");
+
+    if (argc < 2) {
+        hvfs_err(mdsl, "Self ID is not provided.\n");
+        err = EINVAL;
+        goto out;
+    } else {
+        self = atoi(argv[1]);
+        hvfs_info(mdsl, "Self type+ID is mdsl:%d.\n", self);
+    }
+
     err = mdsl_init();
     if (err) {
         hvfs_err(mdsl, "mdsl_init() failed %d\n", err);
@@ -37,10 +49,15 @@ int main(int argc, char *argv[])
     }
 
     /* init misc configrations */
-    hmo.site_id = HVFS_MDSL(0);
+    hmo.site_id = self;
+    hmi.gdt_salt = 0;
+    hvfs_info(mdsl, "Select GDT salt to  %lx\n", hmi.gdt_salt);
+    hmi.root_uuid = 1;
+    hmi.root_salt = 0xdfeadb0;
+    hvfs_info(mdsl, "Select root salt to %lx\n", hmi.root_salt);
 
     mdsl_destroy();
 out:
     return err;
 }
-
+#endif
