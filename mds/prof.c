@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 21:39:37 macan>
+ * Time-stamp: <2010-03-02 08:28:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,11 +65,12 @@ void dump_profiling(time_t t)
               atomic64_read(&hmo.prof.mds.ausplit));
     if (hmo.prof.xnet) {
         hvfs_info(mds, "%16ld |  XNET Prof: alloc %ld, free %ld, inb %ld, "
-                  "outb %ld\n", t,
+                  "outb %ld, links %ld\n", t,
                   atomic64_read(&hmo.prof.xnet->msg_alloc),
                   atomic64_read(&hmo.prof.xnet->msg_free),
                   atomic64_read(&hmo.prof.xnet->inbytes),
-                  atomic64_read(&hmo.prof.xnet->outbytes));
+                  atomic64_read(&hmo.prof.xnet->outbytes),
+                  atomic64_read(&hmo.prof.xnet->active_links));
     }
     hvfs_info(mds, "%16ld -- ITC Prof: ftx %d, total %d\n",
               t,

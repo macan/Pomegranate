@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 21:29:55 macan>
+ * Time-stamp: <2010-03-02 09:05:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,6 +97,8 @@ int accept_lookup(int fd)
             break;
         }
     }
+    if (ret)
+        xfree(pos);
     return ret;
 }
 
@@ -547,6 +549,7 @@ int st_update_sockfd(struct site_table *st, int fd, u64 dsid)
             }
             xa->sockfd[xa->index++] = fd;
             xlock_unlock(&xa->lock);
+            atomic64_inc(&g_xnet_prof.active_links);
         }
     }
 
@@ -576,7 +579,8 @@ int st_clean_sockfd(struct site_table *st, int fd)
                             xa->sockfd[j] = xa->sockfd[k];
                             xlock_unlock(&xa->socklock[k]);
                         }
-                        xa->sockfd[xa->index--] = 0;
+                        xa->sockfd[--xa->index] = 0;
+                        atomic64_dec(&g_xnet_prof.active_links);
                     }
                 }
                 xlock_unlock(&xa->lock);
@@ -584,6 +588,7 @@ int st_clean_sockfd(struct site_table *st, int fd)
         }
     }
 
+    accept_lookup(fd);
     close(fd);
     return 0;
 }

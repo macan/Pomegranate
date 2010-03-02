@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 13:43:54 macan>
+ * Time-stamp: <2010-03-02 08:23:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,6 +30,8 @@ struct xnet_prof
     atomic64_t msg_free;
     atomic64_t inbytes;
     atomic64_t outbytes;
+
+    atomic64_t active_links;
 };
 
 #endif

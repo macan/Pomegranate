@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 21:40:49 macan>
+ * Time-stamp: <2010-03-02 08:28:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -131,6 +131,6 @@ extern struct hvfs_mdsl_object hmo;
 
 /* APIs */
 int mdsl_init(void);
-int mdsl_destroy(void);
+void mdsl_destroy(void);
 
 #endif
