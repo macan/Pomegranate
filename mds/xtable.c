@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 21:01:17 macan>
+ * Time-stamp: <2010-03-02 16:55:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,6 +44,7 @@ int itb_split_local(struct itb *oi, int odepth, struct itb_lock *l)
     struct itb_index *ii;
     struct itb *ni;
     int err = 0, moved = 0, j, offset, done = 0, need_rescan = 0;
+    u8 saved_depth = 0;
 
     /* we get one new ITB, and increase the itb->h.depth, and select the
      * corresponding ites to the new itb. */
@@ -140,6 +141,8 @@ retry:
         /* this means we should split more deeply, however, the itbid of the
          * old ITB can not change, so we just retry our access w/ depth++.
          */
+        if (!saved_depth)
+            saved_depth = oi->h.depth - 1;
         hvfs_err(mds, "HIT untested code-path w/ depth %d.\n", 
                  oi->h.depth);
         if (unlikely(oi->h.depth == 50)) {
@@ -150,6 +153,8 @@ retry:
         goto retry;
     }
 
+    if (unlikely(saved_depth))
+        oi->h.depth = saved_depth;
     hvfs_debug(mds, "moved %d entries from %ld(%p,%d,%d) to %ld(%p,%d,%d)\n", 
              moved, oi->h.itbid, oi, oi->h.depth, atomic_read(&oi->h.entries),
              (ni)->h.itbid, (ni), (ni)->h.depth, 

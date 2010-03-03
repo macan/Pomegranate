@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 11:56:16 macan>
+ * Time-stamp: <2010-03-03 17:45:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -110,6 +110,7 @@ struct hvfs_mds_info
     u64 root_uuid;
     u64 group;
     u64 uuid_base;              /* the base value of UUID allocation */
+    u64 session_id;
     atomic64_t mi_tx;           /* next tx # */
     atomic64_t mi_txg;          /* next txg # */
     atomic64_t mi_uuid;         /* next file and dir uuid */
@@ -226,6 +227,7 @@ int mds_cbht_insert_bbrlocked(struct eh *, struct itb *,
                               struct bucket **, 
                               struct bucket_entry **,
                               struct itb **);
+int mds_cbht_exist_check(struct eh *, u64, u64);
 
 /* for itb.c */
 struct itb *mds_read_itb(u64, u64, u64);

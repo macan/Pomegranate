@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 16:25:46 macan>
+ * Time-stamp: <2010-03-03 20:56:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
 #include "xnet.h"
 #include "tx.h"
 #include "mds.h"
+#include "ring.h"
 
 struct hvfs_txg *txg_alloc(void)
 {
@@ -40,8 +41,10 @@ struct hvfs_txg *txg_alloc(void)
     xlock_init(&t->delta_lock);
     xlock_init(&t->itb_lock);
     xlock_init(&t->ccb_lock);
+    INIT_LIST_HEAD(&t->bdb);
+    INIT_LIST_HEAD(&t->ddb);
+    INIT_LIST_HEAD(&t->ckpt);
     INIT_LIST_HEAD(&t->dirty_list);
-    INIT_LIST_HEAD(&t->wb_list);
     INIT_LIST_HEAD(&t->ccb_list);
 
     return t;
@@ -164,13 +167,181 @@ void txg_trigger_ccb(struct hvfs_txg *txg)
     }
 }
 
-/* txg_commit_ll()
+/* txg_prepare_begin
  *
- * NOTE: low-level txg committer, responded for writing the TXG to MDSL.
  */
-int txg_commit_ll(struct hvfs_txg *t)
+int txg_prepare_begin(struct commit_thread_arg *cta, struct hvfs_txg *t)
 {
+    /* construct the TXG_BEGIN region, prepare writing back */
+    memset(&cta->begin, 0, sizeof(cta->begin));
+    cta->begin.magic = TXG_BEGIN_MAGIC;
+
+    /* bitmap delta nr */
+    if (!list_empty(&t->bdb)) {
+        /* Note that we do NOT need any locks here, becaust we know nobody
+         * could access this list now. */
+        struct bitmap_delta_buf *pos;
+
+        list_for_each_entry(pos, &t->bdb, list) {
+            cta->begin.bitmap_delta_nr += pos->asize;
+        }
+    }
+
+    /* dir delta nr */
+    if (!list_empty(&t->ddb)) {
+        /* Note that we do NOT need any locks here, becaust we know nobody
+         * could access this list now. */
+        struct hvfs_dir_delta_buf *pos;
+
+        list_for_each_entry(pos, &t->ddb, list) {
+            cta->begin.dir_delta_nr += pos->asize;
+        }
+    }
+
+    /* ckpt nr */
+    if (!list_empty(&t->ckpt)) {
+        /* Note that we do NOT need any locks here, becaust we know nobody
+         * could access this list now. */
+        struct hvfs_rmds_ckpt_buf *pos;
+
+        list_for_each_entry(pos, &t->ckpt, list) {
+            cta->begin.ckpt_nr += pos->asize;
+        }
+    }
+    cta->begin.txg = t->txg;
+    cta->begin.site_id = hmo.site_id;
+    cta->begin.session_id = hmi.session_id;
+
     return 0;
+}
+
+/* txg_wb_itb_ll()
+ *
+ * NOTE: low level ITB write back function.
+ */
+static inline
+int txg_wb_itb_ll(struct commit_thread_arg *cta, struct itb *itb)
+{
+    struct txg_wb_slice *tws;
+    struct xnet_msg *msg;
+    struct dhe *e;
+    struct chp *p;
+    int err = 0;
+
+    /* Step 1: find the target mdsl site */
+    e = mds_dh_search(&hmo.dh, itb->h.puuid);
+    if (IS_ERR(e)) {
+        hvfs_err(mds, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
+        err = PTR_ERR(e);
+        goto out;
+    }
+    
+    p = ring_get_point(itb->h.itbid, e->salt, hmo.chring[CH_RING_MDSL]);
+    if (IS_ERR(p)) {
+        hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(e));
+        err = -ECHP;
+        goto out;
+    }
+
+    /* Step 1.inf: prepare the xnet msg a litte earlier */
+    msg = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!msg) {
+        hvfs_err(mds, "xnet_alloc_msg() failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    /* Step 2: lookup in the CTA hash table */
+    tws = tws_find_create(cta, p->site_id);
+    if (!tws) {
+        hvfs_err(mds, "tws_find_create() failed.\n");
+        err = -ENOMEM;
+        goto out_free_msg;
+    }
+    /* Step 3: construct the xnet_msg to send it to the destination */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0, 
+                     hmo.site_id, p->site_id);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_WBTXG, HVFS_WBTXG_ITB, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    if (IS_TWS_NEW(tws)) {
+        TWS_CLEAN_NEW(tws);
+        msg->tx.arg0 |= HVFS_WBTXG_BEGIN;
+        xnet_msg_add_sdata(msg, &cta->begin, sizeof(cta->begin));
+    }
+    xnet_msg_add_sdata(msg, itb, atomic_read(&itb->h.len));
+#if 1
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(mds, "Write back ITB %ld failed w/ %d\n",
+                 itb->h.itbid, err);
+        TWS_SET_NEW(tws);
+        goto out_free_msg;
+    }
+#endif
+    hvfs_err(mds, "Write back ITB %ld to site %lx [%ld,%lx]\n",
+               itb->h.itbid, p->site_id, itb->h.itbid, e->salt);
+
+    xnet_free_msg(msg);
+    return err;
+
+out_free_msg:
+    xnet_raw_free_msg(msg);
+out:
+    return err;
+}
+
+static inline
+int txg_wb_bcast_delta(struct commit_thread_arg *cta, int err)
+{
+    return err;
+}
+
+/* txg_wb_itb()
+ *
+ * NOTE: write back the ITBs to their own site, 
+ */
+static inline
+int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
+               int *freed, int *clean, int *notknown)
+{
+    struct itbh *ih, *n;
+    struct itb *i;
+    int err = 0;
+
+    list_for_each_entry_safe(ih, n, &t->dirty_list, list) {
+        i = (struct itb *)ih;
+        list_del_init(&ih->list);
+        xrwlock_wlock(&ih->lock);
+        hvfs_debug(mds, "T %ld ITB %ld %p state %x, ref %d.\n",
+                   t->txg, ih->itbid, i, ih->state, atomic_read(&ih->ref));
+        if (ih->state == ITB_STATE_COWED) {
+            xrwlock_wunlock(&ih->lock);
+            if (atomic_read(&ih->ref) != 1) {
+                hvfs_err(mds, "REF %d\n", atomic_read(&ih->ref));
+                HVFS_BUGON(atomic_read(&ih->ref) != 1);
+            }
+            /* can write w/o lock */
+            err = txg_wb_itb_ll(cta, i);
+            itb_put(i);
+            (*freed)++;
+        } else if (ih->state == ITB_STATE_DIRTY) {
+            /* write w/ lock holding */
+            err = txg_wb_itb_ll(cta, i);
+            ih->state = ITB_STATE_CLEAN;
+            xrwlock_wunlock(&ih->lock);
+            (*clean)++;
+        } else {
+            /* write w/ lock holding */
+            err = txg_wb_itb_ll(cta, i);
+            ih->state = ITB_STATE_CLEAN;
+            xrwlock_wunlock(&ih->lock);
+            (*notknown)++;
+        }
+    }
+    err = txg_wb_bcast_delta(cta, err);
+
+    return err;
 }
 
 /* txg_commit()
@@ -182,8 +353,6 @@ void *txg_commit(void *arg)
 {
     struct commit_thread_arg *cta = (struct commit_thread_arg *)arg;
     struct hvfs_txg *t;
-    struct itbh *ih, *n;
-    struct itb *i;
     struct timespec ts;
     sigset_t set;
     int err, freed, clean, notknown;
@@ -226,62 +395,22 @@ void *txg_commit(void *arg)
 
         hvfs_debug(mds, "TXG %ld is write-backing.\n", t->txg);
         /* Step2: no reference to this TXG, we can write back now */
+        CTA_INIT(cta, t);
+        txg_prepare_begin(cta, t);
+
         freed = clean = notknown = 0;
-        list_for_each_entry_safe(ih, n, &t->dirty_list, list) {
-            i = (struct itb *)ih;
-            list_del_init(&ih->list);
-            xrwlock_wlock(&ih->lock);
-            hvfs_debug(mds, "T %ld ITB %ld %p state %x.\n", 
-                       t->txg, ih->itbid, i, ih->state);
-            if (ih->state == ITB_STATE_COWED) {
-                xrwlock_wunlock(&ih->lock);
-                ASSERT(atomic_read(&ih->ref) == 1, mds);
-                /* adding the COWed ITB in the WB list */
-                list_add_tail(&ih->list, &t->wb_list);
-                itb_put(i);
-                freed++;
-            } else if (ih->state == ITB_STATE_DIRTY) {
-                ih->state = ITB_STATE_CLEAN;
-                xrwlock_wunlock(&ih->lock);
-                clean++;
-            } else {
-                ih->state = ITB_STATE_CLEAN;
-                xrwlock_wunlock(&ih->lock);
-                notknown++;
-            }
+        err = txg_wb_itb(cta, t, &freed, &clean, &notknown);
+        if (err) {
+            hvfs_err(mds, "txg_wb_itb() failed w/ %d\n", err);
         }
+
+        CTA_FINA(cta);
+        
         hmo.txg[TXG_WB] = NULL;
         /* free the TXG */
         hvfs_info(mds, "TXG %ld is released (free:%d, clean:%d, ntkwn:%d).\n", 
                   t->txg, freed, clean, notknown);
         mcond_destroy(&t->cond);
-#if 0
-        {
-            struct async_update_request *aur =
-                xzalloc(sizeof(struct async_update_request));
-
-            if (!aur) {
-                hvfs_err(mds, "xzalloc() AU request failed, data lossing.\n");
-            } else {
-                aur->op = AU_TXG_WB;
-                aur->arg = (u64)(t);
-                INIT_LIST_HEAD(&aur->list);
-                err = au_submit(aur);
-                if (err) {
-                    hvfs_err(mds, "submit AU request failed, data lossing.\n");
-                    xfree(aur);
-                }
-            }
-        }
-#else
-        {
-            err = txg_commit_ll(t);
-            if (err) {
-                hvfs_err(mds, "TXG %ld commit_ll failed w/ %d\n",
-                         t->txg, err);
-            }
-        }
-#endif
         /* trigger the commit callback on the TXs */
         txg_trigger_ccb(t);
         xfree(t);

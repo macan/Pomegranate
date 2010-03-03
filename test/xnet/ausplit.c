@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 11:37:05 macan>
+ * Time-stamp: <2010-03-03 16:55:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -766,7 +766,7 @@ int main(int argc, char *argv[])
     int type = 0;
     int self, sport, i, j, thread;
     long entry;
-    int op;
+    int op, memonly;
     char *value;
 
     hvfs_info(xnet, "type: 0/1/2/3 => mds/client/mdsl/ring\n");
@@ -793,6 +793,11 @@ int main(int argc, char *argv[])
     } else {
         thread = 1;
     }
+    value = getenv("memonly");
+    if (value) {
+        memonly = atoi(value);
+    } else
+        memonly = 1;
 
     pthread_barrier_init(&barrier, NULL, thread);
 
@@ -814,7 +819,8 @@ int main(int argc, char *argv[])
     mds_init(10);
     hmo.prof.xnet = &g_xnet_prof;
     hmo.conf.itbid_check = 1;
-    hmo.conf.option |= HVFS_MDS_MEMONLY;
+    if (memonly)
+        hmo.conf.option |= HVFS_MDS_MEMONLY;
 
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
 

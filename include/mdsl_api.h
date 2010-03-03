@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 15:53:21 macan>
+ * Time-stamp: <2010-03-03 09:04:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -137,17 +137,19 @@ struct storage_result
 };
 
 /* Region for TXG write back */
+#define TXG_BEGIN_MAGIC         0x529be9a8
+#define TXG_END_MAGIC           0x529adef8
+
 struct txg_begin
 {
     u32 magic;                  /* begin symbol: 0x529be9a8 */
-    u32 len;                    /* data length */
-    u64 txg;                    /* committed txg */
-    u64 site_id;                /* committer site id */
-    u64 session_id;             /* committer session id */
-    u32 itb_nr;                 /* # of ITBs */
     u32 dir_delta_nr;           /* # of dir deltas */
     u32 bitmap_delta_nr;        /* # of bitmap deltas */
     u32 ckpt_nr;                /* # of checkpoints */
+
+    u64 txg;                    /* committed txg */
+    u64 site_id;                /* committer site id */
+    u64 session_id;             /* committer session id */
 };
 
 struct itb_info
@@ -166,10 +168,13 @@ struct txg_open_entry
 
 struct txg_end
 {
-    u32 magic;
-    u32 len;
+    u32 magic;                  /* end symbol: 0x529adef8 */
+    u32 len;                    /* total length */
+    u32 itb_nr;                 /* # of ITBs */
+
     u64 txg;
     u64 site_id;
+    u64 session_id;
 };
 
 #endif

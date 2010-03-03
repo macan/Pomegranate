@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-29 16:27:00 macan>
+ * Time-stamp: <2010-03-03 16:37:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -78,6 +78,14 @@
 #define HVFS_MDS2MDSL_ITB       0x0000000080010000
 #define HVFS_MDS2MDSL_BITMAP    0x0000000080020000
 #define HVFS_MDS2MDSL_WBTXG     0x0000000080030000
+/* subregion for arg0 */
+#define HVFS_WBTXG_BEGIN        0x0001
+#define HVFS_WBTXG_ITB          0x0002
+#define HVFS_WBTXG_BITMAP_DELTA 0x0004
+#define HVFS_WBTXG_DIR_DELTA    0x0008
+#define HVFS_WBTXG_CKPT         0x0010
+#define HVFS_WBTXG_END          0x0020
+/* end subregion for arg0 */
 #define HVFS_MDS2MDSL_WDATA     0x0000000080040000
 
 /* Client to MDSL */

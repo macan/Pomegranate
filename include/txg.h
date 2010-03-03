@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 16:05:55 macan>
+ * Time-stamp: <2010-03-03 20:56:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,12 +26,13 @@
 
 #include "hvfs.h"
 #include "xtable.h"
+#include "mdsl_api.h"
 
 struct hvfs_dir_delta 
 {
     u64 site_id;
     u64 duuid;
-    s32 nlink;                  /* no enough? */
+    s64 nlink;                  /* not enough? now enough! */
     u64 atime;
     u64 ctime;
 };
@@ -47,7 +48,14 @@ struct hvfs_rmds_ckpt_buf
 {
     struct list_head list;
     int psize, asize;
-    struct checkpoint buf;
+    struct checkpoint *buf;
+};
+
+struct bitmap_delta_buf
+{
+    struct list_head list;
+    int psize, asize;
+    struct bitmap_delta *buf;
 };
 
 struct hvfs_txg 
@@ -64,12 +72,14 @@ struct hvfs_txg
     u8 state;
     u8 dirty;                   /* whether this txg is dirtied, using in the
                                  * SIGALARM handler to changing txg. */
+
     xlock_t ckpt_lock, delta_lock, itb_lock, ccb_lock;
-    struct hvfs_rmds_ckpt_buf *ckpt;  /* ckpt list */
-    struct hvfs_dir_delta_buf *delta; /* dir delta's list */
-    struct bitmap_delta *bda;         /* array of bitmap deltas */
+    struct list_head ckpt;      /* hvfs_rmds_ckpt_buf list, for ckpt
+                                 * entries */
+    struct list_head ddb;       /* hvfs_dir_delta_buf list, for dir deltas */
+    struct list_head bdb;       /* bitmap_delta_buf list, for bitmap deltas */
+    
     struct list_head dirty_list;      /* dirty list of ITBs */
-    struct list_head wb_list;         /* ITBs that need to writeback */
     struct list_head ccb_list;        /* commit callback list */
 };
 
@@ -79,9 +89,121 @@ struct hvfs_txg
 #define TXG_IS_DIRTY(txg) ((txg)->dirty)
 
 /* the following regions is designed for commit threads */
+struct txg_wb_slice
+{
+    struct hlist_node hlist;
+    struct list_head list;
+    u64 site_id;
+    u32 nr;
+#define TWS_NEW         0x0001
+    u32 flag;
+};
+
+#define HVFS_TXG_WB_SITE_HTSIZE         512
 struct commit_thread_arg
 {
     int tid;                    /* thread id */
+    /* the following region is designed for TXG Write-back */
+    struct hvfs_txg *wbt;       /* txg to writeback */
+    struct regular_hash siteht[HVFS_TXG_WB_SITE_HTSIZE];
+    struct list_head tws_list;
+    struct txg_begin begin;
 };
+
+static inline
+void CTA_INIT(struct commit_thread_arg *cta, struct hvfs_txg *txg)
+{
+    int i;
+    
+    cta->wbt = txg;
+    INIT_LIST_HEAD(&cta->tws_list);
+    for (i = 0; i < HVFS_TXG_WB_SITE_HTSIZE; i++) {
+        INIT_HLIST_HEAD(&cta->siteht[i].h);
+        xlock_init(&cta->siteht[i].lock);
+    }
+}
+
+static inline
+void CTA_FINA(struct commit_thread_arg *cta)
+{
+    int i;
+
+    for (i = 0; i < HVFS_TXG_WB_SITE_HTSIZE; i++) {
+        xlock_destroy(&cta->siteht[i].lock);
+    }
+}
+
+static inline
+struct txg_wb_slice *tws_lookup(struct commit_thread_arg *cta, u64 dsite)
+{
+    struct txg_wb_slice *tws = NULL;
+    struct hlist_node *pos;
+    u32 i;
+
+    i = hvfs_hash_tws(dsite) % HVFS_TXG_WB_SITE_HTSIZE;
+    hlist_for_each_entry(tws, pos, &cta->siteht[i].h, hlist) {
+        if (tws->site_id == dsite) {
+            break;
+        }
+    }
+
+    return tws;
+}
+
+static inline
+void tws_insert(struct commit_thread_arg *cta, struct txg_wb_slice *tws)
+{
+    u32 i;
+
+    i = hvfs_hash_tws(tws->site_id) % HVFS_TXG_WB_SITE_HTSIZE;
+    hlist_add_head(&tws->hlist, &cta->siteht[i].h);
+    list_add_tail(&tws->list, &cta->tws_list);
+}
+
+static inline
+struct txg_wb_slice *tws_create(u64 site)
+{
+    struct txg_wb_slice *tws = xzalloc(sizeof(*tws));
+    if (!tws) {
+        HVFS_VV("Create TWS failed.\n");
+        return ERR_PTR(-ENOMEM);
+    }
+    INIT_HLIST_NODE(&tws->hlist);
+    INIT_LIST_HEAD(&tws->list);
+    tws->site_id = site;
+    tws->flag |= TWS_NEW;
+    return tws;
+}
+
+#define IS_TWS_NEW(tws) ((tws)->flag & TWS_NEW)
+
+static inline
+void TWS_CLEAN_NEW(struct txg_wb_slice *tws)
+{
+    tws->flag &= (~TWS_NEW);
+}
+
+static inline
+void TWS_SET_NEW(struct txg_wb_slice *tws)
+{
+    tws->flag |= TWS_NEW;
+}
+
+static inline
+struct txg_wb_slice *tws_find_create(struct commit_thread_arg *cta, u64 dsite)
+{
+    struct txg_wb_slice *tws;
+
+    tws = tws_lookup(cta, dsite);
+    if (!tws) {
+        tws = tws_create(dsite);
+        if (IS_ERR(tws)) {
+            tws = NULL;
+        }
+        /* insert in to the hash table */
+        tws_insert(cta, tws);
+    }
+    return tws;
+}
 
 #endif

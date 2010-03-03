@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 11:09:23 macan>
+ * Time-stamp: <2010-03-03 19:55:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -66,10 +66,19 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
         goto out_free;
     }
     /* prepare the msg */
-    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE |
-                     XNET_NEED_REPLY, hmo.xc->site_id, p->site_id);
-    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_ITB, 0, 0);
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
+                     hmo.xc->site_id, p->site_id);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_ITB, puuid, itbid);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
     xnet_msg_add_sdata(msg, &si, sizeof(si));
+    
+    /* recheck the cbht state */
+    if (mds_cbht_exist_check(&hmo.cbht, puuid, itbid) == -EEXIST) {
+        i = ERR_PTR(-EAGAIN);
+        goto out_free;
+    }
     
     ret = xnet_send(hmo.xc, msg);
     if (ret) {
@@ -78,12 +87,19 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
         goto out_free;
     }
     /* ok, we get the reply: ITB.len is the length */
-    sr = (struct storage_result *)(msg->pair->xm_data);
-    if (sr->src.err)
-        i = ERR_PTR(sr->src.err);
-    else {
-        /* FIXME: do we need clear the auto free flag? */
-        i = (struct itb *)(sr->data);
+    ASSERT(msg->pair, mds);
+    if (msg->pair->tx.err) {
+        hvfs_err(mds, "MDSL %lx respond %d w/ ITB %ld read request.\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err, itbid);
+        i = ERR_PTR(msg->pair->tx.err);
+    } else {
+        sr = (struct storage_result *)(msg->pair->xm_data);
+        if (sr->src.err)
+            i = ERR_PTR(sr->src.err);
+        else {
+            /* FIXME: do we need clear the auto free flag? */
+            i = (struct itb *)(sr->data);
+        }
     }
 
 out_free:

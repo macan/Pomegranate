@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 15:36:00 macan>
+ * Time-stamp: <2010-03-03 17:54:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -574,6 +574,47 @@ out:
     return err;
 }
 
+/* CBHT lookup for existing ITBs, do not modify any content
+ *
+ * Note: holding nothing
+ * Note: holding 
+ */
+int __cbht mds_cbht_exist_check(struct eh *eh, u64 puuid, u64 itbid)
+{
+    struct bucket *b;
+    struct bucket_entry *be;
+    struct itbh *ih;
+    struct hlist_node *pos;
+    u64 hash, offset;
+    u32 sdepth;
+    u32 err = 0;
+
+    hash = hvfs_hash(puuid, itbid, sizeof(u64), HASH_SEL_CBHT);
+
+    b = mds_cbht_search_dir(hash, &sdepth);
+    if (unlikely(IS_ERR(b))) {
+        hvfs_err(mds, "No bucket exist? Find 0x%lx in the EH dir, "
+                 "internal error!\n", itbid);
+        return -ENOENT;
+    }
+    offset = hash & ((1 << eh->bucket_depth) - 1);
+    be = b->content + offset;
+
+    /* holding the bucket.rlock now */
+    xrwlock_wlock(&be->lock);
+    hlist_for_each_entry(ih, pos, &be->h, cbht) {
+        if (ih->puuid == puuid && ih->itbid == itbid) {
+            /* exist */
+            err = -EEXIST;
+            break;
+        }
+    }
+    xrwlock_wunlock(&be->lock);
+    xrwlock_runlock(&b->lock);
+
+    return err;
+}
+
 /* CBHT insert without any lock preservated at returning
  *
  * NOTE: this function do NOT check whether the ITB is already inserted into
@@ -819,6 +860,9 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
     i = mds_read_itb(hi->puuid, hi->psalt, hi->itbid);
     if (IS_ERR(i)) {
         /* read itb failed, for what? */
+        if (i == ERR_PTR(-EAGAIN))
+            return -EAGAIN;
+
         /* FIXME: why this happened? bitmap say this ITB exists! */
         /* FIXME: we should act on ENOENT, other errors should not handle */
         hvfs_debug(mds, "Why this happened? bitmap say this ITB exists!\n");

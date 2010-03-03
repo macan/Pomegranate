@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 15:02:25 macan>
+ * Time-stamp: <2010-03-03 18:01:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -69,6 +69,10 @@ static
 int mdsl_root_dispatch(struct xnet_msg *msg)
 {
     return 0;
+}
+
+void mdsl_handle_err(struct xnet_msg *msg, int err)
+{
 }
 
 /* mdsl_dispatch()

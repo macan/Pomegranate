@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 11:54:22 macan>
+ * Time-stamp: <2010-03-03 17:58:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -142,7 +142,7 @@ int main(int argc, char *argv[])
         .buf_alloc = NULL,
         .buf_free = NULL,
         .recv_handler = mdsl_spool_dispatch,
-/*         .dispatcher = mdsl_dispatch, */
+        .dispatcher = mdsl_dispatch,
     };
     int err = 0;
     int self, sport, i, j;

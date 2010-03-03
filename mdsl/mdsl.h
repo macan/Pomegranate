@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 15:58:53 macan>
+ * Time-stamp: <2010-03-03 18:02:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -159,5 +159,14 @@ int mdsl_spool_dispatch(struct xnet_msg *);
 
 int mdsl_tcc_init(void);
 void mdsl_tcc_destroy(void);
+
+/* dispatch.c */
+int mdsl_dispatch(struct xnet_msg *);
+
+/* m2ml.c */
+void mdsl_itb(struct xnet_msg *);
+void mdsl_bitmap(struct xnet_msg *);
+void mdsl_wbtxg(struct xnet_msg *);
+void mdsl_wdata(struct xnet_msg *);
 
 #endif

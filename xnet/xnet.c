@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 16:20:05 macan>
+ * Time-stamp: <2010-03-03 14:43:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -89,6 +89,11 @@ void xnet_free_msg(struct xnet_msg *msg)
         } else {
             /* FIXME: do we need to free the data region */
         }
+    } else {
+        if (msg->siov)
+            xfree(msg->siov);
+        if (msg->riov)
+            xfree(msg->riov);
     }
     xfree(msg);
 #ifdef USE_XNET_SIMPLE
