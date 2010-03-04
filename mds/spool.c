@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 11:58:18 macan>
+ * Time-stamp: <2010-03-04 13:17:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -118,6 +118,9 @@ int mds_spool_create(void)
     INIT_LIST_HEAD(&spool_mgr.reqin);
     xlock_init(&spool_mgr.rin_lock);
     sem_init(&spool_mgr.rin_sem, 0, 0);
+    sem_init(&hmo.modify_pause_sem, 0, 0);
+    hmo.spool_modify_pause = 0;
+    hmo.spool_modify_resume = 0;
 
     /* init service threads' pool */
     if (!hmo.conf.spool_threads)

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 16:37:31 macan>
+ * Time-stamp: <2010-03-04 13:04:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -62,6 +62,7 @@
         (HVFS_CLT2MDS_LOOKUP | HVFS_CLT2MDS_NODHLOOKUP |    \
          HVFS_CLT2MDS_LB | HVFS_CLT2MDS_DEBUG) &            \
         ~HVFS_CLT2MDS_BASE)
+#define HVFS_CLT2MDS_RDONLY     (HVFS_CLT2MDS_NOCACHE)
 
 /* MDS to MDS */
 #define HVFS_MDS2MDS_FWREQ      0x0000000080000000 /* forward req */

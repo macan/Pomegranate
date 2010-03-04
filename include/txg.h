@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 20:56:09 macan>
+ * Time-stamp: <2010-03-04 15:57:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -127,6 +127,16 @@ static inline
 void CTA_FINA(struct commit_thread_arg *cta)
 {
     int i;
+
+    /* free siteht */
+    if (!list_empty(&cta->tws_list)) {
+        struct txg_wb_slice *pos, *n;
+        
+        list_for_each_entry_safe(pos, n, &cta->tws_list, list) {
+            list_del(&pos->list);
+            xfree(pos);
+        }
+    }
 
     for (i = 0; i < HVFS_TXG_WB_SITE_HTSIZE; i++) {
         xlock_destroy(&cta->siteht[i].lock);

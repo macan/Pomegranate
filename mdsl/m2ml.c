@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 19:45:22 macan>
+ * Time-stamp: <2010-03-03 21:40:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,6 +57,7 @@ void mdsl_itb(struct xnet_msg *msg)
     hvfs_info(mdsl, "Recv ITB load requst <%ld,%ld> from site %lx\n",
               msg->tx.arg0, msg->tx.arg1, msg->tx.ssite_id);
     __mdsl_send_err_rpy(msg, -ENOSYS);
+    xnet_set_auto_free(msg);
     xnet_free_msg(msg);
 }
 
@@ -88,8 +89,8 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         /* alloc one txg_open_entry, and filling it */
         if (data) {
             tb = data;
-            hvfs_err(mdsl, "Recv TXG_BEGIN %ld from site %lx\n",
-                     tb->txg, tb->site_id);
+            hvfs_debug(mdsl, "Recv TXG_BEGIN %ld from site %lx\n",
+                       tb->txg, tb->site_id);
 
             /* adjust the data pointer */
             data += sizeof(struct txg_begin);
@@ -108,8 +109,8 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         if (data) {
             i = data;
             /* append the ITB to disk file, and get the location */
-            hvfs_err(mdsl, "Recv ITB %ld from site %lx\n",
-                     i->h.itbid, msg->tx.ssite_id);
+            hvfs_debug(mdsl, "Recv ITB %ld from site %lx\n",
+                       i->h.itbid, msg->tx.ssite_id);
             /* filling the itb_info */
         }
     }
@@ -122,8 +123,6 @@ void mdsl_wbtxg(struct xnet_msg *msg)
     if (msg->tx.arg0 & HVFS_WBTXG_CKPT) {
     }
 
-    xnet_free_msg(msg);
-    return;
 out:
     xnet_set_auto_free(msg);
     xnet_free_msg(msg);

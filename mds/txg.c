@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 20:56:28 macan>
+ * Time-stamp: <2010-03-03 21:29:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -279,7 +279,7 @@ int txg_wb_itb_ll(struct commit_thread_arg *cta, struct itb *itb)
         goto out_free_msg;
     }
 #endif
-    hvfs_err(mds, "Write back ITB %ld to site %lx [%ld,%lx]\n",
+    hvfs_debug(mds, "Write back ITB %ld to site %lx [%ld,%lx]\n",
                itb->h.itbid, p->site_id, itb->h.itbid, e->salt);
 
     xnet_free_msg(msg);

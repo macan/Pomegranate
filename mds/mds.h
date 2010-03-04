@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 17:45:34 macan>
+ * Time-stamp: <2010-03-04 15:33:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,6 +79,7 @@ struct mds_conf
     s8 itbid_check;             /* should we do ITBID check? */
     u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
                                  * conflicts */
+    u8 prof_plot;               /* do we dump profilings for gnuplot? */
 
     /* intervals */
     int profiling_thread_interval;
@@ -154,6 +155,8 @@ struct hvfs_mds_object
     sem_t commit_sem;           /* for commit thread wakeup */
     sem_t unlink_sem;           /* for unlink thread wakeup */
     sem_t async_sem;            /* for async thread wakeup */
+    sem_t modify_pause_sem;     /* for pausing the modifing request
+                                 * handling */
     
     pthread_t timer_thread;
     pthread_t *commit_thread;   /* array of commit threads */
@@ -167,6 +170,9 @@ struct hvfs_mds_object
     u8 dconf_thread_stop;       /* running flag for dconf thread */
     u8 unlink_thread_stop;      /* running flag for unlink thread */
     u8 spool_thread_stop;       /* running flag for service thread */
+
+    u8 spool_modify_pause;      /* pause the modification */
+    u8 spool_modify_resume;     /* resume the modification */
 };
 
 extern struct hvfs_mds_info hmi;

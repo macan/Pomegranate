@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 16:55:03 macan>
+ * Time-stamp: <2010-03-04 15:34:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -819,6 +819,7 @@ int main(int argc, char *argv[])
     mds_init(10);
     hmo.prof.xnet = &g_xnet_prof;
     hmo.conf.itbid_check = 1;
+    hmo.conf.prof_plot = 1;
     if (memonly)
         hmo.conf.option |= HVFS_MDS_MEMONLY;
 

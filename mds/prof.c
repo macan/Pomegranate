@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 08:28:16 macan>
+ * Time-stamp: <2010-03-04 15:38:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,7 +25,51 @@
 #include "mds.h"
 #include "prof.h"
 
-void dump_profiling(time_t t)
+static inline
+void dump_profiling_plot(time_t t)
+{
+    if (!hmo.conf.profiling_thread_interval)
+        return;
+    if (t < hmo.prof.ts + hmo.conf.profiling_thread_interval) {
+        return;
+    }
+    hmo.prof.ts = t;
+    /* the output format is :
+     *
+     * "timestamp ic.csize cbht.lookup cbht.modify cbht.split cbht.buckets
+     *  cbht.depth cbht.aitb itb.cowed itb.async_unlink itb.split_submit
+     *  itb.split_local mds.split mds.forward mds.ausplit txc.ftx txc.total
+     *  xnet.msg_alloc xnet.msg_free xnet.inbytes xnet.outbytes
+     *  xnet.active_links"
+     */
+    hvfs_info(mds, "PLOT %ld %d %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
+              "%ld %ld %d %d %ld %ld %ld %ld %ld\n",
+              t, 
+              atomic_read(&hmo.ic.csize),
+              atomic64_read(&hmo.prof.cbht.lookup),
+              atomic64_read(&hmo.prof.cbht.modify),
+              atomic64_read(&hmo.prof.cbht.split),
+              atomic64_read(&hmo.prof.cbht.buckets),
+              atomic64_read(&hmo.prof.cbht.depth),
+              atomic64_read(&hmo.prof.cbht.aitb),
+              atomic64_read(&hmo.prof.itb.cowed),
+              atomic64_read(&hmo.prof.itb.async_unlink),
+              atomic64_read(&hmo.prof.itb.split_submit),
+              atomic64_read(&hmo.prof.itb.split_local),
+              atomic64_read(&hmo.prof.mds.split),
+              atomic64_read(&hmo.prof.mds.forward),
+              atomic64_read(&hmo.prof.mds.ausplit),
+              atomic64_read(&hmo.txc.ftx),
+              atomic64_read(&hmo.txc.total),
+              atomic64_read(&hmo.prof.xnet->msg_alloc),
+              atomic64_read(&hmo.prof.xnet->msg_free),
+              atomic64_read(&hmo.prof.xnet->inbytes),
+              atomic64_read(&hmo.prof.xnet->outbytes),
+              atomic64_read(&hmo.prof.xnet->active_links));
+}
+
+static inline
+void dump_profiling_human(time_t t)
 {
     if (!hmo.conf.profiling_thread_interval)
         return;
@@ -76,4 +120,13 @@ void dump_profiling(time_t t)
               t,
               atomic_read(&hmo.txc.ftx),
               atomic_read(&hmo.txc.total));
+}
+
+void dump_profiling(time_t t)
+{
+    if (likely(hmo.conf.prof_plot)) {
+        dump_profiling_plot(t);
+    } else {
+        dump_profiling_human(t);
+    }
 }

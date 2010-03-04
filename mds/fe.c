@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 17:26:46 macan>
+ * Time-stamp: <2010-03-04 14:18:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -120,6 +120,27 @@ out:
     return err;
 }
 
+static inline
+void mds_modify_control(struct xnet_msg *msg)
+{
+    int err;
+
+    if (unlikely(hmo.spool_modify_pause)) {
+        if (msg->tx.cmd & HVFS_CLT2MDS_RDONLY) {
+            return;
+        }
+        /* pause this handling */
+    retry:
+        err = sem_wait(&hmo.modify_pause_sem);
+        if (err == EINTR)
+            goto retry;
+        sem_post(&hmo.modify_pause_sem);
+        if (unlikely(!hmo.spool_modify_resume)) {
+            goto retry;
+        }
+    }
+}
+
 /* Callback for XNET, should be thread-safe!
  */
 int mds_fe_dispatch(struct xnet_msg *msg)
@@ -168,6 +189,9 @@ int mds_fe_dispatch(struct xnet_msg *msg)
             mds_put_tx(tx);
             return 0;
         }
+
+        /* modify controller */
+        mds_modify_control(msg);
     dh_lookup:
         /* search in the DH */
         /* FIXME: DH load blocking may happen */
