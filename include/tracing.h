@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 08:42:53 macan>
+ * Time-stamp: <2010-03-05 13:54:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,6 +43,7 @@
 #define FFLUSH
 #else  /* !__KERNEL__ */
 #define PRINTK printf
+#define FPRINTK fprintf
 #define FFLUSH(f) fflush(f)
 #define KERN_INFO       "[INFO] "
 #define KERN_ERR        "[ERR ] "
@@ -151,6 +152,13 @@
 #define HVFS_BUGON(str) do {                        \
         HVFS_VV(KERN_PLAIN "Bug on '" #str "'\n");  \
         HVFS_BUG();                                 \
+    } while (0)
+
+#define hvfs_pf(f, a...) do {                   \
+        if (hmo.conf.pf_file) {                 \
+            FPRINTK(hmo.conf.pf_file, f, ## a); \
+            FFLUSH(hmo.conf.pf_file);           \
+        }                                       \
     } while (0)
 
 #endif  /* !__TRACING_H__ */

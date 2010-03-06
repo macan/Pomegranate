@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-04 11:47:07 macan>
+ * Time-stamp: <2010-03-05 13:53:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -408,5 +408,9 @@ void mds_destroy(void)
 
     /* destroy the service thread pool */
     mds_spool_destroy();
+
+    /* close the files */
+    if (hmo.conf.pf_file)
+        fclose(hmo.conf.pf_file);
 }
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 21:35:14 macan>
+ * Time-stamp: <2010-03-06 16:38:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -56,6 +56,7 @@ struct mds_mds_prof
     atomic64_t bitmap_in;       /* # of bitmap lookup IN */
     atomic64_t bitmap_out;      /* # of bitmap lookup OUT */
     atomic64_t forward;         /* # of forward reqeusts */
+    atomic64_t loop_fwd;        /* # of looped forward requests */
     atomic64_t ausplit;         /* # of ausplit */
 };
 

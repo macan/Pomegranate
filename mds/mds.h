@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-04 15:33:52 macan>
+ * Time-stamp: <2010-03-05 13:51:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,7 +55,7 @@ struct mds_conf
     char *log_file;
 
     /* section for file fd */
-    int pf_fd, cf_fd, lf_fd;
+    FILE *pf_file, cf_file, lf_file;
 
     /* # of threads */
     /* NOTE: # of profiling thread is always ONE */

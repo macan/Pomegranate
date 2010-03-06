@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-04 15:34:18 macan>
+ * Time-stamp: <2010-03-06 15:33:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -247,6 +247,8 @@ resend:
             }
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                  MDS_BITMAP_SET);
+            hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
+                       rhi->puuid, rhi->itbid);
         }
     }
 
@@ -768,6 +770,7 @@ int main(int argc, char *argv[])
     long entry;
     int op, memonly;
     char *value;
+    char profiling_fname[256];
 
     hvfs_info(xnet, "type: 0/1/2/3 => mds/client/mdsl/ring\n");
     hvfs_info(xnet, "op:   0/1/2   => create/lookup/unlink\n");
@@ -824,6 +827,20 @@ int main(int argc, char *argv[])
         hmo.conf.option |= HVFS_MDS_MEMONLY;
 
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
+
+    /* setup the profiling file */
+    memset(profiling_fname, 0, sizeof(profiling_fname));
+    sprintf(profiling_fname, "./CP-BACK-ausplit.%s.%d",
+            (type == TYPE_MDS ? "mds" : 
+             (type == TYPE_CLIENT ? "client" : 
+              (type == TYPE_MDSL ? "mdsl" : 
+               "ring"))), self);
+    hmo.conf.pf_file = fopen(profiling_fname, "w+");
+    if (!hmo.conf.pf_file) {
+        hvfs_err(xnet, "fopen() profiling file %s failed %d\n", 
+                 profiling_fname, errno);
+        return EINVAL;
+    }
 
     for (i = 0; i < 4; i++) {
         for (j = 0; j < 4; j++) {

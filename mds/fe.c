@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-04 14:18:30 macan>
+ * Time-stamp: <2010-03-06 16:40:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,6 +68,9 @@ int mds_do_forward(struct xnet_msg *msg, u64 dsite)
      * should do fast forwarding and fast bitmap changing. */
     struct mds_fwd *mf = NULL;
     struct xnet_msg *fmsg;
+
+    if (unlikely(msg->tx.flag & XNET_FWD))
+        atomic64_inc(&hmo.prof.mds.loop_fwd);
 
     mf = xzalloc(sizeof(*mf) + sizeof(u64));
     if (!mf) {
@@ -239,6 +242,7 @@ int mds_fe_dispatch(struct xnet_msg *msg)
                            p->site_id);
                 /* doing the forward now */
                 hi->flag |= INDEX_BIT_FLIP;
+                hi->itbid = itbid;
                 err = mds_do_forward(msg, p->site_id);
                 goto out;
             }

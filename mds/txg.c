@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 21:29:58 macan>
+ * Time-stamp: <2010-03-05 17:53:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -227,6 +227,9 @@ int txg_wb_itb_ll(struct commit_thread_arg *cta, struct itb *itb)
     struct dhe *e;
     struct chp *p;
     int err = 0;
+
+    if (hmo.conf.option & HVFS_MDS_MEMONLY)
+        return 0;
 
     /* Step 1: find the target mdsl site */
     e = mds_dh_search(&hmo.dh, itb->h.puuid);
