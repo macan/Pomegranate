@@ -1,0 +1,96 @@
+# Template for plot mds pictures
+#
+# Copyright (c) Ma Can <ml.macana@gmail.com>
+#                      <macan@ncic.ac.cn>
+#
+reset
+set terminal png transparent size 1200 800
+set size 1,1
+set origin 0.0, 0.0
+set grid
+set output "mds.png"
+set auto x
+set xtics out
+set auto y
+
+set multiplot
+set size .5, .5
+set origin 0.0, .5
+set xlabel "TimeStamp (s)"
+set ylabel "IOPS (#/s)
+set ytics nomirror
+set y2label "# of ITBs (#)"
+set y2tics
+set key right box
+
+# plot 'xnet/ausplit.mds.0' using 3:4 t "Cache Size" w lines 0, \
+#      'xnet/ausplit.mds.0' using 3:5 t "Lookup" w lines 1, \
+#      'xnet/ausplit.mds.0' using 3:6 t "Modify" w line 3, \
+#      'xnet/ausplit.mds.0' using 3:7 t "Split" w line 4 
+
+plot "< awk '{if (ts == 0) {ts = $2; lookup = $4;} \
+              {print ($2 - ts)\" \"(($4 - lookup)/5.0);} \
+              lookup = $4;}' xnet/CP-BACK-ausplit.mds.0" \
+     using 1:2 t "lookup" w linesp ls 1 axes x1y1, \
+     "< awk '{if (ts == 0) {ts = $2; modify = $5;} \
+              {print ($2 - ts)\" \"(($5 - modify)/5.0);} \
+              modify = $5;}' xnet/CP-BACK-ausplit.mds.0" \
+     using 1:2 t "modify" w linesp ls 2 axes x1y1, \
+     "< awk '{if (ts == 0) {ts = $2; cowed = $10;} \
+              {print ($2 - ts)\" \"($10 - cowed);} \
+              cowed = $10;}' xnet/CP-BACK-ausplit.mds.0" \
+     using 1:2 t "cowed" w linesp ls 4 axes x1y2, \
+     "< awk '{if (ts == 0) {ts = $2; sp_local = $13;} \
+              {print ($2 - ts)\" \"($13 - sp_local);} \
+              sp_local = $13;}' xnet/CP-BACK-ausplit.mds.0"\
+     using 1:2 t "local_sp" w linesp ls 5 axes x1y2, \
+     "< awk '{if (ts == 0) {ts = $2; sp_send = $14;} \
+              {print ($2 - ts)\" \"($14 - sp_send);} \
+              sp_send = $14;}' xnet/CP-BACK-ausplit.mds.0"\
+     using 1:2 t "RSP_send" w linesp ls 6 axes x1y2
+
+
+set size .5, .5
+set origin 0, 0
+set xlabel "TimeStamp (s)"
+set ylabel "Throughput (MB/s)"
+set ytics nomirror
+set y2label "# of Requests (#)"
+set y2tics
+set key left box
+
+plot "< awk '{if (ts == 0) {ts = $2; fwds = $15;} \
+              {print ($2 - ts)\" \"($15 - fwds);} \
+              fwds = $15;}' xnet/CP-BACK-ausplit.mds.0"\
+     using 1:2 t "fwd_rcv" w linesp ls 1 axes x1y2, \
+     "< awk '{if (ts == 0) {ts = $2;} \
+              {print ($2 - ts)\" \"($9);} \
+             }' xnet/CP-BACK-ausplit.mds.0" \
+     using 1:2 t "active_ITB" w linesp ls 3 axes x1y2, \
+     "< awk '{if (ts == 0) {ts = $2; inBW = $21;} \
+              {print ($2 - ts)\" \"(($21 - inBW)/5/1024/1024);} \
+              inBW = $21;}' xnet/CP-BACK-ausplit.mds.0"\
+     using 1:2 t "inBW" w linesp ls 8 axes x1y1, \
+     "< awk '{if (ts == 0) {ts = $2; outBW = $22;} \
+              {print ($2 - ts)\" \"(($22 - outBW)/5/1024/1024);} \
+              outBW = $22;}' xnet/CP-BACK-ausplit.mds.0"\
+     using 1:2 t "outBW" w linesp ls 9 axes x1y1
+
+
+# section for MDS1
+#      "< awk '{if (ts == 0) {ts = $2; lookup = $4;} \
+#               {print ($2 - ts)\" \"(($4 - lookup)/5.0);} \
+#               lookup = $4;}' xnet/CP-BACK-ausplit.mds.1" \
+#      using 1:2 t "MDS1.lookup" w linesp ls 11 axes x1y1, \
+#      "< awk '{if (ts == 0) {ts = $2; modify = $5;} \
+#               {print ($2 - ts)\" \"(($5 - modify)/5.0);} \
+#               modify = $5;}' xnet/CP-BACK-ausplit.mds.1" \
+#      using 1:2 t "MDS1.modify" w linesp ls 12 axes x1y1
+#
+unset multiplot
+unset yrange
+unset xtic
+unset boxwidth
+unset style
+unset key
+unset xrange
