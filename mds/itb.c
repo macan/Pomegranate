@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 19:55:56 macan>
+ * Time-stamp: <2010-03-08 14:22:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -718,6 +718,40 @@ int itb_cache_destroy(struct itb_cache *ic)
     }
 
     return 0;
+}
+
+/* get_free_itb_fast()
+ */
+struct itb *get_free_itb_fast(void)
+{
+    struct itb *n;
+    struct list_head *l = NULL;
+
+    xlock_lock(&hmo.ic.lock);
+    if (!list_empty(&hmo.ic.lru)) {
+        l = hmo.ic.lru.next;
+        ASSERT(l != &hmo.ic.lru, mds);
+        list_del_init(l);
+    }
+    xlock_unlock(&hmo.ic.lock);
+
+    if (l) {
+        /* remove from the CBHT */
+        n = (struct itb *)(list_entry(l, struct itbh, list));
+        if (!hlist_unhashed(&n->h.cbht))
+            mds_cbht_del(&hmo.cbht, n);
+    } else {
+        /* try to malloc() one */
+        n = xmalloc(sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE);
+        if (!n) {
+            hvfs_err(mds, "xmalloc() ITB failed\n");
+            return NULL;
+        }
+        atomic_inc(&hmo.ic.csize);
+    }
+
+    atomic64_inc(&hmo.prof.cbht.aitb);
+    return n;
 }
 
 /* get_free_itb()

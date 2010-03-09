@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-06 15:34:15 macan>
+ * Time-stamp: <2010-03-08 14:23:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -216,8 +216,6 @@ void mds_ausplit(struct xnet_msg *msg)
                          MDS_BITMAP_SET);
     /* FIXME: if we using malloc to alloc the ITB, then we need to inc the
      * csize counter */
-    atomic_inc(&hmo.ic.csize);
-    atomic64_inc(&hmo.prof.cbht.aitb);
     atomic64_inc(&hmo.prof.mds.ausplit);
 
     hvfs_debug(mds, "We update the bit of ITB %ld\n", i->h.itbid);

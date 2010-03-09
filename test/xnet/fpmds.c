@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-24 16:46:04 macan>
+ * Time-stamp: <2010-03-08 10:30:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -647,6 +647,7 @@ int main(int argc, char *argv[])
 
     st_init();
     lib_init();
+    mds_pre_init();
     mds_init(10);                /* max capacity is 2^11 */
     hmo.prof.xnet = &g_xnet_prof;
     hmo.conf.itbid_check = 1;

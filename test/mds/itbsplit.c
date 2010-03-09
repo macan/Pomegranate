@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-05 19:47:52 macan>
+ * Time-stamp: <2010-03-08 10:30:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -620,6 +620,7 @@ int main(int argc, char *argv[])
     lock_table_init();
 #endif
     lib_init();
+    mds_pre_init();
     err = mds_init(10);
     if (err) {
         hvfs_err(mds, "mds_init() failed w/ %d\n", err);

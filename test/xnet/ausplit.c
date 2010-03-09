@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-06 15:33:29 macan>
+ * Time-stamp: <2010-03-08 14:27:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -379,6 +379,19 @@ resend:
         goto out;
     } else if (hmr->len) {
         hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+        if (hmr->flag & MD_REPLY_WITH_BFLIP) {
+            struct hvfs_index *rhi;
+            int no = 0;
+
+            rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+            if (!rhi) {
+                hvfs_err(xnet, "extract HI failed, not found.\n");
+            }
+            mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
+                                 MDS_BITMAP_SET);
+            hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
+                       rhi->puuid, rhi->itbid);
+        }
     }
     /* ok, we got the correct respond, dump it */
 //    hmr_print(hmr);
@@ -478,6 +491,19 @@ resend:
         goto out;
     } else if (hmr->len) {
         hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+        if (hmr->flag & MD_REPLY_WITH_BFLIP) {
+            struct hvfs_index *rhi;
+            int no = 0;
+
+            rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+            if (!rhi) {
+                hvfs_err(xnet, "extract HI failed, not found.\n");
+            }
+            mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
+                                 MDS_BITMAP_SET);
+            hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
+                       rhi->puuid, rhi->itbid);
+        }
     }
     /* ok, we got the correct respond, dump it */
 //    hmr_print(hmr);
@@ -750,7 +776,7 @@ void *ausplit_buf_alloc(size_t size, int aflag)
 {
     if (unlikely(aflag == HVFS_MDS2MDS_SPITB)) {
         /* alloc the whole ITB */
-        return xzalloc(sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE);
+        return get_free_itb_fast();
     } else {
         return xzalloc(size);
     }
@@ -819,10 +845,13 @@ int main(int argc, char *argv[])
 
     st_init();
     lib_init();
-    mds_init(10);
+    mds_pre_init();
     hmo.prof.xnet = &g_xnet_prof;
     hmo.conf.itbid_check = 1;
     hmo.conf.prof_plot = 1;
+    if (type == TYPE_MDS)
+        hmo.conf.itb_cache = 3000;
+    mds_init(10);
     if (memonly)
         hmo.conf.option |= HVFS_MDS_MEMONLY;
 

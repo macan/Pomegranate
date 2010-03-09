@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-06 17:01:41 macan>
+ * Time-stamp: <2010-03-08 10:13:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,7 +40,7 @@ void dump_profiling_plot(time_t t)
      *  cbht.depth cbht.aitb itb.cowed itb.async_unlink itb.split_submit
      *  itb.split_local mds.split mds.forward mds.ausplit txc.ftx txc.total
      *  xnet.msg_alloc xnet.msg_free xnet.inbytes xnet.outbytes
-     *  xnet.active_links"
+     *  xnet.active_links mds.loop_fwd"
      */
     hvfs_pf("PLOT %ld %d %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
             "%ld %ld %d %d %ld %ld %ld %ld %ld %ld\n",

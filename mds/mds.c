@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-05 13:53:01 macan>
+ * Time-stamp: <2010-03-08 14:40:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -254,6 +254,21 @@ out:
 }
 
 
+/* mds_pre_init()
+ *
+ * setting up the internal configs.
+ */
+void mds_pre_init()
+{
+    /* prepare the hmi & hmo */
+    memset(&hmi, 0, sizeof(hmi));
+    memset(&hmo, 0, sizeof(hmo));
+    INIT_LIST_HEAD(&hmo.async_unlink);
+#ifdef HVFS_DEBUG_LOCK
+    lock_table_init();
+#endif
+}
+
 /* mds_init()
  *
  *@bdepth: bucket depth
@@ -267,21 +282,13 @@ int mds_init(int bdepth)
     /* lib init */
     lib_init();
     
-    /* prepare the hmi & hmo */
-    memset(&hmi, 0, sizeof(hmi));
-    memset(&hmo, 0, sizeof(hmo));
-    INIT_LIST_HEAD(&hmo.async_unlink);
-#ifdef HVFS_DEBUG_LOCK
-    lock_table_init();
-#endif
-    
     /* FIXME: decode the cmdline */
 
     /* FIXME: configations */
     dconf_init();
     hmo.conf.profiling_thread_interval = 5;
-    hmo.conf.txg_interval = 3;
-    hmo.conf.option = HVFS_MDS_ITB_RWLOCK | HVFS_MDS_CHRECHK;
+    hmo.conf.txg_interval = 10;
+    hmo.conf.option |= HVFS_MDS_ITB_RWLOCK | HVFS_MDS_CHRECHK;
     hmo.conf.max_async_unlink = 1024;
     hmo.conf.async_unlink = 0;  /* enable async unlink */
     hmo.conf.unlink_interval = 2;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 15:12:07 macan>
+ * Time-stamp: <2010-03-08 10:31:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,6 +61,7 @@ int main(int argc, char *argv[])
 
     /* init mds unit test */
     lib_init();
+    mds_pre_init();
     err = mds_init(10);
     if (err) {
         hvfs_err(mds, "mds_init() failed %d\n", err);

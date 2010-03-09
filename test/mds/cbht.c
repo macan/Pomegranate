@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-28 16:43:55 macan>
+ * Time-stamp: <2010-03-08 10:29:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -421,6 +421,7 @@ int st_main(int argc, char *argv[])
     hvfs_info(mds, "CBHT UNIT TESTing (single thread)...(%d,%d,%d,%d)\n", 
               k, x, bdepth, icsize);
     lib_init();
+    mds_pre_init();
     err = mds_init(bdepth);
     if (err) {
         hvfs_err(mds, "mds_cbht_init failed %d\n", err);
@@ -770,6 +771,7 @@ int mt_main(int argc, char *argv[])
     hvfs_info(mds, "CBHT UNIT TESTing (multi thread M%d)...(%d,%d,%d,%d)\n", 
               model, k, x, bdepth, icsize);
     lib_init();
+    mds_pre_init();
     err = mds_init(bdepth);
     if (err) {
         hvfs_err(mds, "mds_cbht_init failed %d\n", err);

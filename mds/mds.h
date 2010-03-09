@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-05 13:51:52 macan>
+ * Time-stamp: <2010-03-08 14:05:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -199,6 +199,7 @@ struct mds_fwd
 
 /* APIs */
 /* for mds.c */
+void mds_pre_init(void);
 int mds_init(int bdepth);
 void mds_destroy(void);
 void mds_reset_itimer(void);
@@ -238,7 +239,8 @@ int mds_cbht_exist_check(struct eh *, u64, u64);
 /* for itb.c */
 struct itb *mds_read_itb(u64, u64, u64);
 void ite_update(struct hvfs_index *, struct ite *);
-struct itb *get_free_itb();
+struct itb *get_free_itb_fast();
+struct itb *get_free_itb(struct hvfs_txg *);
 void itb_reinit(struct itb *);
 void itb_free(struct itb *);
 struct itb *itb_dirty(struct itb *, struct hvfs_txg *, struct itb_lock *,
