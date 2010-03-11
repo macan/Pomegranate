@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-08 14:22:12 macan>
+ * Time-stamp: <2010-03-11 19:29:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -323,6 +323,7 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
     }
 
     err = 0;
+    atomic64_inc(&hmo.prof.cbht.aentry);
     
 out:
     return err;
@@ -391,6 +392,7 @@ static inline void __ite_unlink(struct itb *i, u64 offset)
     if (unlikely(!lib_bitmap_tac(i->bitmap, ii->entry))) {
         hvfs_err(mds, "Test-and-Clear a zero bit?\n");
     }
+    atomic64_dec(&hmo.prof.cbht.aentry);
 }
 
 /* 
@@ -779,6 +781,17 @@ struct itb *get_free_itb(struct hvfs_txg *txg)
         memset(n->bitmap, 0, (1 << (ITB_DEPTH - 3)));
         memset(n->index, 0, sizeof(struct itb_index) * (2 << ITB_DEPTH));
     } else {
+        /* there is no freed ITB in the cache, we must check if we should
+         * control the incoming modify requests */
+        if (unlikely(hmo.conf.option & HVFS_MDS_MEMLIMIT)) {
+            if (!hmo.spool_modify_pause && 
+                (unlikely(hmo.conf.memlimit <= atomic_read(&hmo.ic.csize) * 
+                          (sizeof(struct itb) + ITB_SIZE * sizeof(struct ite))))) {
+                hmo.spool_modify_pause = 1;
+                hmo.mp_ts = time(NULL);
+                return NULL;
+            }
+        }
         /* try to malloc() one */
         n = xzalloc(sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE);
         if (!n) {
@@ -884,9 +897,10 @@ struct itb *itb_cow(struct itb *itb, struct hvfs_txg *txg)
 {
     struct itb *n;
 
-    do {
-        n = get_free_itb(txg);
-    } while (!n && ({xsleep(10); 1;}));
+    n = get_free_itb(txg);
+    if (!n) {
+        return ERR_PTR(-ERESTART);
+    }
 
     /* do NOT copy the ref! */
     memcpy(n, itb, sizeof(struct itbh) - sizeof(atomic_t));
@@ -1006,7 +1020,11 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
             int should_retry = 0;
 
 #if 1
-            n = itb_cow(itb, t); /* itb_cow always success */
+            n = itb_cow(itb, t);
+            if (IS_ERR(n)) {
+                itb_index_wunlock(l);
+                return n;
+            }
 
             /* MAGIC: exchange the old ITB with new ITB */
             /* Step1: release BE.rlock & ITB.rlock */
@@ -1309,7 +1327,7 @@ retry:
             } else {
                 /* this means the itb is cowed, we should refresh ourself */
                 /* w/ itb.runlocked and oi->rlocked */
-                /* NOTE: maybe return -ESPLIT to redo the access */
+                /* NOTE: maybe return -ERESTART to redo the access */
                 goto refresh;
             }
         }

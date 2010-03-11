@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-06 16:38:59 macan>
+ * Time-stamp: <2010-03-11 19:26:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,6 +58,7 @@ struct mds_mds_prof
     atomic64_t forward;         /* # of forward reqeusts */
     atomic64_t loop_fwd;        /* # of looped forward requests */
     atomic64_t ausplit;         /* # of ausplit */
+    atomic64_t paused_mreq;     /* # of paused modify requests */
 };
 
 struct mds_mdsl_prof
@@ -86,6 +87,7 @@ struct mds_cbht_prof
     atomic64_t split;           /* # of splits */
     atomic64_t buckets;         /* # of buckets */
     atomic64_t depth;           /* the depth of the CBHT */
+    atomic64_t aentry;          /* # of active entries */
 };
 
 struct mds_itb_prof 

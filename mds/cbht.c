@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 17:54:30 macan>
+ * Time-stamp: <2010-03-11 20:04:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -709,6 +709,80 @@ int __cbht mds_cbht_del(struct eh *eh, struct itb *i)
 
     xrwlock_runlock(&b->lock);
     return 0;
+}
+
+/* CBHT scaning
+ *
+ * We try to scan the whole CBHT to execute the specific operations.
+ */
+void __cbht mds_cbht_scan(struct eh *eh, int op)
+{
+    static u64 seg_offsets[HVFS_MDS_MAX_OPS] = {0,};
+    static u64 bucket_offsets[HVFS_MDS_MAX_OPS] = {0,};
+    struct segment *s;
+    struct bucket *b = NULL;
+    struct bucket_entry *be;
+    struct itbh *ih;
+    struct hlist_node *pos;
+    u64 offset;
+    int found = 0, err = 0;
+
+    if (op >= HVFS_MDS_MAX_OPS)
+        return;
+    
+    xrwlock_rlock(&eh->lock);
+    list_for_each_entry(s, &eh->dir, list) {
+        if (s->offset <= seg_offsets[op] && 
+            seg_offsets[op] < (s->offset + s->len)) {
+            found = 1;
+            break;
+        }
+    }
+    if (found) {
+        if (s->seg) {
+            for (offset = bucket_offsets[op]; offset < s->len; offset++) {
+                b = *(((struct bucket **)s->seg) + offset);
+                /* ok, holding the bucket rlock */
+                err = xrwlock_tryrlock(&b->lock);
+                if (err)
+                    continue;
+                bucket_offsets[op] = offset + 1;
+                break;
+            }
+            if (offset == s->len) {
+                b = NULL;
+                seg_offsets[op] = s->offset + s->alen;
+                bucket_offsets[op] = 0;
+            }
+        }
+    } else {
+        seg_offsets[op] = 0;
+        bucket_offsets[op] = 0;
+    }
+    xrwlock_runlock(&eh->lock);
+
+    /* ok, we holding the bucket rlock now */
+    if (b) {
+        if (atomic_read(&b->active) == 0)
+            goto bypass;
+        for (offset = 0; offset < (1 << eh->bucket_depth); offset++) {
+            be = b->content + offset;
+            xrwlock_rlock(&be->lock);
+            hlist_for_each_entry(ih, pos, &be->h, cbht) {
+                if (ih->state == ITB_STATE_CLEAN) {
+                    /* ok, this is the target to operate on */
+                    hvfs_debug(mds, "DO op %d on ITB %ld, soff %ld boff %ld\n", 
+                               op, ih->itbid, seg_offsets[op], bucket_offsets[op]);
+                    /* FIXME: add clean/evict operatons here! */
+                    xrwlock_runlock(&be->lock);
+                    goto bypass;
+                }
+            }
+            xrwlock_runlock(&be->lock);
+        }
+    bypass:
+        xrwlock_runlock(&b->lock);
+    }
 }
 
 /* CBHT dir search

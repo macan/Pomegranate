@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-08 14:27:51 macan>
+ * Time-stamp: <2010-03-11 18:36:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -794,7 +794,7 @@ int main(int argc, char *argv[])
     int type = 0;
     int self, sport, i, j, thread;
     long entry;
-    int op, memonly;
+    int op, memonly, memlimit;
     char *value;
     char profiling_fname[256];
 
@@ -827,6 +827,11 @@ int main(int argc, char *argv[])
         memonly = atoi(value);
     } else
         memonly = 1;
+    value = getenv("memlimit");
+    if (value) {
+        memlimit = atoi(value);
+    } else
+        memlimit = 0;
 
     pthread_barrier_init(&barrier, NULL, thread);
 
@@ -849,11 +854,15 @@ int main(int argc, char *argv[])
     hmo.prof.xnet = &g_xnet_prof;
     hmo.conf.itbid_check = 1;
     hmo.conf.prof_plot = 1;
-    if (type == TYPE_MDS)
-        hmo.conf.itb_cache = 3000;
+    if (type == TYPE_MDS) {
+        hmo.conf.itb_cache = 0;
+        hmo.conf.memlimit = 3267840001UL;
+    }
     mds_init(10);
     if (memonly)
         hmo.conf.option |= HVFS_MDS_MEMONLY;
+    if (memlimit)
+        hmo.conf.option |= HVFS_MDS_MEMLIMIT;
 
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
 
@@ -922,6 +931,12 @@ int main(int argc, char *argv[])
     bitmap_insert(0, 0);
     dh_insert(hmi.root_uuid, hmi.root_uuid, hmi.root_salt);
     bitmap_insert(1, 0);
+
+    err = mds_verify();
+    if (err) {
+        hvfs_err(xnet, "Verify MDS configration failed!\n");
+        goto out;
+    }
 
 //    SET_TRACING_FLAG(mds, HVFS_DEBUG | HVFS_VERBOSE);
 

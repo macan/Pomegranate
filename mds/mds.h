@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-08 14:05:03 macan>
+ * Time-stamp: <2010-03-11 20:01:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,6 +68,7 @@ struct mds_conf
     int max_async_unlink;       /* max # of async unlink in one unlink wave */
 
     /* misc configs */
+    u64 memlimit;               /* ITB mem limit */
     int txc_hash_size;          /* TXC hash table size */
     int txc_ftx;                /* TXC init free TXs */
     int cbht_bucket_depth;      /* CBHT bucket depth */
@@ -76,6 +77,7 @@ struct mds_conf
     int ring_vid_max;           /* max # of vid in the ring(AUTO) */
     int itb_depth_default;      /* default value of itb depth */
     int async_update_N;         /* default # of processing request */
+    int mp_to;                  /* timeout of modify pause */
     s8 itbid_check;             /* should we do ITBID check? */
     u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
                                  * conflicts */
@@ -91,6 +93,7 @@ struct mds_conf
 #define HVFS_MDS_ITB_RWLOCK     0x02 /* use pthread rwlock as index lock */
 #define HVFS_MDS_ITB_MUTEX      0x04 /* use pthread mutex as index lock */
 #define HVFS_MDS_MEMONLY        0x08 /* memory only service */
+#define HVFS_MDS_MEMLIMIT       0x10 /* limit the ITB memory usage */
     u64 option;
 };
 
@@ -150,6 +153,7 @@ struct hvfs_mds_object
 
     /* the following region is used for threads */
     time_t unlink_ts;
+    time_t mp_ts;               /* begin time of modify pause */
 
     sem_t timer_sem;            /* for timer thread wakeup */
     sem_t commit_sem;           /* for commit thread wakeup */
@@ -172,7 +176,6 @@ struct hvfs_mds_object
     u8 spool_thread_stop;       /* running flag for service thread */
 
     u8 spool_modify_pause;      /* pause the modification */
-    u8 spool_modify_resume;     /* resume the modification */
 };
 
 extern struct hvfs_mds_info hmi;
@@ -201,6 +204,7 @@ struct mds_fwd
 /* for mds.c */
 void mds_pre_init(void);
 int mds_init(int bdepth);
+int mds_verify(void);
 void mds_destroy(void);
 void mds_reset_itimer(void);
 
@@ -235,6 +239,10 @@ int mds_cbht_insert_bbrlocked(struct eh *, struct itb *,
                               struct bucket_entry **,
                               struct itb **);
 int mds_cbht_exist_check(struct eh *, u64, u64);
+#define HVFS_MDS_OP_EVICT       0
+#define HVFS_MDS_OP_CLEAN       1
+#define HVFS_MDS_MAX_OPS        3
+void mds_cbht_scan(struct eh *, int);
 
 /* for itb.c */
 struct itb *mds_read_itb(u64, u64, u64);
@@ -357,6 +365,8 @@ void au_handle_split_sync(void);
 int mds_spool_create(void);
 void mds_spool_destroy(void);
 int mds_spool_dispatch(struct xnet_msg *);
+int mds_spool_modify_pause(struct xnet_msg *);
+void mds_spool_mp_check(time_t);
 
 /* APIs */
 /* __txg_busy_loop_detector()

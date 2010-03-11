@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-06 14:49:17 macan>
+ * Time-stamp: <2010-03-11 19:57:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -180,6 +180,7 @@ int __aur_itb_split(struct async_update_request *aur)
         mds_dh_bitmap_update(&hmo.dh, i->h.puuid, i->h.itbid, 
                              MDS_BITMAP_SET);
         atomic64_inc(&hmo.prof.itb.split_local);
+        atomic64_add(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
 
         hvfs_debug(mds, "we update the bit of ITB %ld\n", i->h.itbid);
 /*         mds_dh_bitmap_dump(&hmo.dh, i->h.puuid); */

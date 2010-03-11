@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-08 10:13:37 macan>
+ * Time-stamp: <2010-03-11 19:32:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,10 +40,10 @@ void dump_profiling_plot(time_t t)
      *  cbht.depth cbht.aitb itb.cowed itb.async_unlink itb.split_submit
      *  itb.split_local mds.split mds.forward mds.ausplit txc.ftx txc.total
      *  xnet.msg_alloc xnet.msg_free xnet.inbytes xnet.outbytes
-     *  xnet.active_links mds.loop_fwd"
+     *  xnet.active_links mds.loop_fwd mds.paused_mreq cbht.aentry"
      */
     hvfs_pf("PLOT %ld %d %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
-            "%ld %ld %d %d %ld %ld %ld %ld %ld %ld\n",
+            "%ld %ld %d %d %ld %ld %ld %ld %ld %ld %ld %ld\n",
             t, 
             atomic_read(&hmo.ic.csize),
             atomic64_read(&hmo.prof.cbht.lookup),
@@ -66,7 +66,9 @@ void dump_profiling_plot(time_t t)
             atomic64_read(&hmo.prof.xnet->inbytes),
             atomic64_read(&hmo.prof.xnet->outbytes),
             atomic64_read(&hmo.prof.xnet->active_links),
-            atomic64_read(&hmo.prof.mds.loop_fwd)
+            atomic64_read(&hmo.prof.mds.loop_fwd),
+            atomic64_read(&hmo.prof.mds.paused_mreq),
+            atomic64_read(&hmo.prof.cbht.aentry)
         );
 }
 

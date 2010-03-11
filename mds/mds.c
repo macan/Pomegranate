@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-08 14:40:08 macan>
+ * Time-stamp: <2010-03-11 14:38:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
  */
 
 #include "hvfs.h"
+#include "xnet.h"
 #include "mds.h"
 #include "lib.h"
 
@@ -159,6 +160,8 @@ static void *mds_timer_thread_main(void *arg)
         }
         /* then, checking profiling */
         dump_profiling(time(NULL));
+        /* next, itb checking */
+        mds_spool_mp_check(time(NULL));
         /* next, checking async unlink */
         async_unlink(time(NULL));
         /* next, checking the CBHT slow down */
@@ -269,6 +272,20 @@ void mds_pre_init()
 #endif
 }
 
+/* mds_verify()
+ */
+int mds_verify(void)
+{
+    /* check modify pause and spool usage */
+    if (hmo.conf.option & HVFS_MDS_MEMLIMIT) {
+        if (!hmo.xc || (hmo.xc->ops.recv_handler != mds_spool_dispatch)) {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
 /* mds_init()
  *
  *@bdepth: bucket depth
@@ -287,7 +304,7 @@ int mds_init(int bdepth)
     /* FIXME: configations */
     dconf_init();
     hmo.conf.profiling_thread_interval = 5;
-    hmo.conf.txg_interval = 10;
+    hmo.conf.txg_interval = 30;
     hmo.conf.option |= HVFS_MDS_ITB_RWLOCK | HVFS_MDS_CHRECHK;
     hmo.conf.max_async_unlink = 1024;
     hmo.conf.async_unlink = 0;  /* enable async unlink */
@@ -298,6 +315,7 @@ int mds_init(int bdepth)
     hmo.conf.itb_depth_default = 3;
     hmo.conf.async_update_N = 4;
     hmo.conf.spool_threads = 8;
+    hmo.conf.mp_to = 60;
 
     /* Init the signal handlers */
     err = mds_init_signal();

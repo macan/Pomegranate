@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-04 13:17:01 macan>
+ * Time-stamp: <2010-03-11 12:42:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,7 +32,9 @@
 struct spool_mgr
 {
     struct list_head reqin;
+    struct list_head modify_req; /* for suspending modify requests */
     xlock_t rin_lock;
+    xlock_t pmreq_lock;
     sem_t rin_sem;
 };
 
@@ -54,11 +56,65 @@ int mds_spool_dispatch(struct xnet_msg *msg)
     return 0;
 }
 
+int mds_spool_modify_pause(struct xnet_msg *msg)
+{
+    xlock_lock(&spool_mgr.pmreq_lock);
+    list_add_tail(&msg->list, &spool_mgr.modify_req);
+    xlock_unlock(&spool_mgr.pmreq_lock);
+    atomic64_inc(&hmo.prof.mds.paused_mreq);
+    
+    return 0;
+}
+
+static inline
+void mds_spool_modify_resume(void)
+{
+    int i;
+
+    for (i = 0; i < hmo.conf.spool_threads; i++) {
+        sem_post(&spool_mgr.rin_sem);
+    }
+}
+
+void mds_spool_mp_check(time_t t)
+{
+    if (!hmo.spool_modify_pause)
+        return;
+    
+    /* check to see if we should resume the modify requests' handling */
+    if (hmo.conf.memlimit > atomic64_read(&hmo.prof.cbht.aitb) * 
+        (sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE)) {
+        hmo.spool_modify_pause = 0;
+        mds_spool_modify_resume();
+    } else {
+        if (t > hmo.mp_ts + hmo.conf.mp_to) {
+            hvfs_err(mds, "MDS pausing modification for a long time: %lds\n",
+                     (u64)(t - hmo.mp_ts));
+        }
+    }
+}
+
 static inline
 int __serv_request(void)
 {
     struct xnet_msg *msg = NULL, *pos, *n;
 
+    if (unlikely(!hmo.spool_modify_pause)) {
+        if (!list_empty(&spool_mgr.modify_req)) {
+            xlock_lock(&spool_mgr.pmreq_lock);
+            list_for_each_entry_safe(pos, n, &spool_mgr.modify_req, list) {
+                list_del_init(&pos->list);
+                msg = pos;
+                break;
+            }
+            xlock_unlock(&spool_mgr.pmreq_lock);
+            if (msg) {
+                ASSERT(msg->xc, mds);
+                return msg->xc->ops.dispatcher(msg);
+            }
+        }
+    }
+    
     xlock_lock(&spool_mgr.rin_lock);
     list_for_each_entry_safe(pos, n, &spool_mgr.reqin, list) {
         list_del_init(&pos->list);
@@ -116,11 +172,11 @@ int mds_spool_create(void)
     
     /* init the mgr struct */
     INIT_LIST_HEAD(&spool_mgr.reqin);
+    INIT_LIST_HEAD(&spool_mgr.modify_req);
     xlock_init(&spool_mgr.rin_lock);
+    xlock_init(&spool_mgr.pmreq_lock);
     sem_init(&spool_mgr.rin_sem, 0, 0);
-    sem_init(&hmo.modify_pause_sem, 0, 0);
     hmo.spool_modify_pause = 0;
-    hmo.spool_modify_resume = 0;
 
     /* init service threads' pool */
     if (!hmo.conf.spool_threads)
