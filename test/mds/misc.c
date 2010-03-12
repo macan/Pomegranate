@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 19:04:32 macan>
+ * Time-stamp: <2010-03-12 18:57:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -69,6 +69,11 @@ int main(int argc, char *argv[])
         l += sprintf(line + l, "%x", bitmap[j]);
     }
     hvfs_err(mds, "Bitmap [%s]\n", line);
+
+    /* test mds ev */
+    mds_pre_init();
+    mds_config();
+    hvfs_info(mds, "memlimit is %ld\n", hmo.conf.memlimit);
 
     return err;
 }

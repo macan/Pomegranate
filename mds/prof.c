@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-11 19:32:55 macan>
+ * Time-stamp: <2010-03-12 19:52:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,11 +61,16 @@ void dump_profiling_plot(time_t t)
             atomic64_read(&hmo.prof.mds.ausplit),
             atomic64_read(&hmo.txc.ftx),
             atomic64_read(&hmo.txc.total),
-            atomic64_read(&hmo.prof.xnet->msg_alloc),
-            atomic64_read(&hmo.prof.xnet->msg_free),
-            atomic64_read(&hmo.prof.xnet->inbytes),
-            atomic64_read(&hmo.prof.xnet->outbytes),
-            atomic64_read(&hmo.prof.xnet->active_links),
+            (hmo.prof.xnet ?
+             atomic64_read(&hmo.prof.xnet->msg_alloc) : 0),
+            (hmo.prof.xnet ?
+             atomic64_read(&hmo.prof.xnet->msg_free) : 0),
+            (hmo.prof.xnet ?
+             atomic64_read(&hmo.prof.xnet->inbytes) : 0),
+            (hmo.prof.xnet ?
+             atomic64_read(&hmo.prof.xnet->outbytes) : 0),
+            (hmo.prof.xnet ?
+             atomic64_read(&hmo.prof.xnet->active_links) : 0),
             atomic64_read(&hmo.prof.mds.loop_fwd),
             atomic64_read(&hmo.prof.mds.paused_mreq),
             atomic64_read(&hmo.prof.cbht.aentry)

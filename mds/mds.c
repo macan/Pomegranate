@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-11 14:38:14 macan>
+ * Time-stamp: <2010-03-12 18:56:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -270,6 +270,8 @@ void mds_pre_init()
 #ifdef HVFS_DEBUG_LOCK
     lock_table_init();
 #endif
+    /* setup the state */
+    hmo.state = HMO_STATE_LAUNCH;
 }
 
 /* mds_verify()
@@ -282,6 +284,58 @@ int mds_verify(void)
             return -1;
         }
     }
+
+    return 0;
+}
+
+/* mds_config()
+ *
+ * Get configuration from the execution environment.
+ */
+int mds_config(void)
+{
+    char *value;
+
+    if (hmo.state != HMO_STATE_LAUNCH) {
+        hvfs_err(mds, "MDS state is not in launching, please call "
+                 "mds_pre_init() firstly!\n");
+        return -EINVAL;
+    }
+
+    HVFS_MDS_GET_ENV_strncpy(dcaddr, value, MDS_DCONF_MAX_NAME_LEN);
+
+    HVFS_MDS_GET_ENV_cpy(profiling_file, value);
+    HVFS_MDS_GET_ENV_cpy(conf_file, value);
+    HVFS_MDS_GET_ENV_cpy(log_file, value);
+
+    HVFS_MDS_GET_ENV_atoi(commit_threads, value);
+    HVFS_MDS_GET_ENV_atoi(service_threads, value);
+    HVFS_MDS_GET_ENV_atoi(async_threads, value);
+    HVFS_MDS_GET_ENV_atoi(spool_threads, value);
+    HVFS_MDS_GET_ENV_atoi(max_async_unlink, value);
+    HVFS_MDS_GET_ENV_atoi(txc_hash_size, value);
+    HVFS_MDS_GET_ENV_atoi(txc_ftx, value);
+    HVFS_MDS_GET_ENV_atoi(cbht_bucket_depth, value);
+    HVFS_MDS_GET_ENV_atoi(itb_cache, value);
+    HVFS_MDS_GET_ENV_atoi(async_unlink, value);
+    HVFS_MDS_GET_ENV_atoi(ring_vid_max, value);
+    HVFS_MDS_GET_ENV_atoi(itb_depth_default, value);
+    HVFS_MDS_GET_ENV_atoi(async_update_N, value);
+    HVFS_MDS_GET_ENV_atoi(mp_to, value);
+    HVFS_MDS_GET_ENV_atoi(itbid_check, value);
+    HVFS_MDS_GET_ENV_atoi(cbht_slow_down, value);
+    HVFS_MDS_GET_ENV_atoi(prof_plot, value);
+    HVFS_MDS_GET_ENV_atoi(profiling_thread_interval, value);
+    HVFS_MDS_GET_ENV_atoi(txg_interval, value);
+    HVFS_MDS_GET_ENV_atoi(unlink_interval, value);
+
+    HVFS_MDS_GET_ENV_atol(memlimit, value);
+
+    HVFS_MDS_GET_ENV_option(opt_chrechk, CHRECHK, value);
+    HVFS_MDS_GET_ENV_option(opt_itb_rwlock, ITB_RWLOCK, value);
+    HVFS_MDS_GET_ENV_option(opt_itb_mutex, ITB_MUTEX, value);
+    HVFS_MDS_GET_ENV_option(opt_memonly, MEMONLY, value);
+    HVFS_MDS_GET_ENV_option(opt_memlimit, MEMLIMIT, value);
 
     return 0;
 }
@@ -303,6 +357,8 @@ int mds_init(int bdepth)
 
     /* FIXME: configations */
     dconf_init();
+    mds_config();
+    /* default configurations */
     hmo.conf.profiling_thread_interval = 5;
     hmo.conf.txg_interval = 30;
     hmo.conf.option |= HVFS_MDS_ITB_RWLOCK | HVFS_MDS_CHRECHK;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-11 18:36:11 macan>
+ * Time-stamp: <2010-03-12 19:47:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -854,16 +854,10 @@ int main(int argc, char *argv[])
     hmo.prof.xnet = &g_xnet_prof;
     hmo.conf.itbid_check = 1;
     hmo.conf.prof_plot = 1;
-    if (type == TYPE_MDS) {
-        hmo.conf.itb_cache = 0;
-        hmo.conf.memlimit = 3267840001UL;
-    }
+/*         hmo.conf.itb_cache = 0; */
+/*         hmo.conf.memlimit = 3267840001UL; */
     mds_init(10);
-    if (memonly)
-        hmo.conf.option |= HVFS_MDS_MEMONLY;
-    if (memlimit)
-        hmo.conf.option |= HVFS_MDS_MEMLIMIT;
-
+    
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
 
     /* setup the profiling file */

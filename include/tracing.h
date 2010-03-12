@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-05 13:54:49 macan>
+ * Time-stamp: <2010-03-12 19:47:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -158,6 +158,9 @@
         if (hmo.conf.pf_file) {                 \
             FPRINTK(hmo.conf.pf_file, f, ## a); \
             FFLUSH(hmo.conf.pf_file);           \
+        } else {                                \
+            PRINTK(f, ## a);                    \
+            FFLUSH(stdout);                     \
         }                                       \
     } while (0)
 

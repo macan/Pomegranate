@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-11 20:01:00 macan>
+ * Time-stamp: <2010-03-12 19:28:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,6 +33,7 @@
 #include "mds_api.h"
 #include "lib.h"
 #include "async.h"
+#include "mds_config.h"
 
 /* FIXME: we should implement a ARC/DULO cache */
 struct itb_cache 
@@ -55,7 +56,7 @@ struct mds_conf
     char *log_file;
 
     /* section for file fd */
-    FILE *pf_file, cf_file, lf_file;
+    FILE *pf_file, *cf_file, *lf_file;
 
     /* # of threads */
     /* NOTE: # of profiling thread is always ONE */
@@ -143,10 +144,11 @@ struct hvfs_mds_object
     struct hvfs_txg *txg[TXG_NUM];
     struct hvfs_txc txc;
     struct itb_cache ic;
-#define HMO_STATE_LAUNCH        0x00
-#define HMO_STATE_RUNNING       0x01
-#define HMO_STATE_PAUSE         0x02
-#define HMO_STATE_RDONLY        0x03
+#define HMO_STATE_INIT          0x00
+#define HMO_STATE_LAUNCH        0x01
+#define HMO_STATE_RUNNING       0x02
+#define HMO_STATE_PAUSE         0x03
+#define HMO_STATE_RDONLY        0x04
     u64 state;
 
     struct list_head async_unlink;
@@ -239,8 +241,8 @@ int mds_cbht_insert_bbrlocked(struct eh *, struct itb *,
                               struct bucket_entry **,
                               struct itb **);
 int mds_cbht_exist_check(struct eh *, u64, u64);
-#define HVFS_MDS_OP_EVICT       0
-#define HVFS_MDS_OP_CLEAN       1
+#define HVFS_MDS_OP_EVICT       0 /* evict the ITB to MDSL if it is clean */
+#define HVFS_MDS_OP_CLEAN       1 /* empty ITB to clean to MDSL */
 #define HVFS_MDS_MAX_OPS        3
 void mds_cbht_scan(struct eh *, int);
 
