@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-11-30 19:28:19 macan>
+ * Time-stamp: <2010-03-13 10:34:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,14 +29,9 @@ struct storage_result *mdsl_read_itb(struct storage_index *si)
 {
     struct mmap_window *mw;
     struct storage_result *sr;
-    char *path;
+    char path[HVFS_MAX_NAME_LEN] = {0,};
 
-    path = __getname();
-    if (!mpath) {
-        hvfs_err(mdsl, "__getname() failed\n");
-        return ERR_PTR(-ENOMEM);
-    }
-    mpath = sprintf("%s/%d/md", HVFS_HOME, si->sic.uuid);
+    path = sprintf("%s/%ld/md", HVFS_MDSL_HOME, si->sic.uuid);
     /* FIXME: how to get the range max quickly? max range based! */
     mw = find_get_md_memwin(path, MD_RANGE, si->sic.arg0);
     max = *(u64 *)(mw->addr + mw->offset);
@@ -44,14 +39,14 @@ struct storage_result *mdsl_read_itb(struct storage_index *si)
     put_range_memwin(mw);
 
     /* FIXME: check whether itbid is in the range (min, max] */
-    path = sprintf("%s/%d/range.[%016d]", HVFS_HOME, si->sic.uuid, max);
+    path = sprintf("%s/%ld/range.[%016d]", HVFS_MDSL_HOME, si->sic.uuid, max);
     /* get the range memory window */
     mw = find_get_range_memwin(path, si->sic.arg0);
     itb_offset = *(u64 *)(mw->addr + mw->offset);
     put_range_memwin(mw);
 
     /* get the ITB */
-    path = sprintf("%s/%d/itb", HVFS_HOME, si->sic.uuid);
+    path = sprintf("%s/%ld/itb", HVFS_MDSL_HOME, si->sic.uuid);
     sr = get_free_sr();
     sr->flag = SR_ITB;
     sr->data = get_itb(path, itb_offset, &sr->len);

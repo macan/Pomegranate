@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 21:21:51 macan>
+ * Time-stamp: <2010-03-13 10:19:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -150,7 +150,7 @@ struct chp *ring_get_point2(u64 point, struct chring *r)
     highp = r->used;
     xrwlock_rlock(&r->rwlock);
     while (1) {
-        midp = (lowp + highp) / 2;
+        midp = (lowp + highp) >> 1;
         if (midp == r->used) {
             p = &r->array[0];
             goto out;

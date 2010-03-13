@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 15:57:25 macan>
+ * Time-stamp: <2010-03-13 15:36:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -149,6 +149,7 @@ static void *mdsl_timer_thread_main(void *arg)
         sem_getvalue(&hmo.timer_sem, &v);
         hvfs_debug(mdsl, "OK, we receive a SIGALRM event(remain %d).\n", v);
         /* should we work now */
+        mdsl_dump_profiling(time(NULL));
     }
 
     hvfs_debug(mdsl, "Hooo, I am exiting...\n");
@@ -236,6 +237,84 @@ out:
     return;
 }
 
+/* mdsl_pre_init()
+ */
+void mdsl_pre_init(void)
+{
+    /* prepare the hmi & hmo */
+    memset(&hmi, 0, sizeof(hmi));
+    memset(&hmo, 0, sizeof(hmo));
+#ifdef HVFS_DEBUG_LOCK
+    lock_table_init();
+#endif
+    /* setup the state */
+    hmo.state = HMO_STATE_LAUNCH;
+}
+
+/* mdsl_verify()
+ */
+int mdsl_verify(void)
+{
+    /* check sth */
+    return 0;
+}
+
+/* mdsl_config()
+ *
+ * Get configuration from the execution environment
+ */
+int mdsl_config(void)
+{
+    char *value;
+
+    if (hmo.state != HMO_STATE_LAUNCH) {
+        hvfs_err(mdsl, "MDSL state is no in launching, please call "
+                 "mdsl_pre_init() firstly\n");
+        return -EINVAL;
+    }
+
+    HVFS_MDSL_GET_ENV_strncpy(dcaddr, value, MDSL_DCONF_MAX_NAME_LEN);
+    HVFS_MDSL_GET_ENV_cpy(profiling_file, value);
+    HVFS_MDSL_GET_ENV_cpy(conf_file, value);
+    HVFS_MDSL_GET_ENV_cpy(log_file, value);
+
+    HVFS_MDSL_GET_ENV_atoi(spool_threads, value);
+    HVFS_MDSL_GET_ENV_atoi(ring_vid_max, value);
+    HVFS_MDSL_GET_ENV_atoi(tcc_size, value);
+    HVFS_MDSL_GET_ENV_atoi(prof_plot, value);
+    HVFS_MDSL_GET_ENV_atoi(profiling_thread_interval, value);
+    HVFS_MDSL_GET_ENV_atoi(gc_interval, value);
+
+    HVFS_MDSL_GET_ENV_atol(memlimit, value);
+
+    HVFS_MDSL_GET_ENV_option(write_drop, WDROP, value);
+    
+    return 0;
+}
+
+/* mdsl_help()
+ */
+void mdsl_help(void)
+{
+    hvfs_plain(mdsl, "MDSL build @ %s on %s\n", CDATE, CHOST);
+    hvfs_plain(mdsl, "Usage: [EV list] mdsl\n\n");
+    hvfs_plain(mdsl, "General Environment Variables:\n"
+               " hvfs_mdsl_dcaddr               dynamic config addr for UNIX sockets.\n"
+               " hvfs_mdsl_profiling_file       profiling file name.\n"
+               " hvfs_mdsl_conf_file            config file name.\n"
+               " hvfs_mdsl_log_file             log file name.\n"
+               " hvfs_mdsl_spool_threads        spool threads nr.\n"
+               " hvfs_mdsl_ring_vid_max         max virtual id for each site.\n"
+               " hvfs_mdsl_tcc_size             TCC cache size.\n"
+               " hvfs_mdsl_prof_plot            output for gnuplot.\n"
+               " hvfs_mdsl_profiling_thread_interval\n"
+               "                                wakeup interval for prof thread.\n"
+               " hvfs_mdsl_gc_interval          wakeup interval for gc thread.\n"
+               " hvfs_mdsl_opt_write_drop       drop the writes to this MDSL.\n"
+        );
+    hvfs_plain(mdsl, "Any questions please contacts Ma Can <macan@ncic.ac.cn>\n");
+}
+
 /* mdsl_init()
  */
 int mdsl_init(void)
@@ -245,16 +324,11 @@ int mdsl_init(void)
     /* lib init */
     lib_init();
 
-    /* prepare the hmi & hmo */
-    memset(&hmi, 0, sizeof(hmi));
-    memset(&hmo, 0, sizeof(hmo));
-#ifdef HVFS_DEBUG_LOCK
-    lock_table_init();
-#endif
 
     /* FIXME: decode the cmdline */
 
     /* FIXME: configurations */
+    mdsl_config();
     hmo.conf.profiling_thread_interval = 5;
     hmo.conf.gc_interval = 5;
     hmo.conf.spool_threads = 8;

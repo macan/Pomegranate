@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-12 18:56:15 macan>
+ * Time-stamp: <2010-03-12 20:26:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -283,6 +283,8 @@ int mds_verify(void)
         if (!hmo.xc || (hmo.xc->ops.recv_handler != mds_spool_dispatch)) {
             return -1;
         }
+        if (hmo.conf.memlimit == 0)
+            return -1;
     }
 
     return 0;

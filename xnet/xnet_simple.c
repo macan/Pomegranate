@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 14:56:16 macan>
+ * Time-stamp: <2010-03-13 10:09:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1132,7 +1132,7 @@ int xnet_msg_add_sdata(struct xnet_msg *msg, void *buf, int len)
         }
         msg->siov_alen = 10;
     }
-    if (msg->siov_alen == msg->siov_ulen) {
+    if (unlikely(msg->siov_alen == msg->siov_ulen)) {
         hvfs_err(xnet, "For now, we do not support iovec expanding!\n");
         ASSERT(0, xnet);
     }
@@ -1179,7 +1179,7 @@ int xnet_msg_add_rdata(struct xnet_msg *msg, void *buf, int len)
         }
         msg->riov_alen = 10;
     }
-    if (msg->riov_alen == msg->riov_ulen) {
+    if (unlikely(msg->riov_alen == msg->riov_ulen)) {
         hvfs_err(xnet, "For now, we do not support iovec expanding!\n");
         ASSERT(0, xnet);
     }

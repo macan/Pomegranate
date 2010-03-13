@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 21:40:32 macan>
+ * Time-stamp: <2010-03-13 16:18:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -88,10 +88,43 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         }
         /* alloc one txg_open_entry, and filling it */
         if (data) {
+            struct txg_open_entry *toe;
+            
             tb = data;
             hvfs_debug(mdsl, "Recv TXG_BEGIN %ld from site %lx\n",
                        tb->txg, tb->site_id);
 
+            toe = get_txg_open_entry(&hmo.tcc);
+            if (IS_ERR(toe)) {
+                if (PTR_ERR(toe) == -ENOMEM) {
+                    ASSERT(tb->site_id == msg->tx.ssite_id, mdsl);
+                    ASSERT(tb->txg == msg->tx.arg1, mdsl);
+                    toe_to_tmpfile(TXG_OPEN_ENTRY_DISK_BEGIN, 
+                                   tb->site_id, tb->txg, tb);
+                    goto end_begin;
+                }
+                hvfs_err(mdsl, "get txg_open_entry failed\n");
+                goto out;
+            }
+
+            toe->begin = *tb;
+            xlock_lock(&hmo.tcc.active_lock);
+            list_add(&toe->list, &hmo.tcc.active_list);
+            xlock_unlock(&hmo.tcc.active_lock);
+
+            /* alloc space for region info */
+            toe->other_region = xmalloc(tb->dir_delta_nr * 
+                                        sizeof(struct hvfs_dir_delta) +
+                                        tb->bitmap_delta_nr * 
+                                        sizeof(struct bitmap_delta) +
+                                        tb->ckpt_nr * 
+                                        sizeof(struct checkpoint));
+            if (!toe->other_region) {
+                hvfs_warning(mdsl, "xmalloc() TOE %p other_region failed, "
+                             "we will retry later!\n", toe);
+            }
+
+        end_begin:
             /* adjust the data pointer */
             data += sizeof(struct txg_begin);
             len -= sizeof(struct txg_begin);
@@ -99,6 +132,7 @@ void mdsl_wbtxg(struct xnet_msg *msg)
     }
     if (msg->tx.arg0 & HVFS_WBTXG_ITB) {
         struct itb *i;
+        struct txg_open_entry *toe;
         
         /* sanity checking */
         if (len < sizeof(struct itb)) {
@@ -107,11 +141,44 @@ void mdsl_wbtxg(struct xnet_msg *msg)
             goto out;
         }
         if (data) {
+            struct itb_info *ii;
+            
             i = data;
-            /* append the ITB to disk file, and get the location */
             hvfs_debug(mdsl, "Recv ITB %ld from site %lx\n",
                        i->h.itbid, msg->tx.ssite_id);
-            /* filling the itb_info */
+
+            /* find the toe now */
+            toe = toe_lookup(msg->tx.ssite_id, msg->tx.arg1);
+            if (!toe) {
+                hvfs_err(mdsl, "toe lookup <%lx,%ld> failed\n",
+                         msg->tx.ssite_id, msg->tx.arg1);
+                goto end_itb;
+            }
+
+            ii = xzalloc(sizeof(struct itb_info));
+            if (!ii) {
+                hvfs_warning(mdsl, "xzalloc() itb_info failed\n");
+            } else
+                INIT_LIST_HEAD(&ii->list);
+
+            /* append the ITB to disk file, get the location and filling the
+             * itb_info */
+            if (itb_append(i, ii, msg->tx.ssite_id, msg->tx.arg1)) {
+                hvfs_err(mdsl, "Append itb <%lx.%ld.%ld> to disk file failed\n",
+                         msg->tx.ssite_id, msg->tx.arg1, i->h.itbid);
+                xfree(ii);
+                goto end_itb;
+            }
+            
+            /* save the itb_info to open entry */
+            if (ii) {
+                list_add_tail(&ii->list, &toe->itb);
+                atomic_inc(&toe->itb_nr);
+            }
+        end_itb:
+            /* adjust the data pointer */
+            data += atomic_read(&i->h.len);
+            len -= atomic_read(&i->h.len);
         }
     }
     if (msg->tx.arg0 & HVFS_WBTXG_END) {

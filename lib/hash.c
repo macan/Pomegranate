@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 15:57:12 macan>
+ * Time-stamp: <2010-03-13 17:20:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -275,6 +275,18 @@ static inline u64 hvfs_hash_vsite(u64 key1, u64 key2, u64 key2len)
 static inline u32 hvfs_hash_tws(u64 key)
 {
     return APHash((char *)(&key), sizeof(key));
+}
+
+/* for storage fd hash table */
+static inline u32 hvfs_hash_fdht(u64 key1, u64 key2)
+{
+    u64 val1, val2;
+
+    val1 = hash_64(key2, 64);
+    val2 = hash_64(key1, 64);
+    val1 = val1 ^ (val2 ^ GOLDEN_RATIO_PRIME);
+
+    return val1;
 }
 
 static inline

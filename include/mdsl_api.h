@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 09:04:45 macan>
+ * Time-stamp: <2010-03-13 15:16:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -154,6 +154,7 @@ struct txg_begin
 
 struct itb_info
 {
+    struct list_head list;
     u64 duuid;
     u64 itbid;
     u64 location;
@@ -162,8 +163,10 @@ struct itb_info
 struct txg_open_entry
 {
     struct list_head list;
+    struct list_head itb;
     struct txg_begin begin;
     void *other_region;
+    atomic_t itb_nr;
 };
 
 struct txg_end

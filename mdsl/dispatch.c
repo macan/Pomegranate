@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 18:01:27 macan>
+ * Time-stamp: <2010-03-13 10:30:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -96,7 +96,6 @@ int mdsl_dispatch(struct xnet_msg *msg)
     }
     hvfs_err(mdsl, "MDSL core dispatcher handle INVALID request <0x%lx %ld>\n",
              msg->tx.ssite_id, msg->tx.reqno);
-out:
     mdsl_handle_err(msg, err);
     return err;
 }

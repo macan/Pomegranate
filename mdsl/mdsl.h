@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 18:02:50 macan>
+ * Time-stamp: <2010-03-13 18:06:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,12 +30,13 @@
 #include "lprof.h"
 #include "lib.h"
 #include "ring.h"
+#include "mdsl_config.h"
 
 #ifdef HVFS_TRACING
 extern u32 hvfs_mdsl_tracing_flags;
 #endif
 
-#define HVFS_HOME "/tmp/hvfs"
+#define HVFS_MDSL_HOME "/tmp/hvfs"
 
 /* mmap window */
 struct mmap_window 
@@ -54,21 +55,48 @@ struct mmap_window_cache
 
 struct txg_compact_cache
 {
-    struct list_head open_list; /* txg_open_entry list */
-    struct list_head wbed_list; /* txg entry waiting for TXG_END */
-    xrwlock_t open_lock;
-    xrwlock_t wbed_lock;
+    struct list_head free_list;   /* txg_open_entry free list */
+    struct list_head active_list; /* txg entry just in memory */
+    struct list_head wbed_list;   /* txg entry already to disk but waiting for
+                                   * TXG_END */
+    struct list_head tmp_list;  /* txg entry written to disk temp file */
+    xlock_t free_lock;
+    xlock_t active_lock;
+    xlock_t wbed_lock;
     atomic_t size, used;
+};
+
+struct txg_open_entry_disk
+{
+    struct list_head list;
+#define TXG_OPEN_ENTRY_DISK_BEGIN       0x01
+#define TXG_OPEN_ENTRY_DISK_ITB         0x02
+#define TXG_OPEN_ENTRY_DISK_DIR         0x04
+#define TXG_OPEN_ENTRY_DISK_BITMAP      0x08
+#define TXG_OPEN_ENTRY_DISK_CKPT        0x10
+#define TXG_OPEN_ENTRY_DISK_END         0x20
+    u32 type;
+    u32 len;
+    u64 ssite;
+    u64 txg;
 };
 
 struct directw_log
 {
 };
 
+struct mdsl_storage
+{
+#define MDSL_STORAGE_FDHASH_SIZE        2048
+    struct regular_hash *fdhash;
+    /* global fds */
+    int txg_fd, tmp_txg_fd, log_fd, split_log_fd;
+};
+
 struct mdsl_conf
 {
     /* section for dynamic configuration */
-    char dcaddr[MDS_DCONF_MAX_NAME_LEN];
+    char dcaddr[MDSL_DCONF_MAX_NAME_LEN];
     int dcfd, dcepfd;
     pthread_t dcpt;
 
@@ -78,21 +106,28 @@ struct mdsl_conf
     char *log_file;
 
     /* section for file fd */
-    int pf_fd, cf_fd, lf_fd;
+    FILE *pf_file, *cf_file, *lf_file;
 
     /* # of threads */
     /* NOTE: # of profiling thread is always ONE */
     int spool_threads;          /* # of service threads */
 
     /* misc configs */
+    u64 memlimit;               /* memlimit of the TCC */
     int ring_vid_max;           /* max # of vid in the ring(AUTO) */
     int tcc_size;               /* # of tcc cache size */
+    int storage_fdhash_size;    /* # of storage fdhash size */
+    int itb_file_chunk;         /* chunk size of the itb file */
+    int data_file_chunk;        /* chunk size of the data file */
+    u8 prof_plot;               /* do we dump profilings for gnuplot */
 
     /* intervals */
     int profiling_thread_interval;
     int gc_interval;
 
     /* conf */
+#define HVFS_MDSL_WDROP         0x01 /* drop all the writes to this MDSL */
+#define HVFS_MDSL_MEMLIMIT      0x02 /* limit the TCC memory usage */
     u64 option;
 };
 
@@ -150,9 +185,13 @@ extern struct hvfs_mdsl_info hmi;
 extern struct hvfs_mdsl_object hmo;
 
 /* APIs */
+void mdsl_pre_init(void);
+void mdsl_help(void);
+int mdsl_verify(void);
 int mdsl_init(void);
 void mdsl_destroy(void);
 
+/* spool.c */
 int mdsl_spool_create(void);
 void mdsl_spool_destroy(void);
 int mdsl_spool_dispatch(struct xnet_msg *);
@@ -168,5 +207,30 @@ void mdsl_itb(struct xnet_msg *);
 void mdsl_bitmap(struct xnet_msg *);
 void mdsl_wbtxg(struct xnet_msg *);
 void mdsl_wdata(struct xnet_msg *);
+
+/* prof.c */
+void mdsl_dump_profiling(time_t);
+
+/* tcc.c */
+int mdsl_tcc_init(void);
+void mdsl_tcc_destroy(void);
+struct txg_open_entry *get_txg_open_entry(struct txg_compact_cache *);
+void put_txg_open_entry(struct txg_open_entry *);
+struct txg_open_entry *toe_lookup(u64, u64);
+int itb_append(struct itb *, struct itb_info *, u64, u64);
+int toe_to_tmpfile(int, u64, u64, void *);
+
+/* storage.c */
+#define MDSL_STORAGE_MD         0x0000
+#define MDSL_STORAGE_ITB        0x0001
+#define MDSL_STORAGE_RANGE      0x0002
+#define MDSL_STORAGE_DATA       0x0003
+#define MDSL_STORAGE_DIRECTW    0x0004
+
+#define MDSL_STORATE_LOG        0x0100
+#define MDSL_STORAGE_SPLIT_LOG  0x0200
+#define MDSL_STORAGE_TXG        0x0300
+#define MDSL_STORAGE_TMP_TXG    0x0400
+int mdsl_storage_fd_lookup(u64, int);
 
 #endif

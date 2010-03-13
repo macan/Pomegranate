@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 15:59:01 macan>
+ * Time-stamp: <2010-03-13 16:59:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,10 +30,13 @@ int mdsl_tcc_init(void)
     struct txg_open_entry *toe;
     int i;
     
-    INIT_LIST_HEAD(&hmo.tcc.open_list);
+    INIT_LIST_HEAD(&hmo.tcc.free_list);
+    INIT_LIST_HEAD(&hmo.tcc.active_list);
     INIT_LIST_HEAD(&hmo.tcc.wbed_list);
-    xrwlock_init(&hmo.tcc.open_lock);
-    xrwlock_init(&hmo.tcc.wbed_lock);
+    INIT_LIST_HEAD(&hmo.tcc.tmp_list);
+    xlock_init(&hmo.tcc.free_lock);
+    xlock_init(&hmo.tcc.active_lock);
+    xlock_init(&hmo.tcc.wbed_lock);
 
     if (!hmo.conf.tcc_size)
         hmo.conf.tcc_size = 32;
@@ -47,7 +50,7 @@ int mdsl_tcc_init(void)
     }
     for (i = 0; i < hmo.conf.tcc_size; i++) {
         INIT_LIST_HEAD(&((toe + i)->list));
-        list_add_tail(&((toe + i)->list), &hmo.tcc.open_list);
+        list_add_tail(&((toe + i)->list), &hmo.tcc.free_list);
     }
     atomic_set(&hmo.tcc.size, hmo.conf.tcc_size);
     atomic_set(&hmo.tcc.used, 0);
@@ -58,7 +61,107 @@ int mdsl_tcc_init(void)
 void mdsl_tcc_destroy(void)
 {
     /* do not need to free any items */
-    xrwlock_destroy(&hmo.tcc.open_lock);
-    xrwlock_destroy(&hmo.tcc.wbed_lock);
+    xlock_destroy(&hmo.tcc.free_lock);
+    xlock_destroy(&hmo.tcc.active_lock);
+    xlock_destroy(&hmo.tcc.wbed_lock);
 }
 
+struct txg_open_entry *get_txg_open_entry(struct txg_compact_cache *tcc)
+{
+    struct list_head *l = NULL;
+    struct txg_open_entry *toe = ERR_PTR(-EINVAL);
+    
+    xlock_lock(&tcc->free_lock);
+    if (!list_empty(&tcc->free_list)) {
+        l = tcc->free_list.next;
+        ASSERT(l != &tcc->free_list, mdsl);
+        list_del_init(l);
+    }
+    xlock_unlock(&tcc->free_lock);
+
+    if (l) {
+        toe = list_entry(l, struct txg_open_entry, list);
+        atomic_inc(&tcc->used);
+    } else {
+        /* we should alloc a new TOE here! */
+        if (unlikely(hmo.conf.option & HVFS_MDSL_MEMLIMIT)) {
+            if (hmo.conf.memlimit <= atomic_read(&tcc->size) * 
+                sizeof(struct txg_open_entry)) {
+                /* if we do not have enough space, we should just write the
+                 * entry to a temp disk file for restore */
+                return ERR_PTR(-ENOMEM);
+            }
+        }
+        toe = xzalloc(sizeof(struct txg_open_entry));
+        if (!toe) {
+            hvfs_err(mdsl, "xzalloc() txg_open_entry failed\n");
+            return ERR_PTR(-ENOMEM);
+        }
+    }
+
+    /* init the TOE now */
+    INIT_LIST_HEAD(&toe->list);
+    INIT_LIST_HEAD(&toe->itb);
+    atomic_set(&toe->itb_nr, 0);
+    
+    return toe;
+}
+
+void put_txg_open_entry(struct txg_open_entry *toe)
+{
+    ASSERT(list_empty(&toe->list), mdsl);
+    if (toe->other_region)
+        xfree(toe->other_region);
+    list_add_tail(&toe->list, &hmo.tcc.free_list);
+    atomic_dec(&hmo.tcc.used);
+}
+
+struct txg_open_entry *toe_lookup(u64 site, u64 txg)
+{
+    struct txg_open_entry *toe;
+    int found = 0;
+    
+    xlock_lock(&hmo.tcc.active_lock);
+    list_for_each_entry(toe, &hmo.tcc.active_list, list) {
+        if (site == toe->begin.site_id && txg == toe->begin.txg) {
+            found = 1;
+            break;
+        }
+    }
+    xlock_unlock(&hmo.tcc.active_lock);
+    if (!found)
+        toe = NULL;
+
+    return toe;
+}
+
+int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
+{
+    int fd;
+    
+    if (ii) {
+        /* write to the file: "[target dir]/itb" */
+        char path[HVFS_MAX_NAM_LEN] = {0,};
+
+        sprintf(path, "%s/%ld/itb", HVFS_MDSL_HOME, itb->h.puuid);
+        fd = open(path, O_APPEND | O_CREAT, S_IRUSR | S_IWUSR);
+        if (fd < 0) {
+            hvfs_err(mdsl, "open() itb file failed w/ %d\n", errno);
+            goto write_to_tmpfile;
+        }
+        /* actually write here */
+        write(fd, itb, atomic_read(itb->h.len));
+        close(fd);
+    } else {
+    write_to_tmpfile:
+        /* write to tmp file */
+        toe_to_tmpfile(TXG_OPEN_ENTRY_DISK_ITB, site, txg, itb);
+    }
+    
+    return 0;
+}
+
+int toe_to_tmpfile(int flag, u64 site, u64 txg, void *data)
+{
+    return 0;
+}

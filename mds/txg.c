@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-05 17:53:22 macan>
+ * Time-stamp: <2010-03-13 14:50:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -263,7 +263,7 @@ int txg_wb_itb_ll(struct commit_thread_arg *cta, struct itb *itb)
     /* Step 3: construct the xnet_msg to send it to the destination */
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0, 
                      hmo.site_id, p->site_id);
-    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_WBTXG, HVFS_WBTXG_ITB, 0);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_WBTXG, HVFS_WBTXG_ITB, cta->wbt->txg);
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -278,7 +278,8 @@ int txg_wb_itb_ll(struct commit_thread_arg *cta, struct itb *itb)
     if (err) {
         hvfs_err(mds, "Write back ITB %ld failed w/ %d\n",
                  itb->h.itbid, err);
-        TWS_SET_NEW(tws);
+        if (msg->tx.arg0 & HVFS_WBTXG_BEGIN)
+            TWS_SET_NEW(tws);
         goto out_free_msg;
     }
 #endif
