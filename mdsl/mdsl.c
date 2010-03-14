@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-13 15:36:31 macan>
+ * Time-stamp: <2010-03-14 20:23:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -284,10 +284,19 @@ int mdsl_config(void)
     HVFS_MDSL_GET_ENV_atoi(prof_plot, value);
     HVFS_MDSL_GET_ENV_atoi(profiling_thread_interval, value);
     HVFS_MDSL_GET_ENV_atoi(gc_interval, value);
+    HVFS_MDSL_GET_ENV_atoi(itb_file_chunk, value);
+    HVFS_MDSL_GET_ENV_atoi(data_file_chunk, value);
 
     HVFS_MDSL_GET_ENV_atol(memlimit, value);
 
     HVFS_MDSL_GET_ENV_option(write_drop, WDROP, value);
+    HVFS_MDSL_GET_ENV_option(memlimit, MEMLIMIT, value);
+    
+    /* set default chunk if not setted. */
+    if (!hmo.conf.itb_file_chunk)
+        hmo.conf.itb_file_chunk = MDSL_STORAGE_ITB_DEFAULT_CHUNK;
+    if (!hmo.conf.data_file_chunk)
+        hmo.conf.data_file_chunk = MDSL_STORAGE_DATA_DEFAULT_CHUNK;
     
     return 0;
 }
@@ -353,9 +362,15 @@ int mdsl_init(void)
     if (err)
         goto out_spool;
 
+    /* init storage */
+    err = mdsl_storage_init();
+    if (err)
+        goto out_storage;
+
     /* ok to run */
     hmo.state = HMO_STATE_RUNNING;
 
+out_storage:
 out_spool:
 out_timers:
 out_signal:
@@ -379,4 +394,7 @@ void mdsl_destroy(void)
 
     /* destroy the tcc */
     mdsl_tcc_destroy();
+
+    /* destroy the storage */
+    mdsl_storage_destroy();
 }

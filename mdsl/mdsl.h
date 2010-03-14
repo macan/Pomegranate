@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-13 18:06:52 macan>
+ * Time-stamp: <2010-03-14 20:24:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,19 +38,46 @@ extern u32 hvfs_mdsl_tracing_flags;
 
 #define HVFS_MDSL_HOME "/tmp/hvfs"
 
+#define MDSL_STORAGE_DEFAULT_CHUNK              (4 * 1024 * 1024)
+#define MDSL_STORAGE_ITB_DEFAULT_CHUNK          (64 * 1024 * 1024)
+#define MDSL_STORAGE_DATA_DEFAULT_CHUNK         (64 * 1024 * 1024)
+
 /* mmap window */
 struct mmap_window 
 {
-    struct list_head list;
+    void *addr;
     loff_t offset;                 /* the data offset with respect to window */
     size_t len;
-    void *addr;
 };
 
-struct mmap_window_cache 
+/* append buffer */
+struct append_buf
 {
-    struct list_head mw_list;
-    xrwlock_t rwlock;
+    void *addr;
+    size_t len;
+    loff_t file_offset;              /* offset of the mapped file */
+    loff_t offset;                   /* the data offset within the buf */
+};
+
+struct fdhash_entry
+{
+    struct hlist_node list;
+    xlock_t lock;
+    u64 uuid;
+    u64 arg;
+    atomic_t ref;
+    int type;
+    int fd;
+#define FDE_FREE        0       /* just created */
+#define FDE_OPEN        1       /* file opened */
+#define FDE_READ        2       /* ready for read */
+#define FDE_WRITE       3       /* ready for write */
+    int state;
+    union 
+    {
+        struct mmap_window mwin;
+        struct append_buf abuf;
+    };
 };
 
 struct txg_compact_cache
@@ -155,8 +182,8 @@ struct hvfs_mdsl_object
     u64 site_id;                /* this site */
     struct xnet_context *xc;
 
-    struct mmap_window_cache mwc;
     struct txg_compact_cache tcc;
+    struct mdsl_storage storage;
     struct directw_log dl;
 
 #define CH_RING_NUM     2
@@ -227,10 +254,19 @@ int toe_to_tmpfile(int, u64, u64, void *);
 #define MDSL_STORAGE_DATA       0x0003
 #define MDSL_STORAGE_DIRECTW    0x0004
 
-#define MDSL_STORATE_LOG        0x0100
+#define MDSL_STORAGE_LOG        0x0100
 #define MDSL_STORAGE_SPLIT_LOG  0x0200
 #define MDSL_STORAGE_TXG        0x0300
 #define MDSL_STORAGE_TMP_TXG    0x0400
-int mdsl_storage_fd_lookup(u64, int);
+
+int mdsl_storage_init(void);
+void mdsl_storage_destroy(void);
+struct fdhash_entry *mdsl_storage_fd_lookup_create(u64, int, u64);
+static inline
+void mdsl_storage_fd_put(struct fdhash_entry *fde)
+{
+    atomic_dec(&fde->ref);
+}
+int append_buf_create(struct fdhash_entry *, char *, int);
 
 #endif

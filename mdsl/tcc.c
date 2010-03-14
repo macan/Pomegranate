@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-13 16:59:45 macan>
+ * Time-stamp: <2010-03-14 19:28:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -141,7 +141,7 @@ int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
     
     if (ii) {
         /* write to the file: "[target dir]/itb" */
-        char path[HVFS_MAX_NAM_LEN] = {0,};
+        char path[HVFS_MAX_NAME_LEN] = {0,};
 
         sprintf(path, "%s/%ld/itb", HVFS_MDSL_HOME, itb->h.puuid);
         fd = open(path, O_APPEND | O_CREAT, S_IRUSR | S_IWUSR);
@@ -150,7 +150,7 @@ int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
             goto write_to_tmpfile;
         }
         /* actually write here */
-        write(fd, itb, atomic_read(itb->h.len));
+        write(fd, itb, atomic_read(&itb->h.len));
         close(fd);
     } else {
     write_to_tmpfile:
