@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-14 19:28:46 macan>
+ * Time-stamp: <2010-03-15 18:54:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -137,28 +137,34 @@ struct txg_open_entry *toe_lookup(u64 site, u64 txg)
 
 int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
 {
-    int fd;
+    int fd, err = 0;
     
     if (ii) {
-        /* write to the file: "[target dir]/itb" */
-        char path[HVFS_MAX_NAME_LEN] = {0,};
-
-        sprintf(path, "%s/%ld/itb", HVFS_MDSL_HOME, itb->h.puuid);
-        fd = open(path, O_APPEND | O_CREAT, S_IRUSR | S_IWUSR);
-        if (fd < 0) {
-            hvfs_err(mdsl, "open() itb file failed w/ %d\n", errno);
+        struct fdhash_entry *fde;
+        
+        /* prepare write to the file: "[target dir]/itb" */
+        fde = mdsl_storage_fd_lookup_create(itb->h.puuid, MDSL_STORAGE_ITB, 0);
+        if (IS_ERR(fde)) {
+            hvfs_err(mdsl, "lookup create failed w/ %ld\n", PTR_ERR(fde));
             goto write_to_tmpfile;
         }
-        /* actually write here */
-        write(fd, itb, atomic_read(&itb->h.len));
-        close(fd);
+        /* write here */
+        err = mdsl_storage_fd_write(fde, ii);
+        if (err) {
+            hvfs_err(mdsl, "storage_fd_write failed w/ %d\n", err);
+            mdsl_storage_fd_put(fde);
+            goto write_to_tmpfile;
+        }
+        hvfs_err(mdsl, "Write ITB %ld to storage file %s/%ld/itb.\n",
+                   itb->h.itbid, HVFS_MDSL_HOME, itb->h.puuid);
+        mdsl_storage_fd_put(fde);
     } else {
     write_to_tmpfile:
         /* write to tmp file */
         toe_to_tmpfile(TXG_OPEN_ENTRY_DISK_ITB, site, txg, itb);
     }
     
-    return 0;
+    return err;
 }
 
 int toe_to_tmpfile(int flag, u64 site, u64 txg, void *data)

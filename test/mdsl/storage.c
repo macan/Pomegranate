@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-14 21:02:47 macan>
+ * Time-stamp: <2010-03-15 18:42:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,7 +58,6 @@ int __test_fdht()
               fde->uuid, fde->type, fde->fd, fde->state,
               atomic_read(&fde->ref));
 
-    atomic_inc(&fde->ref);
     return 0;
 }
 

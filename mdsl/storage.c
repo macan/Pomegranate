@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-14 21:02:25 macan>
+ * Time-stamp: <2010-03-15 20:26:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,7 +57,7 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
         hvfs_info(mdsl, "open file %s w/ fd %d\n", name, fde->fd);
         fde->state = FDE_OPEN;
     }
-    if (state == FDE_WRITE && fde->state == FDE_OPEN) {
+    if (state == FDE_ABUF && fde->state == FDE_OPEN) {
         /* get the file end offset */
         fde->abuf.file_offset = lseek(fde->fd, 0, SEEK_END);
         if (fde->abuf.file_offset < 0) {
@@ -84,7 +84,7 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
             goto out_close;
         }
         fde->abuf.len = buf_len;
-        fde->state = FDE_WRITE;
+        fde->state = FDE_ABUF;
     }
 
     xlock_unlock(&fde->lock);
@@ -104,7 +104,7 @@ void append_buf_destroy(struct fdhash_entry *fde)
     int err;
     
     /* munmap the region */
-    if (fde->state == FDE_WRITE) {
+    if (fde->state == FDE_ABUF) {
         err = munmap(fde->abuf.addr, fde->abuf.len);
         if (err) {
             hvfs_err(mdsl, "munmap fd %d failed w/ %d\n", 
@@ -112,6 +112,18 @@ void append_buf_destroy(struct fdhash_entry *fde)
         }
         fde->state = FDE_OPEN;
     }
+}
+
+int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
+{
+    int err = 0;
+
+    if (!msa->iov_nr || !msa->iov || fde->state == FDE_FREE) {
+        return -EINVAL;
+    }
+
+    /* FIXME: do actual write here! */
+    return err;
 }
 
 int mdsl_storage_init(void)
@@ -233,10 +245,89 @@ void mdsl_storage_fd_remove(struct fdhash_entry *new)
     xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
 }
 
+/* mdsl_stroage_fd_normal()
+ *
+ * do normal file open.
+ */
+int mdsl_stroage_fd_normal(struct fdhash_entry *fde, char *path)
+{
+    return 0;
+}
+
+int __normal_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
+{
+    return 0;
+}
+
+static inline
+int mdsl_storage_fd_init(struct fdhash_entry *fde)
+{
+    char path[HVFS_MAX_NAME_LEN] = {0, };
+    int err = 0;
+    
+    /* NOTE:
+     *
+     * 1. itb/data file should be written with self buffering through the mem
+     *    window or not
+     *
+     * 2. itb/data file should be read through the mem window or direct read.
+     *
+     * 3. md/range file should be read/written with mem window
+     */
+
+    /* NOTE2: you should consider the concurrent access here!
+     */
+
+    switch (fde->type) {
+    case MDSL_STORAGE_MD:
+        sprintf(path, "%s/%ld/md", HVFS_MDSL_HOME, fde->uuid);
+        err = mdsl_storage_fd_normal(fde, path);
+        if (err) {
+            hvfs_err(mdsl, "change state to open failed w/ %d\n", err);
+            goto out_clean;
+        }
+        break;
+    case MDSL_STORAGE_ITB:
+        sprintf(path, "%s/%ld/itb-%ld", HVFS_MDSL_HOME, fde->uuid, fde->arg);
+        err = append_buf_create(fde, path, FDE_ABUF);
+        if (err) {
+            hvfs_err(mdsl, "append buf create failed w/ %d\n", err);
+            goto out_clean;
+        }
+        break;
+    case MDSL_STORAGE_RANGE:
+        sprintf(path, "%s/%ld/range-%ld", HVFS_MDSL_HOME, fde->uuid, fde->arg);
+        break;
+    case MDSL_STORAGE_DATA:
+        sprintf(path, "%s/%ld/data-%ld", HVFS_MDSL_HOME, fde->uuid, fde->arg);
+        break;
+    case MDSL_STORAGE_DIRECTW:
+        sprintf(path, "%s/%ld/directw", HVFS_MDSL_HOME, fde->uuid);
+        break;
+    case MDSL_STORAGE_LOG:
+        sprintf(path, "%s/log", HVFS_MDSL_HOME);
+        break;
+    case MDSL_STORAGE_SPLIT_LOG:
+        sprintf(path, "%s/split_log", HVFS_MDSL_HOME);
+        break;
+    case MDSL_STORAGE_TXG:
+        sprintf(path, "%s/txg", HVFS_MDSL_HOME);
+        break;
+    case MDSL_STORAGE_TMP_TXG:
+        sprintf(path, "%s/tmp_txg", HVFS_MDSL_HOME);
+        break;
+    default:
+        hvfs_err(mdsl, "Invalid file type provided, check your codes.\n");
+        err = -EINVAL;
+        goto out_clean;
+    }
+
+    return err;
+}
+
 struct fdhash_entry *mdsl_storage_fd_lookup_create(u64 duuid, int fdtype, u64 arg)
 {
     struct fdhash_entry *fde;
-    char path[HVFS_MAX_NAME_LEN] = {0, };
     int err = 0;
     
     fde = mdsl_storage_fd_lookup(duuid, fdtype, arg);
@@ -269,58 +360,11 @@ struct fdhash_entry *mdsl_storage_fd_lookup_create(u64 duuid, int fdtype, u64 ar
     }
 
     /* Step 2: we should open the file now */
-    /* NOTE:
-     *
-     * 1. itb/data file should be written with self buffering through the mem
-     *    window or not
-     *
-     * 2. itb/data file should be read through the mem window or direct read.
-     *
-     * 3. md/range file should be read/written with mem window
-     */
-
-    /* NOTE2: you should consider the concurrent access here!
-     */
-
-    switch (fdtype) {
-    case MDSL_STORAGE_MD:
-        sprintf(path, "%s/%ld/md", HVFS_MDSL_HOME, duuid);
-        break;
-    case MDSL_STORAGE_ITB:
-        sprintf(path, "%s/%ld/itb-%ld", HVFS_MDSL_HOME, duuid, arg);
-        err = append_buf_create(fde, path, FDE_WRITE);
-        if (err) {
-            hvfs_err(mdsl, "append buf create failed w/ %d\n", err);
-            goto out_clean;
-        }
-        break;
-    case MDSL_STORAGE_RANGE:
-        sprintf(path, "%s/%ld/range-%ld", HVFS_MDSL_HOME, duuid, arg);
-        break;
-    case MDSL_STORAGE_DATA:
-        sprintf(path, "%s/%ld/data-%ld", HVFS_MDSL_HOME, duuid, arg);
-        break;
-    case MDSL_STORAGE_DIRECTW:
-        sprintf(path, "%s/%ld/directw", HVFS_MDSL_HOME, duuid);
-        break;
-    case MDSL_STORAGE_LOG:
-        sprintf(path, "%s/log", HVFS_MDSL_HOME);
-        break;
-    case MDSL_STORAGE_SPLIT_LOG:
-        sprintf(path, "%s/split_log", HVFS_MDSL_HOME);
-        break;
-    case MDSL_STORAGE_TXG:
-        sprintf(path, "%s/txg", HVFS_MDSL_HOME);
-        break;
-    case MDSL_STORAGE_TMP_TXG:
-        sprintf(path, "%s/tmp_txg", HVFS_MDSL_HOME);
-        break;
-    default:
-        hvfs_err(mdsl, "Invalid file type provided, check your codes.\n");
-        err = -EINVAL;
+    err = mdsl_storage_fd_init(fde);
+    if (err) {
         goto out_clean;
     }
-
+    
     return fde;
 out_clean:
     /* we should release the fde on error */
@@ -329,3 +373,36 @@ out_clean:
     xfree(fde);
     return ERR_PTR(err);
 }
+
+int mdsl_storage_fd_write(struct fdhash_entry *fde, 
+                          struct mdsl_storage_access *msa)
+{
+    int err;
+
+retry:
+    if (fde->state == FDE_ABUF) {
+        err = append_buf_write(fde, msa);
+        if (err) {
+            hvfs_err(mdsl, "append_buf_write failed w/%d\n", err);
+            goto out_failed;
+        }
+    } else if (fde->state == FDE_MEMWIN) {
+    } else if (fde->state == FDE_NORMAL) {
+        err = __normal_write(fde, msa);
+        if (err) {
+            hvfs_err(mdsl, "__normal_write faield w/%d\n", err);
+            goto out_failed;
+        }
+    } else if (fde->state == FDE_OPEN) {
+        /* we should change to ABUF or MEMWIN or NORMAL access mode */
+        err = mdsl_storage_fd_init(fde);
+        if (err) {
+            hvfs_err(mdsl, "try to change state failed w/ %d\n", err);
+            goto out_failed;
+        }
+        goto retry;
+    } else {
+        /* we should (re-)open the file */
+    }
+}
+

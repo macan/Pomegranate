@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-14 20:24:29 macan>
+ * Time-stamp: <2010-03-15 20:25:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -70,14 +70,22 @@ struct fdhash_entry
     int fd;
 #define FDE_FREE        0       /* just created */
 #define FDE_OPEN        1       /* file opened */
-#define FDE_READ        2       /* ready for read */
-#define FDE_WRITE       3       /* ready for write */
+#define FDE_MEMWIN      2       /* mem window access */
+#define FDE_ABUF        3       /* append-buf access */
+#define FDE_NORMAL      4       /* normal access */
     int state;
     union 
     {
         struct mmap_window mwin;
         struct append_buf abuf;
     };
+};
+
+struct mdsl_storage_access
+{
+    struct iov *iov;
+    void *arg;
+    int iov_nr;
 };
 
 struct txg_compact_cache
@@ -268,5 +276,7 @@ void mdsl_storage_fd_put(struct fdhash_entry *fde)
     atomic_dec(&fde->ref);
 }
 int append_buf_create(struct fdhash_entry *, char *, int);
+int mdsl_storage_fd_write(struct fdhash_entry *fde, 
+                          struct mdsl_storage_access *msa);
 
 #endif
