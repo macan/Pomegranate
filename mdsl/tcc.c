@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-15 18:54:32 macan>
+ * Time-stamp: <2010-03-16 17:54:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -137,10 +137,19 @@ struct txg_open_entry *toe_lookup(u64 site, u64 txg)
 
 int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
 {
-    int fd, err = 0;
+    int err = 0;
     
     if (ii) {
         struct fdhash_entry *fde;
+        struct iovec itb_iov = {
+            .iov_base = itb,
+            .iov_len = atomic_read(&itb->h.len),
+        };
+        struct mdsl_storage_access msa = {
+            .iov = &itb_iov,
+            .arg = ii,
+            .iov_nr = 1,
+        };
         
         /* prepare write to the file: "[target dir]/itb" */
         fde = mdsl_storage_fd_lookup_create(itb->h.puuid, MDSL_STORAGE_ITB, 0);
@@ -149,7 +158,7 @@ int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
             goto write_to_tmpfile;
         }
         /* write here */
-        err = mdsl_storage_fd_write(fde, ii);
+        err = mdsl_storage_fd_write(fde, &msa);
         if (err) {
             hvfs_err(mdsl, "storage_fd_write failed w/ %d\n", err);
             mdsl_storage_fd_put(fde);

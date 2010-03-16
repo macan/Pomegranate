@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-15 20:25:31 macan>
+ * Time-stamp: <2010-03-16 20:17:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -73,6 +73,7 @@ struct fdhash_entry
 #define FDE_MEMWIN      2       /* mem window access */
 #define FDE_ABUF        3       /* append-buf access */
 #define FDE_NORMAL      4       /* normal access */
+#define FDE_ABUF_UNMAPPED       5 /* append-buf access w/o mapping  */
     int state;
     union 
     {
@@ -83,7 +84,7 @@ struct fdhash_entry
 
 struct mdsl_storage_access
 {
-    struct iov *iov;
+    struct iovec *iov;
     void *arg;
     int iov_nr;
 };
@@ -146,6 +147,7 @@ struct mdsl_conf
     /* # of threads */
     /* NOTE: # of profiling thread is always ONE */
     int spool_threads;          /* # of service threads */
+    int aio_threads;            /* # of io threads */
 
     /* misc configs */
     u64 memlimit;               /* memlimit of the TCC */
@@ -278,5 +280,9 @@ void mdsl_storage_fd_put(struct fdhash_entry *fde)
 int append_buf_create(struct fdhash_entry *, char *, int);
 int mdsl_storage_fd_write(struct fdhash_entry *fde, 
                           struct mdsl_storage_access *msa);
+
+/* aio.c */
+#define MDSL_AIO_SYNC           0x00
+int mdsl_aio_submit_request(void *addr, u64 len, int flag);
 
 #endif

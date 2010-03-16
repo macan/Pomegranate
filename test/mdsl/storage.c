@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-15 18:42:28 macan>
+ * Time-stamp: <2010-03-16 18:45:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@ int __test_append_buf()
     };
 
     append_buf_create(&fde, "/tmp/mdsl_abuf", FDE_OPEN);
-    append_buf_create(&fde, "/tmp/mdsl_abuf", FDE_WRITE);
+    append_buf_create(&fde, "/tmp/mdsl_abuf", FDE_ABUF);
     close(fde.fd);
 
     return 0;
@@ -46,19 +46,43 @@ int __test_append_buf()
 
 int __test_fdht()
 {
+    char buf[1024] = {"hello, world!\n"};
+    struct iovec test_iov = {
+        .iov_base = buf,
+        .iov_len = 1024,
+    };
+    struct itb_info ii = {{0,}, 0, };
+    struct mdsl_storage_access msa = {
+        .iov = &test_iov,
+        .arg = &ii,
+        .iov_nr = 1,
+    };
     struct fdhash_entry *fde;
+    int err = 0, i;
     
+    hvfs_info(mdsl, "begin create ...\n");
     fde = mdsl_storage_fd_lookup_create(0, MDSL_STORAGE_ITB, 0);
     if (IS_ERR(fde)) {
         hvfs_err(mdsl, "lookup create failed w/ %ld\n", PTR_ERR(fde));
         return PTR_ERR(fde);
     }
+    hvfs_info(mdsl, "begin write ...\n");
+    for (i = 0; i < (64 * 1024 * 16 * 10); i++) {
+        err = mdsl_storage_fd_write(fde, &msa);
+        if (err) {
+            hvfs_err(mdsl, "fd_write failed w/ %d\n", err);
+            mdsl_storage_fd_put(fde);
+            goto out;
+        }
+    }
+    hvfs_info(mdsl, "end write ...\n");
     mdsl_storage_fd_put(fde);
     hvfs_info(mdsl, "fd [.uuid %ld, .type %x, .fd = %d, .state %x, .ref %d]\n",
               fde->uuid, fde->type, fde->fd, fde->state,
               atomic_read(&fde->ref));
 
-    return 0;
+out:
+    return err;
 }
 
 int main(int argc, char *argv[])

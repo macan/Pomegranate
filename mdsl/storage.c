@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-15 20:26:10 macan>
+ * Time-stamp: <2010-03-16 20:12:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -99,19 +99,113 @@ out_close:
     return err;
 }
 
+/* append_buf_flush()
+ *
+ * Note: holding the fde->lock 
+ */
+static inline
+int append_buf_flush(struct fdhash_entry *fde, int flag)
+{
+    int err = 0;
+
+    if (fde->state == FDE_ABUF) {
+        if (flag == MS_ASYNC) {
+            err = mdsl_aio_submit_request(fde->abuf.addr, fde->abuf.offset, 
+                                          MDSL_AIO_SYNC);
+            if (err) {
+                hvfs_err(mdsl, "Submit AIO async request failed w/ %d\n" err);
+                goto fallback;
+            }
+        } else {
+        fallback:
+            err = msync(fde->abuf.addr, fde->abuf.offset, flag);
+            hvfs_info(mdsl, "async flush offset %lx\n", fde->abuf.file_offset);
+            if (err < 0) {
+                hvfs_err(mdsl, "msync() fd %d failed w/ %d\n", fde->fd, errno);
+                err = -errno;
+                goto out;
+            }
+        }
+    }
+out:
+    return err;
+}
+
 void append_buf_destroy(struct fdhash_entry *fde)
 {
     int err;
     
     /* munmap the region */
     if (fde->state == FDE_ABUF) {
+        hvfs_err(mdsl, "begin SYNC .\n");
+        append_buf_flush(fde, MS_ASYNC);
+        hvfs_err(mdsl, "end SYNC .\n");
         err = munmap(fde->abuf.addr, fde->abuf.len);
+        hvfs_err(mdsl, "end munmap.\n");
         if (err) {
             hvfs_err(mdsl, "munmap fd %d failed w/ %d\n", 
                      fde->fd, err);
         }
         fde->state = FDE_OPEN;
     }
+}
+
+/*
+ * Note: holding the fde->lock
+ */
+int append_buf_flush_remap(struct fdhash_entry *fde)
+{
+    int err = 0;
+
+    err = append_buf_flush(fde, MS_ASYNC);
+    if (err) {
+        hvfs_err(mdsl, "ABUF flush failed w/ %d\n", err);
+        goto out;
+    }
+    /* we try to remap another region now */
+    switch (fde->state) {
+    case FDE_ABUF:
+        err = munmap(fde->abuf.addr, fde->abuf.len);
+        if (err == -1) {
+            hvfs_err(mdsl, "munmap ABUF failed w/ %d\n", errno);
+            err = -errno;
+            goto out;
+        }
+        fde->state = FDE_ABUF_UNMAPPED;
+    case FDE_ABUF_UNMAPPED:
+        fde->abuf.file_offset = lseek(fde->fd, 0, SEEK_END);
+        if (fde->abuf.file_offset < 0) {
+            hvfs_err(mdsl, "lseek to end of fd %d faield w/ %d\n",
+                     fde->fd, errno);
+            err = -errno;
+            goto out;
+        }
+        if (posix_fallocate(fde->fd, fde->abuf.file_offset, fde->abuf.len) < 0) {
+            hvfs_err(mdsl, "fallocate fd %d failed w/ %d\n",
+                     fde->fd, errno);
+            err = -errno;
+            goto out;
+        }
+        fde->abuf.addr = mmap(NULL, fde->abuf.len, PROT_WRITE | PROT_READ,
+                              MAP_SHARED, fde->fd, fde->abuf.file_offset);
+        if (fde->abuf.addr == MAP_FAILED) {
+            hvfs_err(mdsl, "mmaap fd %d in region [%ld,%ld] failed w/ %d\n",
+                     fde->fd, fde->abuf.file_offset,
+                     fde->abuf.file_offset + fde->abuf.len, errno);
+            err = -errno;
+            goto out;
+        }
+        fde->state = FDE_ABUF;
+        fde->abuf.offset = 0;
+        break;
+    default:
+        hvfs_err(mdsl, "ABUF flush remap w/ other state %x\n",
+                 fde->state);
+        err = -EINVAL;
+    }
+
+out:
+    return err;
 }
 
 int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
@@ -122,7 +216,27 @@ int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         return -EINVAL;
     }
 
-    /* FIXME: do actual write here! */
+    xlock_lock(&fde->lock);
+    /* check the remained length of the Append Buffer */
+    if (fde->abuf.offset + msa->iov->iov_len > fde->abuf.len) {
+        /* we should mmap another region */
+        err = append_buf_flush_remap(fde);
+        if (err) {
+            hvfs_err(mdsl, "ABUFF flush remap failed w/ %d\n", err);
+            goto out_unlock;
+        }
+    }
+    /* ok, we can copy the region to the abuf now */
+    memcpy(fde->abuf.addr + fde->abuf.offset, msa->iov->iov_base, msa->iov->iov_len);
+    if (fde->type == MDSL_STORAGE_ITB) {
+        ((struct itb_info *)msa->arg)->location = fde->abuf.file_offset + 
+            fde->abuf.offset;
+    }
+    fde->abuf.offset += msa->iov->iov_len;
+    
+out_unlock:
+    xlock_unlock(&fde->lock);
+    
     return err;
 }
 
@@ -249,7 +363,7 @@ void mdsl_storage_fd_remove(struct fdhash_entry *new)
  *
  * do normal file open.
  */
-int mdsl_stroage_fd_normal(struct fdhash_entry *fde, char *path)
+int mdsl_storage_fd_normal(struct fdhash_entry *fde, char *path)
 {
     return 0;
 }
@@ -284,7 +398,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         err = mdsl_storage_fd_normal(fde, path);
         if (err) {
             hvfs_err(mdsl, "change state to open failed w/ %d\n", err);
-            goto out_clean;
+            goto out;
         }
         break;
     case MDSL_STORAGE_ITB:
@@ -292,7 +406,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         err = append_buf_create(fde, path, FDE_ABUF);
         if (err) {
             hvfs_err(mdsl, "append buf create failed w/ %d\n", err);
-            goto out_clean;
+            goto out;
         }
         break;
     case MDSL_STORAGE_RANGE:
@@ -319,9 +433,10 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
     default:
         hvfs_err(mdsl, "Invalid file type provided, check your codes.\n");
         err = -EINVAL;
-        goto out_clean;
+        goto out;
     }
 
+out:
     return err;
 }
 
@@ -377,7 +492,7 @@ out_clean:
 int mdsl_storage_fd_write(struct fdhash_entry *fde, 
                           struct mdsl_storage_access *msa)
 {
-    int err;
+    int err = 0;
 
 retry:
     if (fde->state == FDE_ABUF) {
@@ -404,5 +519,8 @@ retry:
     } else {
         /* we should (re-)open the file */
     }
+
+out_failed:
+    return err;
 }
 
