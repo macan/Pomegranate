@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-17 12:51:41 macan>
+ * Time-stamp: <2010-03-17 16:04:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,6 +45,13 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
         buf_len = MDSL_STORAGE_DEFAULT_CHUNK;
     }
 
+    if (hmo.conf.itb_falloc) {
+        fde->abuf.falloc_size = hmo.conf.itb_falloc * buf_len;
+    } else {
+        hmo.conf.itb_falloc = 1;
+        fde->abuf.falloc_size = buf_len;
+    }
+    
     xlock_lock(&fde->lock);
     if (fde->state == FDE_FREE) {
         /* ok, we should open it */
@@ -66,7 +73,8 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
             err = -errno;
             goto out_close;
         }
-        err = posix_fallocate(fde->fd, fde->abuf.file_offset, buf_len);
+        fde->abuf.falloc_offset = fde->abuf.file_offset;
+        err = ftruncate(fde->fd, fde->abuf.falloc_offset + fde->abuf.falloc_size);
         if (err) {
             hvfs_err(mdsl, "fallocate file %s failed w/ %d\n",
                      name, err);
@@ -187,18 +195,18 @@ int append_buf_flush_remap(struct fdhash_entry *fde)
         }
         fde->state = FDE_ABUF_UNMAPPED;
     case FDE_ABUF_UNMAPPED:
-        fde->abuf.file_offset = lseek(fde->fd, 0, SEEK_END);
-        if (fde->abuf.file_offset < 0) {
-            hvfs_err(mdsl, "lseek to end of fd %d faield w/ %d\n",
-                     fde->fd, errno);
-            err = -errno;
-            goto out;
-        }
-        if (posix_fallocate(fde->fd, fde->abuf.file_offset, fde->abuf.len) < 0) {
-            hvfs_err(mdsl, "fallocate fd %d failed w/ %d\n",
-                     fde->fd, errno);
-            err = -errno;
-            goto out;
+        fde->abuf.file_offset += fde->abuf.len;
+        if (fde->abuf.file_offset + fde->abuf.len > fde->abuf.falloc_offset + 
+            fde->abuf.falloc_size) {
+            err = ftruncate(fde->fd, fde->abuf.falloc_offset + 
+                            (fde->abuf.falloc_size << 1));
+            if (err) {
+                hvfs_err(mdsl, "fallocate fd %d failed w/ %d\n",
+                         fde->fd, err);
+                goto out;
+            }
+            fde->abuf.falloc_offset += fde->abuf.falloc_size;
+            hvfs_err(mdsl, "falloc offset %lx\n", fde->abuf.falloc_offset);
         }
         mdsl_aio_start();
         fde->abuf.addr = mmap(NULL, fde->abuf.len, PROT_WRITE | PROT_READ,

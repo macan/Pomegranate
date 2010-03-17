@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-17 12:33:42 macan>
+ * Time-stamp: <2010-03-17 16:02:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,8 +55,10 @@ struct append_buf
 {
     void *addr;
     size_t len;
+    u64 falloc_size;
     loff_t file_offset;              /* offset of the mapped file */
     loff_t offset;                   /* the data offset within the buf */
+    loff_t falloc_offset;            /* where to fallocate */
 };
 
 struct fdhash_entry
@@ -151,6 +153,7 @@ struct mdsl_conf
 
     /* misc configs */
     u64 memlimit;               /* memlimit of the TCC */
+    int itb_falloc;             /* # of itb file chunk to pre-alloc */
     int ring_vid_max;           /* max # of vid in the ring(AUTO) */
     int tcc_size;               /* # of tcc cache size */
     int storage_fdhash_size;    /* # of storage fdhash size */
