@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-14 20:23:55 macan>
+ * Time-stamp: <2010-03-17 11:04:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -362,6 +362,11 @@ int mdsl_init(void)
     if (err)
         goto out_spool;
 
+    /* init the aio threads */
+    err = mdsl_aio_create();
+    if (err)
+        goto out_aio;
+    
     /* init storage */
     err = mdsl_storage_init();
     if (err)
@@ -371,6 +376,7 @@ int mdsl_init(void)
     hmo.state = HMO_STATE_RUNNING;
 
 out_storage:
+out_aio:
 out_spool:
 out_timers:
 out_signal:
@@ -395,6 +401,8 @@ void mdsl_destroy(void)
     /* destroy the tcc */
     mdsl_tcc_destroy();
 
+    mdsl_aio_destroy();
+    
     /* destroy the storage */
     mdsl_storage_destroy();
 }

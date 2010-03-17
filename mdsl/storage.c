@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-16 20:12:25 macan>
+ * Time-stamp: <2010-03-17 12:51:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -66,11 +66,10 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
             err = -errno;
             goto out_close;
         }
-        /* fallocate the file chunk */
-        if (posix_fallocate(fde->fd, fde->abuf.file_offset, buf_len) < 0) {
+        err = posix_fallocate(fde->fd, fde->abuf.file_offset, buf_len);
+        if (err) {
             hvfs_err(mdsl, "fallocate file %s failed w/ %d\n",
-                     name, errno);
-            err = -errno;
+                     name, err);
             goto out_close;
         }
         /* we create the append buf now */
@@ -101,7 +100,8 @@ out_close:
 
 /* append_buf_flush()
  *
- * Note: holding the fde->lock 
+ * Note: holding the fde->lock
+ * Return Value: 0 for no error, 1 for fallback, <0 for error.
  */
 static inline
 int append_buf_flush(struct fdhash_entry *fde, int flag)
@@ -109,23 +109,36 @@ int append_buf_flush(struct fdhash_entry *fde, int flag)
     int err = 0;
 
     if (fde->state == FDE_ABUF) {
-        if (flag == MS_ASYNC) {
-            err = mdsl_aio_submit_request(fde->abuf.addr, fde->abuf.offset, 
-                                          MDSL_AIO_SYNC);
+        if (flag & ABUF_ASYNC) {
+            err = mdsl_aio_submit_request(fde->abuf.addr, fde->abuf.offset,
+                                          fde->abuf.len, flag);
             if (err) {
-                hvfs_err(mdsl, "Submit AIO async request failed w/ %d\n" err);
+                hvfs_err(mdsl, "Submit AIO async request failed w/ %d\n", err);
+                err = 1;
                 goto fallback;
             }
+            hvfs_info(mdsl, "ASYNC FLUSH offset %lx %p, submitted.\n", 
+                      fde->abuf.file_offset, fde->abuf.addr);
         } else {
         fallback:
-            err = msync(fde->abuf.addr, fde->abuf.offset, flag);
-            hvfs_info(mdsl, "async flush offset %lx\n", fde->abuf.file_offset);
+            err = msync(fde->abuf.addr, fde->abuf.offset, MS_SYNC);
             if (err < 0) {
                 hvfs_err(mdsl, "msync() fd %d failed w/ %d\n", fde->fd, errno);
                 err = -errno;
                 goto out;
             }
+            if (flag & ABUF_UNMAP) {
+                err = munmap(fde->abuf.addr, fde->abuf.offset);
+                if (err) {
+                    hvfs_err(mdsl, "munmap() fd %d faield w/ %d\n", 
+                             fde->fd, errno);
+                    err = -errno;
+                }
+            }
+            hvfs_info(mdsl, "sync flush offset %lx\n", fde->abuf.file_offset);
         }
+        if (flag & ABUF_UNMAP)
+            fde->state = FDE_ABUF_UNMAPPED;
     }
 out:
     return err;
@@ -138,7 +151,7 @@ void append_buf_destroy(struct fdhash_entry *fde)
     /* munmap the region */
     if (fde->state == FDE_ABUF) {
         hvfs_err(mdsl, "begin SYNC .\n");
-        append_buf_flush(fde, MS_ASYNC);
+        append_buf_flush(fde, ABUF_SYNC);
         hvfs_err(mdsl, "end SYNC .\n");
         err = munmap(fde->abuf.addr, fde->abuf.len);
         hvfs_err(mdsl, "end munmap.\n");
@@ -157,11 +170,12 @@ int append_buf_flush_remap(struct fdhash_entry *fde)
 {
     int err = 0;
 
-    err = append_buf_flush(fde, MS_ASYNC);
+    err = append_buf_flush(fde, ABUF_ASYNC | ABUF_UNMAP);
     if (err) {
         hvfs_err(mdsl, "ABUF flush failed w/ %d\n", err);
         goto out;
     }
+
     /* we try to remap another region now */
     switch (fde->state) {
     case FDE_ABUF:
@@ -186,10 +200,11 @@ int append_buf_flush_remap(struct fdhash_entry *fde)
             err = -errno;
             goto out;
         }
+        mdsl_aio_start();
         fde->abuf.addr = mmap(NULL, fde->abuf.len, PROT_WRITE | PROT_READ,
                               MAP_SHARED, fde->fd, fde->abuf.file_offset);
         if (fde->abuf.addr == MAP_FAILED) {
-            hvfs_err(mdsl, "mmaap fd %d in region [%ld,%ld] failed w/ %d\n",
+            hvfs_err(mdsl, "mmap fd %d in region [%ld,%ld] failed w/ %d\n",
                      fde->fd, fde->abuf.file_offset,
                      fde->abuf.file_offset + fde->abuf.len, errno);
             err = -errno;
@@ -233,7 +248,7 @@ int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
             fde->abuf.offset;
     }
     fde->abuf.offset += msa->iov->iov_len;
-    
+
 out_unlock:
     xlock_unlock(&fde->lock);
     

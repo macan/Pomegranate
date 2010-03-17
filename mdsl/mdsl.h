@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-16 20:17:23 macan>
+ * Time-stamp: <2010-03-17 12:33:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -213,9 +213,11 @@ struct hvfs_mdsl_object
     
     pthread_t timer_thread;
     pthread_t *spool_thread;    /* array of service threads */
+    pthread_t *aio_thread;      /* array of aio threads */
 
     u8 timer_thread_stop;       /* running flag for timer thread */
     u8 spool_thread_stop;       /* running flag for service thread */
+    u8 aio_thread_stop;         /* running flag for aio thread */
 };
 
 extern struct hvfs_mdsl_info hmi;
@@ -280,9 +282,17 @@ void mdsl_storage_fd_put(struct fdhash_entry *fde)
 int append_buf_create(struct fdhash_entry *, char *, int);
 int mdsl_storage_fd_write(struct fdhash_entry *fde, 
                           struct mdsl_storage_access *msa);
+/* defines for buf flush */
+#define ABUF_ASYNC      0x01
+#define ABUF_UNMAP      0x02
+#define ABUF_SYNC       0x04
 
 /* aio.c */
-#define MDSL_AIO_SYNC           0x00
-int mdsl_aio_submit_request(void *addr, u64 len, int flag);
+#define MDSL_AIO_SYNC           0x01
+#define MDSL_AIO_SYNC_UNMAP     0x03
+int mdsl_aio_create(void);
+void mdsl_aio_destroy(void);
+int mdsl_aio_submit_request(void *addr, u64 len, u64, int flag);
+void mdsl_aio_start(void);
 
 #endif

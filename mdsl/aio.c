@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-16 20:24:59 macan>
+ * Time-stamp: <2010-03-17 12:33:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,12 +44,13 @@ struct aio_request
     struct list_head list;
     void *addr;
     size_t len;
+    size_t mlen;
     int type;
 };
 
 static struct aio_mgr aio_mgr;
 
-int mdsl_aio_submit_request(void *addr, u64 len, int type)
+int mdsl_aio_submit_request(void *addr, u64 len, u64 mlen, int type)
 {
     struct aio_request *ar;
 
@@ -60,8 +61,10 @@ int mdsl_aio_submit_request(void *addr, u64 len, int type)
     }
     ar->addr = addr;
     ar->len = len;
+    ar->mlen = mlen;
     ar->type = type;
 
+    INIT_LIST_HEAD(&ar->list);
     xlock_lock(&aio_mgr.qlock);
     list_add_tail(&ar->list, &aio_mgr.queue);
     xlock_unlock(&aio_mgr.qlock);
@@ -71,15 +74,48 @@ int mdsl_aio_submit_request(void *addr, u64 len, int type)
 
 void mdsl_aio_start(void)
 {
-    int i;
+    sem_post(&aio_mgr.qsem);
+}
 
-    for (i = 0; i < hmo.conf.aio_threads; i++) {
-        sem_post(&aio_mgr.qsem);
+int __serv_sync_request(struct aio_request *ar)
+{
+    int err = 0;
+
+    err = msync(ar->addr, ar->len, MS_SYNC);
+    if (err) {
+        hvfs_err(mdsl, "AIO SYNC region [%p,%ld] failed w/ %d\n",
+                 ar->addr, ar->len, errno);
+        err = -errno;
     }
+    xfree(ar);
+
+    return err;
+}
+
+int __serv_sync_unmap_request(struct aio_request *ar)
+{
+    int err = 0;
+
+    err = msync(ar->addr, ar->len, MS_SYNC);
+    if (err) {
+        hvfs_err(mdsl, "AIO SYNC region [%p,%ld] failed w/ %d\n",
+                 ar->addr, ar->len, errno);
+        err = -errno;
+    }
+    err = munmap(ar->addr, ar->mlen);
+    if (err) {
+        hvfs_err(mdsl, "AIO UNMAP region [%p,%ld] failed w/ %d\n",
+                 ar->addr, ar->mlen, errno);
+        err = -errno;
+    }
+    hvfs_info(mdsl, "ASYNC FLUSH addr %p, done.\n", ar->addr);
+    xfree(ar);
+
+    return err;
 }
 
 static inline
-int __serv_requst(void)
+int __serv_request(void)
 {
     struct aio_request *ar = NULL, *pos, *n;
     int err = 0;
@@ -101,6 +137,12 @@ int __serv_requst(void)
         err = __serv_sync_request(ar);
         if (err) {
             hvfs_err(mdsl, "Handle AIO SYNC request failed w/ %d\n", err);
+        }
+        break;
+    case MDSL_AIO_SYNC_UNMAP:
+        err = __serv_sync_unmap_request(ar);
+        if (err) {
+            hvfs_err(mdsl, "Handle AIO SYNC UNMAP request faield w/ %d\n", err);
         }
         break;
     default:
@@ -127,10 +169,10 @@ void *aio_main(void *arg)
         err = sem_wait(&aio_mgr.qsem);
         if (err == EINTR)
             continue;
-        hvfs_debug(mdsl, "AIO thread %d wakeup to handle the requests.\n",
+        hvfs_info(mdsl, "AIO thread %d wakeup to handle the requests.\n",
                    ata->tid);
         /* trying to handle more and more IOs */
-        while (!hmo.aio_stop) {
+        while (1) {
             err = __serv_request();
             if (err == -EHSTOP)
                 break;
@@ -155,7 +197,7 @@ int mdsl_aio_create(void)
     sem_init(&aio_mgr.qsem, 0, 0);
 
     /* init aio threads' pool */
-    if (!hmo.conf_aio_threads)
+    if (!hmo.conf.aio_threads)
         hmo.conf.aio_threads = 8;
 
     hmo.aio_thread = xzalloc(hmo.conf.aio_threads * sizeof(pthread_t));
@@ -186,3 +228,16 @@ out_free:
     goto out;
 }
 
+void mdsl_aio_destroy(void)
+{
+    int i;
+
+    hmo.aio_thread_stop = 1;
+    for (i = 0; i < hmo.conf.aio_threads; i++) {
+        sem_post(&aio_mgr.qsem);
+    }
+    for (i = 0; i < hmo.conf.aio_threads; i++) {
+        pthread_join(*(hmo.aio_thread + i), NULL);
+    }
+    sem_destroy(&aio_mgr.qsem);
+}
