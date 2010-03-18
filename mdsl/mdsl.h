@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-17 16:02:52 macan>
+ * Time-stamp: <2010-03-18 11:23:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -285,6 +285,7 @@ void mdsl_storage_fd_put(struct fdhash_entry *fde)
 int append_buf_create(struct fdhash_entry *, char *, int);
 int mdsl_storage_fd_write(struct fdhash_entry *fde, 
                           struct mdsl_storage_access *msa);
+int mdsl_storage_dir_make_exist(char *path);
 /* defines for buf flush */
 #define ABUF_ASYNC      0x01
 #define ABUF_UNMAP      0x02
@@ -295,7 +296,7 @@ int mdsl_storage_fd_write(struct fdhash_entry *fde,
 #define MDSL_AIO_SYNC_UNMAP     0x03
 int mdsl_aio_create(void);
 void mdsl_aio_destroy(void);
-int mdsl_aio_submit_request(void *addr, u64 len, u64, int flag);
+int mdsl_aio_submit_request(void *addr, u64 len, u64, loff_t, int, int);
 void mdsl_aio_start(void);
 
 #endif

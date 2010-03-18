@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-13 14:50:20 macan>
+ * Time-stamp: <2010-03-18 17:58:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -475,4 +475,11 @@ void commit_tp_destroy(void)
         pthread_join(*(hmo.commit_thread + i), NULL);
     }
     sem_destroy(&hmo.commit_sem);
+}
+
+int mds_add_bitmap_delta(struct hvfs_txg *txg)
+{
+    int err = 0;
+
+    return err;
 }

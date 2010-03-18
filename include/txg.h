@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-04 15:57:24 macan>
+ * Time-stamp: <2010-03-18 17:58:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -73,7 +73,7 @@ struct hvfs_txg
     u8 dirty;                   /* whether this txg is dirtied, using in the
                                  * SIGALARM handler to changing txg. */
 
-    xlock_t ckpt_lock, delta_lock, itb_lock, ccb_lock;
+    xlock_t ckpt_lock, ddb_lock, bdb_lock, ccb_lock;
     struct list_head ckpt;      /* hvfs_rmds_ckpt_buf list, for ckpt
                                  * entries */
     struct list_head ddb;       /* hvfs_dir_delta_buf list, for dir deltas */

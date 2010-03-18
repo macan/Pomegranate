@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-17 16:04:52 macan>
+ * Time-stamp: <2010-03-18 17:40:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,6 +45,7 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
         buf_len = MDSL_STORAGE_DEFAULT_CHUNK;
     }
 
+    xlock_lock(&fde->lock);
     if (hmo.conf.itb_falloc) {
         fde->abuf.falloc_size = hmo.conf.itb_falloc * buf_len;
     } else {
@@ -52,7 +53,6 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
         fde->abuf.falloc_size = buf_len;
     }
     
-    xlock_lock(&fde->lock);
     if (fde->state == FDE_FREE) {
         /* ok, we should open it */
         fde->fd = open(name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
@@ -76,7 +76,7 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
         fde->abuf.falloc_offset = fde->abuf.file_offset;
         err = ftruncate(fde->fd, fde->abuf.falloc_offset + fde->abuf.falloc_size);
         if (err) {
-            hvfs_err(mdsl, "fallocate file %s failed w/ %d\n",
+            hvfs_err(mdsl, "ftruncate file %s failed w/ %d\n",
                      name, err);
             goto out_close;
         }
@@ -119,7 +119,8 @@ int append_buf_flush(struct fdhash_entry *fde, int flag)
     if (fde->state == FDE_ABUF) {
         if (flag & ABUF_ASYNC) {
             err = mdsl_aio_submit_request(fde->abuf.addr, fde->abuf.offset,
-                                          fde->abuf.len, flag);
+                                          fde->abuf.len, fde->abuf.file_offset, 
+                                          flag, fde->fd);
             if (err) {
                 hvfs_err(mdsl, "Submit AIO async request failed w/ %d\n", err);
                 err = 1;
@@ -206,7 +207,7 @@ int append_buf_flush_remap(struct fdhash_entry *fde)
                 goto out;
             }
             fde->abuf.falloc_offset += fde->abuf.falloc_size;
-            hvfs_err(mdsl, "falloc offset %lx\n", fde->abuf.falloc_offset);
+            hvfs_err(mdsl, "ftruncate offset %lx\n", fde->abuf.falloc_offset);
         }
         mdsl_aio_start();
         fde->abuf.addr = mmap(NULL, fde->abuf.len, PROT_WRITE | PROT_READ,
@@ -255,6 +256,7 @@ int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         ((struct itb_info *)msa->arg)->location = fde->abuf.file_offset + 
             fde->abuf.offset;
     }
+    ((struct itb_info *)msa->arg)->location = fde->abuf.offset;
     fde->abuf.offset += msa->iov->iov_len;
 
 out_unlock:
@@ -331,7 +333,7 @@ struct fdhash_entry *mdsl_storage_fd_lookup(u64 duuid, int ftype, u64 arg)
     struct hlist_node *pos;
     int idx;
     
-    idx = hvfs_hash_fdht(duuid, ftype);
+    idx = hvfs_hash_fdht(duuid, ftype) % hmo.conf.storage_fdhash_size;
     xlock_lock(&(hmo.storage.fdhash + idx)->lock);
     hlist_for_each_entry(fde, pos, &(hmo.storage.fdhash + idx)->h, list) {
         if (duuid == fde->uuid && ftype == fde->type && arg == fde->arg) {
@@ -351,7 +353,7 @@ struct fdhash_entry *mdsl_storage_fd_insert(struct fdhash_entry *new)
     struct hlist_node *pos;
     int idx, found = 0;
 
-    idx = hvfs_hash_fdht(new->uuid, new->type);
+    idx = hvfs_hash_fdht(new->uuid, new->type) % hmo.conf.storage_fdhash_size;
     xlock_lock(&(hmo.storage.fdhash + idx)->lock);
     hlist_for_each_entry(fde, pos, &(hmo.storage.fdhash + idx)->h, list) {
         if (new->uuid == fde->uuid && new->type == fde->type &&
@@ -376,7 +378,7 @@ void mdsl_storage_fd_remove(struct fdhash_entry *new)
 {
     int idx;
 
-    idx = hvfs_hash_fdht(new->uuid, new->type);
+    idx = hvfs_hash_fdht(new->uuid, new->type) % hmo.conf.storage_fdhash_size;
     xlock_lock(&(hmo.storage.fdhash + idx)->lock);
     hlist_del(&new->list);
     xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
@@ -415,9 +417,19 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
     /* NOTE2: you should consider the concurrent access here!
      */
 
+    /* make sure the duuid dir exist */
+    sprintf(path, "%s/%ld/%ld", HVFS_MDSL_HOME, hmo.site_id, fde->uuid);
+    err = mdsl_storage_dir_make_exist(path);
+    if (err) {
+        hvfs_err(mdsl, "duuid dir %s do not exist %d.\n", path, err);
+        goto out;
+    }
+
+    /* please consider the concurrent access here in your subroutine! */
+
     switch (fde->type) {
     case MDSL_STORAGE_MD:
-        sprintf(path, "%s/%ld/md", HVFS_MDSL_HOME, fde->uuid);
+        sprintf(path, "%s/%ld/%ld/md", HVFS_MDSL_HOME, hmo.site_id, fde->uuid);
         err = mdsl_storage_fd_normal(fde, path);
         if (err) {
             hvfs_err(mdsl, "change state to open failed w/ %d\n", err);
@@ -425,7 +437,8 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         }
         break;
     case MDSL_STORAGE_ITB:
-        sprintf(path, "%s/%ld/itb-%ld", HVFS_MDSL_HOME, fde->uuid, fde->arg);
+        sprintf(path, "%s/%ld/%ld/itb-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+                fde->uuid, fde->arg);
         err = append_buf_create(fde, path, FDE_ABUF);
         if (err) {
             hvfs_err(mdsl, "append buf create failed w/ %d\n", err);
@@ -433,25 +446,28 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         }
         break;
     case MDSL_STORAGE_RANGE:
-        sprintf(path, "%s/%ld/range-%ld", HVFS_MDSL_HOME, fde->uuid, fde->arg);
+        sprintf(path, "%s/%ld/%ld/range-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+                fde->uuid, fde->arg);
         break;
     case MDSL_STORAGE_DATA:
-        sprintf(path, "%s/%ld/data-%ld", HVFS_MDSL_HOME, fde->uuid, fde->arg);
+        sprintf(path, "%s/%ld/%ld/data-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+                fde->uuid, fde->arg);
         break;
     case MDSL_STORAGE_DIRECTW:
-        sprintf(path, "%s/%ld/directw", HVFS_MDSL_HOME, fde->uuid);
+        sprintf(path, "%s/%ld/%ld/directw", HVFS_MDSL_HOME, hmo.site_id, 
+                fde->uuid);
         break;
     case MDSL_STORAGE_LOG:
-        sprintf(path, "%s/log", HVFS_MDSL_HOME);
+        sprintf(path, "%s/%ld/log", HVFS_MDSL_HOME, hmo.site_id);
         break;
     case MDSL_STORAGE_SPLIT_LOG:
-        sprintf(path, "%s/split_log", HVFS_MDSL_HOME);
+        sprintf(path, "%s/%ld/split_log", HVFS_MDSL_HOME, hmo.site_id);
         break;
     case MDSL_STORAGE_TXG:
-        sprintf(path, "%s/txg", HVFS_MDSL_HOME);
+        sprintf(path, "%s/%ld/txg", HVFS_MDSL_HOME, hmo.site_id);
         break;
     case MDSL_STORAGE_TMP_TXG:
-        sprintf(path, "%s/tmp_txg", HVFS_MDSL_HOME);
+        sprintf(path, "%s/%ld/tmp_txg", HVFS_MDSL_HOME, hmo.site_id);
         break;
     default:
         hvfs_err(mdsl, "Invalid file type provided, check your codes.\n");
@@ -469,8 +485,12 @@ struct fdhash_entry *mdsl_storage_fd_lookup_create(u64 duuid, int fdtype, u64 ar
     int err = 0;
     
     fde = mdsl_storage_fd_lookup(duuid, fdtype, arg);
-    if (!IS_ERR(fde))
-        return fde;
+    if (!IS_ERR(fde)) {
+        if (fde->state <= FDE_OPEN) {
+            goto reinit;
+        } else 
+            return fde;
+    }
 
     /* Step 1: create a new fdhash_entry */
     fde = xzalloc(sizeof(*fde));
@@ -498,6 +518,7 @@ struct fdhash_entry *mdsl_storage_fd_lookup_create(u64 duuid, int fdtype, u64 ar
     }
 
     /* Step 2: we should open the file now */
+reinit:
     err = mdsl_storage_fd_init(fde);
     if (err) {
         goto out_clean;
@@ -506,9 +527,11 @@ struct fdhash_entry *mdsl_storage_fd_lookup_create(u64 duuid, int fdtype, u64 ar
     return fde;
 out_clean:
     /* we should release the fde on error */
-    ASSERT(atomic_read(&fde->ref) == 1, mdsl);
-    mdsl_storage_fd_remove(fde);
-    xfree(fde);
+    if (atomic_dec_return(&fde->ref) == 0) {
+        mdsl_storage_fd_remove(fde);
+        xfree(fde);
+    }
+    
     return ERR_PTR(err);
 }
 
@@ -544,6 +567,26 @@ retry:
     }
 
 out_failed:
+    return err;
+}
+
+int mdsl_storage_dir_make_exist(char *path)
+{
+    int err;
+    
+    err = mkdir(path, 0755);
+    if (err) {
+        err = -errno;
+        if (errno == EEXIST) {
+            err = 0;
+        } else if (errno == EACCES) {
+            hvfs_err(mdsl, "Failed to create the dir %s, no permission.\n",
+                     path);
+        } else {
+            hvfs_err(mdsl, "mkdir %s failed w/ %d\n", path, errno);
+        }
+    }
+
     return err;
 }
 

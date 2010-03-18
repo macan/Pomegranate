@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-17 16:06:43 macan>
+ * Time-stamp: <2010-03-18 10:28:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -255,8 +255,25 @@ void mdsl_pre_init(void)
  */
 int mdsl_verify(void)
 {
-    /* check sth */
-    return 0;
+    char path[128] = {0, };
+    int err = 0;
+
+    /* check the MDSL_HOME */
+    err = mdsl_storage_dir_make_exist(HVFS_MDSL_HOME);
+    if (err) {
+        hvfs_err(mdsl, "dir %s do not exist.\n", HVFS_MDSL_HOME);
+        goto out;
+    }
+
+    /* check the MDSL site directory */
+    sprintf(path, "%s/%ld", HVFS_MDSL_HOME, hmo.site_id);
+    err = mdsl_storage_dir_make_exist(path);
+    if (err) {
+        hvfs_err(mdsl, "dir %s do not exist.\n", path);
+    }
+
+out:
+    return err;
 }
 
 /* mdsl_config()

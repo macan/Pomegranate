@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-17 11:21:30 macan>
+ * Time-stamp: <2010-03-18 10:03:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -93,6 +93,7 @@ int main(int argc, char *argv[])
 
     mdsl_pre_init();
     mdsl_init();
+    hmo.site_id = HVFS_MDSL(0);
     mdsl_verify();
 
 #if 0

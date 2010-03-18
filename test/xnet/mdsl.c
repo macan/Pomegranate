@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 17:58:43 macan>
+ * Time-stamp: <2010-03-18 17:34:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -159,6 +159,8 @@ int main(int argc, char *argv[])
     }
 
     st_init();
+    mdsl_pre_init();
+    mdsl_config();
     err = mdsl_init();
     if (err) {
         hvfs_err(xnet, "mdsl_init() failed %d\n", err);
@@ -185,6 +187,7 @@ int main(int argc, char *argv[])
     }
 
     hmo.site_id = self;
+    mdsl_verify();
     hmi.gdt_salt = 0;
     hvfs_info(xnet, "Select GDT salt to  %lx\n", hmi.gdt_salt);
     hmi.root_uuid = 1;

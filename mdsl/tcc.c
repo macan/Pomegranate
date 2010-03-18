@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-16 17:54:21 macan>
+ * Time-stamp: <2010-03-18 17:20:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -164,8 +164,9 @@ int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
             mdsl_storage_fd_put(fde);
             goto write_to_tmpfile;
         }
-        hvfs_err(mdsl, "Write ITB %ld to storage file %s/%ld/itb.\n",
-                   itb->h.itbid, HVFS_MDSL_HOME, itb->h.puuid);
+        hvfs_err(mdsl, "Write ITB %ld %d to storage file off %ld fde ST %x.\n",
+                 itb->h.itbid, atomic_read(&itb->h.len), ii->location, 
+                 fde->state);
         mdsl_storage_fd_put(fde);
     } else {
     write_to_tmpfile:

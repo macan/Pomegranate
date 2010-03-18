@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-17 12:33:07 macan>
+ * Time-stamp: <2010-03-18 11:47:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,12 +45,15 @@ struct aio_request
     void *addr;
     size_t len;
     size_t mlen;
+    loff_t foff;
     int type;
+    int fd;
 };
 
 static struct aio_mgr aio_mgr;
 
-int mdsl_aio_submit_request(void *addr, u64 len, u64 mlen, int type)
+int mdsl_aio_submit_request(void *addr, u64 len, u64 mlen, loff_t foff, 
+                            int type, int fd)
 {
     struct aio_request *ar;
 
@@ -62,7 +65,9 @@ int mdsl_aio_submit_request(void *addr, u64 len, u64 mlen, int type)
     ar->addr = addr;
     ar->len = len;
     ar->mlen = mlen;
+    ar->foff = foff;
     ar->type = type;
+    ar->fd = fd;
 
     INIT_LIST_HEAD(&ar->list);
     xlock_lock(&aio_mgr.qlock);
@@ -96,12 +101,22 @@ int __serv_sync_unmap_request(struct aio_request *ar)
 {
     int err = 0;
 
+#if 1
     err = msync(ar->addr, ar->len, MS_SYNC);
     if (err) {
         hvfs_err(mdsl, "AIO SYNC region [%p,%ld] failed w/ %d\n",
                  ar->addr, ar->len, errno);
         err = -errno;
     }
+#else
+    err = sync_file_range(ar->fd, ar->foff, ar->len,
+                          SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE);
+    if (err) {
+        hvfs_err(mdsl, "AIO fadvise region [%lx,%ld] failed w/ %d\n",
+                 ar->foff, ar->len, errno);
+        err = -errno;
+    }
+#endif
     err = munmap(ar->addr, ar->mlen);
     if (err) {
         hvfs_err(mdsl, "AIO UNMAP region [%p,%ld] failed w/ %d\n",
