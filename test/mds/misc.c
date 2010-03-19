@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-12 18:57:49 macan>
+ * Time-stamp: <2010-03-19 14:36:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -73,7 +73,23 @@ int main(int argc, char *argv[])
     /* test mds ev */
     mds_pre_init();
     mds_config();
+    mds_verify();
     hvfs_info(mds, "memlimit is %ld\n", hmo.conf.memlimit);
+
+    /* test bitmap delta */
+    u64 oitb = 0, nitb = 0;
+    struct hvfs_txg txg = {0, };
+
+    xlock_init(&txg.bdb_lock);
+    INIT_LIST_HEAD(&txg.bdb);
+    
+    for (j = 0; j < 10000; j++) {
+        err = mds_add_bitmap_delta(&txg, hmo.site_id, 1, oitb, nitb + j);
+        if (err) {
+            hvfs_err(mds, "add bitmap delta %ld %ld failed\n", oitb, nitb);
+            break;
+        }
+    }
 
     return err;
 }

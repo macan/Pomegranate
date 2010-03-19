@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-18 17:58:35 macan>
+ * Time-stamp: <2010-03-19 11:37:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,8 +38,9 @@ struct hvfs_txg *txg_alloc(void)
     t->state = TXG_STATE_OPEN;
     mcond_init(&t->cond);
     xlock_init(&t->ckpt_lock);
-    xlock_init(&t->delta_lock);
     xlock_init(&t->itb_lock);
+    xlock_init(&t->ddb_lock);
+    xlock_init(&t->bdb_lock);
     xlock_init(&t->ccb_lock);
     INIT_LIST_HEAD(&t->bdb);
     INIT_LIST_HEAD(&t->ddb);
@@ -477,9 +478,57 @@ void commit_tp_destroy(void)
     sem_destroy(&hmo.commit_sem);
 }
 
-int mds_add_bitmap_delta(struct hvfs_txg *txg)
+struct bitmap_delta_buf *__bitmap_delta_buf_alloc(void)
 {
-    int err = 0;
+    struct bitmap_delta_buf *buf;
+
+    if (unlikely(!hmo.conf.txg_buf_len)) {
+        hvfs_err(mds, "Hey, seems that you do not call mds_verify().\n");
+        hmo.conf.txg_buf_len = HVFS_MDSL_TXG_BUF_LEN;
+    }
+    buf = xzalloc(sizeof(*buf) 
+                  + hmo.conf.txg_buf_len * sizeof(struct hvfs_dir_delta));
+    if (!buf) {
+        hvfs_err(mds, "alloc bitmap_delta_buf faield.\n");
+        return NULL;
+    }
+
+    INIT_LIST_HEAD(&buf->list);
+    buf->psize = hmo.conf.txg_buf_len;
+    
+    return buf;
+}
+
+int mds_add_bitmap_delta(struct hvfs_txg *txg, u64 site_id, u64 uuid,
+                         u64 oitb, u64 nitb)
+{
+    struct bitmap_delta_buf *buf;
+    int err = 0, found = 0;
+
+    xlock_lock(&txg->bdb_lock);
+    list_for_each_entry(buf, &txg->bdb, list) {
+        if (buf->asize < buf->psize) {
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        /* ok, we should add a bitmap delta buffer */
+        buf = __bitmap_delta_buf_alloc();
+        if (!buf) {
+            hvfs_err(mds, "alloc bitmap_delta_buf failed.\n");
+            err = -ENOMEM;
+            goto out_unlock;
+        }
+        list_add_tail(&buf->list, &txg->bdb);
+    }
+
+    buf->buf[buf->asize].site_id = site_id;
+    buf->buf[buf->asize].uuid = uuid;
+    buf->buf[buf->asize].oitb = oitb;
+    buf->buf[buf->asize++].nitb = nitb;
+out_unlock:
+    xlock_unlock(&txg->bdb_lock);
 
     return err;
 }

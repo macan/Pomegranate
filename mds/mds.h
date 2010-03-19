@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-12 19:28:39 macan>
+ * Time-stamp: <2010-03-19 14:19:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,6 +79,7 @@ struct mds_conf
     int itb_depth_default;      /* default value of itb depth */
     int async_update_N;         /* default # of processing request */
     int mp_to;                  /* timeout of modify pause */
+    int txg_buf_len;            /* length of the txg buffer */
     s8 itbid_check;             /* should we do ITBID check? */
     u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
                                  * conflicts */
@@ -315,6 +316,7 @@ int txg_init(u64);
 void txg_changer(time_t);
 int commit_tp_init(void);
 void commit_tp_destroy(void);
+int mds_add_bitmap_delta(struct hvfs_txg *, u64, u64, u64, u64);
 
 /* for prof.c */
 void dump_profiling(time_t);
@@ -420,5 +422,7 @@ struct hvfs_txg *mds_get_wb_txg(struct hvfs_mds_object *hmo)
 {
     return hmo->txg[TXG_WB];
 }
+
+int itb_split_local(struct itb *, int, struct itb_lock *, struct hvfs_txg *);
 
 #endif

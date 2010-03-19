@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-11 19:29:42 macan>
+ * Time-stamp: <2010-03-19 14:16:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -221,8 +221,9 @@ void __itb_add_index(struct itb *i, u64 offset, long nr, char *name)
  *
  * holding the bucket.rlock and be.rlock and itb.rlock AND ite.wlock
  */
+static
 int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data, 
-                struct itb_lock *l)
+                struct itb_lock *l, struct hvfs_txg *txg)
 {
     u64 offset;
     struct ite *ite;
@@ -316,7 +317,7 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
         atomic_dec(&i->h.entries);
         hvfs_debug(mds, "ITB itbid %ld, depth %d, entries %d\n", 
                    i->h.itbid, i->h.depth, atomic_read(&i->h.entries));
-        err = itb_split_local(i, i->h.depth, l);
+        err = itb_split_local(i, i->h.depth, l, txg);
         if (!err)
             err = -ESPLIT;
         goto out;
@@ -1331,7 +1332,7 @@ retry:
                 goto refresh;
             }
         }
-        ret = itb_add_ite(itb, hi, data, l);
+        ret = itb_add_ite(itb, hi, data, l, *otxg);
     } else {
         /* other operations means ENOENT */
         if (itb->h.flag == ITB_JUST_SPLIT)

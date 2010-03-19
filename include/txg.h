@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-18 17:58:29 macan>
+ * Time-stamp: <2010-03-19 11:26:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,25 +37,26 @@ struct hvfs_dir_delta
     u64 ctime;
 };
 
+#define HVFS_MDSL_TXG_BUF_LEN   (512)
 struct hvfs_dir_delta_buf 
 {
     struct list_head list;
     int psize, asize;
-    struct hvfs_dir_delta *buf;
+    struct hvfs_dir_delta buf[0];
 };
 
 struct hvfs_rmds_ckpt_buf 
 {
     struct list_head list;
     int psize, asize;
-    struct checkpoint *buf;
+    struct checkpoint buf[0];
 };
 
 struct bitmap_delta_buf
 {
     struct list_head list;
     int psize, asize;
-    struct bitmap_delta *buf;
+    struct bitmap_delta buf[0];
 };
 
 struct hvfs_txg 
@@ -73,7 +74,7 @@ struct hvfs_txg
     u8 dirty;                   /* whether this txg is dirtied, using in the
                                  * SIGALARM handler to changing txg. */
 
-    xlock_t ckpt_lock, ddb_lock, bdb_lock, ccb_lock;
+    xlock_t ckpt_lock, ddb_lock, bdb_lock, ccb_lock, itb_lock;
     struct list_head ckpt;      /* hvfs_rmds_ckpt_buf list, for ckpt
                                  * entries */
     struct list_head ddb;       /* hvfs_dir_delta_buf list, for dir deltas */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 16:55:37 macan>
+ * Time-stamp: <2010-03-19 14:25:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,7 +38,8 @@
  *
  * NOTE: holding the bucket.rlock, be.rlock, itb.rlock, ite.wlock
  */
-int itb_split_local(struct itb *oi, int odepth, struct itb_lock *l)
+int itb_split_local(struct itb *oi, int odepth, struct itb_lock *l,
+                    struct hvfs_txg *txg)
 {
     struct bucket_entry *be;
     struct itb_index *ii;
@@ -166,6 +167,12 @@ retry:
     (ni)->h.twin = (u64)oi;
     itb_get(oi);
 
+    err = mds_add_bitmap_delta(txg, hmo.site_id, oi->h.puuid, oi->h.itbid, 
+ni->h.itbid);
+    if (err) {
+        hvfs_err(mds, "adding bitmap delta failed, lose consistency.\n");
+    }
+    
     /* FIXME: we should adding the async split update here! */
 #if 1
     {

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 14:45:16 macan>
+ * Time-stamp: <2010-03-19 14:19:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -193,7 +193,6 @@ int __mds_bitmap_insert(struct dhe *, struct itbitmap *);
 #define MDS_BITMAP_XOR  0x02
 void mds_bitmap_update_bit(struct itbitmap *, u64, u8);
 int mds_bitmap_create(struct dhe *, u64);
-int itb_split_local(struct itb *, int, struct itb_lock *);
 
 /* Region for fast xtable operations */
 /* mds_bitmap_lookup()

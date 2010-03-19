@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-12 20:26:48 macan>
+ * Time-stamp: <2010-03-19 11:31:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -287,6 +287,10 @@ int mds_verify(void)
             return -1;
     }
 
+    if (!hmo.conf.txg_buf_len) {
+        hmo.conf.txg_buf_len = HVFS_MDSL_TXG_BUF_LEN;
+    }
+
     return 0;
 }
 
@@ -330,6 +334,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(profiling_thread_interval, value);
     HVFS_MDS_GET_ENV_atoi(txg_interval, value);
     HVFS_MDS_GET_ENV_atoi(unlink_interval, value);
+    HVFS_MDS_GET_ENV_atoi(txg_buf_len, value);
 
     HVFS_MDS_GET_ENV_atol(memlimit, value);
 
