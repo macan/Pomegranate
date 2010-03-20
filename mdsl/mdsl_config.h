@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-13 15:43:18 macan>
+ * Time-stamp: <2010-03-19 19:16:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -53,7 +53,7 @@
     } while (0)
 
 #define HVFS_MDSL_GET_ENV_option(name, uname, value) do {   \
-        (value) = getenv("hvfs_mdsl_" #name);               \
+        (value) = getenv("hvfs_mdsl_opt_" #name);           \
         if (value) {                                        \
             if (atoi(value) != 0) {                         \
                 hmo.conf.option |= HVFS_MDSL_##uname;       \

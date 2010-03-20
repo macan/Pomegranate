@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-18 11:23:09 macan>
+ * Time-stamp: <2010-03-20 20:42:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,8 +46,16 @@ extern u32 hvfs_mdsl_tracing_flags;
 struct mmap_window 
 {
     void *addr;
-    loff_t offset;                 /* the data offset with respect to window */
+    loff_t offset;              /* the data offset with respect to window */
+    loff_t file_offset;         /* the file offset */
     size_t len;
+};
+
+struct mmap_args                /* got from the md file */
+{
+    size_t win;                 /* window size of the mmap region */
+    loff_t foffset;             /* foffset */
+    u64 range_id;               /* range for select the range file */
 };
 
 /* append buffer */
@@ -59,6 +67,29 @@ struct append_buf
     loff_t file_offset;              /* offset of the mapped file */
     loff_t offset;                   /* the data offset within the buf */
     loff_t falloc_offset;            /* where to fallocate */
+};
+
+/* md disk structure */
+struct range_
+{
+#define MDSL_RANGE_MASK         0x0f
+#define MDSL_RANGE_PRIMARY      0x00
+#define MDSL_RANGE_SECONDARY    0x01
+#define MDSL_RANGE_THIRD        0x02
+    u64 begin, end;             /* the range type is in the low bits of
+                                 * begin */
+};
+typedef struct range_ range_t;
+
+#define MDSL_MDISK_RANGE        0x01
+struct md_disk
+{
+    u32 winsize;                /* the window size of the each range file */
+    u32 range_nr[3];            /* primary, secondary, third replicas */
+    range_t *new_range;            /* region for new ranges comming in */
+    range_t *ranges;               /* ranges loaded from disk file */
+    int new_size;
+    int size;
 };
 
 struct fdhash_entry
@@ -76,9 +107,11 @@ struct fdhash_entry
 #define FDE_ABUF        3       /* append-buf access */
 #define FDE_NORMAL      4       /* normal access */
 #define FDE_ABUF_UNMAPPED       5 /* append-buf access w/o mapping  */
+#define FDE_MDISK       6         /* md disk structure accessing */
     int state;
     union 
     {
+        struct md_disk mdisk;
         struct mmap_window mwin;
         struct append_buf abuf;
     };

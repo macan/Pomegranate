@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 14:19:30 macan>
+ * Time-stamp: <2010-03-19 15:12:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -317,6 +317,13 @@ void txg_changer(time_t);
 int commit_tp_init(void);
 void commit_tp_destroy(void);
 int mds_add_bitmap_delta(struct hvfs_txg *, u64, u64, u64, u64);
+
+#define TXG_ADD_SDATA(name1, name2, name3, cta, msg) do {               \
+        struct name1 *pos;                                              \
+        list_for_each_entry(pos, &cta->wbt->name2, list) {              \
+            xnet_msg_add_sdata(msg, pos->buf, pos->asize * sizeof(struct name3)); \
+        }                                                               \
+    } while (0)
 
 /* for prof.c */
 void dump_profiling(time_t);

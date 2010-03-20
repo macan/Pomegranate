@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-13 16:18:15 macan>
+ * Time-stamp: <2010-03-19 19:20:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,6 +52,32 @@ void __mdsl_send_err_rpy(struct xnet_msg *msg, int err)
     xnet_free_msg(rpy);
 }
 
+static inline
+void __mdsl_send_rpy(struct xnet_msg *msg)
+{
+    struct xnet_msg *rpy;
+
+    rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!rpy) {
+        hvfs_err(mdsl, "xnet_alloc_msg() failed\n");
+        /* do not retry myself */
+        return;
+    }
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(struct xnet_msg_tx));
+#endif
+    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0, hmo.site_id, msg->tx.ssite_id);
+    xnet_msg_fill_reqno(rpy, msg->tx.reqno);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, 0, 0);
+    /* match the original request at the source site */
+    rpy->tx.handle = msg->tx.handle;
+
+    if (xnet_send(hmo.xc, rpy)) {
+        hvfs_err(mdsl, "xnet_send() failed.\n");
+    }
+    xnet_free_msg(rpy);
+}
+
 void mdsl_itb(struct xnet_msg *msg)
 {
     hvfs_info(mdsl, "Recv ITB load requst <%ld,%ld> from site %lx\n",
@@ -77,7 +103,8 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         goto out;
     
     if (msg->tx.arg0 & HVFS_WBTXG_BEGIN) {
-        struct txg_begin *tb;
+        struct txg_begin *tb = NULL;
+        void *p = NULL;
         
         /* sanity checking */
         if (len < sizeof(struct txg_begin)) {
@@ -91,8 +118,10 @@ void mdsl_wbtxg(struct xnet_msg *msg)
             struct txg_open_entry *toe;
             
             tb = data;
-            hvfs_debug(mdsl, "Recv TXG_BEGIN %ld from site %lx\n",
-                       tb->txg, tb->site_id);
+            hvfs_debug(mdsl, "Recv TXG_BEGIN %ld[%d,%d,%d] from site %lx\n",
+                       tb->txg, tb->dir_delta_nr,
+                       tb->bitmap_delta_nr, tb->ckpt_nr,
+                       tb->site_id);
 
             toe = get_txg_open_entry(&hmo.tcc);
             if (IS_ERR(toe)) {
@@ -123,11 +152,38 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                 hvfs_warning(mdsl, "xmalloc() TOE %p other_region failed, "
                              "we will retry later!\n", toe);
             }
+            p = toe->other_region;
 
         end_begin:
+            __mdsl_send_rpy(msg);
             /* adjust the data pointer */
             data += sizeof(struct txg_begin);
             len -= sizeof(struct txg_begin);
+        }
+
+        if (msg->tx.arg0 & HVFS_WBTXG_DIR_DELTA) {
+        }
+        if (msg->tx.arg0 & HVFS_WBTXG_BITMAP_DELTA) {
+            size_t region_len = 0;
+            
+            if (tb && p) {
+                region_len = sizeof(struct bitmap_delta) * tb->bitmap_delta_nr;
+                memcpy(p, data, region_len);
+#if 0
+                struct bitmap_delta *bd = (struct bitmap_delta *)p;
+                int i;
+                for (i = 0; i < tb->bitmap_delta_nr; i++) {
+                    hvfs_err(mdsl, "sid %lx uuid %ld oitb %ld nitb %ld\n",
+                             (bd + i)->site_id, (bd + i)->uuid,
+                             (bd + i)->oitb, (bd + i)->nitb);
+                }
+#endif
+            }
+            
+            data += region_len;
+            len -= region_len;
+        }
+        if (msg->tx.arg0 & HVFS_WBTXG_CKPT) {
         }
     }
     if (msg->tx.arg0 & HVFS_WBTXG_ITB) {
@@ -150,8 +206,12 @@ void mdsl_wbtxg(struct xnet_msg *msg)
             /* find the toe now */
             toe = toe_lookup(msg->tx.ssite_id, msg->tx.arg1);
             if (!toe) {
-                hvfs_err(mdsl, "toe lookup <%lx,%ld> failed\n",
-                         msg->tx.ssite_id, msg->tx.arg1);
+                hvfs_err(mdsl, "ITB %ld[%ld] toe lookup <%lx,%ld> failed\n",
+                         i->h.itbid, i->h.puuid, msg->tx.ssite_id, 
+                         msg->tx.arg1);
+                toe_to_tmpfile(TXG_OPEN_ENTRY_DISK_ITB,
+                               msg->tx.ssite_id, msg->tx.arg1,
+                               i);
                 goto end_itb;
             }
 
@@ -182,12 +242,6 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         }
     }
     if (msg->tx.arg0 & HVFS_WBTXG_END) {
-    }
-    if (msg->tx.arg0 & HVFS_WBTXG_BITMAP_DELTA) {
-    }
-    if (msg->tx.arg0 & HVFS_WBTXG_DIR_DELTA) {
-    }
-    if (msg->tx.arg0 & HVFS_WBTXG_CKPT) {
     }
 
 out:

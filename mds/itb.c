@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 14:16:18 macan>
+ * Time-stamp: <2010-03-20 14:14:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -509,6 +509,7 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
 {
     /* there is always a struct mdu_update with normal create request */
 
+    e->namelen = hi->namelen;
     if (likely(hi->namelen)) {
         memcpy(&e->s.name, hi->name, hi->namelen);
         if (hi->namelen < HVFS_MAX_NAME_LEN)
@@ -671,7 +672,8 @@ inline int ite_match(struct ite *e, struct hvfs_index *hi)
         } else
             return ITE_MATCH_MISS;
     } else if (hi->flag & INDEX_BY_NAME) {
-        if (memcmp(e->s.name, hi->name, hi->namelen) == 0 &&
+        if (hi->namelen == e->namelen && 
+            memcmp(e->s.name, hi->name, hi->namelen) == 0 &&
             e->s.name[hi->namelen] == '\0') {
             return ITE_MATCH_HIT;
         } else

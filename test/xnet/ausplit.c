@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-12 19:47:00 macan>
+ * Time-stamp: <2010-03-20 15:00:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -615,7 +615,7 @@ void *__msg_send(void *arg)
             lib_timer_O(msa->entry * msa->thread, "Unlink Aggr Lt: ");
         }
     } else {
-        msg_send(msa->entry, OP_CREATE, msa->tid * msa->entry);
+        msg_send(msa->entry, msa->op, msa->tid * msa->entry);
         pthread_barrier_wait(msa->pb);
         if (msa->tid == 0) {
             lib_timer_E();

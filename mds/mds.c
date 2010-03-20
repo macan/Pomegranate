@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 11:31:37 macan>
+ * Time-stamp: <2010-03-19 15:55:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -291,6 +291,11 @@ int mds_verify(void)
         hmo.conf.txg_buf_len = HVFS_MDSL_TXG_BUF_LEN;
     }
 
+    if (!hmo.conf.profiling_thread_interval)
+        hmo.conf.profiling_thread_interval = 5;
+    if (!hmo.conf.txg_interval) 
+        hmo.conf.txg_interval = 30;
+
     return 0;
 }
 
@@ -366,8 +371,6 @@ int mds_init(int bdepth)
     dconf_init();
     mds_config();
     /* default configurations */
-    hmo.conf.profiling_thread_interval = 5;
-    hmo.conf.txg_interval = 30;
     hmo.conf.option |= HVFS_MDS_ITB_RWLOCK | HVFS_MDS_CHRECHK;
     hmo.conf.max_async_unlink = 1024;
     hmo.conf.async_unlink = 0;  /* enable async unlink */

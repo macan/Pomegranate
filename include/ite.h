@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 08:44:58 macan>
+ * Time-stamp: <2010-03-20 14:11:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -77,6 +77,7 @@ struct ite
 #define ITE_FLAG_LARGE  0x08000000 /* large file */
 #define ITE_FLAG_SMALL  0x04000000 /* small file */
     u32 flag;
+    u32 namelen;
 
     /* section for special metadata: 340B */
     union 
@@ -87,9 +88,6 @@ struct ite
 
     /* section for columns: 144B */
     struct column column[6];    /* 144B */
-
-    /* section for padding to 512B: 8B */
-    char padding[8];
 };
 #define ITE_IS_DIR(ite) ((ite)->uuid & 0x8000000000000000)
 #define ITE_IS_FILE(ite) (!((ite)->uuid & 0x8000000000000000))

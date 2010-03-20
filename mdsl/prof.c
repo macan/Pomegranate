@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-13 10:53:16 macan>
+ * Time-stamp: <2010-03-20 09:57:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,10 +40,12 @@ void dump_profiling_plot(time_t t)
      * "timestamp ring.reqout, ring.update, ring.size, mds.itb, mds.bitmap,
      * mds.txg, mdsl.range_in, mdsl.range_out, mdsl.range_copy,
      * misc.reqin_total, misc.reqin_handle, xnet.msg_alloc, xnet.msg_free,
-     * xnet.inbytes, xnet.outbytes, xnet.active_links"
+     * xnet.inbytes, xnet.outbytes, xnet.active_links, storage.wbytes,
+     * storage.rbytes, storage.wreq, storage.rreq, storage.cpbytes,
+     * storage.aio_submitted, storage.aio_handled"
      */
     hvfs_pf("PLOT %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
-            "%ld %ld %ld %ld\n", 
+            "%ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld\n", 
             t, 
             atomic64_read(&hmo.prof.ring.reqout),
             atomic64_read(&hmo.prof.ring.update),
@@ -65,7 +67,14 @@ void dump_profiling_plot(time_t t)
             (hmo.prof.xnet ?
              atomic64_read(&hmo.prof.xnet->outbytes) : 0),
             (hmo.prof.xnet ?
-             atomic64_read(&hmo.prof.xnet->active_links) : 0)
+             atomic64_read(&hmo.prof.xnet->active_links) : 0),
+            atomic64_read(&hmo.prof.storage.wbytes),
+            atomic64_read(&hmo.prof.storage.rbytes),
+            atomic64_read(&hmo.prof.storage.wreq),
+            atomic64_read(&hmo.prof.storage.rreq),
+            atomic64_read(&hmo.prof.storage.cpbytes),
+            atomic64_read(&hmo.prof.storage.aio_submitted),
+            atomic64_read(&hmo.prof.storage.aio_handled)
         );
 }
 

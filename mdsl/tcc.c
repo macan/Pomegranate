@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-18 17:20:49 macan>
+ * Time-stamp: <2010-03-20 11:42:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -139,6 +139,9 @@ int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
 {
     int err = 0;
     
+    if (unlikely(hmo.conf.option & HVFS_MDSL_WDROP))
+        return 0;
+    
     if (ii) {
         struct fdhash_entry *fde;
         struct iovec itb_iov = {
@@ -164,9 +167,11 @@ int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
             mdsl_storage_fd_put(fde);
             goto write_to_tmpfile;
         }
-        hvfs_err(mdsl, "Write ITB %ld %d to storage file off %ld fde ST %x.\n",
-                 itb->h.itbid, atomic_read(&itb->h.len), ii->location, 
-                 fde->state);
+        hvfs_info(mdsl, "Write ITB %ld[%ld] len %d to storage file off "
+                   "%ld fde ST %x.\n",
+                   itb->h.itbid, itb->h.puuid, 
+                   atomic_read(&itb->h.len), ii->location, 
+                   fde->state);
         mdsl_storage_fd_put(fde);
     } else {
     write_to_tmpfile:
@@ -179,5 +184,8 @@ int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
 
 int toe_to_tmpfile(int flag, u64 site, u64 txg, void *data)
 {
+    if (unlikely(hmo.conf.option & HVFS_MDSL_WDROP))
+        return 0;
+
     return 0;
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 11:37:18 macan>
+ * Time-stamp: <2010-03-19 19:05:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -272,6 +272,19 @@ int txg_wb_itb_ll(struct commit_thread_arg *cta, struct itb *itb)
         TWS_CLEAN_NEW(tws);
         msg->tx.arg0 |= HVFS_WBTXG_BEGIN;
         xnet_msg_add_sdata(msg, &cta->begin, sizeof(cta->begin));
+        if (cta->begin.dir_delta_nr) {
+            msg->tx.arg0 |= HVFS_WBTXG_DIR_DELTA;
+            TXG_ADD_SDATA(hvfs_dir_delta_buf, ddb, hvfs_dir_delta, cta, msg);
+        }
+        if (cta->begin.bitmap_delta_nr) {
+            msg->tx.arg0 |= HVFS_WBTXG_BITMAP_DELTA;
+            TXG_ADD_SDATA(bitmap_delta_buf, bdb, bitmap_delta, cta, msg);
+        }
+        if (cta->begin.ckpt_nr) {
+            msg->tx.arg0 |= HVFS_WBTXG_CKPT;
+            TXG_ADD_SDATA(hvfs_rmds_ckpt_buf, ckpt, checkpoint, cta, msg);
+        }
+        msg->tx.flag |= XNET_NEED_REPLY;
     }
     xnet_msg_add_sdata(msg, itb, atomic_read(&itb->h.len));
 #if 1
@@ -287,7 +300,10 @@ int txg_wb_itb_ll(struct commit_thread_arg *cta, struct itb *itb)
     hvfs_debug(mds, "Write back ITB %ld to site %lx [%ld,%lx]\n",
                itb->h.itbid, p->site_id, itb->h.itbid, e->salt);
 
+    tws->nr++;
+    tws->len += atomic_read(&itb->h.len);
     xnet_free_msg(msg);
+
     return err;
 
 out_free_msg:
@@ -532,3 +548,4 @@ out_unlock:
 
     return err;
 }
+

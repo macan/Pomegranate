@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-18 17:40:29 macan>
+ * Time-stamp: <2010-03-20 20:57:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,7 +61,7 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
             xlock_unlock(&fde->lock);
             return -EINVAL;
         }
-        hvfs_info(mdsl, "open file %s w/ fd %d\n", name, fde->fd);
+        hvfs_err(mdsl, "open file %s w/ fd %d\n", name, fde->fd);
         fde->state = FDE_OPEN;
     }
     if (state == FDE_ABUF && fde->state == FDE_OPEN) {
@@ -207,7 +207,7 @@ int append_buf_flush_remap(struct fdhash_entry *fde)
                 goto out;
             }
             fde->abuf.falloc_offset += fde->abuf.falloc_size;
-            hvfs_err(mdsl, "ftruncate offset %lx\n", fde->abuf.falloc_offset);
+            hvfs_debug(mdsl, "ftruncate offset %lx\n", fde->abuf.falloc_offset);
         }
         mdsl_aio_start();
         fde->abuf.addr = mmap(NULL, fde->abuf.len, PROT_WRITE | PROT_READ,
@@ -256,8 +256,10 @@ int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         ((struct itb_info *)msa->arg)->location = fde->abuf.file_offset + 
             fde->abuf.offset;
     }
-    ((struct itb_info *)msa->arg)->location = fde->abuf.offset;
+    ((struct itb_info *)msa->arg)->location = fde->abuf.file_offset +
+        fde->abuf.offset;
     fde->abuf.offset += msa->iov->iov_len;
+    atomic64_add(msa->iov->iov_len, &hmo.prof.storage.cpbytes);
 
 out_unlock:
     xlock_unlock(&fde->lock);
@@ -388,14 +390,197 @@ void mdsl_storage_fd_remove(struct fdhash_entry *new)
  *
  * do normal file open.
  */
-int mdsl_storage_fd_normal(struct fdhash_entry *fde, char *path)
+int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path)
 {
+    int err = 0;
+    int size;
+    
+    xlock_lock(&fde->lock);
+    if (fde->state == FDE_FREE) {
+        /* ok, we should open it */
+        fde->fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+        if (fde->fd < 0) {
+            hvfs_err(mdsl, "open file '%s' failed\n", path);
+            err = -EINVAL;
+            goto out_unlock;
+        }
+        hvfs_err(mdsl, "open file %s w /fd %d\n", path, fde->fd);
+        fde->state = FDE_OPEN;
+    }
+    if (fde->state == FDE_OPEN) {
+        /* we should load the disk struct to memory */
+        int br, bl = 0;
+
+        do {
+            br = pread(fde->fd, (void *)(&fde->mdisk) + bl, 
+                       sizeof(struct md_disk) - bl, bl);
+            if (br < 0) {
+                hvfs_err(mdsl, "pread failed w/ %d\n", errno);
+                err = -errno;
+                goto out_unlock;
+            } else if (br == 0) {
+                hvfs_err(mdsl, "pread to EOF\n");
+                err = -EINVAL;
+                goto out_unlock;
+            }
+            bl += br;
+        } while (bl < sizeof(struct md_disk));
+
+        /* we alloc the region for the ranges */
+        fde->mdisk.size = (fde->mdisk.range_nr[0] +
+                           fde->mdisk.range_nr[1] +
+                           fde->mdisk.range_nr[2]);
+        size = fde->mdisk.size * sizeof(range_t);
+        
+        fde->mdisk.ranges = xzalloc(size);
+        if (!fde->mdisk.ranges) {
+            hvfs_err(mdsl, "xzalloc ranges failed\n");
+            err = -ENOMEM;
+            goto out_unlock;
+        }
+
+        /* load the ranges to memory */
+        bl = 0;
+        do {
+            br = pread(fde->fd, (void *)fde->mdisk.ranges + bl,
+                       size - bl, sizeof(struct md_disk) + bl);
+            if (br < 0) {
+                hvfs_err(mdsl, "pread failed w/ %d\n", errno);
+                err = -errno;
+                goto out_unlock;
+            } else if (br == 0) {
+                hvfs_err(mdsl, "pread to EOF\n");
+                err = -EINVAL;
+                goto out_unlock;
+            }
+            bl += br;
+        } while (bl < size);
+        fde->mdisk.new_range = NULL;
+        fde->state = FDE_MDISK;
+    }
+out_unlock:
+    xlock_unlock(&fde->lock);
+    
     return 0;
 }
 
 int __normal_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 {
     return 0;
+}
+
+int __mdisk_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
+{
+    hvfs_err(mdsl, "You should not call this function, BUG!\n");
+    
+    return 0;
+}
+
+int __mdisk_sync(struct fdhash_entry *fde)
+{
+    return 0;
+}
+
+int __mdisk_lookup(struct fdhash_entry *fde, int op, u64 arg, void *out)
+{
+    int found = 0;
+    int i;
+    int err = 0;
+    
+    xlock_lock(&fde->lock);
+    if (fde->state != FDE_MDISK) {
+        err = -EINVAL;
+        goto out_unlock;
+    }
+
+    if (op == MDSL_MDISK_RANGE) {
+        if (fde->mdisk.ranges) {
+            for (i = 0; i < fde->mdisk.size; i++) {
+                if ((fde->mdisk.ranges + i)->begin <= arg && 
+                    (fde->mdisk.ranges + i)->end > arg) {
+                    found = 1;
+                    break;
+                }
+                if ((fde->mdisk.ranges + i)->begin > arg)
+                    break;
+            }
+            if (found) {
+                *(int *)out = i;
+                goto out_unlock;
+            }
+        }
+        if (fde->mdisk.new_range) {
+            int found = 0;
+
+            for (i = 0; i < fde->mdisk.size; i++) {
+                if ((fde->mdisk.new_range + i)->begin <= arg &&
+                    (fde->mdisk.new_range + i)->end > arg) {
+                    found = 1;
+                    break;
+                }
+                if ((fde->mdisk.new_range + i)->begin > arg)
+                    break;
+            }
+            if (found) {
+                *(int *)out = i;
+                goto out_unlock;
+            }
+        }
+    }
+    
+out_unlock:
+    xlock_unlock(&fde->lock);
+    
+    return err;
+}
+
+/* mdsl_storage_fd_mmap()
+ *
+ * @win: the window size of the mmap region
+ */
+int mdsl_storage_fd_mmap(struct fdhash_entry *fde, char *path, 
+                         struct mmap_args *ma)
+{
+    int err = 0;
+    
+    xlock_lock(&fde->lock);
+    if (fde->state == FDE_FREE) {
+        /* ok, we should open it */
+        fde->fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+        if (fde->fd < 0) {
+            hvfs_err(mdsl, "open file '%s' failed\n", path);
+            err = -EINVAL;
+            goto out_unlock;
+        }
+        hvfs_err(mdsl, "open file %s w/ fd %d\n", path, fde->fd);
+        fde->state = FDE_OPEN;
+    }
+    if (fde->state == FDE_OPEN) {
+        /* do mmap on the region */
+        err = lseek(fde->fd, 0, SEEK_SET);
+        if (err < 0) {
+            hvfs_err(mdsl, "fd %d mmap win created failed w/ %d.\n",
+                     fde->fd, errno);
+            err = -errno;
+            goto out_unlock;
+        }
+        fde->mwin.addr = mmap(NULL, ma->win, PROT_WRITE | PROT_READ,
+                              MAP_SHARED, fde->fd, ma->foffset);
+        if (fde->mwin.addr == MAP_FAILED) {
+            hvfs_err(mdsl, "mmap fd %d in region [%ld,%ld] failed w/ %d\n",
+                     fde->fd, 0UL, ma->win, errno);
+            err = -errno;
+            goto out_unlock;
+        }
+        fde->mwin.offset = 0;
+        fde->mwin.file_offset = ma->foffset;
+        fde->mwin.len = ma->win;
+        fde->state = FDE_MEMWIN;
+    }
+out_unlock:            
+    xlock_unlock(&fde->lock);
+
+    return err;
 }
 
 static inline
@@ -430,7 +615,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
     switch (fde->type) {
     case MDSL_STORAGE_MD:
         sprintf(path, "%s/%ld/%ld/md", HVFS_MDSL_HOME, hmo.site_id, fde->uuid);
-        err = mdsl_storage_fd_normal(fde, path);
+        err = mdsl_storage_fd_mdisk(fde, path);
         if (err) {
             hvfs_err(mdsl, "change state to open failed w/ %d\n", err);
             goto out;
@@ -446,9 +631,18 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         }
         break;
     case MDSL_STORAGE_RANGE:
+    {
+        struct mmap_args *ma = (struct mmap_args *)fde->arg;
+        
         sprintf(path, "%s/%ld/%ld/range-%ld", HVFS_MDSL_HOME, hmo.site_id, 
-                fde->uuid, fde->arg);
+                fde->uuid, ma->range_id);
+        err = mdsl_storage_fd_mmap(fde, path, ma);
+        if (err) {
+            hvfs_err(mdsl, "mmap window created failed w/ %d\n", err);
+            goto out;
+        }
         break;
+    }
     case MDSL_STORAGE_DATA:
         sprintf(path, "%s/%ld/%ld/data-%ld", HVFS_MDSL_HOME, hmo.site_id, 
                 fde->uuid, fde->arg);
@@ -544,14 +738,20 @@ retry:
     if (fde->state == FDE_ABUF) {
         err = append_buf_write(fde, msa);
         if (err) {
-            hvfs_err(mdsl, "append_buf_write failed w/%d\n", err);
+            hvfs_err(mdsl, "append_buf_write failed w/ %d\n", err);
             goto out_failed;
         }
     } else if (fde->state == FDE_MEMWIN) {
     } else if (fde->state == FDE_NORMAL) {
         err = __normal_write(fde, msa);
         if (err) {
-            hvfs_err(mdsl, "__normal_write faield w/%d\n", err);
+            hvfs_err(mdsl, "__normal_write faield w/ %d\n", err);
+            goto out_failed;
+        }
+    } else if (fde->state == FDE_MDISK) {
+        err = __mdisk_write(fde, msa);
+        if (err) {
+            hvfs_err(mdsl, "__mdisk_write failed w/ %d\n", err);
             goto out_failed;
         }
     } else if (fde->state == FDE_OPEN) {
@@ -566,6 +766,7 @@ retry:
         /* we should (re-)open the file */
     }
 
+    atomic64_inc(&hmo.prof.storage.wreq);
 out_failed:
     return err;
 }
@@ -586,7 +787,6 @@ int mdsl_storage_dir_make_exist(char *path)
             hvfs_err(mdsl, "mkdir %s failed w/ %d\n", path, errno);
         }
     }
-
+    
     return err;
 }
-

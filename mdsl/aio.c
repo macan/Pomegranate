@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-18 11:47:40 macan>
+ * Time-stamp: <2010-03-20 11:41:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -74,6 +74,8 @@ int mdsl_aio_submit_request(void *addr, u64 len, u64 mlen, loff_t foff,
     list_add_tail(&ar->list, &aio_mgr.queue);
     xlock_unlock(&aio_mgr.qlock);
 
+    atomic64_inc(&hmo.prof.storage.aio_submitted);
+
     return 0;
 }
 
@@ -117,13 +119,14 @@ int __serv_sync_unmap_request(struct aio_request *ar)
         err = -errno;
     }
 #endif
+    atomic64_add(ar->len, &hmo.prof.storage.wbytes);
     err = munmap(ar->addr, ar->mlen);
     if (err) {
         hvfs_err(mdsl, "AIO UNMAP region [%p,%ld] failed w/ %d\n",
                  ar->addr, ar->mlen, errno);
         err = -errno;
     }
-    hvfs_info(mdsl, "ASYNC FLUSH addr %p, done.\n", ar->addr);
+    hvfs_debug(mdsl, "ASYNC FLUSH addr %p, done.\n", ar->addr);
     xfree(ar);
 
     return err;
@@ -147,6 +150,7 @@ int __serv_request(void)
         return -EHSTOP;
 
     /* ok ,deal with it */
+    atomic64_inc(&hmo.prof.storage.aio_handled);
     switch (ar->type) {
     case MDSL_AIO_SYNC:
         err = __serv_sync_request(ar);
@@ -184,7 +188,7 @@ void *aio_main(void *arg)
         err = sem_wait(&aio_mgr.qsem);
         if (err == EINTR)
             continue;
-        hvfs_info(mdsl, "AIO thread %d wakeup to handle the requests.\n",
+        hvfs_debug(mdsl, "AIO thread %d wakeup to handle the requests.\n",
                    ata->tid);
         /* trying to handle more and more IOs */
         while (1) {

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 11:26:20 macan>
+ * Time-stamp: <2010-03-19 15:30:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,6 +95,7 @@ struct txg_wb_slice
     struct hlist_node hlist;
     struct list_head list;
     u64 site_id;
+    u32 len;                    /* only for the itb length? */
     u32 nr;
 #define TWS_NEW         0x0001
     u32 flag;

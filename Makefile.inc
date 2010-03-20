@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-03-17 10:57:18 macan>
+# Time-stamp: <2010-03-20 11:35:30 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -35,7 +35,8 @@ CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" \
 LFLAGS += -lrt -lpthread
 
 # Region for depend files
-TEST_MDS_SOURCE = cbht.c tx.c dh.c cmd_sender.c misc.c itbsplit.c
+TEST_MDS_SOURCE = cbht.c tx.c dh.c cmd_sender.c misc.c itbsplit.c \
+                  itb_analyzer.c
 TEST_MDSL_SOURCE = mdsl.c storage.c
 TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c
 MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \

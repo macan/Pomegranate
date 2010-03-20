@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 14:36:10 macan>
+ * Time-stamp: <2010-03-20 14:08:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,6 +39,8 @@ int main(int argc, char *argv[])
 
     hvfs_info(mds, "ITB Size: %ld B\n", 
               sizeof(struct itb) + ITB_SIZE * sizeof(struct ite));
+    hvfs_info(mds, "ITE Size: %ld B\n",
+              sizeof(struct ite));
 
     offset = fls64(a);
     hvfs_info(mds, "[FLS64]: First set bit in 0x%lx is %d.\n", a, offset);

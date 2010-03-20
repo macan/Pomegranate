@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-18 17:34:34 macan>
+ * Time-stamp: <2010-03-19 19:33:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -146,6 +146,7 @@ int main(int argc, char *argv[])
     };
     int err = 0;
     int self, sport, i, j;
+    char profiling_fname[256];
 
     hvfs_info(xnet, "MDSL Unit Testing...\n");
 
@@ -177,6 +178,16 @@ int main(int argc, char *argv[])
         }
     }
     
+    /* setup the profiling file */
+    memset(profiling_fname, 0, sizeof(profiling_fname));
+    sprintf(profiling_fname, "./CP-BACK-mdsl.%d", self);
+    hmo.conf.pf_file = fopen(profiling_fname, "w+");
+    if (!hmo.conf.pf_file) {
+        hvfs_err(xnet, "fopen() profiling file %s faield %d\n",
+                 profiling_fname, errno);
+        return EINVAL;
+    }
+
     sport = port[TYPE_MDSL][self];
     self = HVFS_MDSL(self);
 
