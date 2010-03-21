@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-20 20:42:20 macan>
+ * Time-stamp: <2010-03-21 20:03:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,7 +46,7 @@ extern u32 hvfs_mdsl_tracing_flags;
 struct mmap_window 
 {
     void *addr;
-    loff_t offset;              /* the data offset with respect to window */
+    loff_t offset;              /* the offset of this mmap file */
     loff_t file_offset;         /* the file offset */
     size_t len;
 };
@@ -56,6 +56,7 @@ struct mmap_args                /* got from the md file */
     size_t win;                 /* window size of the mmap region */
     loff_t foffset;             /* foffset */
     u64 range_id;               /* range for select the range file */
+    u64 range_begin;
 };
 
 /* append buffer */
@@ -78,6 +79,7 @@ struct range_
 #define MDSL_RANGE_THIRD        0x02
     u64 begin, end;             /* the range type is in the low bits of
                                  * begin */
+    u64 range_id;
 };
 typedef struct range_ range_t;
 
@@ -86,10 +88,12 @@ struct md_disk
 {
     u32 winsize;                /* the window size of the each range file */
     u32 range_nr[3];            /* primary, secondary, third replicas */
-    range_t *new_range;            /* region for new ranges comming in */
-    range_t *ranges;               /* ranges loaded from disk file */
+    range_t *new_range;         /* region for new ranges comming in */
+    range_t *ranges;            /* ranges loaded from disk file */
     int new_size;
-    int size;
+    int size;                   /* total size of the ranges from disk */
+    u32 itb_fsize;
+    u32 data_fsize;
 };
 
 struct fdhash_entry
@@ -319,6 +323,8 @@ int append_buf_create(struct fdhash_entry *, char *, int);
 int mdsl_storage_fd_write(struct fdhash_entry *fde, 
                           struct mdsl_storage_access *msa);
 int mdsl_storage_dir_make_exist(char *path);
+int __range_lookup(u64, u64, struct mmap_args *, u64 *);
+int __mdisk_lookup(struct fdhash_entry *, int, u64, range_t **);
 /* defines for buf flush */
 #define ABUF_ASYNC      0x01
 #define ABUF_UNMAP      0x02

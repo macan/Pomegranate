@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-18 10:03:44 macan>
+ * Time-stamp: <2010-03-21 20:07:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -85,6 +85,62 @@ out:
     return err;
 }
 
+int __test_all()
+{
+    struct mmap_args ma;
+    struct fdhash_entry *fde;
+    range_t *range;
+    u64 location;
+    int err = 0, i;
+
+    fde = mdsl_storage_fd_lookup_create(0, MDSL_STORAGE_MD, 0);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create MD file failed w/ %ld\n", PTR_ERR(fde));
+        return PTR_ERR(fde);
+    }
+    if (!fde->mdisk.ranges) {
+        fde->mdisk.new_range = xzalloc(sizeof(range_t) * 100);
+        if (!fde->mdisk.new_range) {
+            hvfs_err(mdsl, "xzalloc new range failed\n");
+            err = -ENOMEM;
+            goto out_put;
+        }
+        for (i = 0; i < 100; i++) {
+            (fde->mdisk.new_range + i)->begin = i * (1 << 20);
+            (fde->mdisk.new_range + i)->end = (i + 1) * (1 << 20) - 1;
+            (fde->mdisk.new_range + i)->range_id = i;
+        }
+        fde->mdisk.new_size = 100;
+        fde->mdisk.range_nr[0] = 100;
+        ASSERT(fde->state == FDE_MDISK, mdsl);
+        err = mdsl_storage_fd_write(fde, NULL);
+        if (err) {
+            hvfs_err(mdsl, "fd write failed w/ %d\n", err);
+            goto out_put;
+        }
+    }
+    ma.win = (1 << 23);
+    err = __mdisk_lookup(fde, MDSL_MDISK_RANGE, 100, &range);
+    if (err) {
+        hvfs_err(mdsl, "mdisk_lookup failed w/ %d\n", err);
+        goto out_put;
+    }
+    ma.foffset = 0;
+    ma.range_id = range->range_id;
+    ma.range_begin = range->begin;
+
+    err = __range_lookup(0, 100, &ma, &location);
+    if (err) {
+        hvfs_err(mdsl, "range lookup failed w/ %d\n", err);
+        goto out_put;
+    }
+    
+out_put:
+    mdsl_storage_fd_put(fde);
+
+    return err;
+}
+
 int main(int argc, char *argv[])
 {
     int err = 0;
@@ -102,11 +158,16 @@ int main(int argc, char *argv[])
         hvfs_err(mdsl, "append buf test failed w/ %d\n", err);
         goto out;
     }
-#endif
 
     err = __test_fdht();
     if (err) {
         hvfs_err(mdsl, "test fdht failed w/ %d\n", err);
+        goto out;
+    }
+#endif
+    err = __test_all();
+    if (err) {
+        hvfs_err(mdsl, "test all failed w/ %d\n", err);
         goto out;
     }
 

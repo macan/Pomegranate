@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-20 20:57:32 macan>
+ * Time-stamp: <2010-03-21 21:41:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -386,6 +386,8 @@ void mdsl_storage_fd_remove(struct fdhash_entry *new)
     xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
 }
 
+void __mdisk_range_sort(void *ranges, size_t size);
+
 /* mdsl_stroage_fd_normal()
  *
  * do normal file open.
@@ -419,6 +421,9 @@ int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path)
                 err = -errno;
                 goto out_unlock;
             } else if (br == 0) {
+                if (bl == 0) {
+                    goto first_hit;
+                }
                 hvfs_err(mdsl, "pread to EOF\n");
                 err = -EINVAL;
                 goto out_unlock;
@@ -455,13 +460,22 @@ int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path)
             }
             bl += br;
         } while (bl < size);
+        /* we need to sort the range list */
+        __mdisk_range_sort(fde->mdisk.ranges, fde->mdisk.size);
         fde->mdisk.new_range = NULL;
+        fde->mdisk.new_size = 0;
         fde->state = FDE_MDISK;
     }
 out_unlock:
     xlock_unlock(&fde->lock);
     
     return 0;
+first_hit:
+    /* init the mdisk memory structure */
+    fde->mdisk.winsize = (1 << 23);
+    fde->state = FDE_MDISK;
+    
+    goto out_unlock;
 }
 
 int __normal_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
@@ -471,17 +485,72 @@ int __normal_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 
 int __mdisk_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 {
-    hvfs_err(mdsl, "You should not call this function, BUG!\n");
+    loff_t offset = 0;
+    int err = 0;
+    int bw, bl = 0;
+    
+    if (fde->state != FDE_MDISK)
+        return 0;
+    
+    /* we should write the fde.mdisk to disk file */
+    xlock_lock(&fde->lock);
+    do {
+        bw = pwrite(fde->fd, (void *)&fde->mdisk + bl, 
+                    sizeof(struct md_disk) - bl, offset + bl);
+        if (bw < 0) {
+            hvfs_err(mdsl, "pwrite md_disk failed w/ %d\n", errno);
+            err = -errno;
+            goto out;
+        }
+        bl += bw;
+    } while (bl < sizeof(struct md_disk));
+    offset += sizeof(struct md_disk);
+
+    /* write the original ranges to disk */
+    if (fde->mdisk.size) {
+        bl = 0;
+        do {
+            bw = pwrite(fde->fd, (void *)fde->mdisk.ranges + bl,
+                        sizeof(range_t) * fde->mdisk.size - bl, 
+                        offset + bl);
+            if (bw < 0) {
+                hvfs_err(mdsl, "pwrite mdisk.range faield w/ %d\n", errno);
+                err = -errno;
+                goto out;
+            }
+            bl += bw;
+        } while (bl < sizeof(range_t) * fde->mdisk.size);
+        offset += sizeof(range_t) * fde->mdisk.size;
+    }
+
+    /* write the new ranges to disk */
+    if (fde->mdisk.new_size) {
+        bl = 0;
+        do {
+            bw = pwrite(fde->fd, (void *)fde->mdisk.new_range + bl,
+                        sizeof(range_t) * fde->mdisk.new_size - bl,
+                        offset + bl);
+            if (bw < 0) {
+                hvfs_err(mdsl, "pwrite mdisk.new_range failed w/ %d\n", errno);
+                err = -errno;
+                goto out;
+            }
+            bl += bw;
+        } while (bl < sizeof(range_t) * fde->mdisk.new_size);
+    }
+out:            
+    xlock_unlock(&fde->lock);
     
     return 0;
 }
 
-int __mdisk_sync(struct fdhash_entry *fde)
+int __mdisk_add_range(struct fdhash_entry *fde, u64 begin, u64 end, 
+                      u64 range_id)
 {
     return 0;
 }
 
-int __mdisk_lookup(struct fdhash_entry *fde, int op, u64 arg, void *out)
+int __mdisk_lookup(struct fdhash_entry *fde, int op, u64 arg, range_t **out)
 {
     int found = 0;
     int i;
@@ -505,12 +574,12 @@ int __mdisk_lookup(struct fdhash_entry *fde, int op, u64 arg, void *out)
                     break;
             }
             if (found) {
-                *(int *)out = i;
+                *out = (fde->mdisk.ranges + i);
                 goto out_unlock;
             }
         }
         if (fde->mdisk.new_range) {
-            int found = 0;
+            found = 0;
 
             for (i = 0; i < fde->mdisk.size; i++) {
                 if ((fde->mdisk.new_range + i)->begin <= arg &&
@@ -522,16 +591,58 @@ int __mdisk_lookup(struct fdhash_entry *fde, int op, u64 arg, void *out)
                     break;
             }
             if (found) {
-                *(int *)out = i;
+                *out = (fde->mdisk.new_range + i);
                 goto out_unlock;
             }
         }
     }
-    
+
+    err = -ENOENT;
 out_unlock:
     xlock_unlock(&fde->lock);
     
     return err;
+}
+
+int __mdisk_range_compare(const void *left, const void *right)
+{
+    range_t *a = (range_t *)left;
+    range_t *b = (range_t *)right;
+
+    if (a->begin < b->begin)
+        return -1;
+    else if (a->begin > b->begin)
+        return 1;
+    else
+        return 0;
+}
+
+void __mdisk_range_sort(void *ranges, size_t size)
+{
+    qsort(ranges, size, sizeof(range_t), __mdisk_range_compare);
+}
+
+int __range_lookup(u64 duuid, u64 itbid, struct mmap_args *ma, u64 *location)
+{
+    struct fdhash_entry *fde;
+    int err = 0;
+
+    fde = mdsl_storage_fd_lookup_create(duuid, MDSL_STORAGE_RANGE, (u64)ma);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create %ld/%ld range %ld faield\n",
+                 duuid, itbid, ma->range_id);
+        err = PTR_ERR(fde);
+        goto out;
+    }
+    *location = *((u64 *)(fde->mwin.addr + (itbid - fde->mwin.offset)));
+
+    mdsl_storage_fd_put(fde);
+out:
+    return err;
+}
+
+int __range_write()
+{
 }
 
 /* mdsl_storage_fd_mmap()
@@ -556,6 +667,35 @@ int mdsl_storage_fd_mmap(struct fdhash_entry *fde, char *path,
         fde->state = FDE_OPEN;
     }
     if (fde->state == FDE_OPEN) {
+        /* check the file size, do not mmap the range file if ma->winsize
+         * unmatched */
+        struct stat stat;
+
+        err = fstat(fde->fd, &stat);
+        if (err < 0) {
+            hvfs_err(mdsl, "fd %d fstat failed w/ %d.\n",
+                     fde->fd, errno);
+            err = -errno;
+            goto out_unlock;
+        }
+        if (stat.st_size != ma->win) {
+            if (!stat.st_size) {
+                /* ok, we just create the range file now */
+                err = ftruncate(fde->fd, ma->win);
+                if (err) {
+                    hvfs_err(mdsl, "ftruncate fd %d to %ld failed w/ %d\n",
+                             fde->fd, ma->win, errno);
+                    err = -errno;
+                    goto out_unlock;
+                }
+            } else {
+                hvfs_err(mdsl, "winsize mismatch st_size %ld vs winsize %ld\n",
+                         stat.st_size, ma->win);
+                err = -EINVAL;
+                goto out_unlock;
+            }
+        }
+        
         /* do mmap on the region */
         err = lseek(fde->fd, 0, SEEK_SET);
         if (err < 0) {
