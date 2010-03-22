@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-21 21:41:13 macan>
+ * Time-stamp: <2010-03-22 09:59:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -547,6 +547,35 @@ out:
 int __mdisk_add_range(struct fdhash_entry *fde, u64 begin, u64 end, 
                       u64 range_id)
 {
+    range_t *ptr;
+    size_t size = fde->mdisk.new_size;
+    int err = 0;
+    
+    xlock_lock(&fde->lock);
+    if (fde->state != FDE_MDISK) {
+        err = -EINVAL;
+        goto out_unlock;
+    }
+
+    size++;
+    ptr = xrealloc(fde->mdisk.new_range, size * sizeof(range_t));
+    if (!ptr) {
+        hvfs_err(mdsl, "xrealloc failed to extend\n");
+        goto out_unlock;
+    }
+
+    fde->mdisk.new_range = ptr;
+    ptr = (fde->mdisk.new_range + fde->mdisk.new_size);
+    ptr->begin = begin;
+    ptr->end = end;
+    ptr->range_id = range_id;
+    fde->mdisk.new_size = size;
+
+    fde->mdisk.range_nr[0]++;
+    
+out_unlock:
+    xlock_unlock(&fde->lock);
+    
     return 0;
 }
 
@@ -581,7 +610,7 @@ int __mdisk_lookup(struct fdhash_entry *fde, int op, u64 arg, range_t **out)
         if (fde->mdisk.new_range) {
             found = 0;
 
-            for (i = 0; i < fde->mdisk.size; i++) {
+            for (i = 0; i < fde->mdisk.new_size; i++) {
                 if ((fde->mdisk.new_range + i)->begin <= arg &&
                     (fde->mdisk.new_range + i)->end > arg) {
                     found = 1;
@@ -641,8 +670,23 @@ out:
     return err;
 }
 
-int __range_write()
+int __range_write(u64 duuid, u64 itbid, struct mmap_args *ma, u64 location)
 {
+    struct fdhash_entry *fde;
+    int err = 0;
+
+    fde = mdsl_storage_fd_lookup_create(duuid, MDSL_STORAGE_RANGE, (u64)ma);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create %ld/%ld range %ld failed\n",
+                 duuid, itbid, ma->range_id);
+        err = PTR_ERR(fde);
+        goto out;
+    }
+    *((u64 *)(fde->mwin.addr + (itbid - fde->mwin.offset))) = location;
+
+    mdsl_storage_fd_put(fde);
+out:
+    return err;
 }
 
 /* mdsl_storage_fd_mmap()

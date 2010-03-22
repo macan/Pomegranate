@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-21 20:03:27 macan>
+ * Time-stamp: <2010-03-22 10:01:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -324,7 +324,9 @@ int mdsl_storage_fd_write(struct fdhash_entry *fde,
                           struct mdsl_storage_access *msa);
 int mdsl_storage_dir_make_exist(char *path);
 int __range_lookup(u64, u64, struct mmap_args *, u64 *);
+int __range_write(u64, u64, struct mmap_args *, u64);
 int __mdisk_lookup(struct fdhash_entry *, int, u64, range_t **);
+int __mdisk_add_range(struct fdhash_entry *, u64, u64, u64);
 /* defines for buf flush */
 #define ABUF_ASYNC      0x01
 #define ABUF_UNMAP      0x02

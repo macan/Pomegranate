@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-21 20:07:28 macan>
+ * Time-stamp: <2010-03-22 10:00:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -99,19 +99,9 @@ int __test_all()
         return PTR_ERR(fde);
     }
     if (!fde->mdisk.ranges) {
-        fde->mdisk.new_range = xzalloc(sizeof(range_t) * 100);
-        if (!fde->mdisk.new_range) {
-            hvfs_err(mdsl, "xzalloc new range failed\n");
-            err = -ENOMEM;
-            goto out_put;
-        }
         for (i = 0; i < 100; i++) {
-            (fde->mdisk.new_range + i)->begin = i * (1 << 20);
-            (fde->mdisk.new_range + i)->end = (i + 1) * (1 << 20) - 1;
-            (fde->mdisk.new_range + i)->range_id = i;
+            __mdisk_add_range(fde, i * (1 << 20), (i + 1) * (1 << 20) -1, i);
         }
-        fde->mdisk.new_size = 100;
-        fde->mdisk.range_nr[0] = 100;
         ASSERT(fde->state == FDE_MDISK, mdsl);
         err = mdsl_storage_fd_write(fde, NULL);
         if (err) {
@@ -134,6 +124,20 @@ int __test_all()
         hvfs_err(mdsl, "range lookup failed w/ %d\n", err);
         goto out_put;
     }
+    hvfs_info(mdsl, "Range lookup got %ld\n", location);
+    
+    err = __range_write(0, 100, &ma, 10000);
+    if (err) {
+        hvfs_err(mdsl, "range write failed w/ %d\n", err);
+        goto out_put;
+    }
+
+    err = __range_lookup(0, 100, &ma, &location);
+    if (err) {
+        hvfs_err(mdsl, "range lookup failed w/ %d\n", err);
+        goto out_put;
+    }
+    hvfs_info(mdsl, "Range lookup got %ld\n", location);
     
 out_put:
     mdsl_storage_fd_put(fde);
