@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-13 15:16:57 macan>
+ * Time-stamp: <2010-03-24 15:20:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -150,6 +150,8 @@ struct txg_begin
     u64 txg;                    /* committed txg */
     u64 site_id;                /* committer site id */
     u64 session_id;             /* committer session id */
+
+    u32 itb_nr;                 /* itb nr to saved to disk */
 };
 
 struct itb_info
@@ -160,12 +162,15 @@ struct itb_info
     u64 location;
 };
 
+#define ITB_INFO_DISK_SIZE (sizeof(struct itb_info) - sizeof(struct list_head))
+
 struct txg_open_entry
 {
     struct list_head list;
     struct list_head itb;
     struct txg_begin begin;
     void *other_region;
+    int osize;
     atomic_t itb_nr;
 };
 
@@ -174,6 +179,7 @@ struct txg_end
     u32 magic;                  /* end symbol: 0x529adef8 */
     u32 len;                    /* total length */
     u32 itb_nr;                 /* # of ITBs */
+    int err;
 
     u64 txg;
     u64 site_id;

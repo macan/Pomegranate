@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-20 11:42:42 macan>
+ * Time-stamp: <2010-03-24 15:28:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -116,6 +116,20 @@ void put_txg_open_entry(struct txg_open_entry *toe)
     atomic_dec(&hmo.tcc.used);
 }
 
+void toe_active(struct txg_open_entry *toe)
+{
+    xlock_lock(&hmo.tcc.active_lock);
+    list_add(&toe->list, &hmo.tcc.active_list);
+    xlock_unlock(&hmo.tcc.active_lock);
+}
+
+void toe_deactive(struct txg_open_entry *toe)
+{
+    xlock_lock(&hmo.tcc.active_lock);
+    list_del_init(&toe->list);
+    xlock_unlock(&hmo.tcc.active_lock);
+}
+
 struct txg_open_entry *toe_lookup(u64 site, u64 txg)
 {
     struct txg_open_entry *toe;
@@ -185,6 +199,16 @@ int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
 int toe_to_tmpfile(int flag, u64 site, u64 txg, void *data)
 {
     if (unlikely(hmo.conf.option & HVFS_MDSL_WDROP))
+        return 0;
+
+    return 0;
+}
+
+int toe_to_tmpfile_N(int flag, u64 site, u64 txg, void *data, int nr)
+{
+    if (unlikely(hmo.conf.option & HVFS_MDSL_WDROP))
+        return 0;
+    if (!nr)
         return 0;
 
     return 0;

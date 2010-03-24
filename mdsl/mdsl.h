@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-22 10:01:15 macan>
+ * Time-stamp: <2010-03-24 14:33:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -94,6 +94,7 @@ struct md_disk
     int size;                   /* total size of the ranges from disk */
     u32 itb_fsize;
     u32 data_fsize;
+    u32 range_aid;              /* alloc id of range */
 };
 
 struct fdhash_entry
@@ -127,6 +128,8 @@ struct mdsl_storage_access
     void *arg;
     int iov_nr;
 };
+
+extern struct mdsl_storage ms;
 
 struct txg_compact_cache
 {
@@ -164,8 +167,10 @@ struct mdsl_storage
 {
 #define MDSL_STORAGE_FDHASH_SIZE        2048
     struct regular_hash *fdhash;
+    xlock_t txg_fd_lock;
+    xlock_t tmp_fd_lock;
     /* global fds */
-    int txg_fd, tmp_txg_fd, log_fd, split_log_fd;
+    int txg_fd, tmp_fd, tmp_txg_fd, log_fd, split_log_fd;
 };
 
 struct mdsl_conf
@@ -298,6 +303,9 @@ void put_txg_open_entry(struct txg_open_entry *);
 struct txg_open_entry *toe_lookup(u64, u64);
 int itb_append(struct itb *, struct itb_info *, u64, u64);
 int toe_to_tmpfile(int, u64, u64, void *);
+int toe_to_tmpfile_N(int, u64, u64, void *, int);
+void toe_active(struct txg_open_entry *);
+void toe_deactive(struct txg_open_entry *);
 
 /* storage.c */
 #define MDSL_STORAGE_MD         0x0000
@@ -310,6 +318,12 @@ int toe_to_tmpfile(int, u64, u64, void *);
 #define MDSL_STORAGE_SPLIT_LOG  0x0200
 #define MDSL_STORAGE_TXG        0x0300
 #define MDSL_STORAGE_TMP_TXG    0x0400
+
+#define MDSL_STORAGE_RANGE_SHIFT        20
+#define MDSL_STORAGE_DEFAULT_RANGE_SIZE             \
+    (1 << (3 + MDSL_STORAGE_RANGE_SHIFT)) /* 8MB */
+#define MDSL_STORAGE_idx2range(idx)     (idx >> MDSL_STORAGE_RANGE_SHIFT)
+#define MDSL_STORAGE_RANGE_SLOTS        (1 << MDSL_STORAGE_RANGE_SHIFT)
 
 int mdsl_storage_init(void);
 void mdsl_storage_destroy(void);
@@ -327,6 +341,8 @@ int __range_lookup(u64, u64, struct mmap_args *, u64 *);
 int __range_write(u64, u64, struct mmap_args *, u64);
 int __mdisk_lookup(struct fdhash_entry *, int, u64, range_t **);
 int __mdisk_add_range(struct fdhash_entry *, u64, u64, u64);
+int mdsl_storage_toe_commit(struct txg_open_entry *, struct txg_end *);
+int mdsl_storage_update_range(struct txg_open_entry *);
 /* defines for buf flush */
 #define ABUF_ASYNC      0x01
 #define ABUF_UNMAP      0x02

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-22 10:00:37 macan>
+ * Time-stamp: <2010-03-24 11:23:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -109,7 +109,7 @@ int __test_all()
             goto out_put;
         }
     }
-    ma.win = (1 << 23);
+    ma.win = MDSL_STORAGE_DEFAULT_RANGE_SIZE;
     err = __mdisk_lookup(fde, MDSL_MDISK_RANGE, 100, &range);
     if (err) {
         hvfs_err(mdsl, "mdisk_lookup failed w/ %d\n", err);

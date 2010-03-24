@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 19:20:55 macan>
+ * Time-stamp: <2010-03-24 15:24:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -104,6 +104,7 @@ void mdsl_wbtxg(struct xnet_msg *msg)
     
     if (msg->tx.arg0 & HVFS_WBTXG_BEGIN) {
         struct txg_begin *tb = NULL;
+        struct txg_open_entry *toe = NULL;
         void *p = NULL;
         
         /* sanity checking */
@@ -115,8 +116,6 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         }
         /* alloc one txg_open_entry, and filling it */
         if (data) {
-            struct txg_open_entry *toe;
-            
             tb = data;
             hvfs_debug(mdsl, "Recv TXG_BEGIN %ld[%d,%d,%d] from site %lx\n",
                        tb->txg, tb->dir_delta_nr,
@@ -130,6 +129,7 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                     ASSERT(tb->txg == msg->tx.arg1, mdsl);
                     toe_to_tmpfile(TXG_OPEN_ENTRY_DISK_BEGIN, 
                                    tb->site_id, tb->txg, tb);
+                    toe = NULL;
                     goto end_begin;
                 }
                 hvfs_err(mdsl, "get txg_open_entry failed\n");
@@ -137,39 +137,57 @@ void mdsl_wbtxg(struct xnet_msg *msg)
             }
 
             toe->begin = *tb;
-            xlock_lock(&hmo.tcc.active_lock);
-            list_add(&toe->list, &hmo.tcc.active_list);
-            xlock_unlock(&hmo.tcc.active_lock);
-
-            /* alloc space for region info */
-            toe->other_region = xmalloc(tb->dir_delta_nr * 
-                                        sizeof(struct hvfs_dir_delta) +
-                                        tb->bitmap_delta_nr * 
-                                        sizeof(struct bitmap_delta) +
-                                        tb->ckpt_nr * 
-                                        sizeof(struct checkpoint));
-            if (!toe->other_region) {
-                hvfs_warning(mdsl, "xmalloc() TOE %p other_region failed, "
-                             "we will retry later!\n", toe);
-            }
-            p = toe->other_region;
+            toe_active(toe);
 
         end_begin:
             __mdsl_send_rpy(msg);
             /* adjust the data pointer */
             data += sizeof(struct txg_begin);
             len -= sizeof(struct txg_begin);
+
+            if (toe) {
+                /* alloc space for region info */
+                toe->osize = tb->dir_delta_nr * 
+                    sizeof(struct hvfs_dir_delta) +
+                    tb->bitmap_delta_nr * 
+                    sizeof(struct bitmap_delta) +
+                    tb->ckpt_nr * 
+                    sizeof(struct checkpoint);
+                toe->other_region = xmalloc(toe->osize);
+                if (!toe->other_region) {
+                    hvfs_warning(mdsl, "xmalloc() TOE %p other_region failed, "
+                                 "we will retry later!\n", toe);
+                }
+                p = toe->other_region;
+                memcpy(p, data, toe->osize);
+                data += toe->osize;
+                len -= toe->osize;
+            } else {
+                toe_to_tmpfile_N(TXG_OPEN_ENTRY_DISK_DIR, 
+                                 tb->site_id, tb->txg, data, tb->dir_delta_nr);
+                data += tb->dir_delta_nr * sizeof(struct hvfs_dir_delta);
+                len -= tb->dir_delta_nr * sizeof(struct hvfs_dir_delta);
+                toe_to_tmpfile_N(TXG_OPEN_ENTRY_DISK_BITMAP,
+                                 tb->site_id, tb->txg, data, tb->bitmap_delta_nr);
+                data += tb->bitmap_delta_nr * sizeof(struct bitmap_delta);
+                len -= tb->bitmap_delta_nr * sizeof(struct bitmap_delta);
+                toe_to_tmpfile_N(TXG_OPEN_ENTRY_DISK_CKPT,
+                                 tb->site_id, tb->txg, data, tb->ckpt_nr);
+                data += tb->ckpt_nr * sizeof(struct checkpoint);
+                len -= tb->ckpt_nr * sizeof(struct checkpoint);
+            }
         }
 
         if (msg->tx.arg0 & HVFS_WBTXG_DIR_DELTA) {
         }
         if (msg->tx.arg0 & HVFS_WBTXG_BITMAP_DELTA) {
             size_t region_len = 0;
+            loff_t offset = tb->dir_delta_nr * sizeof(struct hvfs_dir_delta);
             
-            if (tb && p) {
+            if (tb && toe && toe->other_region) {
                 region_len = sizeof(struct bitmap_delta) * tb->bitmap_delta_nr;
-                memcpy(p, data, region_len);
-#if 0
+                p = toe->other_region += offset;
+#if 1
                 struct bitmap_delta *bd = (struct bitmap_delta *)p;
                 int i;
                 for (i = 0; i < tb->bitmap_delta_nr; i++) {
@@ -179,9 +197,6 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                 }
 #endif
             }
-            
-            data += region_len;
-            len -= region_len;
         }
         if (msg->tx.arg0 & HVFS_WBTXG_CKPT) {
         }
@@ -242,6 +257,61 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         }
     }
     if (msg->tx.arg0 & HVFS_WBTXG_END) {
+        struct txg_end *te;
+        struct txg_open_entry *toe;
+        int err = 0, abort = 0;
+
+        if (len < sizeof(struct txg_end)) {
+            hvfs_err(mdsl, "Invalid WBTXG END request %ld received from %lx\n",
+                     msg->tx.reqno, msg->tx.ssite_id);
+            goto out;
+        }
+        if (data) {
+            te = data;
+            abort = te->err;
+            hvfs_debug(mdsl, "Recv txg_end %ld from site %lx, abort %d\n",
+                       te->txg, te->site_id, abort);
+
+            /* find the toe now */
+            toe = toe_lookup(te->site_id, te->txg);
+            if (!toe) {
+                hvfs_err(mdsl, "txg_end [%ld,%ld] toe lookup failed\n",
+                         te->site_id, te->txg);
+                toe_to_tmpfile(TXG_OPEN_ENTRY_DISK_END,
+                               te->site_id, te->txg, te);
+                goto out;
+            }
+
+            /* ok, check the itb_nr now */
+            if (atomic_read(&toe->itb_nr) >= te->itb_nr) {
+                /* it is ok to commit the TOE--TE to disk now */
+                toe->begin.itb_nr = atomic_read(&toe->itb_nr);
+                err = mdsl_storage_toe_commit(toe, te);
+                if (err) {
+                    hvfs_err(mdsl, "Commit the toe[%lx,%ld] to disk failed"
+                             "w/ %d.\n",
+                             toe->begin.site_id, toe->begin.txg, err);
+                    goto out;
+                }
+                toe_deactive(toe);
+                /* ok, we commit the itb modifications to disk after we logged
+                 * the infos to TXG file. */
+                if (!abort) {
+                    err = mdsl_storage_update_range(toe);
+                    if (err) {
+                        hvfs_err(mdsl, "Update %ld,%ld range failed w /%d, maybe "
+                                 "data loss.\n",
+                                 toe->begin.site_id, toe->begin.txg, err);
+                    }
+                } else {
+                    hvfs_err(mdsl, "TXG %ld wb aborted by %d from site %lx\n",
+                             te->txg, abort, te->site_id);
+                }
+                put_txg_open_entry(toe);
+            } else {
+                /* we should find the missing ITB in the tmp file */
+            }
+        }
     }
 
 out:

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-22 09:59:25 macan>
+ * Time-stamp: <2010-03-24 18:58:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -269,6 +269,8 @@ out_unlock:
 
 int mdsl_storage_init(void)
 {
+    char path[256] = {0, };
+    int err = 0;
     int i;
     
     if (!hmo.conf.storage_fdhash_size) {
@@ -281,12 +283,25 @@ int mdsl_storage_init(void)
         hvfs_err(mdsl, "alloc fd hash table failed.\n");
         return -ENOMEM;
     }
+
     /* init the hash table */
     for (i = 0; i < hmo.conf.storage_fdhash_size; i++) {
         INIT_HLIST_HEAD(&(hmo.storage.fdhash + i)->h);
         xlock_init(&(hmo.storage.fdhash + i)->lock);
     }
 
+    /* init the global fds */
+    err = mdsl_storage_dir_make_exist(HVFS_MDSL_HOME);
+    if (err) {
+        hvfs_err(mdsl, "dir %s do not exist %d.\n", path, err);
+        return -ENOTEXIST;
+    }
+    sprintf(path, "%s/txg", HVFS_MDSL_HOME);
+    hmo.storage.txg_fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+    if (hmo.storage.txg_fd < 0) {
+        hvfs_err(mdsl, "open file '%s' faield w/ %d\n", path, errno);
+        return -errno;
+    }
     return 0;
 }
 
@@ -472,7 +487,7 @@ out_unlock:
     return 0;
 first_hit:
     /* init the mdisk memory structure */
-    fde->mdisk.winsize = (1 << 23);
+    fde->mdisk.winsize = MDSL_STORAGE_DEFAULT_RANGE_SIZE;
     fde->state = FDE_MDISK;
     
     goto out_unlock;
@@ -972,5 +987,141 @@ int mdsl_storage_dir_make_exist(char *path)
         }
     }
     
+    return err;
+}
+
+int mdsl_storage_toe_commit(struct txg_open_entry *toe, struct txg_end *te)
+{
+    struct itb_info *pos;
+    loff_t offset;
+    int bw, bl;
+    int err = 0;
+
+    xlock_lock(&hmo.storage.txg_fd_lock);
+    offset = lseek(hmo.storage.txg_fd, 0, SEEK_END);
+    if (offset < 0) {
+        hvfs_err(mdsl, "lseek to end of fd %d failed w/ %d\n",
+                 hmo.storage.txg_fd, errno);
+        goto out_unlock;
+    }
+    /* write the TXG_BEGIN */
+    bl = 0;
+    do {
+        bw = pwrite(hmo.storage.txg_fd, (void *)&toe->begin + bl, 
+                    sizeof(struct txg_begin) - bl, offset + bl);
+        if (bw <= 0) {
+            hvfs_err(mdsl, "pwrite to fd %d failed w/ %d\n",
+                     hmo.storage.txg_fd, errno);
+            err = -errno;
+            goto out_unlock;
+        }
+        bl += bw;
+    } while (bl < sizeof(struct txg_begin));
+    offset += sizeof(struct txg_begin);
+
+    /* write the itb info to disk */
+    if (atomic_read(&toe->itb_nr)) {
+        list_for_each_entry(pos, &toe->itb, list) {
+            bl = 0;
+            do {
+                bw = pwrite(hmo.storage.txg_fd, (void *)&pos->duuid + bl,
+                            ITB_INFO_DISK_SIZE - bl, offset + bl);
+                if (bw <= 0) {
+                    hvfs_err(mdsl, "pwrite to fd %d failed w/ %d\n",
+                             hmo.storage.txg_fd, errno);
+                    err = -errno;
+                    goto out_unlock;
+                }
+                bl += bw;
+            } while (bl < ITB_INFO_DISK_SIZE);
+            offset += ITB_INFO_DISK_SIZE;
+        }
+    }
+
+    /* write the other deltas to disk */
+    if (toe->other_region) {
+        bl = 0;
+        do {
+            bw = pwrite(hmo.storage.txg_fd, (void *)toe->other_region + bl,
+                        toe->osize - bl, offset + bl);
+            if (bw <= 0) {
+                hvfs_err(mdsl, "pwrite to fd %d failed w/ %d\n",
+                         hmo.storage.txg_fd, errno);
+                err = -errno;
+                goto out_unlock;
+            }
+            bl += bw;
+        } while (bl < toe->osize);
+        offset += toe->osize;
+    }
+
+    /* write the txg_end to disk */
+    bl = 0;
+    do {
+        bw = pwrite(hmo.storage.txg_fd, (void *)te + bl, 
+                    sizeof(*te) - bl, offset + bl);
+        if (bw <= 0) {
+            hvfs_err(mdsl, "pwrite to fd %d failed w/ %d\n",
+                     hmo.storage.txg_fd, errno);
+            err = -errno;
+            goto out_unlock;
+        }
+        bl += bw;
+    } while (bl < sizeof(*te));
+
+out_unlock:
+    xlock_unlock(&hmo.storage.txg_fd_lock);
+    
+    return err;
+}
+
+int mdsl_storage_update_range(struct txg_open_entry *toe)
+{
+    struct itb_info *pos, *n;
+    struct fdhash_entry *fde;
+    struct mmap_args ma = {0, };
+    range_t *range;
+    int err = 0;
+
+    list_for_each_entry_safe(pos, n, &toe->itb, list) {
+        fde = mdsl_storage_fd_lookup_create(pos->duuid, MDSL_STORAGE_MD, 0);
+        if (IS_ERR(fde)) {
+            hvfs_err(mdsl, "lookup create MD file faield w/ %ld\n",
+                     PTR_ERR(fde));
+            err = PTR_ERR(fde);
+            continue;
+        }
+        ma.win = MDSL_STORAGE_DEFAULT_RANGE_SIZE;
+    relookup:
+        err = __mdisk_lookup(fde, MDSL_MDISK_RANGE, pos->itbid, &range);
+        if (err == -ENOENT) {
+            /* create a new range now */
+            u64 i;
+            
+            i = MDSL_STORAGE_idx2range(pos->itbid);
+            __mdisk_add_range(fde, i * MDSL_STORAGE_RANGE_SLOTS,
+                              (i + 1) * MDSL_STORAGE_RANGE_SLOTS - 1,
+                              fde->mdisk.range_aid++);
+            goto relookup;
+        } else if (err) {
+                hvfs_err(mdsl, "mdisk_lookup failed w/ %d\n", err);
+                goto put_fde;
+        }
+        ma.foffset = 0;
+        ma.range_id = range->range_id;
+        ma.range_begin = range->begin;
+
+        err = __range_write(pos->duuid, pos->itbid, &ma, pos->location);
+        if (err) {
+            hvfs_err(mdsl, "range write failed w/ %d\n", err);
+            goto put_fde;
+        }
+    put_fde:
+        mdsl_storage_fd_put(fde);
+
+        /* free the resources */
+        list_del(&pos->list);
+        xfree(pos);
+    }
     return err;
 }

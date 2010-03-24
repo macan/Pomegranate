@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 15:30:24 macan>
+ * Time-stamp: <2010-03-24 15:19:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -99,6 +99,7 @@ struct txg_wb_slice
     u32 nr;
 #define TWS_NEW         0x0001
     u32 flag;
+    int err;
 };
 
 #define HVFS_TXG_WB_SITE_HTSIZE         512
@@ -185,6 +186,12 @@ struct txg_wb_slice *tws_create(u64 site)
     tws->site_id = site;
     tws->flag |= TWS_NEW;
     return tws;
+}
+
+static inline
+void tws_free(struct txg_wb_slice *tws)
+{
+    xfree(tws);
 }
 
 #define IS_TWS_NEW(tws) ((tws)->flag & TWS_NEW)

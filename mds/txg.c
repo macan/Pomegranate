@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 19:05:52 macan>
+ * Time-stamp: <2010-03-24 15:21:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -312,9 +312,76 @@ out:
     return err;
 }
 
-static inline
-int txg_wb_bcast_delta(struct commit_thread_arg *cta, int err)
+int __send_txg_end(struct txg_wb_slice *tws, struct commit_thread_arg *cta)
 {
+    struct txg_end *te;
+    struct xnet_msg *msg;
+    int err = 0;
+
+    if (hmo.conf.option & HVFS_MDS_MEMONLY)
+        return 0;
+
+    /* Step 1: prepare the memory */
+    te = xzalloc(sizeof(struct txg_end));
+    if (!te) {
+        hvfs_err(mds, "xzalloc txg_end failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    te->magic = 0x529adef8;
+    te->len = tws->len;
+    te->itb_nr = tws->nr;
+    te->err = tws->err;
+    te->txg = cta->wbt->txg;
+    te->site_id = hmo.site_id;
+    te->session_id = hmi.session_id;
+    
+    msg = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!msg) {
+        hvfs_err(mds, "xnet_alloc_msg() failed.\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+
+    /* Step 2: fill the msg */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE,
+                     hmo.site_id, tws->site_id);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_WBTXG, HVFS_WBTXG_END, cta->wbt->txg);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, te, sizeof(*te));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(mds, "Write back txg_end failed w/ %d\n", err);
+    }
+
+    xnet_free_msg(msg);
+
+out:
+    return err;
+out_free:
+    xfree(te);
+    return err;
+}
+
+static inline
+int txg_wb_bcast_end(struct commit_thread_arg *cta, int err)
+{
+    struct txg_wb_slice *pos, *n;
+
+    list_for_each_entry_safe(pos, n, &cta->tws_list, list) {
+        pos->err = err;
+        err = __send_txg_end(pos, cta);
+        if (err) {
+            hvfs_err(mds, "send_txg_end @ TXG %ld failed w/ %d\n",
+                     cta->wbt->txg, err);
+        }
+        list_del(&pos->list);
+        tws_free(pos);
+    }
+    
     return err;
 }
 
@@ -328,7 +395,7 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
 {
     struct itbh *ih, *n;
     struct itb *i;
-    int err = 0;
+    int err = 0, failed = 0;
 
     list_for_each_entry_safe(ih, n, &t->dirty_list, list) {
         i = (struct itb *)ih;
@@ -360,7 +427,7 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
             (*notknown)++;
         }
     }
-    err = txg_wb_bcast_delta(cta, err);
+    err = txg_wb_bcast_end(cta, failed);
 
     return err;
 }
