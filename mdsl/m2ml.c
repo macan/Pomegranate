@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-24 15:24:01 macan>
+ * Time-stamp: <2010-03-24 20:15:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -153,15 +153,17 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                     sizeof(struct bitmap_delta) +
                     tb->ckpt_nr * 
                     sizeof(struct checkpoint);
-                toe->other_region = xmalloc(toe->osize);
-                if (!toe->other_region) {
-                    hvfs_warning(mdsl, "xmalloc() TOE %p other_region failed, "
-                                 "we will retry later!\n", toe);
+                if (toe->osize) {
+                    toe->other_region = xmalloc(toe->osize);
+                    if (!toe->other_region) {
+                        hvfs_warning(mdsl, "xmalloc() TOE %p other_region failed, "
+                                     "we will retry later!\n", toe);
+                    }
+                    p = toe->other_region;
+                    memcpy(p, data, toe->osize);
+                    data += toe->osize;
+                    len -= toe->osize;
                 }
-                p = toe->other_region;
-                memcpy(p, data, toe->osize);
-                data += toe->osize;
-                len -= toe->osize;
             } else {
                 toe_to_tmpfile_N(TXG_OPEN_ENTRY_DISK_DIR, 
                                  tb->site_id, tb->txg, data, tb->dir_delta_nr);
@@ -238,6 +240,8 @@ void mdsl_wbtxg(struct xnet_msg *msg)
 
             /* append the ITB to disk file, get the location and filling the
              * itb_info */
+            ii->duuid = i->h.puuid;
+            ii->itbid = i->h.itbid;
             if (itb_append(i, ii, msg->tx.ssite_id, msg->tx.arg1)) {
                 hvfs_err(mdsl, "Append itb <%lx.%ld.%ld> to disk file failed\n",
                          msg->tx.ssite_id, msg->tx.arg1, i->h.itbid);

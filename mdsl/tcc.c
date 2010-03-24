@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-24 15:28:57 macan>
+ * Time-stamp: <2010-03-24 20:09:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -102,6 +102,7 @@ struct txg_open_entry *get_txg_open_entry(struct txg_compact_cache *tcc)
     /* init the TOE now */
     INIT_LIST_HEAD(&toe->list);
     INIT_LIST_HEAD(&toe->itb);
+    toe->other_region = NULL;
     atomic_set(&toe->itb_nr, 0);
     
     return toe;

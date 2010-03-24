@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-24 14:33:13 macan>
+ * Time-stamp: <2010-03-24 19:57:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,6 +49,7 @@ struct mmap_window
     loff_t offset;              /* the offset of this mmap file */
     loff_t file_offset;         /* the file offset */
     size_t len;
+    u64 arg;
 };
 
 struct mmap_args                /* got from the md file */

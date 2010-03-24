@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-24 18:58:23 macan>
+ * Time-stamp: <2010-03-24 20:08:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -353,10 +353,20 @@ struct fdhash_entry *mdsl_storage_fd_lookup(u64 duuid, int ftype, u64 arg)
     idx = hvfs_hash_fdht(duuid, ftype) % hmo.conf.storage_fdhash_size;
     xlock_lock(&(hmo.storage.fdhash + idx)->lock);
     hlist_for_each_entry(fde, pos, &(hmo.storage.fdhash + idx)->h, list) {
-        if (duuid == fde->uuid && ftype == fde->type && arg == fde->arg) {
-            atomic_inc(&fde->ref);
-            xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
-            return fde;
+        if (duuid == fde->uuid && ftype == fde->type) {
+            if (ftype == MDSL_STORAGE_RANGE) {
+                struct mmap_args *ma1 = (struct mmap_args *)arg;
+
+                if (ma1->range_id == fde->mwin.arg) {
+                    atomic_inc(&fde->ref);
+                    xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
+                    return fde;
+                }
+            } else if (arg == fde->arg) {
+                atomic_inc(&fde->ref);
+                xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
+                return fde;
+            }
         }
     }
     xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
@@ -373,11 +383,20 @@ struct fdhash_entry *mdsl_storage_fd_insert(struct fdhash_entry *new)
     idx = hvfs_hash_fdht(new->uuid, new->type) % hmo.conf.storage_fdhash_size;
     xlock_lock(&(hmo.storage.fdhash + idx)->lock);
     hlist_for_each_entry(fde, pos, &(hmo.storage.fdhash + idx)->h, list) {
-        if (new->uuid == fde->uuid && new->type == fde->type &&
-            new->arg == fde->arg) {
-            atomic_inc(&fde->ref);
-            found = 1;
-            break;
+        if (new->uuid == fde->uuid && new->type == fde->type) {
+            if (new->type == MDSL_STORAGE_RANGE) {
+                struct mmap_args *ma1 = (struct mmap_args *)new->arg;
+
+                if (ma1->range_id == fde->mwin.arg) {
+                    atomic_inc(&fde->ref);
+                    found = 1;
+                    break;
+                }
+            } else if (new->arg == fde->arg) {
+                atomic_inc(&fde->ref);
+                found = 1;
+                break;
+            }
         }
     }
     if (!found) {
@@ -774,6 +793,7 @@ int mdsl_storage_fd_mmap(struct fdhash_entry *fde, char *path,
         fde->mwin.offset = 0;
         fde->mwin.file_offset = ma->foffset;
         fde->mwin.len = ma->win;
+        fde->mwin.arg = ma->range_id;
         fde->state = FDE_MEMWIN;
     }
 out_unlock:            
@@ -1045,8 +1065,8 @@ int mdsl_storage_toe_commit(struct txg_open_entry *toe, struct txg_end *te)
             bw = pwrite(hmo.storage.txg_fd, (void *)toe->other_region + bl,
                         toe->osize - bl, offset + bl);
             if (bw <= 0) {
-                hvfs_err(mdsl, "pwrite to fd %d failed w/ %d\n",
-                         hmo.storage.txg_fd, errno);
+                hvfs_err(mdsl, "pwrite to fd %d (bw %d osize %d) failed w/ %d\n",
+                         hmo.storage.txg_fd, bw, toe->osize, errno);
                 err = -errno;
                 goto out_unlock;
             }
@@ -1115,6 +1135,10 @@ int mdsl_storage_update_range(struct txg_open_entry *toe)
         if (err) {
             hvfs_err(mdsl, "range write failed w/ %d\n", err);
             goto put_fde;
+        }
+        err = __mdisk_write(fde, NULL);
+        if (err) {
+            hvfs_err(mdsl, "sync md file failed w/ %d\n", err);
         }
     put_fde:
         mdsl_storage_fd_put(fde);
