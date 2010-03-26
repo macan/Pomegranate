@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-24 11:23:23 macan>
+ * Time-stamp: <2010-03-26 20:15:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -119,20 +119,20 @@ int __test_all()
     ma.range_id = range->range_id;
     ma.range_begin = range->begin;
 
-    err = __range_lookup(0, 100, &ma, &location);
+    err = __range_lookup(0, 0, &ma, &location);
     if (err) {
         hvfs_err(mdsl, "range lookup failed w/ %d\n", err);
         goto out_put;
     }
     hvfs_info(mdsl, "Range lookup got %ld\n", location);
     
-    err = __range_write(0, 100, &ma, 10000);
+    err = __range_write(0, 0, &ma, 10000);
     if (err) {
         hvfs_err(mdsl, "range write failed w/ %d\n", err);
         goto out_put;
     }
 
-    err = __range_lookup(0, 100, &ma, &location);
+    err = __range_lookup(0, 0, &ma, &location);
     if (err) {
         hvfs_err(mdsl, "range lookup failed w/ %d\n", err);
         goto out_put;
@@ -141,6 +141,98 @@ int __test_all()
     
 out_put:
     mdsl_storage_fd_put(fde);
+
+    return err;
+}
+
+int __test_read()
+{
+    struct iovec itb_iov = {0, };
+    struct mdsl_storage_access msa = {
+        .iov = &itb_iov,
+        .iov_nr = 1,
+    };
+    struct mmap_args ma;
+    struct fdhash_entry *fde;
+    range_t *range;
+    struct itb *itb;
+    void *data;
+    u64 location;
+    int master;
+    int err = 0;
+
+    itb = xmalloc(sizeof(*itb));
+    if (!itb) {
+        hvfs_err(mdsl, "xmalloc struct itb failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    fde = mdsl_storage_fd_lookup_create(1, MDSL_STORAGE_MD, 0);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create MD file failed w/ %ld\n", PTR_ERR(fde));
+        err = PTR_ERR(fde);
+        goto out;
+    }
+    if (!fde->mdisk.ranges) {
+        err = -ENOENT;
+        goto out;
+    }
+    ma.win = MDSL_STORAGE_DEFAULT_RANGE_SIZE;
+
+    err = __mdisk_lookup(fde, MDSL_MDISK_RANGE, 0, &range);
+    if (err == -ENOENT) {
+        goto out;
+    }
+    ma.foffset = 0;
+    ma.range_id = range->range_id;
+    ma.range_begin = range->begin;
+
+    err = __range_lookup(1, 0, &ma, &location);
+    if (err) {
+        goto out;
+    }
+    if (!location) {
+        err = -ENOENT;
+        goto out;
+    }
+    
+    master = fde->mdisk.itb_master;
+    mdsl_storage_fd_put(fde);
+
+    /* ok, get the itb location now, try to read the itb in file itb-* */
+    fde = mdsl_storage_fd_lookup_create(1, MDSL_STORAGE_ITB, 
+                                        master);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create ITB file failed w/ %ld\n", PTR_ERR(fde));
+        err = PTR_ERR(fde);
+        goto out_put2;
+    }
+
+    hvfs_err(mdsl, "read from offset %ld\n", location);
+    msa.offset = location;
+    itb_iov.iov_base = itb;
+    itb_iov.iov_len = sizeof(*itb);
+    err = mdsl_storage_fd_read(fde, &msa);
+    if (err) {
+        hvfs_err(mdsl, "fd read failed w/ %d\n", err);
+        goto out_put2;
+    }
+
+    hvfs_err(mdsl, "Read ITB %ld len %d\n", itb->h.itbid, atomic_read(&itb->h.len));
+    data_len = atomic_read(&itb->h.len) - sizeof(*itb);
+    if (data_len) {
+        data = xmalloc(data_len);
+        if (!data) {
+            hvfs_err(mdsl, "shit\n");
+            goto out_put2;
+        }
+        /* FIXME! */
+    }
+    
+out_put2:
+    mdsl_storage_fd_put(fde);
+out:
 
     return err;
 }
@@ -168,10 +260,16 @@ int main(int argc, char *argv[])
         hvfs_err(mdsl, "test fdht failed w/ %d\n", err);
         goto out;
     }
-#endif
+
     err = __test_all();
     if (err) {
         hvfs_err(mdsl, "test all failed w/ %d\n", err);
+        goto out;
+    }
+#endif
+    err = __test_read();
+    if (err) {
+        hvfs_err(mdsl, "test read failed w/ %d\n", err);
         goto out;
     }
 

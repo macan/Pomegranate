@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-24 20:15:05 macan>
+ * Time-stamp: <2010-03-26 19:52:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -80,11 +80,95 @@ void __mdsl_send_rpy(struct xnet_msg *msg)
 
 void mdsl_itb(struct xnet_msg *msg)
 {
+    struct iovec itb_iov = {0, };
+    struct mdsl_storage_access msa = {
+        .iov = &itb_iov,
+        .iov_nr = 1,
+    };
+    struct mmap_args ma;
+    struct fdhash_entry *fde;
+    range_t *range;
+    struct itb *itb;
+    void *data;
+    u64 location;
+    int master;
+    int err = 0;
+    
     hvfs_info(mdsl, "Recv ITB load requst <%ld,%ld> from site %lx\n",
               msg->tx.arg0, msg->tx.arg1, msg->tx.ssite_id);
+
     __mdsl_send_err_rpy(msg, -ENOSYS);
     xnet_set_auto_free(msg);
     xnet_free_msg(msg);
+    return;
+    
+    itb = xmalloc(sizeof(*itb));
+    if (!itb) {
+        hvfs_err(mdsl, "xmalloc struct itb failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    fde = mdsl_storage_fd_lookup_create(msg->tx.arg0, MDSL_STORAGE_MD, 0);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create MD file failed w/ %ld\n", PTR_ERR(fde));
+        err = PTR_ERR(fde);
+        goto out;
+    }
+    if (!fde->mdisk.ranges) {
+        err = -ENOENT;
+        goto out;
+    }
+    ma.win = MDSL_STORAGE_DEFAULT_RANGE_SIZE;
+
+    err = __mdisk_lookup(fde, MDSL_MDISK_RANGE, msg->tx.arg1, &range);
+    if (err == -ENOENT) {
+        goto out;
+    }
+    ma.foffset = 0;
+    ma.range_id = range->range_id;
+    ma.range_begin = range->begin;
+
+    err = __range_lookup(msg->tx.arg0, msg->tx.arg1, &ma, &location);
+    if (err) {
+        goto out;
+    }
+    if (!location) {
+        err = -ENOENT;
+        goto out;
+    }
+    
+    master = fde->mdisk.itb_master;
+    mdsl_storage_fd_put(fde);
+
+    /* ok, get the itb location now, try to read the itb in file itb-* */
+    fde = mdsl_storage_fd_lookup_create(msg->tx.arg0, MDSL_STORAGE_ITB, 
+                                        master);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create ITB file failed w/ %ld\n", PTR_ERR(fde));
+        err = PTR_ERR(fde);
+        goto out_put2;
+    }
+
+    msa.offset = location;
+    itb_iov.iov_base = itb;
+    itb_iov.iov_len = sizeof(*itb);
+    err = mdsl_storage_fd_read(fde, &msa);
+    if (err) {
+        hvfs_err(mdsl, "fd read failed w/ %d\n", err);
+        goto out_put2;
+    }
+    
+out_put2:
+    mdsl_storage_fd_put(fde);
+out:
+    if (err) {
+    } else {
+    }
+
+    xnet_set_auto_free(msg);
+    xnet_free_msg(msg);
+    return;
 }
 
 void mdsl_bitmap(struct xnet_msg *msg)

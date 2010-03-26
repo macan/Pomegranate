@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-24 20:09:24 macan>
+ * Time-stamp: <2010-03-26 18:34:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -168,9 +168,20 @@ int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
             .arg = ii,
             .iov_nr = 1,
         };
+        u32 master;
         
         /* prepare write to the file: "[target dir]/itb" */
-        fde = mdsl_storage_fd_lookup_create(itb->h.puuid, MDSL_STORAGE_ITB, 0);
+        fde = mdsl_storage_fd_lookup_create(itb->h.puuid, MDSL_STORAGE_MD, 0);
+        if (IS_ERR(fde)) {
+            hvfs_err(mdsl, "lookup create MD file failed w/ %ld\n", 
+                     PTR_ERR(fde));
+            goto write_to_tmpfile;
+        }
+        master = fde->mdisk.itb_master;
+        mdsl_storage_fd_put(fde);
+        
+        fde = mdsl_storage_fd_lookup_create(itb->h.puuid, MDSL_STORAGE_ITB, 
+                                            master);
         if (IS_ERR(fde)) {
             hvfs_err(mdsl, "lookup create failed w/ %ld\n", PTR_ERR(fde));
             goto write_to_tmpfile;

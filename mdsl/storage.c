@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-24 20:08:00 macan>
+ * Time-stamp: <2010-03-26 20:11:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -517,6 +517,56 @@ int __normal_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
     return 0;
 }
 
+/* __normal_read()
+ *
+ * Note: we just relay the I/O to the file, nothing should be changed
+ */
+int __normal_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
+{
+    loff_t offset;
+    int bl, br;
+    int err = 0, i;
+
+    if (fde->state < FDE_OPEN || !msa->iov_nr || !msa->iov)
+        return -EINVAL;
+    
+    offset = msa->offset;
+    if (offset == -1UL) {
+        offset = lseek(fde->fd, 0, SEEK_CUR);
+    }
+    
+    for (i = 0; i < msa->iov_nr; i++) {
+        bl = 0;
+        do {
+            br = pread(fde->fd, (msa->iov + i)->iov_base + bl, 
+                       (msa->iov + i)->iov_len - bl, offset + bl);
+            if (br < 0) {
+                hvfs_err(mdsl, "pread failed w/ %d\n", errno);
+                err = -errno;
+                goto out;
+            } else if (br == 0) {
+                hvfs_err(mdsl, "reach EOF.\n");
+                err = -EINVAL;
+                goto out;
+            }
+            bl += br;
+        } while (bl < (msa->iov + i)->iov_len);
+    }
+
+out:
+    return err;
+}
+
+int __mmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
+{
+    return 0;
+}
+
+int __mmap_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
+{
+    return 0;
+}
+
 int __mdisk_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 {
     loff_t offset = 0;
@@ -697,7 +747,7 @@ int __range_lookup(u64 duuid, u64 itbid, struct mmap_args *ma, u64 *location)
         err = PTR_ERR(fde);
         goto out;
     }
-    *location = *((u64 *)(fde->mwin.addr + (itbid - fde->mwin.offset)));
+    *location = *((u64 *)(fde->mwin.addr) + (itbid - fde->mwin.offset));
 
     mdsl_storage_fd_put(fde);
 out:
@@ -716,7 +766,7 @@ int __range_write(u64 duuid, u64 itbid, struct mmap_args *ma, u64 location)
         err = PTR_ERR(fde);
         goto out;
     }
-    *((u64 *)(fde->mwin.addr + (itbid - fde->mwin.offset))) = location;
+    *((u64 *)(fde->mwin.addr) + (itbid - fde->mwin.offset)) = location;
 
     mdsl_storage_fd_put(fde);
 out:
@@ -961,6 +1011,11 @@ retry:
             goto out_failed;
         }
     } else if (fde->state == FDE_MEMWIN) {
+        err = __mmap_write(fde, msa);
+        if (err) {
+            hvfs_err(mdsl, "__mmap_write failed w/ %d\n", err);
+            goto out_failed;
+        }
     } else if (fde->state == FDE_NORMAL) {
         err = __normal_write(fde, msa);
         if (err) {
@@ -986,6 +1041,43 @@ retry:
     }
 
     atomic64_inc(&hmo.prof.storage.wreq);
+out_failed:
+    return err;
+}
+
+int mdsl_storage_fd_read(struct fdhash_entry *fde,
+                         struct mdsl_storage_access *msa)
+{
+    int err = 0;
+
+retry:
+    if (fde->state == FDE_ABUF || fde->state == FDE_NORMAL) {
+        err = __normal_read(fde, msa);
+        if (err) {
+            hvfs_err(mdsl, "__normal_read failed w/ %d\n", err);
+            goto out_failed;
+        }
+    } else if (fde->state == FDE_MEMWIN) {
+        err = __mmap_read(fde, msa);
+        if (err) {
+            hvfs_err(mdsl, "__mmap_read failed w/ %d\n", err);
+            goto out_failed;
+        }
+    } else if (fde->state == FDE_MDISK) {
+        hvfs_err(mdsl, "hoo, you should not call this function on this FDE\n");
+    } else if (fde->state == FDE_OPEN) {
+        /* we should change to ABUF or MEMWIN or NORMAL access mode */
+        err = mdsl_storage_fd_init(fde);
+        if (err) {
+            hvfs_err(mdsl, "try to change state failed w/ %d\n", err);
+            goto out_failed;
+        }
+        goto retry;
+    } else {
+        /* we should (re-)open the file */
+    }
+
+    atomic64_inc(&hmo.prof.storage.rreq);
 out_failed:
     return err;
 }

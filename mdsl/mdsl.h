@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-24 19:57:04 macan>
+ * Time-stamp: <2010-03-26 19:52:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -87,15 +87,18 @@ typedef struct range_ range_t;
 #define MDSL_MDISK_RANGE        0x01
 struct md_disk
 {
+    /* region for range */
     u32 winsize;                /* the window size of the each range file */
     u32 range_nr[3];            /* primary, secondary, third replicas */
     range_t *new_range;         /* region for new ranges comming in */
     range_t *ranges;            /* ranges loaded from disk file */
     int new_size;
     int size;                   /* total size of the ranges from disk */
-    u32 itb_fsize;
-    u32 data_fsize;
     u32 range_aid;              /* alloc id of range */
+
+    /* region for itb/data file */
+    u32 itb_master;
+    u32 data_master;
 };
 
 struct fdhash_entry
@@ -127,6 +130,8 @@ struct mdsl_storage_access
 {
     struct iovec *iov;
     void *arg;
+    loff_t offset;              /* file offset, if -1 we just acces @ current
+                                 * location */
     int iov_nr;
 };
 
@@ -337,6 +342,8 @@ void mdsl_storage_fd_put(struct fdhash_entry *fde)
 int append_buf_create(struct fdhash_entry *, char *, int);
 int mdsl_storage_fd_write(struct fdhash_entry *fde, 
                           struct mdsl_storage_access *msa);
+int mdsl_storage_fd_read(struct fdhash_entry *fde, 
+                         struct mdsl_storage_access *msa);
 int mdsl_storage_dir_make_exist(char *path);
 int __range_lookup(u64, u64, struct mmap_args *, u64 *);
 int __range_write(u64, u64, struct mmap_args *, u64);
