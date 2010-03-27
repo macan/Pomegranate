@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 20:08:21 macan>
+ * Time-stamp: <2010-03-27 16:12:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -144,7 +144,7 @@ void mds_lookup(struct hvfs_tx *tx)
 
     /* sanity checking */
     if (tx->req->tx.len < sizeof(*hi)) {
-        hvfs_err(mds, "Invalid LOOKUP request %ld received\n", 
+        hvfs_err(mds, "Invalid LOOKUP request %d received\n", 
                  tx->req->tx.reqno);
         err = -EINVAL;
         goto send_rpy;
@@ -204,7 +204,7 @@ void mds_create(struct hvfs_tx *tx)
 #endif
     /* sanity checking */
     if (tx->req->tx.len < sizeof(*hi)) {
-        hvfs_err(mds, "Invalid CREATE request %ld received\n", 
+        hvfs_err(mds, "Invalid CREATE request %d received\n", 
                  tx->req->tx.reqno);
         err = -EINVAL;
         goto send_rpy;
@@ -274,7 +274,7 @@ void mds_update(struct hvfs_tx *tx)
 
     /* sanity checking */
     if (tx->req->tx.len < sizeof(*hi)) {
-        hvfs_err(mds, "Invalid LOOKUP request %ld received\n", 
+        hvfs_err(mds, "Invalid LOOKUP request %d received\n", 
                  tx->req->tx.reqno);
         err = -EINVAL;
         goto send_rpy;
@@ -334,7 +334,7 @@ void mds_linkadd(struct hvfs_tx *tx)
 
     /* sanity checking */
     if (tx->req->tx.len < sizeof(*hi)) {
-        hvfs_err(mds, "Invalid LINKADD request %ld received\n", 
+        hvfs_err(mds, "Invalid LINKADD request %d received\n", 
                  tx->req->tx.reqno);
         err = -EINVAL;
         goto send_rpy;
@@ -387,7 +387,7 @@ void mds_unlink(struct hvfs_tx *tx)
 
     /* sanity checking */
     if (tx->req->tx.len < sizeof(*hi)) {
-        hvfs_err(mds, "Invalid UNLINK request %ld received\n", 
+        hvfs_err(mds, "Invalid UNLINK request %d received\n", 
                  tx->req->tx.reqno);
         err = -EINVAL;
         goto send_rpy;
@@ -440,7 +440,7 @@ void mds_symlink(struct hvfs_tx *tx)
 
     /* sanity checking */
     if (tx->req->tx.len < sizeof(*hi)) {
-        hvfs_err(mds, "Invalid LINKADD request %ld received\n", 
+        hvfs_err(mds, "Invalid LINKADD request %d received\n", 
                  tx->req->tx.reqno);
         err = -EINVAL;
         goto send_rpy;
@@ -506,7 +506,7 @@ void mds_dump_itb(struct hvfs_tx *tx)
 
     /* sanity checking */
     if (tx->req->tx.len < sizeof(*hi)) {
-        hvfs_err(mds, "Invalid DITB request %ld recieved\n",
+        hvfs_err(mds, "Invalid DITB request %d recieved\n",
                  tx->req->tx.reqno);
         err = -EINVAL;
         goto out;

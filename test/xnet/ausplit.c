@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-20 15:00:26 macan>
+ * Time-stamp: <2010-03-27 16:08:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -193,7 +193,7 @@ int get_send_msg_create(int nid, u64 puuid, u64 itbid,
 #endif
     xnet_msg_add_sdata(msg, hi, dpayload);
 
-    hvfs_debug(xnet, "MDS dpayload %ld (namelen %d, dlen %ld)\n", 
+    hvfs_debug(xnet, "MDS dpayload %d (namelen %d, dlen %ld)\n", 
                msg->tx.len, hi->namelen, hi->dlen);
 resend:
     err = xnet_send(hmo.xc, msg);
@@ -337,7 +337,7 @@ int get_send_msg_lookup(int nid, u64 puuid, u64 itbid)
 #endif
     xnet_msg_add_sdata(msg, hi, dpayload);
 
-    hvfs_debug(xnet, "MDS dpayload %ld (namelen %d, dlen %ld)\n", 
+    hvfs_debug(xnet, "MDS dpayload %d (namelen %d, dlen %ld)\n", 
                msg->tx.len, hi->namelen, hi->dlen);
 resend:
     err = xnet_send(hmo.xc, msg);
@@ -451,7 +451,7 @@ int get_send_msg_unlink(int nid, u64 puuid, u64 itbid)
 #endif
     xnet_msg_add_sdata(msg, hi, dpayload);
 
-    hvfs_debug(xnet, "MDS dpayload %ld (namelen %d, dlen %ld)\n", 
+    hvfs_debug(xnet, "MDS dpayload %d (namelen %d, dlen %ld)\n", 
                msg->tx.len, hi->namelen, hi->dlen);
 resend:
     err = xnet_send(hmo.xc, msg);
@@ -774,7 +774,8 @@ int ring_add(struct chring **r, u64 site)
 
 void *ausplit_buf_alloc(size_t size, int aflag)
 {
-    if (unlikely(aflag == HVFS_MDS2MDS_SPITB)) {
+    if (unlikely(aflag == HVFS_MDS2MDS_SPITB) ||
+        unlikely(aflag == XNET_RPY_DATA_ITB)) {
         /* alloc the whole ITB */
         return get_free_itb_fast();
     } else {

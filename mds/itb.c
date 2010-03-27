@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-20 14:14:25 macan>
+ * Time-stamp: <2010-03-27 11:17:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,7 +38,6 @@ void ite_create(struct hvfs_index *hi, struct ite *e);
 struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
 {
     struct storage_index si;
-    struct storage_result *sr;
     struct xnet_msg *msg;
     struct chp *p;
     struct itb *i;
@@ -93,13 +92,38 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
                  msg->pair->tx.ssite_id, msg->pair->tx.err, itbid);
         i = ERR_PTR(msg->pair->tx.err);
     } else {
-        sr = (struct storage_result *)(msg->pair->xm_data);
-        if (sr->src.err)
-            i = ERR_PTR(sr->src.err);
-        else {
-            /* FIXME: do we need clear the auto free flag? */
-            i = (struct itb *)(sr->data);
+        struct hvfs_txg *t;
+        
+        /* sanity checking */
+        if (msg->pair->tx.len < sizeof(struct itb)) {
+            hvfs_err(mds, "Invalid ITB load reply received from %lx\n",
+                     msg->pair->tx.ssite_id);
+            i = ERR_PTR(-EIO);
+            xnet_set_auto_free(msg->pair);
+            goto out_free;
         }
+        if (msg->pair->xm_datacheck)
+            i = (struct itb *)(msg->pair->xm_data);
+        else {
+            hvfs_err(mds, "Internal error, data lossing ..\n");
+            i = ERR_PTR(-EIO);
+            xnet_set_auto_free(msg->pair);
+            goto out_free;
+        }
+        xnet_clear_auto_free(msg->pair);
+
+        /* checking the ITB */
+        ASSERT(msg->pair->tx.len == atomic_read(&i->h.len), mds);
+
+        /* changing the dirty info */
+        t = mds_get_open_txg(&hmo);
+        i->h.txg = t->txg;
+        i->h.state = ITB_STATE_CLEAN;
+        /* re-init */
+        itb_reinit(i);
+        txg_put(t);
+
+        atomic64_add(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
     }
 
 out_free:

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-26 19:52:17 macan>
+ * Time-stamp: <2010-03-27 16:12:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -78,30 +78,58 @@ void __mdsl_send_rpy(struct xnet_msg *msg)
     xnet_free_msg(rpy);
 }
 
+static inline
+void __mdsl_send_rpy_data(struct xnet_msg *msg, struct iovec iov[], int nr)
+{
+    struct xnet_msg *rpy;
+    int i;
+
+    rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!rpy) {
+        hvfs_err(mdsl, "xnet_alloc_msg() failed\n");
+        /* do not retry myself */
+        return;
+    }
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(struct xnet_msg_tx));
+#endif
+    for (i = 0; i < nr; i++) {
+        xnet_msg_add_sdata(rpy, iov[i].iov_base, iov[i].iov_len);
+    }
+    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, XNET_NEED_DATA_FREE, 
+                     hmo.site_id, msg->tx.ssite_id);
+    xnet_msg_fill_reqno(rpy, msg->tx.reqno);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_DATA_ITB, 0, 0);
+    /* match the original request at the source site */
+    rpy->tx.handle = msg->tx.handle;
+
+    if (xnet_send(hmo.xc, rpy)) {
+        hvfs_err(mdsl, "xnet_send() failed.\n");
+    }
+    xnet_free_msg(rpy);
+}
+
 void mdsl_itb(struct xnet_msg *msg)
 {
-    struct iovec itb_iov = {0, };
+    struct iovec itb_iov[2] = {{0,}, };
     struct mdsl_storage_access msa = {
-        .iov = &itb_iov,
+        .iov = &itb_iov[0],
         .iov_nr = 1,
     };
     struct mmap_args ma;
     struct fdhash_entry *fde;
     range_t *range;
     struct itb *itb;
-    void *data;
+    void *data = NULL;
     u64 location;
     int master;
+    int data_len = 0;
     int err = 0;
     
     hvfs_info(mdsl, "Recv ITB load requst <%ld,%ld> from site %lx\n",
               msg->tx.arg0, msg->tx.arg1, msg->tx.ssite_id);
 
-    __mdsl_send_err_rpy(msg, -ENOSYS);
-    xnet_set_auto_free(msg);
-    xnet_free_msg(msg);
-    return;
-    
     itb = xmalloc(sizeof(*itb));
     if (!itb) {
         hvfs_err(mdsl, "xmalloc struct itb failed\n");
@@ -115,15 +143,15 @@ void mdsl_itb(struct xnet_msg *msg)
         err = PTR_ERR(fde);
         goto out;
     }
-    if (!fde->mdisk.ranges) {
+    if (!fde->mdisk.ranges && !fde->mdisk.new_range) {
         err = -ENOENT;
-        goto out;
+        goto out_put2;
     }
     ma.win = MDSL_STORAGE_DEFAULT_RANGE_SIZE;
 
     err = __mdisk_lookup(fde, MDSL_MDISK_RANGE, msg->tx.arg1, &range);
     if (err == -ENOENT) {
-        goto out;
+        goto out_put2;
     }
     ma.foffset = 0;
     ma.range_id = range->range_id;
@@ -131,11 +159,11 @@ void mdsl_itb(struct xnet_msg *msg)
 
     err = __range_lookup(msg->tx.arg0, msg->tx.arg1, &ma, &location);
     if (err) {
-        goto out;
+        goto out_put2;
     }
     if (!location) {
         err = -ENOENT;
-        goto out;
+        goto out_put2;
     }
     
     master = fde->mdisk.itb_master;
@@ -147,23 +175,52 @@ void mdsl_itb(struct xnet_msg *msg)
     if (IS_ERR(fde)) {
         hvfs_err(mdsl, "lookup create ITB file failed w/ %ld\n", PTR_ERR(fde));
         err = PTR_ERR(fde);
-        goto out_put2;
+        goto out;
     }
 
     msa.offset = location;
-    itb_iov.iov_base = itb;
-    itb_iov.iov_len = sizeof(*itb);
+    itb_iov[0].iov_base = itb;
+    itb_iov[0].iov_len = sizeof(*itb);
     err = mdsl_storage_fd_read(fde, &msa);
     if (err) {
         hvfs_err(mdsl, "fd read failed w/ %d\n", err);
         goto out_put2;
     }
-    
+
+    hvfs_err(mdsl, "Read ITB %ld len %d\n", itb->h.itbid, atomic_read(&itb->h.len));
+    data_len = atomic_read(&itb->h.len) - sizeof(*itb);
+    if (data_len) {
+        data = xmalloc(data_len);
+        if (!data) {
+            hvfs_err(mdsl, "try to alloc memory for ITB data region failed\n");
+            goto out_put2;
+        }
+        /* ok, do pread now */
+        msa.offset = location + sizeof(*itb);
+        msa.iov->iov_base = data;
+        msa.iov->iov_len = data_len;
+        err = mdsl_storage_fd_read(fde, &msa);
+        if (err) {
+            hvfs_err(mdsl, "fd read failed w/ %d\n", err);
+            goto out_put2;
+        }
+    }
+
 out_put2:
     mdsl_storage_fd_put(fde);
 out:
     if (err) {
+        __mdsl_send_err_rpy(msg, err);
     } else {
+        itb_iov[0].iov_base = itb;
+        itb_iov[0].iov_len = sizeof(*itb);
+        err = 1;
+        if (data_len) {
+            itb_iov[1].iov_base = data;
+            itb_iov[1].iov_len = data_len;
+            err++;
+        }
+        __mdsl_send_rpy_data(msg, itb_iov, err);
     }
 
     xnet_set_auto_free(msg);
@@ -293,7 +350,7 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         
         /* sanity checking */
         if (len < sizeof(struct itb)) {
-            hvfs_err(mdsl, "Invalid WBTXG request %ld received from %lx\n",
+            hvfs_err(mdsl, "Invalid WBTXG request %d received from %lx\n",
                      msg->tx.reqno, msg->tx.ssite_id);
             goto out;
         }
@@ -350,7 +407,7 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         int err = 0, abort = 0;
 
         if (len < sizeof(struct txg_end)) {
-            hvfs_err(mdsl, "Invalid WBTXG END request %ld received from %lx\n",
+            hvfs_err(mdsl, "Invalid WBTXG END request %d received from %lx\n",
                      msg->tx.reqno, msg->tx.ssite_id);
             goto out;
         }
@@ -371,34 +428,39 @@ void mdsl_wbtxg(struct xnet_msg *msg)
             }
 
             /* ok, check the itb_nr now */
-            if (atomic_read(&toe->itb_nr) >= te->itb_nr) {
-                /* it is ok to commit the TOE--TE to disk now */
-                toe->begin.itb_nr = atomic_read(&toe->itb_nr);
-                err = mdsl_storage_toe_commit(toe, te);
-                if (err) {
-                    hvfs_err(mdsl, "Commit the toe[%lx,%ld] to disk failed"
-                             "w/ %d.\n",
-                             toe->begin.site_id, toe->begin.txg, err);
-                    goto out;
-                }
-                toe_deactive(toe);
-                /* ok, we commit the itb modifications to disk after we logged
-                 * the infos to TXG file. */
-                if (!abort) {
-                    err = mdsl_storage_update_range(toe);
-                    if (err) {
-                        hvfs_err(mdsl, "Update %ld,%ld range failed w /%d, maybe "
-                                 "data loss.\n",
-                                 toe->begin.site_id, toe->begin.txg, err);
-                    }
-                } else {
-                    hvfs_err(mdsl, "TXG %ld wb aborted by %d from site %lx\n",
-                             te->txg, abort, te->site_id);
-                }
-                put_txg_open_entry(toe);
-            } else {
-                /* we should find the missing ITB in the tmp file */
+            if (unlikely(atomic_read(&toe->itb_nr) < te->itb_nr)) {
+                /* Step 1: we should find the missing ITB in the tmp file */
+                /* Step 2: if we can find the missing ITBs in the tmp file, we
+                 * should just waiting for the  */
+                hvfs_err(mdsl, "itb nr mismatch: recv %d vs say %d\n",
+                         atomic_read(&toe->itb_nr), te->itb_nr);
+                toe_wait(toe, te->itb_nr);
             }
+
+            /* it is ok to commit the TOE--TE to disk now */
+            toe->begin.itb_nr = atomic_read(&toe->itb_nr);
+            err = mdsl_storage_toe_commit(toe, te);
+            if (err) {
+                hvfs_err(mdsl, "Commit the toe[%lx,%ld] to disk failed"
+                         "w/ %d.\n",
+                         toe->begin.site_id, toe->begin.txg, err);
+                goto out;
+            }
+            toe_deactive(toe);
+            /* ok, we commit the itb modifications to disk after we logged
+             * the infos to TXG file. */
+            if (!abort) {
+                err = mdsl_storage_update_range(toe);
+                if (err) {
+                    hvfs_err(mdsl, "Update %ld,%ld range failed w /%d, maybe "
+                             "data loss.\n",
+                             toe->begin.site_id, toe->begin.txg, err);
+                }
+            } else {
+                hvfs_err(mdsl, "TXG %ld wb aborted by %d from site %lx\n",
+                         te->txg, abort, te->site_id);
+            }
+            put_txg_open_entry(toe);
         }
     }
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-26 19:52:47 macan>
+ * Time-stamp: <2010-03-27 10:00:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -312,6 +312,7 @@ int toe_to_tmpfile(int, u64, u64, void *);
 int toe_to_tmpfile_N(int, u64, u64, void *, int);
 void toe_active(struct txg_open_entry *);
 void toe_deactive(struct txg_open_entry *);
+void toe_wait(struct txg_open_entry *, int);
 
 /* storage.c */
 #define MDSL_STORAGE_MD         0x0000

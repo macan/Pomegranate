@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-03 14:43:52 macan>
+ * Time-stamp: <2010-03-27 16:06:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -75,7 +75,7 @@ void xnet_free_msg(struct xnet_msg *msg)
     if (msg->pair)
         xnet_free_msg(msg->pair);
     if (unlikely(msg->tx.flag & XNET_PTRESTORE)) {
-        msg->xm_data = (void *)msg->tx.arg1;
+        msg->xm_data = (void *)msg->tx.reserved;
     }
     if (msg->tx.flag & XNET_NEED_DATA_FREE) {
         if (msg->tx.type == XNET_MSG_REQ) {

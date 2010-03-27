@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-08 10:31:14 macan>
+ * Time-stamp: <2010-03-27 16:09:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -131,7 +131,7 @@ int get_send_msg_create(int dsite, int nid, u64 puuid, u64 itbid, u64 flag,
 #endif
     xnet_msg_add_sdata(msg, hi, dpayload);
 
-    hvfs_debug(xnet, "MDS dpayload %ld (namelen %d, dlen %ld)\n", 
+    hvfs_debug(xnet, "MDS dpayload %d (namelen %d, dlen %ld)\n", 
                msg->tx.len, hi->namelen, hi->dlen);
     err = xnet_send(hmo.xc, msg);
     if (err) {
@@ -230,7 +230,7 @@ int get_send_msg_unlink(int dsite, int nid, u64 puuid, u64 itbid, u64 flag)
 #endif
     xnet_msg_add_sdata(msg, hi, dpayload);
 
-    hvfs_debug(xnet, "MDS dpayload %ld (namelen %d, dlen %ld)\n",
+    hvfs_debug(xnet, "MDS dpayload %d (namelen %d, dlen %ld)\n",
                msg->tx.len, hi->namelen, hi->dlen);
     err = xnet_send(hmo.xc, msg);
     if (err) {
@@ -330,7 +330,7 @@ int get_send_msg_lookup(int dsite, int nid, u64 puuid, u64 itbid, u64 flag)
 #endif
     xnet_msg_add_sdata(msg, hi, dpayload);
 
-    hvfs_debug(xnet, "MSG dpayload %ld (namelen %d, dlen %ld)\n", 
+    hvfs_debug(xnet, "MSG dpayload %d (namelen %d, dlen %ld)\n", 
                msg->tx.len, hi->namelen, hi->dlen);
     err = xnet_send(hmo.xc, msg);
     if (err) {

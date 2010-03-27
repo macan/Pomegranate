@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-11 19:43:08 macan>
+ * Time-stamp: <2010-03-27 16:10:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -82,7 +82,7 @@ void mds_ldh(struct xnet_msg *msg)
 
     /* sanity checking */
     if (msg->tx.len < sizeof(*hi)) {
-        hvfs_err(mds, "Invalid LDH request %ld received from %lx\n", 
+        hvfs_err(mds, "Invalid LDH request %d received from %lx\n", 
                  msg->tx.reqno, msg->tx.ssite_id);
         err = -EINVAL;
         goto send_rpy;
@@ -169,7 +169,7 @@ void mds_ausplit(struct xnet_msg *msg)
 
     /* sanity checking */
     if (msg->tx.len < sizeof(struct itb)) {
-        hvfs_err(mds, "Invalid SPITB request %ld received from %lx\n",
+        hvfs_err(mds, "Invalid SPITB request %d received from %lx\n",
                  msg->tx.reqno, msg->tx.ssite_id);
         err = -EINVAL;
         goto send_rpy;
@@ -286,7 +286,7 @@ void mds_forward(struct xnet_msg *msg)
     memcpy(&msg->tx, tx, sizeof(*tx));
     /* FIXME: we know there is only one iov entry */
     msg->tx.flag |= (XNET_PTRESTORE | XNET_FWD);
-    msg->tx.arg1 = (u64)msg->xm_data;
+    msg->tx.reserved = (u64)msg->xm_data;
     msg->xm_data += sizeof(*tx);
     msg->tx.dsite_id = hmo.site_id;
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-13 10:09:48 macan>
+ * Time-stamp: <2010-03-27 16:14:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -237,7 +237,7 @@ int __xnet_handle_tx(int fd)
     } while (br < sizeof(struct xnet_msg_tx));
     atomic64_add(br, &g_xnet_prof.inbytes);
 
-    hvfs_debug(xnet, "We have recieved the MSG_TX, dpayload %ld\n",
+    hvfs_debug(xnet, "We have recieved the MSG_TX, dpayload %d\n",
                msg->tx.len);
 
     {
@@ -288,7 +288,7 @@ int __xnet_handle_tx(int fd)
         do {
             bt = recv(fd, buf + br, msg->tx.len - br, MSG_WAITALL);
             if (bt < 0) {
-                hvfs_verbose(xnet, "read() err %d w/ br %d(%ld)\n", 
+                hvfs_verbose(xnet, "read() err %d w/ br %d(%d)\n", 
                              errno, br, msg->tx.len);
                 if (errno == EAGAIN || errno == EINTR) {
                     sleep(0);
@@ -325,6 +325,9 @@ int __xnet_handle_tx(int fd)
         req = (struct xnet_msg *)msg->tx.handle;
         ASSERT(req, xnet);
         msg->state = XNET_MSG_PAIRED;
+
+        /* fallback to normal cmd */
+        xnet_rpy_cmd_fallback(msg);
 
         /* switch for REPLY/ACK/COMMIT */
         if (msg->tx.cmd == XNET_RPY_DATA) {
@@ -1024,9 +1027,9 @@ reselect_conn:
 
     /* then, send the data region */
     if (msg->siov_ulen) {
-        hvfs_debug(xnet, "There is some data to send (iov_len %d) len %ld.\n",
+        hvfs_debug(xnet, "There is some data to send (iov_len %d) len %d.\n",
                    msg->siov_ulen, msg->tx.len);
-#if XNET_BLOCKING
+#ifdef XNET_BLOCKING
         {
             struct msghdr __msg = {
                 .msg_iov = msg->siov,
@@ -1035,9 +1038,11 @@ reselect_conn:
             
             bt = sendmsg(ssock, &__msg, 0);
             if (bt < 0 || msg->tx.len > bt) {
-                hvfs_err(xnet, "sendmsg(%d[%lx]) err %d, for now we do not "
-                         "support redo:(\n", ssock, msg->tx.dsite_id,
+                hvfs_err(xnet, "sendmsg(%d[%lx],%d,%d) err %d, for now we do not "
+                         "support redo:(\n", ssock, msg->tx.dsite_id, bt,
+                         msg->tx.len, 
                          errno);
+                HVFS_BUG();
                 if (errno == ECONNRESET || errno == EBADF) {
                     /* select another link and resend the whole msg */
                     xlock_unlock(&xa->socklock[lock_idx]);

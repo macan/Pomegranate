@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-11 20:04:27 macan>
+ * Time-stamp: <2010-03-27 11:27:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1043,17 +1043,14 @@ retry_dir:
     } else {
         /* the bucket is empty, you can do creating */
         hvfs_debug(mds, "OK, empty bucket!\n");
-        if (hi->flag & INDEX_CREATE) {
-            /* FIXME: */
-            xrwlock_runlock(&b->lock);
-            err = cbht_itb_miss(hi, hmr, txg, otxg);
-            if (err == -EAGAIN)
-                goto retry_dir;
-            return err;
-        } else {
-            err = -ENOENT;
-            goto out;
-        }
+
+        /* we support itb loading now, just tring to loead the missed itb */
+        xrwlock_runlock(&b->lock);
+        err = cbht_itb_miss(hi, hmr, txg, otxg);
+        if (err == -EAGAIN)
+            goto retry_dir;
+        hmr->err = err;
+        return err;
     }
 
     /* always holding the bucket.rlock */

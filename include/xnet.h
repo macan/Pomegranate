@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 14:27:17 macan>
+ * Time-stamp: <2010-03-27 16:06:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,9 +55,10 @@ struct xnet_msg_tx
                                  * REQ/RPY/CMD */
     u64 arg0;
     u64 arg1;
-    u64 reqno;
-    u64 len;                    /* total data len */
+    u32 reqno;
+    u32 len;                    /* total data len */
     u64 handle;                 /* this is the pointer to the request */
+    u64 reserved;
 };
 
 struct xnet_msg
@@ -204,5 +205,11 @@ extern struct xnet_prof g_xnet_prof;
 #define XNET_RPY_ACK            0x01
 #define XNET_RPY_COMMIT         0x02
 #define XNET_RPY_DATA           0x03
+
+#define XNET_RPY_DATA_ITB       0x04 /* should change to RPY_DATA */
+#define xnet_rpy_cmd_fallback(msg) do {         \
+        if (msg->tx.cmd == XNET_RPY_DATA_ITB)   \
+            msg->tx.cmd = XNET_RPY_DATA;        \
+    } while (0)
 
 #endif

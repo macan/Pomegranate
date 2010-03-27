@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-26 20:11:14 macan>
+ * Time-stamp: <2010-03-27 13:00:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -91,6 +91,8 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
             goto out_close;
         }
         fde->abuf.len = buf_len;
+        if (!fde->abuf.file_offset)
+            fde->abuf.offset = 1;
         fde->state = FDE_ABUF;
     }
 
@@ -1222,6 +1224,9 @@ int mdsl_storage_update_range(struct txg_open_entry *toe)
         ma.foffset = 0;
         ma.range_id = range->range_id;
         ma.range_begin = range->begin;
+
+        hvfs_err(mdsl, "write II %ld %ld to location %ld\n",
+                 pos->duuid, pos->itbid, pos->location);
 
         err = __range_write(pos->duuid, pos->itbid, &ma, pos->location);
         if (err) {

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-10 17:58:31 macan>
+ * Time-stamp: <2010-03-27 16:11:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,7 +52,7 @@ void mds_update_recent_reqno(u64 site, u64 reqno)
 void mds_fe_handle_err(struct xnet_msg *msg, int err)
 {
     if (unlikely(err)) {
-        hvfs_warning(mds, "MSG(%lx->%lx)(reqno %ld) can't be handled w/ %d\n",
+        hvfs_warning(mds, "MSG(%lx->%lx)(reqno %d) can't be handled w/ %d\n",
                      msg->tx.ssite_id, msg->tx.dsite_id, msg->tx.reqno, err);
     }
 
@@ -62,15 +62,17 @@ void mds_fe_handle_err(struct xnet_msg *msg, int err)
 
 int mds_do_forward(struct xnet_msg *msg, u64 dsite)
 {
-    int err = 0, i;
+    int err = 0, i, relaied = 0;
     
     /* Note that lots of forward request may incur the system performance, we
      * should do fast forwarding and fast bitmap changing. */
     struct mds_fwd *mf = NULL;
     struct xnet_msg *fmsg;
 
-    if (unlikely(msg->tx.flag & XNET_FWD))
+    if (unlikely(msg->tx.flag & XNET_FWD)) {
         atomic64_inc(&hmo.prof.mds.loop_fwd);
+        relaied = 1;
+    }
 
     mf = xzalloc(sizeof(*mf) + sizeof(u64));
     if (!mf) {
@@ -97,9 +99,13 @@ int mds_do_forward(struct xnet_msg *msg, u64 dsite)
     xnet_msg_add_sdata(fmsg, &msg->tx, sizeof(msg->tx));
 
     if (msg->xm_datacheck) {
-        for (i = 0; i < msg->riov_ulen; i++) {
-            xnet_msg_add_sdata(fmsg, msg->riov[i].iov_base, 
-                               msg->riov[i].iov_len);
+        if (unlikely(relaied)) {
+            xnet_msg_add_sdata(fmsg, msg->xm_data, msg->tx.len);
+        } else {
+            for (i = 0; i < msg->riov_ulen; i++) {
+                xnet_msg_add_sdata(fmsg, msg->riov[i].iov_base, 
+                                   msg->riov[i].iov_len);
+            }
         }
     }
 
@@ -261,7 +267,7 @@ int mds_fe_dispatch(struct xnet_msg *msg)
     } else if (HVFS_IS_ROOT(msg->tx.ssite_id)) {
         return mds_root_dispatch(msg);
     }
-    hvfs_err(mds, "MDS front-end handle INVALID request <0x%lx %ld>\n", 
+    hvfs_err(mds, "MDS front-end handle INVALID request <0x%lx %d>\n", 
              msg->tx.ssite_id, msg->tx.reqno);
 out:
     mds_fe_handle_err(msg, err);

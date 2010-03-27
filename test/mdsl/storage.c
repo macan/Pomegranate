@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-26 20:15:53 macan>
+ * Time-stamp: <2010-03-27 10:08:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -158,6 +158,8 @@ int __test_read()
     struct itb *itb;
     void *data;
     u64 location;
+    u64 itbid = 13;
+    size_t data_len;
     int master;
     int err = 0;
 
@@ -176,25 +178,28 @@ int __test_read()
     }
     if (!fde->mdisk.ranges) {
         err = -ENOENT;
-        goto out;
+        goto out_put2;
     }
     ma.win = MDSL_STORAGE_DEFAULT_RANGE_SIZE;
 
-    err = __mdisk_lookup(fde, MDSL_MDISK_RANGE, 0, &range);
+    err = __mdisk_lookup(fde, MDSL_MDISK_RANGE, itbid, &range);
     if (err == -ENOENT) {
-        goto out;
+        hvfs_err(mdsl, "mdisk lookup failed w/ %d\n", err);
+        goto out_put2;
     }
     ma.foffset = 0;
     ma.range_id = range->range_id;
     ma.range_begin = range->begin;
 
-    err = __range_lookup(1, 0, &ma, &location);
+    err = __range_lookup(1, itbid, &ma, &location);
     if (err) {
-        goto out;
+        hvfs_err(mdsl, "range lookup failed w/ %d\n", err);
+        goto out_put2;
     }
     if (!location) {
         err = -ENOENT;
-        goto out;
+        hvfs_err(mdsl, "range lookup got '0' w/ %d\n", err);
+        goto out_put2;
     }
     
     master = fde->mdisk.itb_master;
@@ -206,7 +211,7 @@ int __test_read()
     if (IS_ERR(fde)) {
         hvfs_err(mdsl, "lookup create ITB file failed w/ %ld\n", PTR_ERR(fde));
         err = PTR_ERR(fde);
-        goto out_put2;
+        goto out;
     }
 
     hvfs_err(mdsl, "read from offset %ld\n", location);
@@ -227,7 +232,16 @@ int __test_read()
             hvfs_err(mdsl, "shit\n");
             goto out_put2;
         }
-        /* FIXME! */
+        /* ok, do pread now */
+        msa.offset = location + sizeof(*itb);
+        msa.iov->iov_base = data;
+        msa.iov->iov_len = data_len;
+        err = mdsl_storage_fd_read(fde, &msa);
+        if (err) {
+            hvfs_err(mdsl, "fd read failed w/ %d\n", err);
+            goto out_put2;
+        }
+        /* ok to dump the ITB */
     }
     
 out_put2:

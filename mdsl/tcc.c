@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-26 18:34:59 macan>
+ * Time-stamp: <2010-03-27 09:55:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -103,6 +103,7 @@ struct txg_open_entry *get_txg_open_entry(struct txg_compact_cache *tcc)
     INIT_LIST_HEAD(&toe->list);
     INIT_LIST_HEAD(&toe->itb);
     toe->other_region = NULL;
+    mcond_init(&toe->cond);
     atomic_set(&toe->itb_nr, 0);
     
     return toe;
@@ -114,6 +115,7 @@ void put_txg_open_entry(struct txg_open_entry *toe)
     if (toe->other_region)
         xfree(toe->other_region);
     list_add_tail(&toe->list, &hmo.tcc.free_list);
+    mcond_destroy(&toe->cond);
     atomic_dec(&hmo.tcc.used);
 }
 
@@ -148,6 +150,24 @@ struct txg_open_entry *toe_lookup(u64 site, u64 txg)
         toe = NULL;
 
     return toe;
+}
+
+void toe_wait(struct txg_open_entry *toe, int nr)
+{
+    struct timespec ts, begin;
+
+    clock_gettime(CLOCK_REALTIME, &begin);
+    begin.tv_sec += 60;         /* total timeout time */
+    
+    for (; atomic_read(&toe->itb_nr) < nr; ) {
+        clock_gettime(CLOCK_REALTIME, &ts);
+        if (ts.tv_sec == begin.tv_sec) {
+            hvfs_err(mdsl, "TOE wait timeout for 60 seconds.\n");
+            break;
+        }
+        ts.tv_nsec += 8000;     /* ns */
+        mcond_timedwait(&toe->cond, &ts);
+    }
 }
 
 int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
