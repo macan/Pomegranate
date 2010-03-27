@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 15:12:05 macan>
+ * Time-stamp: <2010-03-27 20:55:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,6 +34,7 @@
 #include "lib.h"
 #include "async.h"
 #include "mds_config.h"
+#include "bitmapc.h"
 
 /* FIXME: we should implement a ARC/DULO cache */
 struct itb_cache 
@@ -71,6 +72,7 @@ struct mds_conf
     /* misc configs */
     u64 memlimit;               /* ITB mem limit */
     int txc_hash_size;          /* TXC hash table size */
+    int bc_hash_size;           /* BC hash table size */
     int txc_ftx;                /* TXC init free TXs */
     int cbht_bucket_depth;      /* CBHT bucket depth */
     int itb_cache;
@@ -80,6 +82,7 @@ struct mds_conf
     int async_update_N;         /* default # of processing request */
     int mp_to;                  /* timeout of modify pause */
     int txg_buf_len;            /* length of the txg buffer */
+    int bc_roof;                /* upper limmit of bitmap cache entries */
     s8 itbid_check;             /* should we do ITBID check? */
     u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
                                  * conflicts */
@@ -145,6 +148,7 @@ struct hvfs_mds_object
     struct hvfs_txg *txg[TXG_NUM];
     struct hvfs_txc txc;
     struct itb_cache ic;
+    struct bitmap_cache bc;
 #define HMO_STATE_INIT          0x00
 #define HMO_STATE_LAUNCH        0x01
 #define HMO_STATE_RUNNING       0x02
@@ -431,5 +435,9 @@ struct hvfs_txg *mds_get_wb_txg(struct hvfs_mds_object *hmo)
 }
 
 int itb_split_local(struct itb *, int, struct itb_lock *, struct hvfs_txg *);
+
+/* bitmapc.c */
+int mds_bitmap_cache_init(void);
+void mds_bitmap_cache_destroy(void);
 
 #endif

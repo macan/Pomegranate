@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 16:12:58 macan>
+ * Time-stamp: <2010-03-27 19:34:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -330,7 +330,7 @@ void mdsl_wbtxg(struct xnet_msg *msg)
             if (tb && toe && toe->other_region) {
                 region_len = sizeof(struct bitmap_delta) * tb->bitmap_delta_nr;
                 p = toe->other_region += offset;
-#if 1
+#if 0
                 struct bitmap_delta *bd = (struct bitmap_delta *)p;
                 int i;
                 for (i = 0; i < tb->bitmap_delta_nr; i++) {

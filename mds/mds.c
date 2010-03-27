@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 15:55:11 macan>
+ * Time-stamp: <2010-03-27 20:51:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -325,6 +325,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(spool_threads, value);
     HVFS_MDS_GET_ENV_atoi(max_async_unlink, value);
     HVFS_MDS_GET_ENV_atoi(txc_hash_size, value);
+    HVFS_MDS_GET_ENV_atoi(bc_hash_size, value);
     HVFS_MDS_GET_ENV_atoi(txc_ftx, value);
     HVFS_MDS_GET_ENV_atoi(cbht_bucket_depth, value);
     HVFS_MDS_GET_ENV_atoi(itb_cache, value);
@@ -340,6 +341,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(txg_interval, value);
     HVFS_MDS_GET_ENV_atoi(unlink_interval, value);
     HVFS_MDS_GET_ENV_atoi(txg_buf_len, value);
+    HVFS_MDS_GET_ENV_atoi(bc_roof, value);
 
     HVFS_MDS_GET_ENV_atol(memlimit, value);
 
@@ -393,6 +395,11 @@ int mds_init(int bdepth)
                        hmo.conf.txc_ftx);
     if (err)
         goto out_txc;
+
+    /* FIXME: init the BC subsystem */
+    err = mds_bitmap_cache_init();
+    if (err)
+        goto out_bc;
     
     /* FIXME: setup the timers */
     err = mds_setup_timers();
@@ -457,6 +464,7 @@ out_async:
 out_tx:
 out_dh:
 out_txc:
+out_bc:
 out_timers:
 out_signal:
     return err;
@@ -490,6 +498,9 @@ void mds_destroy(void)
 
     /* destroy the dh */
     mds_dh_destroy(&hmo.dh);
+
+    /* destroy the BC */
+    mds_bitmap_cache_destroy();
 
     /* destroy the txc */
     mds_destroy_txc(&hmo.txc);

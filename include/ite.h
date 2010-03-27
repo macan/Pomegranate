@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-20 14:11:13 macan>
+ * Time-stamp: <2010-03-27 20:18:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,6 +49,10 @@ struct gdt_md
     u64 puuid;                  /* parent uuid */
     u64 salt;                   /* salt of myself */
     u64 psalt;                  /* parent salt */
+
+    /* region for directory metadata */
+    int bitmap_slice_nr;        /* # of bitmap slices */
+    
 };
 
 #define HVFS_MDU_SIZE   (sizeof(struct mdu) + 3 * sizeof(u64)) /* include

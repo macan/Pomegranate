@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 13:00:13 macan>
+ * Time-stamp: <2010-03-27 19:33:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1225,8 +1225,8 @@ int mdsl_storage_update_range(struct txg_open_entry *toe)
         ma.range_id = range->range_id;
         ma.range_begin = range->begin;
 
-        hvfs_err(mdsl, "write II %ld %ld to location %ld\n",
-                 pos->duuid, pos->itbid, pos->location);
+        hvfs_debug(mdsl, "write II %ld %ld to location %ld\n",
+                   pos->duuid, pos->itbid, pos->location);
 
         err = __range_write(pos->duuid, pos->itbid, &ma, pos->location);
         if (err) {
