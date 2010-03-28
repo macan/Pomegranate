@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-13 17:20:00 macan>
+ * Time-stamp: <2010-03-28 15:38:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -256,9 +256,15 @@ static inline u32 hvfs_hash_dh(u64 key)
     return RSHash((char *)(&key), sizeof(u64));
 }
 
-static inline u32 hvfs_hash_gdt(u64 key)
+static inline u64 hvfs_hash_gdt(u64 key1, u64 key2)
 {
-    return RSHash((char *)(&key), sizeof(u64));
+    u64 val1, val2;
+    
+    val1 = hash_64(key2, 64);
+    val2 = hash_64(key1, 64);
+    val1 = val1 ^ (val2 ^ GOLDEN_RATIO_PRIME);
+
+    return val1;
 }
 
 static inline u64 hvfs_hash_vsite(u64 key1, u64 key2, u64 key2len)
@@ -305,7 +311,7 @@ u64 hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel)
         return hvfs_hash_dh(key1);
         break;
     case HASH_SEL_GDT:
-        return hvfs_hash_gdt(key1);
+        return hvfs_hash_gdt(key1, key2);
         break;
     case HASH_SEL_VSITE:
         return hvfs_hash_vsite(key1, key2, key2len);

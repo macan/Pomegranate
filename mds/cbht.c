@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 11:27:30 macan>
+ * Time-stamp: <2010-03-28 19:12:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -854,8 +854,8 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
 {
     struct itb *oi;
     struct mdu *m;
-    int err;
-    char mdu_rpy[HVFS_MDU_SIZE];
+    int err, offset = 0;
+    char mdu_rpy[HVFS_MDU_SIZE + sizeof(struct column)];
 
     xrwlock_rlock(&i->h.lock);
     /* check the ITB state */
@@ -898,6 +898,11 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     if (unlikely(hi->flag & INDEX_BIT_FLIP)) {
         hmr->flag |= MD_REPLY_WITH_BFLIP;
     }
+    if (unlikely(hi->flag & INDEX_COLUMN)) {
+        hmr->flag |= MD_REPLY_WITH_DC;
+        hmr->len += sizeof(struct column);
+    }
+    
     hmr->flag |= MD_REPLY_WITH_HI;
     hmr->len += sizeof(*hi);
 
@@ -908,11 +913,24 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
         err = -ENOMEM;
         goto out;
     }
+    /* prepare HI */
     memcpy(hmr->data, hi, sizeof(*hi));
+    offset += sizeof(*hi);
+    /* prepare MDU/LS */
     if (m->flags & HVFS_MDU_IF_LINKT) {
         memcpy(hmr->data + sizeof(*hi), mdu_rpy, sizeof(struct link_source));
-    } else
+        offset += sizeof(struct link_source);
+    } else {
         memcpy(hmr->data + sizeof(*hi), mdu_rpy, HVFS_MDU_SIZE);
+        offset += HVFS_MDU_SIZE;
+    }
+    /* prepare BITMAP */
+    /* prepare DC */
+    if (unlikely(hi->flag & INDEX_COLUMN)) {
+        memcpy(hmr->data + offset, mdu_rpy + HVFS_MDU_SIZE, 
+               sizeof(struct column));
+    }
+    
 out:
     xrwlock_runlock(&i->h.lock);
     return err;

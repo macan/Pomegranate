@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-09 15:10:29 macan>
+ * Time-stamp: <2010-03-28 16:50:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,6 +39,7 @@ extern struct list_head glt;           /* global lock table */
 #define EXTRACT_MDU     0x20
 #define EXTRACT_LS      0x40
 #define EXTRACT_BITMAP  0x80
+#define EXTRACT_DC      0x1000
 
 /* APIs */
 void lib_timer_start(struct timeval *begin);

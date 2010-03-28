@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-04 13:04:48 macan>
+ * Time-stamp: <2010-03-28 21:31:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -106,5 +106,25 @@
 #include "hash.c"
 
 #define __cbht __attribute__((__section__(".cbht.text")))
+
+struct itbitmap
+{
+    struct list_head list;
+    u64 offset:56;
+#define BITMAP_END      0x80    /* means there is no slice after this slice */
+    u64 flag:8;
+    u64 ts;
+#define XTABLE_BITMAP_SIZE      (128 * 1024 * 8) /* default is 128K storage */
+    u8 array[XTABLE_BITMAP_SIZE / 8];
+};
+
+/* this struct is just for c2m.c, shadow of itbitmap header */
+struct ibmap
+{
+    struct list_head list;
+    u64 offset:56;
+    u64 flag:8;
+    u64 ts;
+};
 
 #endif

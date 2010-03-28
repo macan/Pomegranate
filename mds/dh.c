@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 13:05:45 macan>
+ * Time-stamp: <2010-03-28 15:38:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -178,7 +178,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     memset(&thi, 0, sizeof(thi));
     thi.flag = INDEX_BY_UUID;
     thi.uuid = duuid;
-    thi.hash = hvfs_hash(duuid, 0, 0, HASH_SEL_GDT);
+    thi.hash = hvfs_hash(duuid, hmi.gdt_salt, 0, HASH_SEL_GDT);
 
     e = mds_dh_search(dh, hmi.gdt_uuid);
     if (IS_ERR(e)) {

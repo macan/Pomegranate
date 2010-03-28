@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 16:08:20 macan>
+ * Time-stamp: <2010-03-28 19:13:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -309,6 +309,7 @@ int get_send_msg_lookup(int nid, u64 puuid, u64 itbid)
         hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
         return -ENOMEM;
     }
+    hi->column = 3;             /* magic here:) */
     hi->hash = hvfs_hash(puuid, (u64)name, strlen(name), HASH_SEL_EH);
     hi->puuid = hmi.root_uuid;
     hi->psalt = hmi.root_salt;
@@ -391,6 +392,15 @@ resend:
                                  MDS_BITMAP_SET);
             hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
                        rhi->puuid, rhi->itbid);
+        }
+        if (hmr->flag & MD_REPLY_WITH_DC) {
+            struct column *c;
+            int no = 0;
+            
+            c = hmr_extract(hmr, EXTRACT_DC, &no);
+            if (!c) {
+                hvfs_err(xnet, "extract DC failed, not found.\n");
+            }
         }
     }
     /* ok, we got the correct respond, dump it */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 11:17:31 macan>
+ * Time-stamp: <2010-03-28 17:06:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1161,6 +1161,17 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
     return itb;
 }
 
+static inline
+void __data_column_hook(struct hvfs_index *hi, struct itb *itb,
+                        struct itb_index *ii, void *data)
+{
+    if (unlikely(hi->flag & INDEX_COLUMN)) {
+        memcpy(data + HVFS_MDU_SIZE, 
+               &(itb->ite[ii->entry].column[hi->column]), 
+               sizeof(struct column));
+    }
+}
+
 /**
  * Search ITE in the ITB, matched by hvfs_index
  *
@@ -1235,6 +1246,7 @@ retry:
             /* read MDU to buffer */
             hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
+            __data_column_hook(hi, itb, ii, data);
         } else if (unlikely(hi->flag & INDEX_CREATE)) {
             /* already exist, so... */
             if (!(hi->flag & INDEX_CREATE_FORCE)) {
@@ -1292,6 +1304,7 @@ retry:
             ite_update(hi, &itb->ite[ii->entry]);
             hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
+            __data_column_hook(hi, itb, ii, data);
         } else if (hi->flag & INDEX_UNLINK) {
             /* unlink */
             hvfs_verbose(mds, "Find the ITE and unlink it.\n");

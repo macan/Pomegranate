@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-28 11:05:26 macan>
+ * Time-stamp: <2010-03-28 16:46:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -104,7 +104,28 @@ void *hmr_extract(void *region, int flag, int *num)
         } else {
             return NULL;
         }
+    } else if (flag & EXTRACT_DC) {
+        if (hmr->flag & MD_REPLY_WITH_DC) {
+            *num = hmr->dc_no;
+            if (hmr->flag & MD_REPLY_WITH_HI) {
+                doffset += sizeof(struct hvfs_index);
+            }
+            if (hmr->flag & MD_REPLY_WITH_MDU) {
+                doffset += (HVFS_MDU_SIZE * hmr->mdu_no);
+            }
+            if (hmr->flag & MD_REPLY_WITH_LS) {
+                doffset += (sizeof(struct link_source) * hmr->ls_no);
+            }
+            if (hmr->flag & MD_REPLY_WITH_BITMAP) {
+                doffset += (sizeof(struct itbitmap) + (XTABLE_BITMAP_SIZE / 8)) 
+                    * hmr->bitmap_no;
+            }
+            return region + doffset;
+        } else {
+            return NULL;
+        }
     }
+    
     return NULL;
 }
 

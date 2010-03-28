@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 15:33:07 macan>
+ * Time-stamp: <2010-03-28 16:33:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,7 +27,9 @@
 /* the general index structure between HVFS client and MDS */
 struct hvfs_index
 {
-    int namelen;                /* the name length */
+    u16 namelen;                /* the name length */
+#define INDEX_COLUMN_ALL        0xffff
+    u16 column;                 /* which data column do you want */
 
 #define INDEX_BY_NAME           0x00000001 /* search by name */
 #define INDEX_BY_UUID           0x00000002 /* search by uuid */
@@ -37,6 +39,7 @@ struct hvfs_index
 
 #define INDEX_LOOKUP            0x00000010 /* LOOKUP */
 #define INDEX_INTENT_OPEN       0x00000020 /* open with ITE.ct++ */
+#define INDEX_COLUMN            0x00000040 /* lookup the column info */
 
 #define INDEX_LINK_ADD          0x00000100 /* lookup & nlink++, TXC */
 
@@ -81,10 +84,11 @@ struct hvfs_index
 /* the general reply structure between HVFS client and MDS */
 struct hvfs_md_reply
 {
-    short err;
     short mdu_no;               /* # of MDUs */
     short ls_no;                /* # of LSs */
     short bitmap_no;            /* # of BITMAPs */
+    short dc_no;                /* # of data columns */
+    int err;
     int len;                    /* the data length */
 
 #define MD_REPLY_DIR_SDT        0x01 /* SDT result */
@@ -95,7 +99,8 @@ struct hvfs_md_reply
 #define MD_REPLY_WITH_HI        0x10
 #define MD_REPLY_WITH_MDU       0x20
 #define MD_REPLY_WITH_LS        0x40
-#define MD_REPLY_WITH_BITMAP    0x80 /* bitmap info in data area */
+#define MD_REPLY_WITH_BITMAP    0x80   /* bitmap info in data area */
+#define MD_REPLY_WITH_DC        0x1000 /* w/ data column info */
 
     /* this region is not exist in lib.h */
 #define MD_REPLY_WITH_BFLIP     0x0100
@@ -104,7 +109,7 @@ struct hvfs_md_reply
     void *data;                 /* how to alloc data region more faster? */
     /* Layout of data region
      *
-     * |---HI---|---MDU---|---LS---|---BITMAP---|
+     * |---HI---|---MDU---|---LS---|---BITMAP---|---DC---|
      */
     /*
      * Layout of the data region: low->high, selected by flags
@@ -113,6 +118,7 @@ struct hvfs_md_reply
      * struct mdu mdu; + u64; (HVFS_MDU_SIZE)
      * struct link_source ls;
      * struct itbitmap + 128KB;
+     * struct column
      */
 };
 

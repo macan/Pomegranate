@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 14:19:16 macan>
+ * Time-stamp: <2010-03-28 16:50:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -135,17 +135,6 @@ struct itb
     u8 bitmap[1 << (ITB_DEPTH - 3)];
     struct itb_index index[2 << (ITB_DEPTH)]; /* double size */
     struct ite ite[0];
-};
-
-struct itbitmap
-{
-    struct list_head list;
-    u64 offset:56;
-#define BITMAP_END      0x80    /* means there is no slice after this slice */
-    u64 flag:8;
-    u64 ts;
-#define XTABLE_BITMAP_SIZE      (128 * 1024 * 8) /* default is 128K storage */
-    u8 array[XTABLE_BITMAP_SIZE / 8];
 };
 
 struct checkpoint 

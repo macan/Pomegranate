@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 20:55:55 macan>
+ * Time-stamp: <2010-03-28 16:52:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -216,6 +216,7 @@ void mds_destroy(void);
 void mds_reset_itimer(void);
 
 /* for fe.c */
+int mds_do_forward(struct xnet_msg *msg, u64 site_id);
 int mds_fe_dispatch(struct xnet_msg *msg);
 
 /* for dispatch.c */
