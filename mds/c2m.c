@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-28 22:00:21 macan>
+ * Time-stamp: <2010-03-29 20:18:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -89,6 +89,39 @@ void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr,
     lib_timer_E();
     lib_timer_O(1, "REPLY");
 #endif
+}
+
+static inline
+void __customized_send_reply(struct xnet_msg *msg, struct iovec iov[], int nr)
+{
+    struct xnet_msg *rpy = xnet_alloc_msg(XNET_MSG_CACHE);
+    int i;
+    
+    if (!rpy) {
+        hvfs_err(mds, "xnet_alloc_msg() failed\n");
+        /* do not retry myself */
+        return;
+    }
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx,
+                       sizeof(struct xnet_msg_tx));
+#endif
+    for (i = 0; i < nr; i++) {
+        xnet_msg_add_sdata(rpy, iov[i].iov_base, iov[i].iov_len);
+    }
+    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0, hmo.site_id,
+                     msg->tx.ssite_id);
+    xnet_msg_fill_reqno(rpy, msg->tx.reqno);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_DATA, 0, 0);
+    /* match the original request at the source site */
+    rpy->tx.handle = msg->tx.handle;
+
+    xnet_wait_group_add(mds_gwg, rpy);
+    if (xnet_isend(hmo.xc, rpy)) {
+        hvfs_err(mds, "xnet_isend() failed\n");
+        /* do not retry myself, client is forced to retry */
+        xnet_wait_group_del(mds_gwg, rpy);
+    }
 }
 
 /* STATFS */
@@ -522,6 +555,9 @@ void mds_lb(struct hvfs_tx *tx)
     be = mds_bc_get(hi->uuid, tx->req->tx.arg1);
     if (IS_ERR(be)) {
         if (be == ERR_PTR(-ENOENT)) {
+            struct iovec iov[2];
+            int iov_len = 2;
+                
             /* ok, we should create one bc entry now */
             be = mds_bc_new();
             if (!be) {
@@ -549,7 +585,11 @@ void mds_lb(struct hvfs_tx *tx)
             ibmap.flag = ((size - be->offset > XTABLE_BITMAP_SIZE / 8) ? 0 :
                           BITMAP_END);
             ibmap.ts = time(NULL);
-/*             __customized_send_reply */
+            iov[0].iov_base = &ibmap;
+            iov[0].iov_len = sizeof(struct ibmap);
+            iov[1].iov_base = be->array;
+            iov[1].iov_len = XTABLE_BITMAP_SIZE / 8;
+            __customized_send_reply(tx->req, iov, iov_len);
         }
         hvfs_err(mds, "bc_get() failed w/ %d\n", err);
         goto send_rpy;
