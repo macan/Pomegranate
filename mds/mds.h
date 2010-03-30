@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-28 16:52:56 macan>
+ * Time-stamp: <2010-03-30 09:40:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -258,6 +258,7 @@ void ite_update(struct hvfs_index *, struct ite *);
 struct itb *get_free_itb_fast();
 struct itb *get_free_itb(struct hvfs_txg *);
 void itb_reinit(struct itb *);
+void itb_idx_bmp_reinit(struct itb *);
 void itb_free(struct itb *);
 struct itb *itb_dirty(struct itb *, struct hvfs_txg *, struct itb_lock *,
                       struct hvfs_txg **);

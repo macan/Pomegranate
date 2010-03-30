@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-28 17:06:14 macan>
+ * Time-stamp: <2010-03-30 10:37:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -121,6 +121,8 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
         i->h.state = ITB_STATE_CLEAN;
         /* re-init */
         itb_reinit(i);
+        if (atomic_read(&i->h.entries) == 0)
+            itb_idx_bmp_reinit(i);
         txg_put(t);
 
         atomic64_add(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
@@ -409,10 +411,12 @@ static inline void __ite_unlink(struct itb *i, u64 offset)
     if (atomic_read(&i->h.max_offset) == ii->entry)
         atomic_dec(&i->h.max_offset);
     atomic_dec(&i->h.entries);
-    if (atomic_read(&i->h.entries) == 0)
+    if (atomic_read(&i->h.entries) == 0) {
         atomic_set(&i->h.max_offset, 0);
-    atomic_set(&i->h.len, sizeof(struct itb) + 
-               (atomic_read(&i->h.max_offset) + 1) * sizeof(struct ite));
+        atomic_set(&i->h.len, sizeof(struct itb));
+    } else 
+        atomic_set(&i->h.len, sizeof(struct itb) + 
+                   (atomic_read(&i->h.max_offset) + 1) * sizeof(struct ite));
     /* clear the bitmap */
     if (unlikely(!lib_bitmap_tac(i->bitmap, ii->entry))) {
         hvfs_err(mds, "Test-and-Clear a zero bit?\n");
@@ -891,6 +895,17 @@ void itb_reinit(struct itb *n)
         }
     }
     atomic_set(&n->h.ref, 1);
+}
+
+/* itb_idx_bmp_reinit()
+ *
+ * NOTE: this function only used for reinit the index and bitmap region of the
+ * uninited ITB loaded from MDSL
+ */
+void itb_idx_bmp_reinit(struct itb *n)
+{
+    memset(n->bitmap, 0, (1 << (ITB_DEPTH - 3)));
+    memset(n->index, 0, (2 << ITB_DEPTH) * sizeof(struct itb_index));
 }
 
 /* itb_free()

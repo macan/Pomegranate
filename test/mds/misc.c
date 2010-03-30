@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-20 14:08:41 macan>
+ * Time-stamp: <2010-03-30 09:54:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,6 +39,8 @@ int main(int argc, char *argv[])
 
     hvfs_info(mds, "ITB Size: %ld B\n", 
               sizeof(struct itb) + ITB_SIZE * sizeof(struct ite));
+    hvfs_info(mds, "ITB Structure Size: %ld B\n", sizeof(struct itb));
+    hvfs_info(mds, "ITB Header Size: %ld B\n", sizeof(struct itbh));
     hvfs_info(mds, "ITE Size: %ld B\n",
               sizeof(struct ite));
 

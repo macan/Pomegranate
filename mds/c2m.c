@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-29 20:18:36 macan>
+ * Time-stamp: <2010-03-30 20:10:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -530,16 +530,17 @@ void mds_lb(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct ibmap ibmap;
+    struct hvfs_md_reply *hmr;
     struct bc_entry *be;
     u64 location, size;
-    int err;
+    int err = 0;
 
     /* sanity checking */
     if (tx->req->tx.len < sizeof(*hi)) {
         hvfs_err(mds, "Invalid LoadBitmap request %d received\n",
                  tx->req->tx.reqno);
         err = -EINVAL;
-        goto send_rpy;
+        goto send_err_rpy;
     }
 
     if (tx->req->xm_datacheck)
@@ -547,7 +548,7 @@ void mds_lb(struct hvfs_tx *tx)
     else {
         hvfs_err(mds, "Internal error,  data lossing ...\n");
         err = -EINVAL;
-        goto send_rpy;
+        goto send_err_rpy;
     }
 
     /* next, we should get the bc_entry */
@@ -556,14 +557,13 @@ void mds_lb(struct hvfs_tx *tx)
     if (IS_ERR(be)) {
         if (be == ERR_PTR(-ENOENT)) {
             struct iovec iov[2];
-            int iov_len = 2;
                 
             /* ok, we should create one bc entry now */
             be = mds_bc_new();
             if (!be) {
                 hvfs_err(mds, "New BC entry failed\n");
                 err = -ENOMEM;
-                goto send_rpy;
+                goto send_err_rpy;
             }
             mds_bc_set(be, hi->uuid, tx->req->tx.arg1);
 
@@ -571,14 +571,14 @@ void mds_lb(struct hvfs_tx *tx)
             err = mds_bc_dir_lookup(hi, &location, &size);
             if (err) {
                 hvfs_err(mds, "bc_dir_lookup failed w/ %d\n", err);
-                goto send_rpy;
+                goto send_err_rpy;
             }
 
             err = mds_bc_backend_load(be, hi->itbid, location);
             if (err) {
                 hvfs_err(mds, "bc_backend_load failed w/ %d\n", err);
                 mds_bc_free(be);
-                goto send_rpy;
+                goto send_err_rpy;
             }
             /* we need to send the reply w/ the bitmap data */
             ibmap.offset = be->offset;
@@ -589,20 +589,39 @@ void mds_lb(struct hvfs_tx *tx)
             iov[0].iov_len = sizeof(struct ibmap);
             iov[1].iov_base = be->array;
             iov[1].iov_len = XTABLE_BITMAP_SIZE / 8;
-            __customized_send_reply(tx->req, iov, iov_len);
+            __customized_send_reply(tx->req, iov, 2);
+        } else {
+            hvfs_err(mds, "bc_get() failed w/ %d\n", err);
+            goto send_err_rpy;
         }
-        hvfs_err(mds, "bc_get() failed w/ %d\n", err);
-        goto send_rpy;
     } else {
         /* we find the entry in the cache, just return the bitmap array */
         /* FIXME: be sure to put the bc_entry after copied */
-        goto actually_send;
+        struct iovec iov[2];
+
+        ibmap.offset = be->offset;
+        ibmap.flag = ((size - be->offset > XTABLE_BITMAP_SIZE / 8) ? 0 :
+                      BITMAP_END);
+        ibmap.ts = time(NULL);
+        iov[0].iov_base = &ibmap;
+        iov[0].iov_len = sizeof(struct ibmap);
+        iov[1].iov_base = be->array;
+        iov[1].iov_len = XTABLE_BITMAP_SIZE / 8;
+        __customized_send_reply(tx->req, iov, 2);
+        
+        mds_bc_put(be);
     }
     /* FIXME */
     
-actually_send:
-send_rpy:
     return;
+send_err_rpy:
+    hmr = get_hmr();
+    if (!hmr) {
+        hvfs_err(mds, "get_hmr() failed\n");
+        /* do not retry myself */
+        return;
+    }
+    return mds_send_reply(tx, hmr, err);
 }
 
 /* DUMP ITB */
