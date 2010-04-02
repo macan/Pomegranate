@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-20 11:41:33 macan>
+ * Time-stamp: <2010-04-02 09:53:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,11 +27,14 @@
 #include "ring.h"
 #include "lib.h"
 
+#define MDSL_AIO_SYNC_SIZE_DEFAULT      (8 * 1024 * 1024)
+
 struct aio_mgr
 {
     struct list_head queue;
     xlock_t qlock;
     sem_t qsem;
+    u64 sync_len;
 };
 
 struct aio_thread_arg
@@ -101,14 +104,30 @@ int __serv_sync_request(struct aio_request *ar)
 
 int __serv_sync_unmap_request(struct aio_request *ar)
 {
+#if 1
     int err = 0;
 
-#if 1
     err = msync(ar->addr, ar->len, MS_SYNC);
     if (err) {
-        hvfs_err(mdsl, "AIO SYNC region [%p,%ld] failed w/ %d\n",
+        hvfs_err(mdsl, "AIO SYNC region [%p,%ld] faield w/ %d\n",
                  ar->addr, ar->len, errno);
         err = -errno;
+    }
+#elif 1
+    int err = 0, i;
+    u64 len = ar->len;
+    u64 b;
+
+    for (i = 0; len > 0; ) {
+        b = min(aio_mgr.sync_len, len);
+        err = msync(ar->addr + i, b, MS_SYNC);
+        if (err) {
+            hvfs_err(mdsl, "AIO SYNC region [%p,%ld] failed w/ %d\n",
+                     ar->addr, ar->len, errno);
+            err = -errno;
+        }
+        i += b;
+        len -= b;
     }
 #else
     err = sync_file_range(ar->fd, ar->foff, ar->len,
@@ -214,6 +233,11 @@ int mdsl_aio_create(void)
     INIT_LIST_HEAD(&aio_mgr.queue);
     xlock_init(&aio_mgr.qlock);
     sem_init(&aio_mgr.qsem, 0, 0);
+
+    if (!hmo.conf.aio_sync_len) {
+        hmo.conf.aio_sync_len = MDSL_AIO_SYNC_SIZE_DEFAULT;
+        aio_mgr.sync_len = MDSL_AIO_SYNC_SIZE_DEFAULT;
+    }
 
     /* init aio threads' pool */
     if (!hmo.conf.aio_threads)

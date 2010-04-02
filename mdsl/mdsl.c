@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-18 10:28:50 macan>
+ * Time-stamp: <2010-03-31 19:23:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -304,6 +304,7 @@ int mdsl_config(void)
     HVFS_MDSL_GET_ENV_atoi(itb_file_chunk, value);
     HVFS_MDSL_GET_ENV_atoi(data_file_chunk, value);
     HVFS_MDSL_GET_ENV_atoi(itb_falloc, value);
+    HVFS_MDSL_GET_ENV_atoi(aio_sync_len, value);
 
     HVFS_MDSL_GET_ENV_atol(memlimit, value);
 
