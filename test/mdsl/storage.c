@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-03 14:59:36 macan>
+ * Time-stamp: <2010-04-04 16:21:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,7 +61,7 @@ int __test_fdht()
     int err = 0, i;
     
     hvfs_info(mdsl, "begin create ...\n");
-    fde = mdsl_storage_fd_lookup_create(0, MDSL_STORAGE_ITB_ODIRECT, 0);
+    fde = mdsl_storage_fd_lookup_create(0, MDSL_STORAGE_ITB, 0);
     if (IS_ERR(fde)) {
         hvfs_err(mdsl, "lookup create failed w/ %ld\n", PTR_ERR(fde));
         return PTR_ERR(fde);

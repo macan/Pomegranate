@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-04 14:08:28 macan>
+ * Time-stamp: <2010-04-04 16:32:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -163,6 +163,7 @@ int __serv_sync_unmap_request(struct aio_request *ar)
     }
 #endif
     atomic64_add(ar->len, &hmo.prof.storage.wbytes);
+    madvise(ar->addr, ar->mlen, MADV_DONTNEED);
     err = munmap(ar->addr, ar->mlen);
     if (err) {
         hvfs_err(mdsl, "AIO UNMAP region [%p,%ld] failed w/ %d\n",

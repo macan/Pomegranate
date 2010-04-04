@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-03-28 11:52:49 macan>
+# Time-stamp: <2010-04-04 16:47:33 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -22,6 +22,15 @@ TEST = $(HOME_PATH)/test
 COMPILE_DATE = `date`
 COMPILE_HOST = `hostname`
 
+# for now we know the number of cores of the target machines is 8, so just set
+# it manually.
+# GET_CORE = `cat /proc/cpuinfo | grep processor | wc -l`
+GET_CORE = 8
+
+ifeq ($(CPU_CORE),)
+	__CORES__=$(GET_CORE)
+endif
+
 # Debuging the memory and locks
 XCFLAGS = -O2 -rdynamic -g -pg -std=gnu99
 
@@ -31,7 +40,7 @@ CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" \
 			-I$(LIB_PATH) -I$(MDS) -I$(MDSL) -D_GNU_SOURCE\
 			-DHVFS_TRACING -DHVFS_DEBUG_MEMORY -DHVFS_DEBUG_LOCK_ \
             -D_USE_SPINLOCK_ -DHVFS_DEBUG_LATENCY_ -DXNET_BLOCKING \
-			-DXNET_EAGER_WRITEV
+			-DXNET_EAGER_WRITEV -DCPU_CORE=$(__CORES__)
 LFLAGS += -lrt -lpthread
 
 # Region for depend files

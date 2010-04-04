@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-04 15:33:48 macan>
+ * Time-stamp: <2010-04-04 16:47:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,7 +49,8 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
     if (hmo.conf.itb_falloc) {
         fde->abuf.falloc_size = hmo.conf.itb_falloc * buf_len;
     } else {
-        hmo.conf.itb_falloc = 1;
+        hmo.conf.itb_falloc = CPU_CORE; /* should be the number of cores of this
+                                         * machine? */
         fde->abuf.falloc_size = buf_len;
     }
     
