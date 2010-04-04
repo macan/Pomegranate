@@ -1,0 +1,62 @@
+# Template for plot system pictures
+#
+# Copyright (c) Ma Can <ml.macana@gmail.com>
+#                      <macan@ncic.ac.cn>
+#
+reset
+set terminal png transparent size 1200 900
+set size 1,1
+set origin 0.0, 0.0
+set grid
+set output "system_detail.png"
+set auto x
+set xtics out
+set auto y
+
+set multiplot
+set size 1, 0.5
+set origin 0, .5
+set xlabel "TimeStamp (s)"
+set ylabel "Disk Bandwidth (MB/s)
+set ytics nomirror
+set y2label "Disk IOPs (#)"
+set y2tics
+set key right box
+
+plot "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($54/1024); ts++;}'" \
+     using 1:2 t "[DSK]ReadBW%" w linesp ls 1 axes x1y1, \
+     "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($55/1024); ts++;}'" \
+     using 1:2 t "[DSK]WriteBW%" w linesp ls 2 axes x1y1, \
+     "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($51); ts++;}'" \
+     using 1:2 t "[DSK]Reads%" w linesp ls 3 axes x1y2, \
+     "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($52); ts++;}'" \
+     using 1:2 t "[DSK]Writes%" w linesp ls 4 axes x1y2
+
+set size 1.0, .5
+set origin 0, 0.0
+set xlabel "TimeStamp (s)"
+set ylabel "Network Throughput (MB/s)
+set yrange [0:100]
+set ytics nomirror
+set y2label "Page Number or Page Faults (#)"
+set y2tics
+set y2tics nomirror
+set key right box
+
+plot "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($39); ts++;}'" \
+     using 1:2 t "[MEM]PageOut%" w linesp ls 8 axes x1y2, \
+     "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($40); ts++;}'" \
+     using 1:2 t "[MEM]PageFaults%" w linesp ls 9 axes x1y2, \
+     "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($44/1024); ts++;}'" \
+     using 1:2 t "[NET]outBW%" w linesp ls 1 axes x1y1, \
+     "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($45/1024); ts++;}'" \
+     using 1:2 t "[NET]inBW%" w linesp ls 2 axes x1y1
+     
+
+unset multiplot
+unset yrange
+unset xtic
+unset boxwidth
+unset style
+unset key
+unset xrange
