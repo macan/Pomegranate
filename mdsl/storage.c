@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 19:33:25 macan>
+ * Time-stamp: <2010-04-04 15:33:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -258,8 +258,6 @@ int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         ((struct itb_info *)msa->arg)->location = fde->abuf.file_offset + 
             fde->abuf.offset;
     }
-    ((struct itb_info *)msa->arg)->location = fde->abuf.file_offset +
-        fde->abuf.offset;
     fde->abuf.offset += msa->iov->iov_len;
     atomic64_add(msa->iov->iov_len, &hmo.prof.storage.cpbytes);
 
@@ -267,6 +265,196 @@ out_unlock:
     xlock_unlock(&fde->lock);
     
     return err;
+}
+
+int odirect_create(struct fdhash_entry *fde, char *name, int state)
+{
+    size_t buf_len;
+    int err = 0;
+
+    if (state == FDE_FREE)
+        return 0;
+
+    if (fde->type == MDSL_STORAGE_ITB ||
+        fde->type == MDSL_STORAGE_ITB_ODIRECT) {
+        buf_len = hmo.conf.itb_file_chunk;
+    } else if (fde->type == MDSL_STORAGE_DATA) {
+        buf_len = hmo.conf.data_file_chunk;
+    } else {
+        buf_len = MDSL_STORAGE_DEFAULT_CHUNK;
+    }
+
+
+    xlock_lock(&fde->lock);
+
+    if (fde->state == FDE_FREE) {
+        /* ok, we should open it */
+        fde->odirect.wfd = open(name, O_RDWR | O_CREAT | O_DIRECT, 
+                                S_IRUSR | S_IWUSR);
+        if (fde->odirect.wfd < 0) {
+            hvfs_err(mdsl, "open file '%s' failed\n", name);
+            xlock_unlock(&fde->lock);
+            return -EINVAL;
+        }
+        hvfs_err(mdsl, "open file %s w/ fd %d\n", name, fde->odirect.wfd);
+        fde->odirect.rfd = open(name, O_RDONLY | O_CREAT,
+                                S_IRUSR | S_IWUSR);
+        if (fde->odirect.rfd < 0) {
+            hvfs_err(mdsl, "open file '%s' failed\n", name);
+            xlock_unlock(&fde->lock);
+            return -EINVAL;
+        }
+        fde->state = FDE_OPEN;
+        fde->fd = fde->odirect.rfd;
+    }
+    if (state == FDE_ODIRECT && fde->state == FDE_OPEN) {
+        /* get the file end offset */
+        fde->odirect.file_offset = lseek(fde->odirect.wfd, 0, SEEK_END);
+        if (fde->odirect.file_offset < 0) {
+            hvfs_err(mdsl, "lseek to end of file %s failed w/ %d\n",
+                     name, errno);
+            err = -errno;
+            goto out_close;
+        }
+        DISK_SEC_ROUND_UP(fde->odirect.file_offset);
+        /* we create the buffer now */
+        err = posix_memalign(&fde->odirect.addr, DISK_SEC, buf_len);
+        if (err) {
+            hvfs_err(mdsl, "posix memalign buffer region failed w/ %d\n",
+                     err);
+            err = -err;
+            goto out_close;
+        }
+        fde->odirect.len = buf_len;
+        if (!fde->odirect.file_offset)
+            fde->odirect.offset = 1;
+        fde->state = FDE_ODIRECT;
+    }
+
+    xlock_unlock(&fde->lock);
+
+    return err;
+out_close:
+    xlock_unlock(&fde->lock);
+    /* close the file */
+    if (fde->odirect.wfd)
+        close(fde->odirect.wfd);
+    if (fde->odirect.rfd)
+        close(fde->odirect.rfd);
+    fde->state = FDE_FREE;
+
+    return err;
+}
+
+int odirect_flush_reget(struct fdhash_entry *fde)
+{
+    int err = 0;
+    
+    /* we should submit the io request to the aio threads and do async io */
+    err = mdsl_aio_submit_request(fde->odirect.addr, fde->odirect.offset,
+                                  fde->odirect.len, fde->odirect.file_offset,
+                                  MDSL_AIO_ODIRECT, fde->odirect.wfd);
+    if (err) {
+        hvfs_err(mdsl, "Submit ODIRECT AIO request failed w/ %d\n", err);
+        return err;
+    }
+    hvfs_info(mdsl, "ASYNC ODIRECT offset %lx %p, submitted.\n",
+              fde->odirect.file_offset, fde->odirect.addr);
+
+    /* release the resource and re-init the odirect buffer */
+    fde->odirect.file_offset += fde->odirect.len;
+    fde->odirect.offset = 0;
+    err = posix_memalign(&fde->odirect.addr, DISK_SEC, fde->odirect.len);
+    if (err) {
+        hvfs_err(mdsl, "posix memalign buffer region failed w/ %d\n", err);
+        err = -err;
+        goto out;
+    }
+    mdsl_aio_start();
+out:
+    return err;
+}
+
+int odirect_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
+{
+    int err = 0;
+
+    if (!msa->iov_nr || !msa->iov || fde->state == FDE_FREE) {
+        return -EINVAL;
+    }
+
+    xlock_lock(&fde->lock);
+    /* check the remained length of the ODIRECT buffer */
+    if (fde->odirect.offset + msa->iov->iov_len > fde->odirect.len) {
+        /* we should submit the region to disk */
+        err = odirect_flush_reget(fde);
+        if (err) {
+            hvfs_err(mdsl, "odirect region flush remap failed w/ %d\n", err);
+            goto out_unlock;
+        }
+    }
+    /* ok, we can copy the region to the odirect buffer now */
+    memcpy(fde->odirect.addr + fde->odirect.offset, msa->iov->iov_base, msa->iov->iov_len);
+    if (fde->type == MDSL_STORAGE_ITB_ODIRECT) {
+        ((struct itb_info *)msa->arg)->location = fde->odirect.file_offset +
+            fde->odirect.offset;
+    }
+    fde->odirect.offset += msa->iov->iov_len;
+    atomic64_add(msa->iov->iov_len, &hmo.prof.storage.cpbytes);
+
+out_unlock:
+    xlock_unlock(&fde->lock);
+
+    return err;
+}
+
+int __normal_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa);
+int odirect_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
+{
+    u64 offset;
+    int err = 0;
+
+    if (fde->state < FDE_OPEN || !msa->iov_nr || !msa->iov)
+        return -EINVAL;
+
+    offset = msa->offset;
+    /* check whether this request can be handled in the odirect buffer */
+    if (offset < fde->odirect.file_offset) {
+        /* this request should be handled by the normal read. But, the normal
+         * read maybe failed to retrieve the correct result! Because the
+         * corresponding aio writing is going on. */
+        return __normal_read(fde, msa);
+    } else if (offset < fde->odirect.file_offset + fde->odirect.len) {
+        /* this request may be handled by the odirect buffer */
+        /* Step 1: copy the data now */
+        memcpy(msa->iov->iov_base, fde->odirect.addr + offset - fde->odirect.file_offset,
+               msa->iov->iov_len);
+        /* Step 2: recheck */
+        if (offset < fde->odirect.file_offset) {
+            /* oh, we should fallback to the normal read */
+            return __normal_read(fde, msa);
+        }
+    } else
+        return __normal_read(fde, msa);
+
+    return err;
+}
+
+void odirect_destroy(struct fdhash_entry *fde)
+{
+    int err;
+    
+    if (fde->state == FDE_ODIRECT) {
+        hvfs_err(mdsl, "begin SYNC.\n");
+        err = mdsl_aio_submit_request(fde->odirect.addr, fde->odirect.offset,
+                                      fde->odirect.len, fde->odirect.file_offset,
+                                      MDSL_AIO_ODIRECT, fde->odirect.wfd);
+        if (err) {
+            hvfs_err(mdsl, "Submit final ODIRECT aio request failed w/ %d\n", err);
+        }
+        hvfs_err(mdsl, "end SYNC.\n");
+        fde->state = FDE_OPEN;
+    }
 }
 
 int mdsl_storage_init(void)
@@ -331,7 +519,10 @@ void mdsl_storage_destroy(void)
                     hvfs_debug(mdsl, "Final close fd %d.\n", fde->fd);
                     if (fde->type == MDSL_STORAGE_ITB) {
                         append_buf_destroy(fde);
-                    }
+                    } else if (fde->type == MDSL_STORAGE_ITB_ODIRECT) {
+                        odirect_destroy(fde);
+                    } else
+                        fsync(fde->fd);
                     close(fde->fd);
                     hlist_del(&fde->list);
                     xfree(fde);
@@ -901,6 +1092,15 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
             goto out;
         }
         break;
+    case MDSL_STORAGE_ITB_ODIRECT:
+        sprintf(path, "%s/%ld/%ld/itb-%ld", HVFS_MDSL_HOME, hmo.site_id,
+                fde->uuid, fde->arg);
+        err = odirect_create(fde, path, FDE_ODIRECT);
+        if (err) {
+            hvfs_err(mdsl, "odirect buf create failed w/ %d\n", err);
+            goto out;
+        }
+        break;
     case MDSL_STORAGE_RANGE:
     {
         struct mmap_args *ma = (struct mmap_args *)fde->arg;
@@ -1012,6 +1212,12 @@ retry:
             hvfs_err(mdsl, "append_buf_write failed w/ %d\n", err);
             goto out_failed;
         }
+    } else if (fde->state == FDE_ODIRECT) {
+        err = odirect_write(fde, msa);
+        if (err) {
+            hvfs_err(mdsl, "odirect_write failed w/ %d\n", err);
+            goto out_failed;
+        }
     } else if (fde->state == FDE_MEMWIN) {
         err = __mmap_write(fde, msa);
         if (err) {
@@ -1067,6 +1273,12 @@ retry:
         }
     } else if (fde->state == FDE_MDISK) {
         hvfs_err(mdsl, "hoo, you should not call this function on this FDE\n");
+    } else if (fde->state == FDE_ODIRECT) {
+        err = odirect_read(fde, msa);
+        if (err) {
+            hvfs_err(mdsl, "__odirect_read failed w/ %d\n", err);
+            goto out_failed;
+        }
     } else if (fde->state == FDE_OPEN) {
         /* we should change to ABUF or MEMWIN or NORMAL access mode */
         err = mdsl_storage_fd_init(fde);

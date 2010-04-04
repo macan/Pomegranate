@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-31 19:23:57 macan>
+ * Time-stamp: <2010-04-04 14:04:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -420,8 +420,10 @@ void mdsl_destroy(void)
     /* destroy the tcc */
     mdsl_tcc_destroy();
 
-    mdsl_aio_destroy();
-    
     /* destroy the storage */
     mdsl_storage_destroy();
+
+    /* you should wait for the storage destroied and exit the AIO threads */
+    mdsl_aio_destroy();
+    
 }

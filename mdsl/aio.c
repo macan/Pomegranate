@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-02 09:53:44 macan>
+ * Time-stamp: <2010-04-04 14:08:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@
 #include "lib.h"
 
 #define MDSL_AIO_SYNC_SIZE_DEFAULT      (8 * 1024 * 1024)
+#define MDSL_AIO_MAX_QDEPTH             (8)
 
 struct aio_mgr
 {
@@ -35,6 +36,8 @@ struct aio_mgr
     xlock_t qlock;
     sem_t qsem;
     u64 sync_len;
+    sem_t qdsem;                /* pause the submiting! */
+    u64 pending_writes;
 };
 
 struct aio_thread_arg
@@ -55,6 +58,26 @@ struct aio_request
 
 static struct aio_mgr aio_mgr;
 
+#define MDSL_AIO_QDCHECK_LOCK           0
+#define MDSL_AIO_QDCHECK_UNLOCK         1
+
+void __mdsl_aio_qdcheck(int flag)
+{
+    if (flag == MDSL_AIO_QDCHECK_LOCK) {
+        sem_wait(&aio_mgr.qdsem);
+    } else if (flag == MDSL_AIO_QDCHECK_UNLOCK) {
+        sem_post(&aio_mgr.qdsem);
+    }
+}
+
+/*
+ * @addr: address of the memory region
+ * @len:  data length
+ * @mlen: memory region length
+ * @foff: file offset
+ * @type: type of the aio request
+ * @fd:   file descriptor act on
+ */
 int mdsl_aio_submit_request(void *addr, u64 len, u64 mlen, loff_t foff, 
                             int type, int fd)
 {
@@ -78,12 +101,13 @@ int mdsl_aio_submit_request(void *addr, u64 len, u64 mlen, loff_t foff,
     xlock_unlock(&aio_mgr.qlock);
 
     atomic64_inc(&hmo.prof.storage.aio_submitted);
-
+    
     return 0;
 }
 
 void mdsl_aio_start(void)
 {
+    __mdsl_aio_qdcheck(MDSL_AIO_QDCHECK_LOCK);
     sem_post(&aio_mgr.qsem);
 }
 
@@ -151,6 +175,30 @@ int __serv_sync_unmap_request(struct aio_request *ar)
     return err;
 }
 
+int __serv_odirect_request(struct aio_request *ar)
+{
+    int err = 0, bw;
+    u64 len = DISK_SEC_ROUND_UP(ar->len);
+
+    /* this is a sync operation, the bw is always equals to ar->len! */
+    
+    bw = pwrite(ar->fd, ar->addr, len, ar->foff);
+    if (bw < 0) {
+        hvfs_err(mdsl, "pwrite odirect fd %d failed w/ %d[len %ld, foff %lx]\n", 
+                 ar->fd, errno, len, ar->foff);
+        err = -errno;
+        goto out;
+    }
+    if (bw < len) {
+        hvfs_err(mdsl, "Should we support O_DIRECT redo?\n");
+    }
+    /* we should release the buffer now */
+    xfree(ar->addr);
+    xfree(ar);
+out:            
+    return err;
+}
+
 static inline
 int __serv_request(void)
 {
@@ -183,10 +231,17 @@ int __serv_request(void)
             hvfs_err(mdsl, "Handle AIO SYNC UNMAP request faield w/ %d\n", err);
         }
         break;
+    case MDSL_AIO_ODIRECT:
+        err = __serv_odirect_request(ar);
+        if (err) {
+            hvfs_err(mdsl, "Handle AIO odirect request failed w/ %d\n", err);
+        }
+        break;
     default:
         hvfs_err(mdsl, "Invalid aio_request type %x\n", ar->type);
     }
 
+    __mdsl_aio_qdcheck(MDSL_AIO_QDCHECK_UNLOCK);
     return err;
 }
 
@@ -233,6 +288,8 @@ int mdsl_aio_create(void)
     INIT_LIST_HEAD(&aio_mgr.queue);
     xlock_init(&aio_mgr.qlock);
     sem_init(&aio_mgr.qsem, 0, 0);
+    sem_init(&aio_mgr.qdsem, 0, MDSL_AIO_MAX_QDEPTH);
+    aio_mgr.pending_writes = 0;
 
     if (!hmo.conf.aio_sync_len) {
         hmo.conf.aio_sync_len = MDSL_AIO_SYNC_SIZE_DEFAULT;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 10:08:57 macan>
+ * Time-stamp: <2010-04-03 14:59:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,7 +61,7 @@ int __test_fdht()
     int err = 0, i;
     
     hvfs_info(mdsl, "begin create ...\n");
-    fde = mdsl_storage_fd_lookup_create(0, MDSL_STORAGE_ITB, 0);
+    fde = mdsl_storage_fd_lookup_create(0, MDSL_STORAGE_ITB_ODIRECT, 0);
     if (IS_ERR(fde)) {
         hvfs_err(mdsl, "lookup create failed w/ %ld\n", PTR_ERR(fde));
         return PTR_ERR(fde);
@@ -268,24 +268,24 @@ int main(int argc, char *argv[])
         hvfs_err(mdsl, "append buf test failed w/ %d\n", err);
         goto out;
     }
-
+#endif
     err = __test_fdht();
     if (err) {
         hvfs_err(mdsl, "test fdht failed w/ %d\n", err);
         goto out;
     }
-
+#if 0
     err = __test_all();
     if (err) {
         hvfs_err(mdsl, "test all failed w/ %d\n", err);
         goto out;
     }
-#endif
     err = __test_read();
     if (err) {
         hvfs_err(mdsl, "test read failed w/ %d\n", err);
         goto out;
     }
+#endif
 
     mdsl_destroy();
 

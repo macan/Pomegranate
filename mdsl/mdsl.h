@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-31 19:23:13 macan>
+ * Time-stamp: <2010-04-04 12:49:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -101,6 +101,18 @@ struct md_disk
     u32 data_master;
 };
 
+#define DISK_SEC        (512)
+#define DISK_SEC_ROUND_UP(x) (x = ((x + (DISK_SEC - 1)) & ~(DISK_SEC - 1)))
+struct odirect
+{
+    int wfd, rfd;               /* wfd is for odirect write, rfd is for
+                                 * buffered reading */
+    void *addr;
+    size_t len;
+    loff_t file_offset;
+    loff_t offset;
+};
+
 struct fdhash_entry
 {
     struct hlist_node list;
@@ -117,12 +129,14 @@ struct fdhash_entry
 #define FDE_NORMAL      4       /* normal access */
 #define FDE_ABUF_UNMAPPED       5 /* append-buf access w/o mapping  */
 #define FDE_MDISK       6         /* md disk structure accessing */
+#define FDE_ODIRECT     7         /* using the O_DIRECT to write */
     int state;
     union 
     {
         struct md_disk mdisk;
         struct mmap_window mwin;
         struct append_buf abuf;
+        struct odirect odirect;
     };
 };
 
@@ -321,6 +335,7 @@ void toe_wait(struct txg_open_entry *, int);
 #define MDSL_STORAGE_RANGE      0x0002
 #define MDSL_STORAGE_DATA       0x0003
 #define MDSL_STORAGE_DIRECTW    0x0004
+#define MDSL_STORAGE_ITB_ODIRECT        0x0005
 
 #define MDSL_STORAGE_LOG        0x0100
 #define MDSL_STORAGE_SPLIT_LOG  0x0200
@@ -361,6 +376,7 @@ int mdsl_storage_update_range(struct txg_open_entry *);
 /* aio.c */
 #define MDSL_AIO_SYNC           0x01
 #define MDSL_AIO_SYNC_UNMAP     0x03
+#define MDSL_AIO_ODIRECT        0x04
 int mdsl_aio_create(void);
 void mdsl_aio_destroy(void);
 int mdsl_aio_submit_request(void *addr, u64 len, u64, loff_t, int, int);
