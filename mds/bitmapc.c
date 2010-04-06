@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-28 20:39:54 macan>
+ * Time-stamp: <2010-04-05 22:06:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -252,21 +252,41 @@ retry:
     return be;
 }
 
-void mds_bc_insert(struct bc_entry *be)
+struct bc_entry *mds_bc_insert(struct bc_entry *be)
 {
     struct regular_hash *rh;
-    int idx;
+    struct bc_entry *pos;
+    struct hlist_node *n;
+    int idx, found = 0;
 
     idx = mds_bc_hash(be->uuid, be->offset, hmo.bc.hsize);
     rh = hmo.bc.bcht + idx;
 
     xlock_lock(&rh->lock);
-    be->idx = idx;
-    hlist_add_head(&be->hlist, &rh->h);
+    /* step 1: we should check whether this bc entry is exist */
+    hlist_for_each_entry(pos, n, &rh->h, hlist) {
+        if (likely(be->uuid == pos->uuid && be->offset == pos->offset)) {
+            found = 1;
+            if (atomic_inc_return(&pos->ref) == 1)
+                atomic_dec(&hmo.bc.free);
+            /* move to the tail of lru list */
+            mds_bc_lru_update(pos);
+            break;
+        }
+    }
+    if (!found) {
+        be->idx = idx;
+        hlist_add_head(&be->hlist, &rh->h);
+    } else {
+        xlock_unlock(&rh->lock);
+        return pos;
+    }
     xlock_unlock(&rh->lock);
     
     mds_bc_lru_update(be);
     atomic_inc(&hmo.bc.total);
+
+    return be;
 }
 
 struct bc_entry *mds_bc_new(void)
@@ -401,7 +421,7 @@ out:
 /* mds_bc_backend_load()
  *
  * the uuid and offset should be set in the bc_entry, we just use
- * it. @location is the actual file offset.
+ * it. @location is the actual file begin offset.
  */
 int mds_bc_backend_load(struct bc_entry *be, u64 itbid, u64 location)
 {
@@ -428,7 +448,8 @@ int mds_bc_backend_load(struct bc_entry *be, u64 itbid, u64 location)
     /* Step 3: construct the xnet_msg to send it to the destination */
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hmo.site_id, p->site_id);
-    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_BITMAP, be->uuid, location);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_BITMAP, be->uuid, 
+                      location + be->offset);
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -436,7 +457,7 @@ int mds_bc_backend_load(struct bc_entry *be, u64 itbid, u64 location)
     err = xnet_send(hmo.xc, msg);
     if (err) {
         hvfs_err(mds, "Request to load bitmap of %ld location 0x%lx failed\n",
-                 be->uuid, location);
+                 be->uuid, location + be->offset);
         goto out_free_msg;
     }
 
@@ -459,4 +480,12 @@ out_free_msg:
     xnet_raw_free_msg(msg);
 out:
     return err;
+}
+
+/* mds_bc_backend_commit()
+ *
+ * 
+ */
+int mds_bc_backend_commit(struct bc_entry *be, u64 itbid, u64 location)
+{
 }

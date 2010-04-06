@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-04 15:57:31 macan>
+ * Time-stamp: <2010-04-05 15:34:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -230,6 +230,47 @@ out:
 
 void mdsl_bitmap(struct xnet_msg *msg)
 {
+    u64 uuid, offset;
+    struct fdhash_entry *fde;
+    struct iovec iov;
+    struct mdsl_storage_access msa;
+    int err = 0;
+
+    ASSERT(msg->tx.len == 0, mdsl);
+    uuid = msg->tx.arg0;
+    offset = msg->tx.arg1;
+
+    /* Step 1: we should open the default GDT dir/data-default file */
+    fde = mdsl_storage_fd_lookup_create(hmi.gdt_uuid, MDSL_STORAGE_BITMAP, 
+                                        HVFS_GDT_BITMAP_COLUMN);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create %ld bitmap failed w/ %ld\n",
+                 uuid, PTR_ERR(fde));
+        goto out;
+    }
+    /* Step 2: we should read from the offset */
+    iov.iov_base = xmalloc(XTABLE_BITMAP_BYTES);
+    if (!iov.iov_base) {
+        hvfs_err(mdsl, "xmalloc bitmap region failed.\n");
+        goto out_put;
+    }
+    iov.iov_len = XTABLE_BITMAP_BYTES;
+    msa.iov = &iov;
+    msa.iov_nr = 1;
+    msa.offset = offset;
+    err = mdsl_storage_fd_read(fde, &msa);
+    if (err) {
+        hvfs_err(mdsl, "read from bitmap file %ld @ %lx failed w/ %d\n",
+                 uuid, offset, err);
+        goto out_put;
+    }
+    /* Step 3: prepare the reply and send it */
+    __mdsl_send_rpy_data(msg, &iov, 1);
+    
+out_put:    
+    mdsl_storage_fd_put(fde);
+out:
+    return;
 }
 
 void mdsl_wbtxg(struct xnet_msg *msg)
@@ -322,6 +363,8 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         }
 
         if (msg->tx.arg0 & HVFS_WBTXG_DIR_DELTA) {
+            /* the offset of this region is 0 */
+            /* FIXME: should we do sth on this region? */
         }
         if (msg->tx.arg0 & HVFS_WBTXG_BITMAP_DELTA) {
             size_t region_len = 0;

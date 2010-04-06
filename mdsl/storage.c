@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-04 16:47:44 macan>
+ * Time-stamp: <2010-04-05 15:35:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1046,6 +1046,116 @@ out_unlock:
     return err;
 }
 
+int mdsl_storage_fd_bitmap(struct fdhash_entry *fde, char *path)
+{
+    int err = 0;
+
+    xlock_lock(&fde->lock);
+    if (fde->state == FDE_FREE) {
+        /* ok, we should open it */
+        fde->fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+        if (fde->fd < 0) {
+            hvfs_err(mdsl, "open file '%s' failed\n", path);
+            err = -EINVAL;
+            goto out_unlock;
+        }
+        hvfs_err(mdsl, "open file %s w/ fd %d\n", path, fde->fd);
+        fde->state = FDE_OPEN;
+    }
+    if (fde->state == FDE_OPEN) {
+        /* we should get a 128KB buffer to mmap/mremap the bitmap slice */
+        fde->bmmap.len = (XTABLE_BITMAP_SIZE / 8);
+        fde->bmmap.addr = NULL;
+        fde->bmmap.file_offset = 0;
+        fde->state = FDE_BITMAP;
+    }
+out_unlock:
+    xlock_unlock(&fde->lock);
+
+    return err;
+}
+
+/* this function only do one-bit write on the final localtion(bit nr) */
+/* Note:
+ *
+ * if the offset we want to write is higher than the allocated slice, we
+ * should do read/copy/enlarge operations together.
+ */
+int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
+{
+    /* Note that: msa->arg is just the bit offset; if the iov is not null,
+     * we have troubles. we must write the entire iov region to the end of the
+     * file and return new start address. */
+    u64 offset = (u64)msa->arg;
+    u64 snr;
+    int err = 0;
+    
+    /* find the byte offset */
+    snr = ((offset >> 3) + (XTABLE_BITMAP_SIZE / 8) - 1) & 
+        ~(((XTABLE_BITMAP_SIZE / 8) - 1));
+    if (msa->iov) {
+        /* we have trouble! */
+        hvfs_info(mdsl, "We have big trouble here!\n");
+    } else {
+        /* what a nice day! */
+        fde->bmmap.addr = mmap(NULL, fde->bmmap.len, PROT_READ | PROT_WRITE,
+                               MAP_SHARED, fde->fd, 
+                               msa->offset + snr * fde->bmmap.len);
+        if (fde->bmmap.addr == MAP_FAILED) {
+            hvfs_err(mdsl, "mmap bitmap file @ %lx failed w/ %d\n",
+                     msa->offset, errno);
+            err = -errno;
+            goto out;
+        }
+        /* flip the bit now */
+        offset -= snr * fde->bmmap.len;
+        __set_bit(offset, fde->bmmap.addr);
+        /* unmap the region now */
+        err = munmap(fde->bmmap.addr, fde->bmmap.len);
+        if (err) {
+            hvfs_err(mdsl, "munmap failed w/ %d\n", errno);
+            err = -errno;
+            goto out;
+        }
+    }
+out:
+    return err;
+}
+
+/* this function only read the region(s) from the bitmap file */
+int __bitmap_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
+{
+    loff_t offset;
+    int bl, br;
+    int err = 0, i;
+    
+    if (fde->state < FDE_OPEN || !msa->iov_nr || !msa->iov) {
+        return -EINVAL;
+    }
+
+    /* msa->offset is the real file location! */
+    offset = msa->offset;
+    for (i = 0; i < msa->iov_nr; i++) {
+        bl = 0;
+        do {
+            br = pread(fde->fd, (msa->iov + i)->iov_base + bl,
+                       (msa->iov + i)->iov_len - bl, offset + bl);
+            if (br < 0) {
+                hvfs_err(mdsl, "pread failed w/ %d\n", errno);
+                err = -errno;
+                goto out;
+            } else if (br == 0) {
+                hvfs_err(mdsl, "reach EOF.\n");
+                err = -EINVAL;
+            }
+            bl += br;
+        } while (bl < (msa->iov + i)->iov_len);
+    }
+
+out:
+    return err;
+}
+
 static inline
 int mdsl_storage_fd_init(struct fdhash_entry *fde)
 {
@@ -1118,6 +1228,15 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
     case MDSL_STORAGE_DATA:
         sprintf(path, "%s/%ld/%ld/data-%ld", HVFS_MDSL_HOME, hmo.site_id, 
                 fde->uuid, fde->arg);
+        break;
+    case MDSL_STORAGE_BITMAP:
+        sprintf(path, "%s/%ld/%ld/data-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+                fde->uuid, fde->arg);
+        err = mdsl_storage_fd_bitmap(fde, path);
+        if (err) {
+            hvfs_err(mdsl, "bitmap file created failed w/ %d\n", err);
+            goto out;
+        }
         break;
     case MDSL_STORAGE_DIRECTW:
         sprintf(path, "%s/%ld/%ld/directw", HVFS_MDSL_HOME, hmo.site_id, 
@@ -1237,6 +1356,12 @@ retry:
             hvfs_err(mdsl, "__mdisk_write failed w/ %d\n", err);
             goto out_failed;
         }
+    } else if (fde->state == FDE_BITMAP) {
+        err = __bitmap_write(fde, msa);
+        if (err) {
+            hvfs_err(mdsl, "__bitmap_write failed w/ %d\n", err);
+            goto out_failed;
+        }
     } else if (fde->state == FDE_OPEN) {
         /* we should change to ABUF or MEMWIN or NORMAL access mode */
         err = mdsl_storage_fd_init(fde);
@@ -1278,6 +1403,12 @@ retry:
         err = odirect_read(fde, msa);
         if (err) {
             hvfs_err(mdsl, "__odirect_read failed w/ %d\n", err);
+            goto out_failed;
+        }
+    } else if (fde->state == FDE_BITMAP) {
+        err = __bitmap_read(fde, msa);
+        if (err) {
+            hvfs_err(mdsl, "__bitmap_read failed w/ %d\n", err);
             goto out_failed;
         }
     } else if (fde->state == FDE_OPEN) {

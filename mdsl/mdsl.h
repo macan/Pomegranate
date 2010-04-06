@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-04 12:49:48 macan>
+ * Time-stamp: <2010-04-04 21:39:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -113,6 +113,13 @@ struct odirect
     loff_t offset;
 };
 
+struct bmmap                    /* mmap of bitmap */
+{
+    void *addr;
+    size_t len;
+    loff_t file_offset;
+};
+
 struct fdhash_entry
 {
     struct hlist_node list;
@@ -130,6 +137,7 @@ struct fdhash_entry
 #define FDE_ABUF_UNMAPPED       5 /* append-buf access w/o mapping  */
 #define FDE_MDISK       6         /* md disk structure accessing */
 #define FDE_ODIRECT     7         /* using the O_DIRECT to write */
+#define FDE_BITMAP      8         /* bitmap of dir */
     int state;
     union 
     {
@@ -137,6 +145,7 @@ struct fdhash_entry
         struct mmap_window mwin;
         struct append_buf abuf;
         struct odirect odirect;
+        struct bmmap bmmap;
     };
 };
 
@@ -336,6 +345,7 @@ void toe_wait(struct txg_open_entry *, int);
 #define MDSL_STORAGE_DATA       0x0003
 #define MDSL_STORAGE_DIRECTW    0x0004
 #define MDSL_STORAGE_ITB_ODIRECT        0x0005
+#define MDSL_STORAGE_BITMAP     0x0006
 
 #define MDSL_STORAGE_LOG        0x0100
 #define MDSL_STORAGE_SPLIT_LOG  0x0200

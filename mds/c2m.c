@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-04 15:58:32 macan>
+ * Time-stamp: <2010-04-04 19:24:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -116,12 +116,11 @@ void __customized_send_reply(struct xnet_msg *msg, struct iovec iov[], int nr)
     /* match the original request at the source site */
     rpy->tx.handle = msg->tx.handle;
 
-    xnet_wait_group_add(mds_gwg, rpy);
-    if (xnet_isend(hmo.xc, rpy)) {
+    if (xnet_send(hmo.xc, rpy)) {
         hvfs_err(mds, "xnet_isend() failed\n");
         /* do not retry myself, client is forced to retry */
-        xnet_wait_group_del(mds_gwg, rpy);
     }
+    xnet_free_msg(rpy);
 }
 
 /* STATFS */
@@ -557,6 +556,7 @@ void mds_lb(struct hvfs_tx *tx)
     if (IS_ERR(be)) {
         if (be == ERR_PTR(-ENOENT)) {
             struct iovec iov[2];
+            struct bc_entry *nbe;
                 
             /* ok, we should create one bc entry now */
             be = mds_bc_new();
@@ -580,6 +580,13 @@ void mds_lb(struct hvfs_tx *tx)
                 mds_bc_free(be);
                 goto send_err_rpy;
             }
+            /* finally, we insert the bc into the cache, should we check
+             * whether there is a conflict? */
+            nbe = mds_bc_insert(be);
+            if (nbe != be) {
+                mds_bc_free(be);
+                be = nbe;
+            }
             /* we need to send the reply w/ the bitmap data */
             ibmap.offset = be->offset;
             ibmap.flag = ((size - be->offset > XTABLE_BITMAP_SIZE / 8) ? 0 :
@@ -590,6 +597,8 @@ void mds_lb(struct hvfs_tx *tx)
             iov[1].iov_base = be->array;
             iov[1].iov_len = XTABLE_BITMAP_SIZE / 8;
             __customized_send_reply(tx->req, iov, 2);
+
+            mds_bc_put(be);
         } else {
             hvfs_err(mds, "bc_get() failed w/ %d\n", err);
             goto send_err_rpy;
@@ -611,7 +620,6 @@ void mds_lb(struct hvfs_tx *tx)
         
         mds_bc_put(be);
     }
-    /* FIXME */
     
     return;
 send_err_rpy:
