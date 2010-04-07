@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-05 22:06:00 macan>
+ * Time-stamp: <2010-04-07 20:17:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -484,8 +484,28 @@ out:
 
 /* mds_bc_backend_commit()
  *
- * 
+ * the uuid and offset should be set in the bc_entry.
+ *
+ * If we need to rewrite the whole bitmap region, we should notify the MDSL to
+ * do read/modify/write(append).
  */
-int mds_bc_backend_commit(struct bc_entry *be, u64 itbid, u64 location)
+int mds_bc_backend_commit(void)
 {
+    LIST_HEAD(deltals);
+    struct bc_delta *pos, *n;
+    int err = 0;
+
+    xlock_lock(&hmo.bc.delta_lock);
+    /* add the new list head after bc.deltas */
+    list_add(&deltas, &hmo.bc.deltas);
+    /* delete bc.deltas */
+    list_del_init(&hmo.bc.deltas);
+    xlock_unlock(&hmo.bc.delta_lock);
+
+    list_for_each_entry_safe(pos, n, &deltas, list) {
+        /* Step 1: find if we need to enlarge the bitmap region */
+        /* Step 2: write the deltas to the dsite */
+    }
+
+    return err;
 }

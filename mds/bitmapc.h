@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-04 19:21:54 macan>
+ * Time-stamp: <2010-04-07 20:00:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,10 +30,20 @@ struct bitmap_cache
 {
     struct regular_hash *bcht;
     struct list_head lru;
+    struct list_head deltas;
     xlock_t lock;
+    xlock_t delta_lock;
     int hsize;
     atomic_t total;
     atomic_t free;
+};
+
+struct bc_delta
+{
+    struct list_head list;
+    u64 site_id;
+    u64 uuid;
+    u64 itbid;                  /* itbid to flip the bit */
 };
 
 struct bc_entry

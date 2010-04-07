@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-05 15:34:23 macan>
+ * Time-stamp: <2010-04-07 19:10:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -228,6 +228,8 @@ out:
     return;
 }
 
+/* this function is for loading the bitmap
+ */
 void mdsl_bitmap(struct xnet_msg *msg)
 {
     u64 uuid, offset;
@@ -270,6 +272,17 @@ void mdsl_bitmap(struct xnet_msg *msg)
 out_put:    
     mdsl_storage_fd_put(fde);
 out:
+    return;
+}
+
+void mdsl_bitmap_commit(struct xnet_msg *msg)
+{
+    u64 uuid, offset;
+    struct fdhash_entry *fde;
+    struct iovec iov;
+    struct mdsl_storage_access msa;
+    int err = 0;
+
     return;
 }
 
