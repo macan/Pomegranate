@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-07 19:10:53 macan>
+ * Time-stamp: <2010-04-08 20:11:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -277,12 +277,93 @@ out:
 
 void mdsl_bitmap_commit(struct xnet_msg *msg)
 {
-    u64 uuid, offset;
     struct fdhash_entry *fde;
-    struct iovec iov;
     struct mdsl_storage_access msa;
+    struct bc_commit_core *bcc;
+    size_t len;
+    u64 location = -1UL;
     int err = 0;
 
+    len = msg->tx.len;
+    if (msg->xm_datacheck)
+        bcc = msg->xm_data;
+    else
+        goto out;
+
+    /* the uuid/itbid/location is in the bcc */
+    /* Step 1: open the GDT dir/data-default file */
+    fde = mdsl_storage_fd_lookup_create(hmi.gdt_uuid, MDSL_STORAGE_BITMAP,
+                                        HVFS_GDT_BITMAP_COLUMN);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create %ld bitmap failed w/ %ld\n",
+                 bcc->uuid, PTR_ERR(fde));
+        err = PTR_ERR(fde);
+        goto out_reply;
+    }
+
+    if (bcc->size == -1UL) {
+        msa.arg = (void *)bcc->itbid;
+        msa.offset = bcc->location;
+        msa.iov = NULL;
+        err = mdsl_storage_fd_write(fde, &msa);
+        if (err) {
+            hvfs_err(mdsl, "write the dir %ld bitmap %ld @ location %lx failed w/ %d\n",
+                     bcc->uuid, bcc->itbid, bcc->location, err);
+        }
+    } else {
+        /* First, we should read the whole region of the existed bitmap */
+        void *data;
+        struct iovec iov;
+
+        data = xmalloc(bcc->size + fde->bmmap.len);
+        if (!data) {
+            hvfs_err(mdsl, "alloc bitmap slice failed.\n");
+            err = -ENOMEM;
+            goto out_reply;
+        }
+        memset(data + bcc->size, 0, fde->bmmap.len);
+
+        iov.iov_base = data;
+        iov.iov_len = bcc->size;
+        msa.offset = bcc->location;
+        msa.iov = &iov;
+        msa.iov_nr = 1;
+        err = mdsl_storage_fd_read(fde, &msa);
+        if (err) {
+            hvfs_err(mdsl, "read the dir %ld bitmap %ld location %lx failed w/ %d\n",
+                     bcc->uuid, bcc->itbid, bcc->location, err);
+            xfree(data);
+            goto out_reply;
+        }
+        
+        /* Next, we will write the region to disk plus a new slice */
+        iov.iov_len += fde->bmmap.len;
+        msa.arg = &location;
+        err = mdsl_storage_fd_write(fde, &msa);
+        if (err) {
+            hvfs_err(mdsl, "write the dir %ld bitmap %ld location %lx failed w/ %d\n",
+                     bcc->uuid, bcc->itbid, bcc->location, err);
+            xfree(data);
+            goto out_reply;
+        }
+        xfree(data);
+        
+        /* Finally, we flip the bit we want to change */
+        msa.offset = location;
+        msa.arg = (void *)bcc->itbid;
+        msa.iov = NULL;
+        err = mdsl_storage_fd_write(fde, &msa);
+        if (err) {
+            hvfs_err(mdsl, "write the dir %ld bitmap %ld location %lx failed w/ %d\n",
+                     bcc->uuid, bcc->itbid, bcc->location, err);
+            goto out_reply;
+        }
+    }
+
+    /* We need to send the reply here! reply w/ the errno and new location! */
+    /* FIXME */
+out_reply:
+out:
     return;
 }
 

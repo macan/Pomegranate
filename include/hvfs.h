@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-05 11:18:54 macan>
+ * Time-stamp: <2010-04-08 19:31:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -88,6 +88,7 @@
 #define HVFS_WBTXG_END          0x0020
 /* end subregion for arg0 */
 #define HVFS_MDS2MDSL_WDATA     0x0000000080040000
+#define HVFS_MDS2MDSL_BTCOMMIT  0x0000000080100000
 
 /* Client to MDSL */
 #define HVFS_CLT2MDSL_READ      0x0000000080050000

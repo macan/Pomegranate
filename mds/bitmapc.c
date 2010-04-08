@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-07 20:17:31 macan>
+ * Time-stamp: <2010-04-08 19:34:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -382,10 +382,11 @@ retry:
     txg_put(txg);
     if (err) {
         if (err == -EAGAIN || err == -ESPLIT ||
-            err == -ERESTART)
+            err == -ERESTART) {
             /* have a breath */
             sched_yield();
             goto retry;
+        }
         goto out_free;
     }
 
@@ -482,6 +483,47 @@ out:
     return err;
 }
 
+int __customized_send_request(struct bc_commit *commit)
+{
+    struct xnet_msg *msg;
+    int err = 0;
+
+    /* Step 1: prepare the xnet_msg */
+    msg = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!msg) {
+        hvfs_err(mds, "xnet_alloc_msg() failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    /* Step 2: construct the xnet_msg to send it to the destination */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0,
+                     hmo.site_id, commit->dsite_id);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_BTCOMMIT, commit->core.uuid, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &commit->core, sizeof(commit->core));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(mds, "Request to commit the bitmap %ld flip @ location 0x%lx failed\n",
+                 commit->core.uuid, commit->core.location);
+        goto out_free_msg;
+    }
+
+    /* we got the reply now */
+    ASSERT(msg->pair, mds);
+
+    xnet_free_msg(msg);
+
+    return err;
+out_free_msg:
+    xnet_raw_free_msg(msg);
+out:
+    return err;
+}
+
 /* mds_bc_backend_commit()
  *
  * the uuid and offset should be set in the bc_entry.
@@ -491,10 +533,35 @@ out:
  */
 int mds_bc_backend_commit(void)
 {
-    LIST_HEAD(deltals);
+    LIST_HEAD(deltas);
+    LIST_HEAD(errlist);
+    LIST_HEAD(commit_list);
     struct bc_delta *pos, *n;
-    int err = 0;
+    struct bc_commit *x, *y, *bc;
+    struct dhe *e;
+    struct chp *p;
+    struct hvfs_txg *txg;
+    struct hvfs_md_reply *hmr;
+    struct hvfs_index hi = {
+        .flag = INDEX_LOOKUP | INDEX_COLUMN | INDEX_BY_UUID,
+        .column = HVFS_GDT_BITMAP_COLUMN,
+        .puuid = hmi.gdt_uuid,
+    };
+    struct mdu *mdu;
+    struct column *column;
+    u64 size, location;
+    int err = 0, nr = 0;
 
+    hi.psalt = hmi.gdt_salt;
+
+    /* alloc hmr */
+    hmr = get_hmr();
+    if (!hmr) {
+        hvfs_err(mds, "get_hmr() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+        
     xlock_lock(&hmo.bc.delta_lock);
     /* add the new list head after bc.deltas */
     list_add(&deltas, &hmo.bc.deltas);
@@ -503,9 +570,124 @@ int mds_bc_backend_commit(void)
     xlock_unlock(&hmo.bc.delta_lock);
 
     list_for_each_entry_safe(pos, n, &deltas, list) {
+        hi.uuid = pos->uuid;
+        hi.hash = hvfs_hash_gdt(pos->uuid, hmi.gdt_salt);
+        
+        /* we should get and set the hi.itbid */
+        e = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+        if (IS_ERR(e)) {
+            /* fatal error */
+            hvfs_err(mds, "This is a fatal error, we can not find the GDT DHE.\n");
+            err = PTR_ERR(e);
+            /* put the current delta to the error list */
+            list_del_init(&pos->list);
+            list_add(&pos->list, &errlist);
+            continue;
+        }
+        hi.itbid = mds_get_itbid(e, hi.hash);
+        /* actually we should confirm the itb is resident in this MDS,
+         * however we know that the BC entry is on this MDS, so the itb
+         * should on this MDS either. */
+        
+        /* search in the CBHT */
+    retry:
+        txg = mds_get_open_txg(&hmo);
+        err = mds_cbht_search(&hi, hmr, txg, &txg);
+        txg_put(txg);
+        if (err) {
+            if (err == -EAGAIN || err == -ESPLIT ||
+                err == -ERESTART) {
+                /* have a breath */
+                sched_yield();
+                goto retry;
+            }
+            /* put the current delta to the error list */
+            list_del_init(&pos->list);
+            list_add(&pos->list, &errlist);
+            continue;
+        }
+        /* get the location and size */
+        mdu = hmr_extract(hmr, EXTRACT_MDU, &nr);
+        if (!mdu) {
+            hvfs_err(mds, "extract MDU failed on lookup %ld %ld %lx\n",
+                         hi.puuid, hi.itbid, hi.hash);
+            list_del_init(&pos->list);
+            list_add(&pos->list, &errlist);
+            continue;
+        }
+        size = mdu->size;
+        column = hmr_extract(hmr, EXTRACT_DC, &nr);
+        if (!column) {
+            hvfs_err(mds, "extract DC failed on lookup %ld %ld %lx\n",
+                     hi.puuid, hi.itbid, hi.hash);
+            list_del_init(&pos->list);
+            list_add(&pos->list, &errlist);
+            continue;
+        }
+        location = column->offset;
+
+        p = ring_get_point(hi.itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDSL]);
+        if (IS_ERR(p)) {
+            hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
+            list_del_init(&pos->list);
+            list_add(&pos->list, &errlist);
+            continue;
+        }
+
+        /* Commit the delta info now */
+        bc = mds_bc_commit_get();
+        if (!bc) {
+            hvfs_err(mds, "get the bc_commit failed.\n");
+            list_del_init(&pos->list);
+            list_add(&pos->list, &errlist);
+            continue;
+        }
+        bc->core.uuid = pos->uuid;
+        bc->core.itbid = pos->itbid;
+        bc->core.location = location;
+        bc->dsite_id = p->site_id;
+        bc->delta = pos;
+        list_del_init(&pos->list);
+
         /* Step 1: find if we need to enlarge the bitmap region */
-        /* Step 2: write the deltas to the dsite */
+        if (pos->itbid >= (size << 3)) {
+            /* we need to enlarge the bitmap region */
+            bc->core.size = size;
+        } else {
+            /* we do not need to enlarge the bitmap region, size is set to
+             * -1UL to indicate just a bit change in the data region */
+            bc->core.size = -1UL;
+        }
+        /* Step 2: prepare to write the deltas to the dsite */
+        list_add(&bc->list, &commit_list);
     }
 
+    /* free hmr */
+    xfree(hmr);
+
+    /* checking the commit_list and send the request to MDSL */
+    list_for_each_entry_safe(x, y, &commit_list, list) {
+        list_del(&x->list);
+        /* try to send it */
+        err = __customized_send_request(x);
+        if (err) {
+            hvfs_err(mds, "send bitmap commit request to MDS %lx failed.\n",
+                     x->dsite_id);
+            list_add(&x->delta->list, &errlist);
+        } else {
+            mds_bc_commit_put(x);
+            xfree(x->delta);
+        }
+    }
+
+    /* checking the errlist to re-insert to hmo.bc.deltas */
+    list_for_each_entry_safe(pos, n, &errlist, list) {
+        list_del_init(&pos->list);
+        xlock_lock(&hmo.bc.delta_lock);
+        list_add(&pos->list, &hmo.bc.deltas);
+        xlock_unlock(&hmo.bc.delta_lock);
+    }
+    
+out:
     return err;
 }

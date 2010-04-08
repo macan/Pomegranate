@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-07 20:00:39 macan>
+ * Time-stamp: <2010-04-08 19:39:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,6 +44,14 @@ struct bc_delta
     u64 site_id;
     u64 uuid;
     u64 itbid;                  /* itbid to flip the bit */
+};
+
+struct bc_commit
+{
+    struct list_head list;
+    struct bc_commit_core core;
+    u64 dsite_id;
+    struct bc_delta *delta;
 };
 
 struct bc_entry
@@ -95,6 +103,28 @@ void mds_bc_set(struct bc_entry *be, u64 uuid, u64 offset)
     be->uuid = uuid;
     be->offset = offset;
 }
+
+/* get bc_commit(alloc) */
+static inline
+struct bc_commit *mds_bc_commit_get(void)
+{
+    struct bc_commit *bc;
+    
+    bc = xzalloc(sizeof(struct bc_commit));
+    if (bc) {
+        INIT_LIST_HEAD(&bc->list);
+    }
+
+    return bc;
+}
+
+static inline
+void mds_bc_commit_put(struct bc_commit *bc)
+{
+    xfree(bc);
+}
+
+/* put bc_commit(free) */
 
 /* APIs: */
 struct bc_entry *mds_bc_get(u64, u64);

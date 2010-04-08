@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 09:53:06 macan>
+ * Time-stamp: <2010-04-08 19:39:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -185,6 +185,14 @@ struct txg_end
     u64 txg;
     u64 site_id;
     u64 session_id;
+};
+
+struct bc_commit_core
+{
+    u64 uuid;
+    u64 location;
+    u64 itbid;
+    u64 size;
 };
 
 #endif
