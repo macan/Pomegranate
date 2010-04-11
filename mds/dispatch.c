@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-26 10:30:42 macan>
+ * Time-stamp: <2010-04-11 21:05:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,30 +97,38 @@ int mds_mds_dispatch(struct xnet_msg *msg)
     } else if (msg->tx.cmd == HVFS_MDS2MDS_SPITB) {
         /* FIXME: split itb */
         mds_ausplit(msg);
+    } else if (msg->tx.cmd == HVFS_MDS2MDS_AUBITMAP) {
+        mds_aubitmap(msg);
     } else if (msg->tx.cmd == HVFS_MDS2MDS_AUPDATE) {
         /* FIXME: async update */
     } else if (msg->tx.cmd == HVFS_MDS2MDS_REDODELTA) {
         /* FIXME: redo delta */
     } else if (msg->tx.cmd == HVFS_MDS2MDS_LB) {
         /* FIXME: load bitmap */
+        mds_m2m_lb(msg);
     } else if (msg->tx.cmd == HVFS_MDS2MDS_LD) {
         /* FIXME: load dir hash entry, just return the hvfs_index */
         mds_ldh(msg);
     }
+
+    xnet_free_msg(msg);
     return 0;
 }
 
 int mds_mdsl_dispatch(struct xnet_msg *msg)
 {
+    xnet_free_msg(msg);
     return 0;
 }
 
 int mds_ring_dispatch(struct xnet_msg *msg)
 {
+    xnet_free_msg(msg);
     return 0;
 }
 
 int mds_root_dispatch(struct xnet_msg *msg)
 {
+    xnet_free_msg(msg);
     return 0;
 }

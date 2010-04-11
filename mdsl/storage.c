@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-05 15:35:47 macan>
+ * Time-stamp: <2010-04-11 19:57:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1059,7 +1059,36 @@ int mdsl_storage_fd_bitmap(struct fdhash_entry *fde, char *path)
             err = -EINVAL;
             goto out_unlock;
         }
+        /* check to see if this is the first access */
+        offset = lseek(fde->fd, 0, SEEK_END);
+        if (offset == 0) {
+            /* we need to write the default block now */
+            err = ftruncate(fde->fd, XTABLE_BITMAP_BYTE);  
+            if (err < 0) {
+                hvfs_err(mdsl, "ftruncate file to one slice failed w/ %d\n",
+                         errno);
+                err = -errno;
+                goto out_unlock;
+            }
+            {
+                u8 data = 0xff;
+                do {
+                    bw = pwrite(fde->fd, &data, 1, 0);
+                    if (bw < 0) {
+                        hvfs_err(mdsl, "pwrite the default region in the first slice "
+                                 "failed w/ %d\n", errno);
+                        err = -errno;
+                        goto out_unlock;
+                    }
+                } while (bw < 1);
+            }
+        } else if (offset < 0) {
+            hvfs_err(mdsl, "lseek failed w/ %d\n", errno);
+            err = -errno;
+            goto out_unlock;
+        }
         hvfs_err(mdsl, "open file %s w/ fd %d\n", path, fde->fd);
+        xlock_init(&fde->bmmap.lock);
         fde->state = FDE_OPEN;
     }
     if (fde->state == FDE_OPEN) {
@@ -1087,17 +1116,45 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
      * we have troubles. we must write the entire iov region to the end of the
      * file and return new start address. */
     u64 offset = (u64)msa->arg;
+    u64 new_offset;
     u64 snr;
     int err = 0;
     
-    /* find the byte offset */
-    snr = ((offset >> 3) + (XTABLE_BITMAP_SIZE / 8) - 1) & 
-        ~(((XTABLE_BITMAP_SIZE / 8) - 1));
     if (msa->iov) {
         /* we have trouble! */
-        hvfs_info(mdsl, "We have big trouble here!\n");
+
+        /* the new location should be return by @msa->arg */
+        xlock_lock(&fde->bmmap.lock);
+        /* append the iov to the file */
+        new_offset = lseek(fde->fd, 0, SEEK_END);
+        if (new_offset < 0) {
+            hvfs_err(mdsl, "lseek to bitmap fd %d failed w/ %d\n",
+                     fde->fd, errno);
+            err = -errno;
+            goto out;
+        }
+        *((u64 *)msa->arg) = new_offset;
+
+        ASSERT(msa->iov_nr == 1, mdsl);
+        bl = 0;
+        do {
+            bw = pwrite(fde->fd, msa->iov.iov_base + bl,
+                        msa->iov.iov_len - bl, new_offset + bl);
+            if (bw < 0) {
+                hvfs_err(mdsl, "pwrite bitmap fd %d failed w/ %d\n",
+                         fde->fd, errno);
+                err = -errno;
+                goto out;
+            }
+            bl += bw;
+        } while (bl < msa->iov.iov_len);
+        xlock_unlock(&fde->bmmap.lock);
     } else {
         /* what a nice day! */
+
+        /* find the byte offset */
+        snr = ((offset >> 3) + (XTABLE_BITMAP_SIZE / 8) - 1) & 
+            ~(((XTABLE_BITMAP_SIZE / 8) - 1));
         fde->bmmap.addr = mmap(NULL, fde->bmmap.len, PROT_READ | PROT_WRITE,
                                MAP_SHARED, fde->fd, 
                                msa->offset + snr * fde->bmmap.len);

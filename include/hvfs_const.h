@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-28 16:58:15 macan>
+ * Time-stamp: <2010-04-11 20:35:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,4 +65,6 @@ static char *hvfs_ccolor[] __attribute__((unused)) =
 #define ESPLIT          1028    /* Need SPLIT */
 #define ENOTEXIST       1029    /* Not Exist */
 #define EHSTOP          1030    /* Stop */
+#define EBITMAP         1031    /* Bitmap not correct, you should reload the
+                                 * bitmap */
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-04 21:39:41 macan>
+ * Time-stamp: <2010-04-11 19:46:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -118,6 +118,7 @@ struct bmmap                    /* mmap of bitmap */
     void *addr;
     size_t len;
     loff_t file_offset;
+    xlock_t lock;
 };
 
 struct fdhash_entry
@@ -250,6 +251,7 @@ struct hvfs_mdsl_info
 #define HMI_STATE_LASTMIG       0x03
 #define HMI_STATE_LASTPAUSE     0x04
     u32 state;
+    u32 itb_depth;
     u64 gdt_salt;
     u64 gdt_uuid;
     u64 root_salt;

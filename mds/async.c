@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-11 19:57:00 macan>
+ * Time-stamp: <2010-04-11 20:33:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,8 +28,16 @@
 #include "lib.h"
 #include "async.h"
 #include "ring.h"
+#include "bitmapc.h"
 
 struct async_update_mlist g_aum;
+/* g_bitmap_deltas saves the requested(but not replied) bitmap deltas, we
+ * should do resends on it.
+ *
+ * Callback function xxx should be called on the AUR bitmap replies to remove
+ * the delta entry from g_bitmap_deltas list.
+ */
+LIST_HEAD(g_bitmap_deltas);
 
 void async_update_checking(time_t t)
 {
@@ -190,9 +198,86 @@ out:
     return err;
 }
 
+static inline
+int __customized_send_request(struct bc_delta *bd)
+{
+    struct xnet_msg *msg;
+    int err = 0;
+
+    /* Step 1: prepare the xnet_msg */
+    msg = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!msg) {
+        hvfs_err(mds, "xnet_alloc_msg() failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    /* Step 2: construct the xnet_msg to send it to the destination */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0,
+                     hmo.site_id, bd->site_id);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_AUBITMAP, bd->uuid, bd->itbid);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(mds, "Request to AU update the uuid %ld flip %ld failed w/ %d\n",
+                 bd->uuid, bd->itbid, err);
+        goto out_free_msg;
+    }
+
+    /* we should got the reply to confirm and delete the bc_delta, but we do
+     * not do this operation here. We use send w/o XNET_NEED_REPLY because the
+     * reply maybe delievered very late. */
+    xnet_free_msg(msg);
+    
+    return err;
+out_free_msg:
+    xnet_raw_free_msg(msg);
+out:
+    return err;
+}
+
+/*
+ * AUR BITMAP is used to do async bitmap flip. In this function we should send
+ * the request to the target MDS, then wait for the reply. ONLY AFTER
+ * receiving the reply we can safely free the bitmap delta.
+ */
 int __aur_itb_bitmap(struct async_update_request *aur)
 {
-    return 0;
+    struct bitmap_delta_buf *pos;
+    struct bc_delta *bd;
+    struct hvfs_txg *txg = (struct hvfs_txg *)aur->arg;
+    int err = 0, i;
+
+    /* we should iterate on the wbt->bdb list and transform each entry to
+     * bc_delta and adding to the g_bitmap_deltas list and sending each entry
+     * to the destination site. */
+    list_for_each_entry(pos, &txg->bdb, list) {
+        for (i = 0; i < pos->asize; i++) {
+            /* Step 1: alloc the bc_delta */
+            bd = mds_bc_delta_alloc();
+            if (!bd) {
+                hvfs_err(mds, "bc delta alloc failed on uuid %ld itbid %ld.\n",
+                         pos->buf[i].uuid, pos->buf[i].nitb);
+                continue;
+            }
+            /* Step 2: transform the bitmap_delta to bc_delta */
+            /* FIXME: we should do the site_id recalculation! */
+            bd->site_id = pos->buf[i].site_id;
+            bd->uuid = pos->buf[i].uuid;
+            bd->itbid = pos->buf[i].nitb;
+            /* Step 3: send it to dest site, using isend(ONESHOT) */
+            err = __customized_send_request(bd);
+            if (err) {
+                hvfs_err(mds, "send AU bitmap flip request failed w/ %d\n",
+                         err);
+            }
+        }
+    }
+    
+    return err;
 }
 
 int __aur_txg_wb(struct async_update_request *aur)

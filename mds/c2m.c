@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-04 19:24:44 macan>
+ * Time-stamp: <2010-04-11 20:32:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -574,12 +574,20 @@ void mds_lb(struct hvfs_tx *tx)
                 goto send_err_rpy;
             }
 
-            err = mds_bc_backend_load(be, hi->itbid, location);
-            if (err) {
-                hvfs_err(mds, "bc_backend_load failed w/ %d\n", err);
-                mds_bc_free(be);
-                goto send_err_rpy;
+            if (size == 0) {
+                /* this means that we should just return a new default bitmap
+                 * slice */
+                be->array[0] = 0xff;
+            } else {
+                /* load the bitmap slice from MDSL */
+                err = mds_bc_backend_load(be, hi->itbid, location);
+                if (err) {
+                    hvfs_err(mds, "bc_backend_load failed w/ %d\n", err);
+                    mds_bc_free(be);
+                    goto send_err_rpy;
+                }
             }
+            
             /* finally, we insert the bc into the cache, should we check
              * whether there is a conflict? */
             nbe = mds_bc_insert(be);

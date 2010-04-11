@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-30 10:33:20 macan>
+ * Time-stamp: <2010-04-11 10:50:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -428,6 +428,9 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
         }
     }
     err = txg_wb_bcast_end(cta, failed);
+    if (err) {
+        hvfs_err(mds, "bcast end failed w/ %d\n", err);
+    }
 
     return err;
 }

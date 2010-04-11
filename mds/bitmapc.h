@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-08 19:39:34 macan>
+ * Time-stamp: <2010-04-11 20:33:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -64,6 +64,28 @@ struct bc_entry
     int idx;
     u8 array[XTABLE_BITMAP_SIZE / 8];
 };
+
+/* alloc and free the bc_delta
+ */
+static inline
+struct bc_delta *mds_bc_delta_alloc(void)
+{
+    struct bc_delta *bd;
+
+    bd = xzalloc(sizeof(*bd));
+    if (!bd) {
+        return NULL;
+    }
+    INIT_LIST_HEAD(&bd->list);
+
+    return bd;
+}
+
+static inline
+void mds_bc_delta_free(struct bc_delta *bd)
+{
+    xfree(bd);
+}
 
 /* How to use?
  *
@@ -134,5 +156,6 @@ struct bc_entry *mds_bc_insert(struct bc_entry *);
 struct bc_entry *mds_bc_new(void);
 int mds_bc_dir_lookup(struct hvfs_index *hi, u64 *, u64 *);
 int mds_bc_backend_load(struct bc_entry *be, u64, u64);
+void mds_bc_checking(time_t);
 
 #endif

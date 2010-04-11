@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-04 14:04:26 macan>
+ * Time-stamp: <2010-04-11 19:49:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -316,6 +316,9 @@ int mdsl_config(void)
         hmo.conf.itb_file_chunk = MDSL_STORAGE_ITB_DEFAULT_CHUNK;
     if (!hmo.conf.data_file_chunk)
         hmo.conf.data_file_chunk = MDSL_STORAGE_DATA_DEFAULT_CHUNK;
+
+    /* FIXME: hmi should not be set at here actually */
+    hmi.itb_depth = 3;
     
     return 0;
 }

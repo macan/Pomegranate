@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-08 20:11:23 macan>
+ * Time-stamp: <2010-04-11 19:46:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -275,6 +275,38 @@ out:
     return;
 }
 
+static inline
+int __customized_send_reply(struct xnet_msg *msg, int err, u64 location)
+{
+    struct xnet_msg *rpy;
+    int err = 0;
+
+    /* Step 1: prepare the xnet_msg */
+    rpy = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!rpy) {
+        hvfs_err(mdsl, "xnet_alloc_msg() failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    /* Step 2: construct the xnet_msg to send it to the destination */
+    xnet_msg_set_err(rpy, err);
+    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0,
+                     hmo.site_id, msg->tx.ssite_id);
+    xnet_msg_fill_reqno(rpy, msg->tx.reqno);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, location, 0);
+    /* match the original request at the source site */
+    rpy->tx.handle = msg->tx.handle;
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
+
+    if (xnet_sned(hmo.xc, rpy)) {
+        hvfs_err(mdsl, "xnet_send() failed.\n");
+    }
+    xnet_free_msg(rpy);
+}
+
 void mdsl_bitmap_commit(struct xnet_msg *msg)
 {
     struct fdhash_entry *fde;
@@ -335,7 +367,13 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
             xfree(data);
             goto out_reply;
         }
+
+        /* if bcc->size is ZERO, it means that we are writing the first bitmap
+         * slice, we should set the default bits */
+        memset(data, 0xff, (1 << hmi.itb_depth) >> 3);
         
+        /* FIXME: maybe ftruncate can be used here to minimize the write
+         * cost */
         /* Next, we will write the region to disk plus a new slice */
         iov.iov_len += fde->bmmap.len;
         msa.arg = &location;
@@ -361,8 +399,9 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
     }
 
     /* We need to send the reply here! reply w/ the errno and new location! */
-    /* FIXME */
 out_reply:
+    __customized_send_reply(msg, err, location);
+    
 out:
     return;
 }

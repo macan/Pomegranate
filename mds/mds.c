@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 20:51:54 macan>
+ * Time-stamp: <2010-04-11 11:25:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -137,6 +137,7 @@ static int __gcd(int m, int n)
 static void *mds_timer_thread_main(void *arg)
 {
     sigset_t set;
+    time_t cur;
     int v, err;
 
     hvfs_debug(mds, "I am running...\n");
@@ -154,18 +155,21 @@ static void *mds_timer_thread_main(void *arg)
         sem_getvalue(&hmo.timer_sem, &v);
         hvfs_debug(mds, "OK, we receive a SIGALRM event(remain %d).\n", v);
         /* should we work now */
+        cur = time(NULL);
         if (hmo.state > HMO_STATE_LAUNCH) {
             /* ok, checking txg */
-            txg_changer(time(NULL));
+            txg_changer(cur);
         }
         /* then, checking profiling */
-        dump_profiling(time(NULL));
+        dump_profiling(cur);
         /* next, itb checking */
-        mds_spool_mp_check(time(NULL));
+        mds_spool_mp_check(cur);
         /* next, checking async unlink */
-        async_unlink(time(NULL));
+        async_unlink(cur);
         /* next, checking the CBHT slow down */
-        async_update_checking(time(NULL));
+        async_update_checking(cur);
+        /* next, checking the bitmap cache. */
+        mds_bc_checking(cur);
         /* FIXME: */
     }
 
@@ -206,6 +210,7 @@ int mds_setup_timers(void)
     interval = __gcd(hmo.conf.profiling_thread_interval,
                      hmo.conf.txg_interval);
     interval = __gcd(hmo.conf.unlink_interval, interval);
+    interval = __gcd(hmo.conf.bitmap_cache_interval, interval);
     if (interval) {
         value.it_interval.tv_sec = interval;
         value.it_interval.tv_usec = 1;
@@ -287,15 +292,6 @@ int mds_verify(void)
             return -1;
     }
 
-    if (!hmo.conf.txg_buf_len) {
-        hmo.conf.txg_buf_len = HVFS_MDSL_TXG_BUF_LEN;
-    }
-
-    if (!hmo.conf.profiling_thread_interval)
-        hmo.conf.profiling_thread_interval = 5;
-    if (!hmo.conf.txg_interval) 
-        hmo.conf.txg_interval = 30;
-
     return 0;
 }
 
@@ -340,6 +336,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(profiling_thread_interval, value);
     HVFS_MDS_GET_ENV_atoi(txg_interval, value);
     HVFS_MDS_GET_ENV_atoi(unlink_interval, value);
+    HVFS_MDS_GET_ENV_atoi(bitmap_cache_interval, value);
     HVFS_MDS_GET_ENV_atoi(txg_buf_len, value);
     HVFS_MDS_GET_ENV_atoi(bc_roof, value);
 
@@ -350,6 +347,18 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_option(opt_itb_mutex, ITB_MUTEX, value);
     HVFS_MDS_GET_ENV_option(opt_memonly, MEMONLY, value);
     HVFS_MDS_GET_ENV_option(opt_memlimit, MEMLIMIT, value);
+
+    /* default configurations */
+    if (!hmo.conf.txg_buf_len) {
+        hmo.conf.txg_buf_len = HVFS_MDSL_TXG_BUF_LEN;
+    }
+
+    if (!hmo.conf.profiling_thread_interval)
+        hmo.conf.profiling_thread_interval = 5;
+    if (!hmo.conf.txg_interval) 
+        hmo.conf.txg_interval = 30;
+    if (!hmo.conf.bitmap_cache_interval)
+        hmo.conf.bitmap_cache_interval = 5;
 
     return 0;
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-08 19:31:01 macan>
+ * Time-stamp: <2010-04-11 15:06:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -72,6 +72,9 @@
 #define HVFS_MDS2MDS_LB         0x0000000080000004 /* load bitmap */
 #define HVFS_MDS2MDS_LD         0x0000000080000005 /* load directory hash
                                                     * info */
+#define HVFS_MDS2MDS_AUBITMAP   0x0000000080000006 /* async bitmap flip */
+#define HVFS_MDS2MDS_AUBITMAP_R 0x0000000080000007 /* async bitmap flip confirm */
+
 /* MDSL to MDS */
 /* RING/ROOT to MDS */
 

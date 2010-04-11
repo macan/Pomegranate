@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 20:42:37 macan>
+ * Time-stamp: <2010-04-11 22:09:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -281,9 +281,14 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
     struct hvfs_md_reply *hmr;
     struct xnet_msg *msg;
     struct chp *p;
+    struct dhe *gdte;
     struct itbitmap *bitmap, *b;
+    u64 hash;
     int err, no;
     
+    /* round up offset */
+    offset = (offset + XTABLE_BITMAP_SIZE - 1) & ~(XTABLE_BITMAP_SIZE - 1);
+
     msg = xnet_alloc_msg(XNET_MSG_CACHE);
     if (!msg) {
         /* retry with slow method */
@@ -297,18 +302,33 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
     /* check if we are loading the GDT bitmap */
     if (unlikely(e->uuid == hmi.gdt_uuid)) {
         /* ok, we should send the request to the ROOT server */
+        /* FIXME: set the dsite_id!!! */
         goto send_msg;
     }
+
+    gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+    if (IS_ERR(gdte)) {
+        /* fatal error */
+        hvfs_err(mds, "This is a fatal error, we can not find the GDT DHE.\n");
+        err = PTR_ERR(gdte);
+        goto out_free;
+    }
+    hash = hvfs_hash_gdt(e->uuid, hmi.gdt_salt);
+    itbid = mds_get_itbid(gdte, hash);
     
     /* find the MDS server */
-    p = ring_get_point(e->uuid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
+    p = ring_get_point(itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
     if (IS_ERR(p)) {
         hvfs_err(mds, "ring_get_point() failed with %ld\n", PTR_ERR(p));
         return PTR_ERR(p);
     }
     /* prepare the msg */
-    xnet_msg_set_site(msg, p->site_id);
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
+                     hmo.site_id, p->site_id);
     xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_LB, e->uuid, offset);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
 
 send_msg:
     err = xnet_send(hmo.xc, msg);

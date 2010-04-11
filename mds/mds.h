@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-30 09:40:28 macan>
+ * Time-stamp: <2010-04-11 11:22:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -92,6 +92,7 @@ struct mds_conf
     int profiling_thread_interval;
     int txg_interval;
     int unlink_interval;
+    int bitmap_cache_interval;
 
     /* conf */
 #define HVFS_MDS_CHRECHK        0x01 /* recheck CH ring in fe dispatch */

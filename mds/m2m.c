@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 16:10:52 macan>
+ * Time-stamp: <2010-04-11 22:23:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -296,4 +296,78 @@ void mds_forward(struct xnet_msg *msg)
     return;
 out:
     xnet_free_msg(msg);
+}
+
+/* actually we do not send the normal reply message, we send another request
+ * message.
+ */
+void mds_aubitmap(struct xnet_msg *msg)
+{
+    struct bc_delta *bd;
+    struct dhe *e;
+    struct chp *p;
+    u64 hash, itbid;
+    int err = 0;
+
+    /* sanity checking */
+    if (msg->tx.len == 0) {
+        hvfs_err(mds, "Invalid AUBITMAP request %d received from %lx\n",
+                 msg->tx.reqno, msg->tx.ssite_id);
+        err = -EINVAL;
+        goto send_rpy;
+    }
+
+    /* recheck whether ourself is the target site for the bitmap cache
+     * entry */
+    e = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+    if (IS_ERR(e)) {
+        /* fatal error */
+        hvfs_err(mds, "This is a fatal error, we can not find the GDT DHE.\n");
+        err = PTR_ERR(e);
+        goto send_rpy;
+    }
+    hash = hvfs_hash_gdt(msg->tx.arg0, hmi.gdt_salt);
+    itbid = mds_get_itbid(e, hash);
+    if (itbid != msg->tx.arg1 || hmo.conf.option & HVFS_MDS_CHRECHK) {
+        p = ring_get_point(itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
+        if (IS_ERR(p)) {
+            hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
+            err = -ECHP;
+            goto send_rpy;
+        }
+        if (hmo.site_id != p->site_id) {
+            /* forward it */
+            if (itbid == msg->tx.arg1) {
+                /* itbid is correct, but ring changed */
+                err = -ERINGCHG;
+                goto send_rpy;
+            }
+            /* we should do the forward, but if we do forward, we need a hi
+             * struct to log some additional info. It is a little bad, so we
+             * just reply w/ a bitmap change error. */
+            err = -EBITMAP;
+            goto send_rpy;
+        }
+    }
+
+    bd = mds_bc_delta_alloc();
+    if (!bd) {
+        hvfs_err(mds, "mds_bc_delta_alloc() failed.\n");
+    }
+    /* set site_id to ssite_id to send the reply message */
+    bd->site_id = msg->tx.ssite_id;
+    bd->uuid = msg->tx.arg0;
+    bd->itbid = msg->tx.arg1;
+
+    /* Then, we should add this bc_delta to the BC */
+    xlock_lock(&hmo.bc.delta_lock);
+    list_add(&bd->list, &hmo.bc.deltas);
+    xlock_unlock(&hmo.bc.delta_lock);
+    
+    return err;
+}
+
+void mds_m2m_lb(struct xnet_msg *msg)
+{
+    /* arg0: uuid; arg1: offset(aligned) */
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-08 19:34:20 macan>
+ * Time-stamp: <2010-04-11 16:46:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -483,6 +483,7 @@ out:
     return err;
 }
 
+static inline
 int __customized_send_request(struct bc_commit *commit)
 {
     struct xnet_msg *msg;
@@ -497,7 +498,7 @@ int __customized_send_request(struct bc_commit *commit)
     }
 
     /* Step 2: construct the xnet_msg to send it to the destination */
-    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0,
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hmo.site_id, commit->dsite_id);
     xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_BTCOMMIT, commit->core.uuid, 0);
 #ifdef XNET_EAGER_WRITEV
@@ -514,9 +515,108 @@ int __customized_send_request(struct bc_commit *commit)
 
     /* we got the reply now */
     ASSERT(msg->pair, mds);
+    /* extract the error number */
+    err = msg->pair->tx.err;
+    /* if the errno is zero, and bcc->core.size is not -1UL, we should got and
+     * update the new file location */
+    if (!err && commit->core.size == -1UL) {
+        struct hvfs_txg *txg;
+        struct hvfs_index hi = {
+            .flag = INDEX_MDU_UPDATE | INDEX_BY_UUID,
+            .puuid = hmi.gdt_uuid,
+            {.psalt = hmi.gdt_salt, },
+        };
+        struct mdu_update *mu;
+        struct mu_column *mc;
+        int retry_nr = 0;
+
+    realloc0:
+        mu = xzalloc(sizeof(struct mdu_update) + sizeof(struct mu_column));
+        if (!mu) {
+            hvfs_err(mds, "xzalloc() MU failed.\n");
+            goto realloc0;
+        }
+    realloc:
+        hmr = get_hmr();
+        if (!hmr) {
+            hvfs_err(mds, "get_hmr() failed, fatal error, we must retry\n");
+            goto realloc;
+        }
+        hi.uuid = commit->core.uuid;
+        hi.hash = hvfs_hash_gdt(hi.uuid, hmi.gdt_salt);
+        hi.itbid = commit->core.itbid;
+        hi.data = mu;
+
+        /* update the size and the offset in ITE */
+        memset(mu, 0, sizeof(mu));
+        mu->valid = MU_COLUMN | MU_SIZE;
+        mu->size = commit->core.size += XTABLE_SIZE_BYTE;
+        mu->column_no = 1;
+        mc = (void *)mu + sizeof(struct mdu_update);
+        mc->cno = HVFS_GDT_BITMAP_COLUMN;
+        mc->c.stored_itbid = hi.itbid;
+        mc->c.len = mu->size;
+        mc->c.offset = msg->tx.arg0;
+        
+        /* search and update in the CBHT */
+    retry:
+        txg = mds_get_open_txg(&hmo);
+        err = mds_cbht_search(&hi, hmr, txg, &txg);
+        txg_put(txg);
+        if (err) {
+            if (err == -EAGAIN || err == -ESPLIT ||
+                err == -ERESTART) {
+                /* have a breath */
+                sched_yield();
+                if (retry_nr < 10000000) 
+                    goto retry;
+            }
+            hvfs_err(mds, "FATAL ERROR: update the ITE failed w/ %d\n", err);
+        }
+        hvfs_info(mds, "Got reply from MDSL and change bitmap to location 0x%lx\n",
+                  msg->tx.arg0);
+    }
 
     xnet_free_msg(msg);
 
+    return err;
+out_free_msg:
+    xnet_raw_free_msg(msg);
+out:
+    return err;
+}
+
+static inline
+int __customized_send_reply(struct bc_delta *bd)
+{
+    struct xnet_msg *msg;
+    int err = 0;
+
+    /* Step 1: prepare the xnet_msg */
+    msg = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!msg) {
+        hvfs_err(mds, "xnet_alloc_msg() failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    /* Step 2: construct the xnet_msg to send it to the destination */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0,
+                     hmo.site_id, bd->site_id);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_AUBITMAP_R, bd->uuid, bd->itbid);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(mds, "Request to confirm the uuid %ld flip %ld failed w/ %d\n",
+                 bd->uuid, bd->itbid, err);
+        goto out_free_msg;
+    }
+
+    xnet_free_msg(msg);
+    
     return err;
 out_free_msg:
     xnet_raw_free_msg(msg);
@@ -574,20 +674,11 @@ int mds_bc_backend_commit(void)
         hi.hash = hvfs_hash_gdt(pos->uuid, hmi.gdt_salt);
         
         /* we should get and set the hi.itbid */
-        e = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
-        if (IS_ERR(e)) {
-            /* fatal error */
-            hvfs_err(mds, "This is a fatal error, we can not find the GDT DHE.\n");
-            err = PTR_ERR(e);
-            /* put the current delta to the error list */
-            list_del_init(&pos->list);
-            list_add(&pos->list, &errlist);
-            continue;
-        }
-        hi.itbid = mds_get_itbid(e, hi.hash);
+        hi.itbid = pos->itbid;
+        
         /* actually we should confirm the itb is resident in this MDS,
          * however we know that the BC entry is on this MDS, so the itb
-         * should on this MDS either. */
+         * should on this MDS either. Refer to mds_aubitmap() please! */
         
         /* search in the CBHT */
     retry:
@@ -671,12 +762,18 @@ int mds_bc_backend_commit(void)
         /* try to send it */
         err = __customized_send_request(x);
         if (err) {
-            hvfs_err(mds, "send bitmap commit request to MDS %lx failed.\n",
-                     x->dsite_id);
+            hvfs_err(mds, "send bitmap commit request to MDS %lx failed w/ %d.\n",
+                     x->dsite_id, err);
             list_add(&x->delta->list, &errlist);
         } else {
-            mds_bc_commit_put(x);
+            /* before freeing the x->delta, we should send the reply to the
+             * source site now */
+            /* if the reply is failed to sent, we just wait for the ssite to
+             * resend the request:) */
+            __customized_send_reply(x->delta);
+            /* free the resource */
             xfree(x->delta);
+            mds_bc_commit_put(x);
         }
     }
 
@@ -690,4 +787,28 @@ int mds_bc_backend_commit(void)
     
 out:
     return err;
+}
+
+void mds_bc_checking(time_t t)
+{
+    static time_t last_time = 0;
+    
+    if (!hmo.conf.bitmap_cache_interval)
+        return;
+    if (last_time == 0)
+        last_time = t;
+    if (t < last_time + hmo.conf.bitmap_cache_interval) {
+        return;
+    }
+    last_time = t ;
+
+    /* check if we should do backend commit */
+    if (list_empty(&hmo.bc.deltas)) {
+        return;
+    }
+
+    err = mds_bc_backend_commit();
+    if (err) {
+        hvfs_err(mds, "mds_bc_backend_commit failed w/ %d\n", err);
+    }
 }
