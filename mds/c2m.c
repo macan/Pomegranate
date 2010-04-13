@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 20:32:01 macan>
+ * Time-stamp: <2010-04-13 20:19:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -531,7 +531,7 @@ void mds_lb(struct hvfs_tx *tx)
     struct ibmap ibmap;
     struct hvfs_md_reply *hmr;
     struct bc_entry *be;
-    u64 location, size;
+    u64 location, size, offset;
     int err = 0;
 
     /* sanity checking */
@@ -551,8 +551,11 @@ void mds_lb(struct hvfs_tx *tx)
     }
 
     /* next, we should get the bc_entry */
+    /* FIXME: the offset should be aligned */
+    offset = tx->req->tx.arg1;
+    offset = (offset + XTABLE_BITMAP_SIZE - 1) & ~(XTABLE_BITMAP_SIZE - 1);    
     ASSERT(hi->uuid == tx->req->tx.arg0, mds);
-    be = mds_bc_get(hi->uuid, tx->req->tx.arg1);
+    be = mds_bc_get(hi->uuid, offset);
     if (IS_ERR(be)) {
         if (be == ERR_PTR(-ENOENT)) {
             struct iovec iov[2];
@@ -565,7 +568,7 @@ void mds_lb(struct hvfs_tx *tx)
                 err = -ENOMEM;
                 goto send_err_rpy;
             }
-            mds_bc_set(be, hi->uuid, tx->req->tx.arg1);
+            mds_bc_set(be, hi->uuid, offset);
 
             /* we should load the bitmap from mdsl */
             err = mds_bc_dir_lookup(hi, &location, &size);
@@ -597,7 +600,7 @@ void mds_lb(struct hvfs_tx *tx)
             }
             /* we need to send the reply w/ the bitmap data */
             ibmap.offset = be->offset;
-            ibmap.flag = ((size - be->offset > XTABLE_BITMAP_SIZE / 8) ? 0 :
+            ibmap.flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_SIZE / 8) ? 0 :
                           BITMAP_END);
             ibmap.ts = time(NULL);
             iov[0].iov_base = &ibmap;
@@ -617,7 +620,7 @@ void mds_lb(struct hvfs_tx *tx)
         struct iovec iov[2];
 
         ibmap.offset = be->offset;
-        ibmap.flag = ((size - be->offset > XTABLE_BITMAP_SIZE / 8) ? 0 :
+        ibmap.flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_SIZE / 8) ? 0 :
                       BITMAP_END);
         ibmap.ts = time(NULL);
         iov[0].iov_base = &ibmap;

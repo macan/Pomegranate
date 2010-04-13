@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 22:09:17 macan>
+ * Time-stamp: <2010-04-13 20:09:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -337,16 +337,30 @@ send_msg:
         goto out_free;
     }
     /* ok, we get the reply: have the bitmap slice in the reply msg */
-    hmr = (struct hvfs_md_reply *)(msg->pair->xm_data);
-    if (hmr->err) {
-        hvfs_err(mds, "bitmap_load request failed %d\n", hmr->err);
+    ASSERT(msg->pair, mds);
+    if (msg->pair->tx.err) {
+        hvfs_err(mds, "Reply w/ error %d\n", msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        xnet_set_auto_free(msg->pair);
         goto out_free;
     }
-    bitmap = hmr_extract(hmr, EXTRACT_BITMAP, &no);
-    if (!bitmap) {
-        hvfs_err(mds, "hmr_extract BITMAP failed, not found this subregion.\n");
+    if (msg->pair->tx.len < sizeof(struct itbitmap)) {
+        hvfs_err(mds, "Reply w/ incorrect data length %ld vs %ld\n",
+                 msg->pair->tx.len, sizeof(struct itbitmap));
+        err = -EINVAL;
+        xnet_set_auto_free(msg->pair);
         goto out_free;
     }
+
+    if (msg->pair->xm_datacheck)
+        bitmap = msg->pair->xm_data;
+    else {
+        hvfs_err(mds, "Wrong xm_datacheck!\n");
+        err = -EINVAL;
+        xnet_set_auto_free(msg->pair);
+        goto out_free;
+    }
+
     /* hey, we got some bitmap slice, let us insert them to the dhe list */
     xlock_lock(&e->lock);
     if (!list_empty(&e->bitmap)) {

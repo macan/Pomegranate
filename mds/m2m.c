@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 22:23:05 macan>
+ * Time-stamp: <2010-04-13 20:20:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,6 +68,37 @@ void mds_send_reply(struct xnet_msg *msg, struct hvfs_md_reply *hmr,
         /* do not retry myself */
     }
     xnet_free_msg(rpy);         /* data auto free */
+}
+
+static inline
+void __customized_send_bitmap(struct xnet_msg *msg, struct iovec iov[], int nr)
+{
+    struct xnet_msg *rpy = xnet_alloc_msg(XNET_MSG_CACHE);
+    int i;
+
+    if (!rpy) {
+        hvfs_err(mds, "xnet_alloc_msg() failed\n");
+        /* do not retry myself */
+        return;
+    }
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
+    for (i = 0; i < nr; i++) {
+        xnet_msg_add_sdata(rpy, iov[i].iov_base, iov[i].iov_len);
+    }
+    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0, hmo.site_id,
+                     msg->tx.ssite_id);
+    xnet_msg_fill_reqno(rpy, msg->tx.reqno);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_DATA, 0, 0);
+    /* match the original request at the source site */
+    rpy->tx.handle = msg->tx.handle;
+
+    if (xnet_send(hmo.xc, rpy)) {
+        hvfs_err(mds, "xnet_isend() failed\n");
+        /* do not retyr myself, client is forced to retry */
+    }
+    xnet_free_msg(rpy);
 }
 
 void mds_ldh(struct xnet_msg *msg)
@@ -370,4 +401,113 @@ void mds_aubitmap(struct xnet_msg *msg)
 void mds_m2m_lb(struct xnet_msg *msg)
 {
     /* arg0: uuid; arg1: offset(aligned) */
+    struct ibmap ibmap;
+    struct hvfs_index hi;
+    struct bc_entry *be;
+    struct dhe *gdte;
+    u64 location, size;
+    int err = 0;
+
+    /* first, we should get hte bc_entry */
+    gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+    if (IS_ERR(gdte)) {
+        /* fatal error */
+        hvfs_err(mds, "This is a fatal error, we can not find the GDT DHE.\n");
+        err = PTR_ERR(gdte);
+        goto out_free;
+    }
+    
+    memset(0, &hi, sizeof(hi));
+    hi.uuid = msg->tx.arg0;
+    hi.puuid = hmi.gdt_uuid;
+    hi.psalt = hmi.gdt_salt;
+    hi.hash = hvfs_hash_gdt(hi.uuid, hmi.gdt_salt);
+    hi.itbid = mds_get_itbid(gdte, hi.hash);
+
+    be = mds_bc_get(msg->tx.arg0, msg->tx.arg1);
+    if (IS_ERR(be)) {
+        if (be == ERR_PTR(-ENOENT)) {
+            struct iovec iov[2];
+            struct bc_entry *nbe;
+
+            /* ok, we should create one bc_entry now */
+            be = mds_bc_new();
+            if (!be) {
+                hvfs_err(mds, "New BC entry failed\n");
+                err = -ENOMEM;
+                goto send_err_rpy;
+            }
+            mds_bc_set(be, hi.uuid, tx->req->tx.arg1);
+
+            /* we should load the bitmap from mdsl */
+            err = mds_bc_dir_lookup(&hi, &location, &size);
+            if (err) {
+                hvfs_err(mds, "bc_dir_lookup failed w/ %d\n", err);
+                goto send_err_rpy;
+            }
+
+            if (size == 0) {
+                /* this means that we should just return a new default bitmap
+                 * slice */
+                be->array[0] = 0xff;
+            } else {
+                /* load the bitmap slice from MDSL */
+                err = mds_bc_backend_load(be, hi.itbid, location);
+                if (err) {
+                    hvfs_err(mds, "bc_backend_load failed w/ %d\n", err);
+                    mds_bc_free(be);
+                    goto send_err_rpy;
+                }
+            }
+
+            /* finally, we insert the bc into the cache, should we check
+             * whether there is a conflict? */
+            nbe = mds_bc_insert(be);
+            if (nbe != be) {
+                mds_bc_free(be);
+                be = nbe;
+            }
+            /* we need to send the reply w/ the bitmap data */
+            ibmap.offset = be->offset;
+            /* FIXME */
+            ibmap.flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_BYTES) ? 0 :
+                          BITMAP_END);
+            ibmap.ts = time(NULL);
+            iov[0].iov_base = &ibmap;
+            iov[0].iov_len - sizeof(struct ibmap);
+            iov[1].iov_base = be->array;
+            iov[1].iov_len = XTABLE_BITMAP_BYTES;
+            __customized_send_bitmap(msg, iov, 2);
+
+            mds_bc_put(be);
+        } else {
+            hvfs_err(mds, "bc_get() failed w/ %d\n", err);
+            goto send_err_rpy;
+        }
+    } else {
+        /* we find the entry in the cache, jsut return the bitmap array */
+        /* FIXME: be sure to put the bc_entry after copied */
+        struct iovec iov[2];
+
+        ibmap.offset = be->offset;
+        ibmap.flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_BYTE) ? 0 :
+                      BITMAP_END);
+        ibmap.ts = time(NULL);
+        iov[0].iov_base = &ibmap;
+        iov[0].iov_len = sizeof(struct ibmap);
+        iov[1].iov_base = be->array;
+        iov[1].iov_len = XTABLE_BITMAP_BYTE;
+        __customized_send_bitmap(msg, iov, 2);
+
+        mds_bc_put(be);
+    }
+out_free:
+    return;
+send_err_rpy:
+    hmr = get_hmr();
+    if (!hmr) {
+        hvfs_err(mds, "get_hmr() failed\n");
+        return;
+    }
+    return mds_send_reply(msg, hmr, err);
 }
