@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-13 20:09:52 macan>
+ * Time-stamp: <2010-04-14 14:37:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -278,13 +278,12 @@ void mds_bitmap_update_bit(struct itbitmap *b, u64 offset, u8 op)
  */
 int mds_bitmap_load(struct dhe *e, u64 offset)
 {
-    struct hvfs_md_reply *hmr;
     struct xnet_msg *msg;
     struct chp *p;
     struct dhe *gdte;
     struct itbitmap *bitmap, *b;
-    u64 hash;
-    int err, no;
+    u64 hash, itbid;
+    int err;
     
     /* round up offset */
     offset = (offset + XTABLE_BITMAP_SIZE - 1) & ~(XTABLE_BITMAP_SIZE - 1);
@@ -345,7 +344,7 @@ send_msg:
         goto out_free;
     }
     if (msg->pair->tx.len < sizeof(struct itbitmap)) {
-        hvfs_err(mds, "Reply w/ incorrect data length %ld vs %ld\n",
+        hvfs_err(mds, "Reply w/ incorrect data length %d vs %ld\n",
                  msg->pair->tx.len, sizeof(struct itbitmap));
         err = -EINVAL;
         xnet_set_auto_free(msg->pair);

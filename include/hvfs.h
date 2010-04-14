@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 15:06:19 macan>
+ * Time-stamp: <2010-04-14 10:23:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -122,6 +122,9 @@ struct itbitmap
 #define XTABLE_BITMAP_BYTES     (128 * 1024)
     u8 array[XTABLE_BITMAP_BYTES];
 };
+
+#define BITMAP_ROUNDUP(x) (((x) + XTABLE_BITMAP_SIZE - 1) & \
+                           ~(XTABLE_BITMAP_SIZE - 1))
 
 /* this struct is just for c2m.c, shadow of itbitmap header */
 struct ibmap

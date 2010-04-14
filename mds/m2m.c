@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-14 09:44:09 macan>
+ * Time-stamp: <2010-04-14 18:46:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -101,6 +101,8 @@ void __customized_send_bitmap(struct xnet_msg *msg, struct iovec iov[], int nr)
     xnet_free_msg(rpy);
 }
 
+/* mds_ldh() use the hvfs_index interface, so request forward is working.
+ */
 void mds_ldh(struct xnet_msg *msg)
 {
     struct hvfs_index *hi = NULL;
@@ -149,12 +151,16 @@ void mds_ldh(struct xnet_msg *msg)
         }
         if (hmo.site_id != p->site_id) {
             /* FIXME: forward */
-        } else {
             if (itbid == hi->itbid) {
                 /* itbid is correct, but ring changed */
                 err = -ERINGCHG;
                 goto send_rpy;
             }
+            /* doing the forward now */
+            hi->flag |= INDEX_BIT_FLIP;
+            hi->itbid = itbid;
+            err = mds_do_forward(msg, p->site_id);
+            goto out;
         }
         hi->itbid = itbid;
     }
@@ -341,7 +347,7 @@ void mds_aubitmap(struct xnet_msg *msg)
     int err = 0;
 
     /* sanity checking */
-    if (msg->tx.len == 0) {
+    if (msg->tx.len != 0) {
         hvfs_err(mds, "Invalid AUBITMAP request %d received from %lx\n",
                  msg->tx.reqno, msg->tx.ssite_id);
         err = -EINVAL;
@@ -373,11 +379,16 @@ void mds_aubitmap(struct xnet_msg *msg)
                 err = -ERINGCHG;
                 goto send_rpy;
             }
+#if 0
             /* we should do the forward, but if we do forward, we need a hi
              * struct to log some additional info. It is a little bad, so we
              * just reply w/ a bitmap change error. */
             err = -EBITMAP;
             goto send_rpy;
+#else
+            err = mds_do_forward(msg, p->site_id);
+            goto out;
+#endif
         }
     }
 
@@ -395,7 +406,12 @@ void mds_aubitmap(struct xnet_msg *msg)
     list_add(&bd->list, &hmo.bc.deltas);
     xlock_unlock(&hmo.bc.delta_lock);
     
-    return err;
+out:
+    return;
+send_rpy:
+    /* Note that: we do NOT reply actually, the sender do not block on the
+     * receiving! if isend is working, maybe we can do the reply 8-) */
+    hvfs_err(mds, "handle AUBITMAP w/ %d.\n", err);
 }
 
 void mds_m2m_lb(struct xnet_msg *msg)
@@ -403,9 +419,10 @@ void mds_m2m_lb(struct xnet_msg *msg)
     /* arg0: uuid; arg1: offset(aligned) */
     struct ibmap ibmap;
     struct hvfs_index hi;
+    struct hvfs_md_reply *hmr;
     struct bc_entry *be;
     struct dhe *gdte;
-    u64 location, size;
+    u64 location, size, offset;
     int err = 0;
 
     /* first, we should get hte bc_entry */
@@ -417,14 +434,32 @@ void mds_m2m_lb(struct xnet_msg *msg)
         goto out_free;
     }
     
-    memset(0, &hi, sizeof(hi));
+    memset(&hi, 0, sizeof(hi));
     hi.uuid = msg->tx.arg0;
     hi.puuid = hmi.gdt_uuid;
     hi.psalt = hmi.gdt_salt;
     hi.hash = hvfs_hash_gdt(hi.uuid, hmi.gdt_salt);
     hi.itbid = mds_get_itbid(gdte, hi.hash);
 
-    be = mds_bc_get(msg->tx.arg0, msg->tx.arg1);
+    offset = msg->tx.arg1;
+    /* cut the bitmap to valid range */
+    err = mds_bc_dir_lookup(&hi, &location, &size);
+    if (err) {
+        hvfs_err(mds, "bc_dir_lookup failed w/ %d\n", err);
+        goto send_err_rpy;
+    }
+
+    if (size == 0) {
+        /* this means that offset should be ZERO */
+        offset = 0;
+    } else {
+        /* Caution: we should cut the offset to the valid bitmap range
+         * by size! */
+        offset = mds_bitmap_cut(offset, size << 3);
+        offset = BITMAP_ROUNDUP(offset);
+    }
+
+    be = mds_bc_get(msg->tx.arg0, offset);
     if (IS_ERR(be)) {
         if (be == ERR_PTR(-ENOENT)) {
             struct iovec iov[2];
@@ -437,7 +472,7 @@ void mds_m2m_lb(struct xnet_msg *msg)
                 err = -ENOMEM;
                 goto send_err_rpy;
             }
-            mds_bc_set(be, hi.uuid, tx->req->tx.arg1);
+            mds_bc_set(be, hi.uuid, offset);
 
             /* we should load the bitmap from mdsl */
             err = mds_bc_dir_lookup(&hi, &location, &size);
@@ -474,7 +509,7 @@ void mds_m2m_lb(struct xnet_msg *msg)
                           BITMAP_END);
             ibmap.ts = time(NULL);
             iov[0].iov_base = &ibmap;
-            iov[0].iov_len - sizeof(struct ibmap);
+            iov[0].iov_len = sizeof(struct ibmap);
             iov[1].iov_base = be->array;
             iov[1].iov_len = XTABLE_BITMAP_BYTES;
             __customized_send_bitmap(msg, iov, 2);
@@ -501,7 +536,10 @@ void mds_m2m_lb(struct xnet_msg *msg)
 
         mds_bc_put(be);
     }
+
 out_free:
+    xnet_free_msg(msg);
+
     return;
 send_err_rpy:
     hmr = get_hmr();
@@ -509,5 +547,14 @@ send_err_rpy:
         hvfs_err(mds, "get_hmr() failed\n");
         return;
     }
-    return mds_send_reply(msg, hmr, err);
+    mds_send_reply(msg, hmr, err);
+    goto out_free;
+}
+
+void mds_aubitmap_r(struct xnet_msg *msg)
+{
+    /* we should call async_aubitmap_cleanup to remove the entry in the
+     * g_bitmap_deltas list */
+    async_aubitmap_cleanup(msg->tx.arg0, msg->tx.arg1);
+    xnet_free_msg(msg);
 }

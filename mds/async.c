@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 20:33:34 macan>
+ * Time-stamp: <2010-04-14 19:59:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,6 +38,7 @@ struct async_update_mlist g_aum;
  * the delta entry from g_bitmap_deltas list.
  */
 LIST_HEAD(g_bitmap_deltas);
+xlock_t g_bitmap_deltas_lock;
 
 void async_update_checking(time_t t)
 {
@@ -141,7 +142,7 @@ int __aur_itb_split(struct async_update_request *aur)
         /* Step 3.inf we should free the ITB */
         itb_put((struct itb *)i->h.twin);
         itb_free(i);
-        hvfs_debug(mds, "Receive the AU split reply.\n");
+        hvfs_err(mds, "Receive the AU split %ld reply.\n", i->h.itbid);
         atomic64_inc(&hmo.prof.mds.split);
     msg_free:
         xnet_free_msg(msg);
@@ -190,7 +191,7 @@ int __aur_itb_split(struct async_update_request *aur)
         atomic64_inc(&hmo.prof.itb.split_local);
         atomic64_add(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
 
-        hvfs_debug(mds, "we update the bit of ITB %ld\n", i->h.itbid);
+        hvfs_err(mds, "we update the bit of ITB %ld\n", i->h.itbid);
 /*         mds_dh_bitmap_dump(&hmo.dh, i->h.puuid); */
     }
     
@@ -248,8 +249,11 @@ int __aur_itb_bitmap(struct async_update_request *aur)
 {
     struct bitmap_delta_buf *pos;
     struct bc_delta *bd;
+    struct dhe *gdte;
+    struct chp *p;
     struct hvfs_txg *txg = (struct hvfs_txg *)aur->arg;
-    int err = 0, i;
+    u64 hash, itbid;
+    int err = 0, i, local = 0, remote = 0;
 
     /* we should iterate on the wbt->bdb list and transform each entry to
      * bc_delta and adding to the g_bitmap_deltas list and sending each entry
@@ -268,16 +272,78 @@ int __aur_itb_bitmap(struct async_update_request *aur)
             bd->site_id = pos->buf[i].site_id;
             bd->uuid = pos->buf[i].uuid;
             bd->itbid = pos->buf[i].nitb;
-            /* Step 3: send it to dest site, using isend(ONESHOT) */
+            /* Step 3: add it to the g_bitmap_deltas */
+            list_add(&bd->list, &g_bitmap_deltas);
+        }
+    }
+
+    txg_free(txg);
+
+    gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+    if (IS_ERR(gdte)) {
+        /* fatal error */
+        hvfs_err(mds, "This is a fatal error, we can not find the GDT DHE.\n");
+        err = PTR_ERR(gdte);
+        goto out;
+    }
+
+    /* Iterate on the g_bitmap_deltas list to send the request now. */
+    xlock_lock(&g_bitmap_deltas_lock);
+    list_for_each_entry(bd, &g_bitmap_deltas, list) {
+        /* Step 1: recalculate the dest site_id */
+        hash = hvfs_hash_gdt(bd->uuid, hmi.gdt_salt);
+        itbid = mds_get_itbid(gdte, hash);
+        p = ring_get_point(itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
+        if (IS_ERR(p)) {
+            hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
+            continue;
+        }
+        bd->site_id = p->site_id;
+        /* Step 2: send it to dest site, using isend(ONESHOT) */
+        if (bd->site_id == hmo.site_id) {
+            /* self shortcut */
+            struct bc_delta *nbd;
+
+            nbd = mds_bc_delta_alloc();
+            if (!nbd) {
+                hvfs_err(mds, "mds_bc_delta_alloc() failed.\n");
+            }
+            nbd->site_id = bd->site_id;
+            nbd->uuid = bd->uuid;
+            nbd->itbid = bd->itbid;
+
+            xlock_lock(&hmo.bc.delta_lock);
+            list_add(&nbd->list, &hmo.bc.deltas);
+            xlock_unlock(&hmo.bc.delta_lock);
+            local++;
+        } else {
             err = __customized_send_request(bd);
             if (err) {
                 hvfs_err(mds, "send AU bitmap flip request failed w/ %d\n",
                          err);
             }
+            remote++;
         }
     }
-    
+    xlock_unlock(&g_bitmap_deltas_lock);
+    hvfs_err(mds, "local %d remote %d\n", local, remote);
+
+out:
     return err;
+}
+
+void async_aubitmap_cleanup(u64 uuid, u64 itbid)
+{
+    struct bc_delta *bd, *n;
+    
+    xlock_lock(&g_bitmap_deltas_lock);
+    list_for_each_entry_safe(bd, n, &g_bitmap_deltas, list) {
+        if (uuid == bd->uuid && itbid == bd->itbid) {
+            list_del(&bd->list);
+            break;
+        }
+    }
+    xlock_unlock(&g_bitmap_deltas_lock);
 }
 
 int __aur_txg_wb(struct async_update_request *aur)
@@ -407,6 +473,7 @@ int async_tp_init(void)
     /* init the global manage structure */
     INIT_LIST_HEAD(&g_aum.aurlist);
     xlock_init(&g_aum.lock);
+    xlock_init(&g_bitmap_deltas_lock);
     
     sem_init(&hmo.async_sem, 0, 0);
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 19:57:29 macan>
+ * Time-stamp: <2010-04-14 15:43:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1048,6 +1048,7 @@ out_unlock:
 
 int mdsl_storage_fd_bitmap(struct fdhash_entry *fde, char *path)
 {
+    u64 offset;
     int err = 0;
 
     xlock_lock(&fde->lock);
@@ -1063,7 +1064,7 @@ int mdsl_storage_fd_bitmap(struct fdhash_entry *fde, char *path)
         offset = lseek(fde->fd, 0, SEEK_END);
         if (offset == 0) {
             /* we need to write the default block now */
-            err = ftruncate(fde->fd, XTABLE_BITMAP_BYTE);  
+            err = ftruncate(fde->fd, XTABLE_BITMAP_BYTES);
             if (err < 0) {
                 hvfs_err(mdsl, "ftruncate file to one slice failed w/ %d\n",
                          errno);
@@ -1072,6 +1073,8 @@ int mdsl_storage_fd_bitmap(struct fdhash_entry *fde, char *path)
             }
             {
                 u8 data = 0xff;
+                int bw = 0;
+                
                 do {
                     bw = pwrite(fde->fd, &data, 1, 0);
                     if (bw < 0) {
@@ -1118,7 +1121,7 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
     u64 offset = (u64)msa->arg;
     u64 new_offset;
     u64 snr;
-    int err = 0;
+    int err = 0, bl, bw;
     
     if (msa->iov) {
         /* we have trouble! */
@@ -1138,8 +1141,8 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         ASSERT(msa->iov_nr == 1, mdsl);
         bl = 0;
         do {
-            bw = pwrite(fde->fd, msa->iov.iov_base + bl,
-                        msa->iov.iov_len - bl, new_offset + bl);
+            bw = pwrite(fde->fd, msa->iov->iov_base + bl,
+                        msa->iov->iov_len - bl, new_offset + bl);
             if (bw < 0) {
                 hvfs_err(mdsl, "pwrite bitmap fd %d failed w/ %d\n",
                          fde->fd, errno);
@@ -1147,7 +1150,7 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
                 goto out;
             }
             bl += bw;
-        } while (bl < msa->iov.iov_len);
+        } while (bl < msa->iov->iov_len);
         xlock_unlock(&fde->bmmap.lock);
     } else {
         /* what a nice day! */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 19:46:25 macan>
+ * Time-stamp: <2010-04-14 15:37:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -279,14 +279,12 @@ static inline
 int __customized_send_reply(struct xnet_msg *msg, int err, u64 location)
 {
     struct xnet_msg *rpy;
-    int err = 0;
 
     /* Step 1: prepare the xnet_msg */
     rpy = xnet_alloc_msg(XNET_MSG_CACHE);
     if (!rpy) {
         hvfs_err(mdsl, "xnet_alloc_msg() failed.\n");
-        err = -ENOMEM;
-        goto out;
+        return -ENOMEM;
     }
 
     /* Step 2: construct the xnet_msg to send it to the destination */
@@ -301,10 +299,12 @@ int __customized_send_reply(struct xnet_msg *msg, int err, u64 location)
     xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
 #endif
 
-    if (xnet_sned(hmo.xc, rpy)) {
+    if (xnet_send(hmo.xc, rpy)) {
         hvfs_err(mdsl, "xnet_send() failed.\n");
     }
     xnet_free_msg(rpy);
+
+    return 0;
 }
 
 void mdsl_bitmap_commit(struct xnet_msg *msg)

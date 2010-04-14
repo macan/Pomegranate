@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-14 09:43:24 macan>
+ * Time-stamp: <2010-04-14 10:25:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -550,11 +550,29 @@ void mds_lb(struct hvfs_tx *tx)
         goto send_err_rpy;
     }
 
-    /* next, we should get the bc_entry */
-    /* FIXME: the offset should be aligned */
-    offset = tx->req->tx.arg1;
-    offset = (offset + XTABLE_BITMAP_SIZE - 1) & ~(XTABLE_BITMAP_SIZE - 1);    
     ASSERT(hi->uuid == tx->req->tx.arg0, mds);
+    /* the offset should be aligned */
+    offset = tx->req->tx.arg1;
+    offset = BITMAP_ROUNDUP(offset);
+
+    /* cut the bitmap to valid range */
+    err = mds_bc_dir_lookup(hi, &location, &size);
+    if (err) {
+        hvfs_err(mds, "bc_dir_lookup failed w/ %d\n", err);
+        goto send_err_rpy;
+    }
+
+    if (size == 0) {
+        /* this means that offset should be ZERO */
+        offset = 0;
+    } else {
+        /* Caution: we should cut the offset to the valid bitmap range
+         * by size! */
+        offset = mds_bitmap_cut(offset, size << 3);
+        offset = BITMAP_ROUNDUP(offset);
+    }
+    
+    /* next, we should get the bc_entry */
     be = mds_bc_get(hi->uuid, offset);
     if (IS_ERR(be)) {
         if (be == ERR_PTR(-ENOENT)) {
@@ -571,12 +589,7 @@ void mds_lb(struct hvfs_tx *tx)
             mds_bc_set(be, hi->uuid, offset);
 
             /* we should load the bitmap from mdsl */
-            err = mds_bc_dir_lookup(hi, &location, &size);
-            if (err) {
-                hvfs_err(mds, "bc_dir_lookup failed w/ %d\n", err);
-                goto send_err_rpy;
-            }
-
+    
             if (size == 0) {
                 /* this means that we should just return a new default bitmap
                  * slice */

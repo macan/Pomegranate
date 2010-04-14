@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 11:22:23 macan>
+ * Time-stamp: <2010-04-14 15:35:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -306,6 +306,7 @@ void mds_tx_chg2forget(struct hvfs_tx *);
 /* for txg.c: DRAFT */
 void txg_add_itb(struct hvfs_txg *, struct itb *);
 int txg_switch(struct hvfs_mds_info *, struct hvfs_mds_object *);
+void txg_free(struct hvfs_txg *);
 static inline void txg_get(struct hvfs_txg *t)
 {
     atomic64_inc(&t->tx_pending);
@@ -366,12 +367,16 @@ void mds_dump_itb(struct hvfs_tx *);
 void mds_ldh(struct xnet_msg *msg);
 void mds_ausplit(struct xnet_msg *msg);
 void mds_forward(struct xnet_msg *msg);
+void mds_aubitmap(struct xnet_msg *msg);
+void mds_aubitmap_r(struct xnet_msg *msg);
+void mds_m2m_lb(struct xnet_msg *msg);
 
 /* for async.c */
 int async_tp_init(void);
 void async_tp_destroy(void);
 void async_update_checking(time_t);
 void au_handle_split_sync(void);
+void async_aubitmap_cleanup(u64, u64);
 
 /* please do not move the follow section */
 /* SECTION BEGIN */

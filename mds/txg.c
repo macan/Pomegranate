@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 10:50:13 macan>
+ * Time-stamp: <2010-04-14 14:29:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,6 +49,32 @@ struct hvfs_txg *txg_alloc(void)
     INIT_LIST_HEAD(&t->ccb_list);
 
     return t;
+}
+
+void txg_free(struct hvfs_txg *t)
+{
+    struct bitmap_delta_buf *bdb, *bdbn;
+    struct hvfs_dir_delta_buf *ddb, *ddbn;
+    struct hvfs_rmds_ckpt_buf *ckpt, *ckptn;
+    
+    list_for_each_entry_safe(bdb, bdbn, &t->bdb, list) {
+        list_del(&bdb->list);
+        xfree(bdb);
+    }
+
+    list_for_each_entry_safe(ddb, ddbn, &t->ddb, list) {
+        list_del(&ddb->list);
+        xfree(ddb);
+    }
+
+    list_for_each_entry_safe(ckpt, ckptn, &t->ckpt, list) {
+        list_del(&ckpt->list);
+        xfree(ckpt);
+    }
+    /* dirty_list has been already freed */
+    /* ccb_list should be freed, this list is NULL :) */
+    
+    xfree(t);
 }
 
 #define TXG_SET_TIME(txg) ((txg)->open_time = time(NULL))
@@ -504,7 +530,28 @@ void *txg_commit(void *arg)
         mcond_destroy(&t->cond);
         /* trigger the commit callback on the TXs */
         txg_trigger_ccb(t);
-        xfree(t);
+        /* FIXME: I should add bitmap async update here! */
+#if 1
+        {
+            struct async_update_request *aur =
+                xzalloc(sizeof(struct async_update_request));
+
+            if (!aur) {
+                hvfs_err(mds, "xzalloc() AU request failed, data lossing.\n");
+            } else {
+                aur->op = AU_ITB_BITMAP;
+                aur->arg = (u64)t;
+                INIT_LIST_HEAD(&aur->list);
+                err = au_submit(aur);
+                if (err) {
+                    hvfs_err(mds, "submit AU request failed, data lossing.\n");
+                    xfree(aur);
+                }
+            }
+        }
+#else
+        txg_free(t);
+#endif
     retry:
         ;
     }

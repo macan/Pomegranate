@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 16:46:42 macan>
+ * Time-stamp: <2010-04-14 19:53:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,6 +42,8 @@ int mds_bitmap_cache_init(void)
 
     hmo.bc.hsize = hmo.conf.bc_hash_size;
     INIT_LIST_HEAD(&hmo.bc.lru);
+    INIT_LIST_HEAD(&hmo.bc.deltas);
+    xlock_init(&hmo.bc.delta_lock);
     xlock_init(&hmo.bc.lock);
 
     hmo.bc.bcht = xzalloc(hmo.bc.hsize * sizeof(struct regular_hash));
@@ -487,6 +489,7 @@ static inline
 int __customized_send_request(struct bc_commit *commit)
 {
     struct xnet_msg *msg;
+    struct hvfs_md_reply *hmr;
     int err = 0;
 
     /* Step 1: prepare the xnet_msg */
@@ -550,7 +553,7 @@ int __customized_send_request(struct bc_commit *commit)
         /* update the size and the offset in ITE */
         memset(mu, 0, sizeof(mu));
         mu->valid = MU_COLUMN | MU_SIZE;
-        mu->size = commit->core.size += XTABLE_SIZE_BYTE;
+        mu->size = commit->core.size += XTABLE_BITMAP_BYTES;
         mu->column_no = 1;
         mc = (void *)mu + sizeof(struct mdu_update);
         mc->cno = HVFS_GDT_BITMAP_COLUMN;
@@ -575,6 +578,7 @@ int __customized_send_request(struct bc_commit *commit)
         }
         hvfs_info(mds, "Got reply from MDSL and change bitmap to location 0x%lx\n",
                   msg->tx.arg0);
+        xfree(hmr);
     }
 
     xnet_free_msg(msg);
@@ -638,7 +642,7 @@ int mds_bc_backend_commit(void)
     LIST_HEAD(commit_list);
     struct bc_delta *pos, *n;
     struct bc_commit *x, *y, *bc;
-    struct dhe *e;
+    struct dhe *gdte;
     struct chp *p;
     struct hvfs_txg *txg;
     struct hvfs_md_reply *hmr;
@@ -650,7 +654,7 @@ int mds_bc_backend_commit(void)
     struct mdu *mdu;
     struct column *column;
     u64 size, location;
-    int err = 0, nr = 0;
+    int err = 0, nr = 0, deal = 0, error = 0;
 
     hi.psalt = hmi.gdt_salt;
 
@@ -669,12 +673,20 @@ int mds_bc_backend_commit(void)
     list_del_init(&hmo.bc.deltas);
     xlock_unlock(&hmo.bc.delta_lock);
 
+    gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+    if (IS_ERR(gdte)) {
+        /* fatal error */
+        hvfs_err(mds, "This is a fatal error, we can not find the GDT DHE.\n");
+        err = PTR_ERR(gdte);
+        goto out;
+    }
+
     list_for_each_entry_safe(pos, n, &deltas, list) {
         hi.uuid = pos->uuid;
         hi.hash = hvfs_hash_gdt(pos->uuid, hmi.gdt_salt);
         
         /* we should get and set the hi.itbid */
-        hi.itbid = pos->itbid;
+        hi.itbid = mds_get_itbid(gdte, hi.hash);
         
         /* actually we should confirm the itb is resident in this MDS,
          * however we know that the BC entry is on this MDS, so the itb
@@ -751,6 +763,7 @@ int mds_bc_backend_commit(void)
         }
         /* Step 2: prepare to write the deltas to the dsite */
         list_add(&bc->list, &commit_list);
+        deal++;
     }
 
     /* free hmr */
@@ -770,7 +783,12 @@ int mds_bc_backend_commit(void)
              * source site now */
             /* if the reply is failed to sent, we just wait for the ssite to
              * resend the request:) */
-            __customized_send_reply(x->delta);
+            if (x->delta->site_id == hmo.site_id) {
+                /* self shortcut */
+                async_aubitmap_cleanup(x->delta->uuid, x->delta->itbid);
+            } else {
+                __customized_send_reply(x->delta);
+            }
             /* free the resource */
             xfree(x->delta);
             mds_bc_commit_put(x);
@@ -783,7 +801,9 @@ int mds_bc_backend_commit(void)
         xlock_lock(&hmo.bc.delta_lock);
         list_add(&pos->list, &hmo.bc.deltas);
         xlock_unlock(&hmo.bc.delta_lock);
+        error++;
     }
+    hvfs_err(mds, "deal %d error %d\n", deal, error);
     
 out:
     return err;
@@ -792,6 +812,7 @@ out:
 void mds_bc_checking(time_t t)
 {
     static time_t last_time = 0;
+    int err = 0;
     
     if (!hmo.conf.bitmap_cache_interval)
         return;
@@ -800,7 +821,7 @@ void mds_bc_checking(time_t t)
     if (t < last_time + hmo.conf.bitmap_cache_interval) {
         return;
     }
-    last_time = t ;
+    last_time = t;
 
     /* check if we should do backend commit */
     if (list_empty(&hmo.bc.deltas)) {
