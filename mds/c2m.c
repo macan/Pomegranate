@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-13 20:19:35 macan>
+ * Time-stamp: <2010-04-14 09:43:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -600,13 +600,13 @@ void mds_lb(struct hvfs_tx *tx)
             }
             /* we need to send the reply w/ the bitmap data */
             ibmap.offset = be->offset;
-            ibmap.flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_SIZE / 8) ? 0 :
+            ibmap.flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_BYTES) ? 0 :
                           BITMAP_END);
             ibmap.ts = time(NULL);
             iov[0].iov_base = &ibmap;
             iov[0].iov_len = sizeof(struct ibmap);
             iov[1].iov_base = be->array;
-            iov[1].iov_len = XTABLE_BITMAP_SIZE / 8;
+            iov[1].iov_len = XTABLE_BITMAP_BYTES;
             __customized_send_reply(tx->req, iov, 2);
 
             mds_bc_put(be);
@@ -620,13 +620,13 @@ void mds_lb(struct hvfs_tx *tx)
         struct iovec iov[2];
 
         ibmap.offset = be->offset;
-        ibmap.flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_SIZE / 8) ? 0 :
+        ibmap.flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_BYTES) ? 0 :
                       BITMAP_END);
         ibmap.ts = time(NULL);
         iov[0].iov_base = &ibmap;
         iov[0].iov_len = sizeof(struct ibmap);
         iov[1].iov_base = be->array;
-        iov[1].iov_len = XTABLE_BITMAP_SIZE / 8;
+        iov[1].iov_len = XTABLE_BITMAP_BYTES;
         __customized_send_reply(tx->req, iov, 2);
         
         mds_bc_put(be);
