@@ -1,0 +1,13 @@
+How To do Test?
+
+1. client
+
+time type=1 thread=20 op=100 entry=2000000 test/xnet/ausplit.ut 0
+
+2. mds
+
+hvfs_mds_opt_memlimit=0 hvfs_mds_memlimit=1072896010 hvfs_mds_txg_interval=30 hvfs_mds_opt_memonly=0 type=0 cache=0 test/xnet/ausplit.ut 0
+
+3. mdsl
+
+hvfs_mdsl_prof_plot=1 hvfs_mdsl_opt_write_drop=0 test/xnet/mdsl.ut 0
