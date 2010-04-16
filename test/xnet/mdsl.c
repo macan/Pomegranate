@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 19:33:25 macan>
+ * Time-stamp: <2010-04-16 16:38:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -146,6 +146,7 @@ int main(int argc, char *argv[])
     };
     int err = 0;
     int self, sport, i, j;
+    char *value;
     char profiling_fname[256];
 
     hvfs_info(xnet, "MDSL Unit Testing...\n");
@@ -206,7 +207,7 @@ int main(int argc, char *argv[])
     hvfs_info(xnet, "Select root salt to %lx\n", hmi.root_salt);
 
     ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
-    ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDSL(1));
+    ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(1));
     ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(0));
     ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(1));
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 16:09:57 macan>
+ * Time-stamp: <2010-04-16 16:38:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,24 +23,118 @@
 
 #include "hvfs.h"
 #include "xnet.h"
+#include "ring.h"
+#include "lib.h"
 #include "mds.h"
 
 #ifdef UNIT_TEST
-char *ipaddr1[] = {
-    "10.10.111.9",
+#define TYPE_MDS        0
+#define TYPE_CLIENT     1
+#define TYPE_MDSL       2
+#define TYPE_RING       3
+
+char *ipaddr[] = {
+    "10.10.111.9",              /* mds */
+    "10.10.111.9",              /* client */
+    "10.10.111.9",              /* mdsl */
+    "10.10.111.9",              /* ring */
 };
 
-char *ipaddr2[] = {
-    "10.10.111.9",
+short port[4][4] = {
+    {8210, 8211, 8212, 8213,},  /* mds */
+    {8412, 8413, 8414, 8415,},  /* client */
+    {8810, 8811, 8812, 8813,},  /* mdsl */
+    {8710, 8711, 8712, 8713,},  /* ring */
 };
 
-short port1[] = {
-    8412,
-};
+#define HVFS_TYPE(type, idx) ({                 \
+            u64 __sid = -1UL;                   \
+            switch (type){                      \
+            case TYPE_MDS:                      \
+                __sid = HVFS_MDS(idx);          \
+                break;                          \
+            case TYPE_CLIENT:                   \
+                __sid = HVFS_CLIENT(idx);       \
+                break;                          \
+            case TYPE_MDSL:                     \
+                __sid = HVFS_MDSL(idx);         \
+                break;                          \
+            case TYPE_RING:                     \
+                __sid = HVFS_RING(idx);         \
+                break;                          \
+            default:;                           \
+            }                                   \
+            __sid;                              \
+        })
 
-short port2[] = {
-    8210,
-};
+static inline
+u64 HVFS_TYPE_SEL(int type, int id)
+{
+    u64 site_id = -1UL;
+
+    switch (type) {
+    case TYPE_MDS:
+        site_id = HVFS_MDS(id);
+        break;
+    case TYPE_CLIENT:
+        site_id = HVFS_CLIENT(id);
+        break;
+    case TYPE_MDSL:
+        site_id = HVFS_MDSL(id);
+    case TYPE_RING:
+        site_id = HVFS_RING(id);
+    default:;
+    }
+
+    return site_id;
+}
+
+int msg_wait()
+{
+    while (1) {
+        xnet_wait_any(hmo.xc);
+    }
+    return 0;
+}
+
+/* ring_add() add one site to the CH ring
+ */
+int ring_add(struct chring **r, u64 site)
+{
+    struct chp *p;
+    char buf[256];
+    int vid_max, i, err;
+
+    vid_max = hmo.conf.ring_vid_max ? hmo.conf.ring_vid_max : HVFS_RING_VID_MAX;
+
+    if (!*r) {
+        *r = ring_alloc(vid_max << 1, 0);
+        if (!*r) {
+            hvfs_err(xnet, "ring_alloc() failed.\n");
+            return -ENOMEM;
+        }
+    }
+
+    p = (struct chp *)xzalloc(vid_max * sizeof(struct chp));
+    if (!p) {
+        hvfs_err(xnet, "xzalloc() chp failed\n");
+        return -ENOMEM;
+    }
+
+    for (i = 0; i < vid_max; i++) {
+        snprintf(buf, 256, "%ld.%d", site, i);
+        (p + i)->point = hvfs_hash(site, (u64)buf, strlen(buf), HASH_SEL_VSITE);
+        (p + i)->vid = i;
+        (p + i)->type = CHP_AUTO;
+        (p + i)->site_id = site;
+        err = ring_add_point(p + i, *r);
+        if (err) {
+            hvfs_err(xnet, "ring_add_point() failed.\n");
+            return err;
+        }
+    }
+    return 0;
+}
 
 void hmr_print(struct hvfs_md_reply *hmr)
 {
@@ -442,62 +536,194 @@ int msg_send(int dsite, int loop)
     return 0;
 }
 
-int msg_wait(int dsite)
+int dh_insert(u64 uuid, u64 puuid, u64 ssalt)
 {
-    while (1) {
-        xnet_wait_any(hmo.xc);
+    struct hvfs_index hi;
+    struct dhe *e;
+    int err = 0;
+
+    memset(&hi, 0, sizeof(hi));
+    hi.uuid = uuid;
+    hi.puuid = puuid;
+    hi.ssalt = ssalt;
+
+    e = mds_dh_insert(&hmo.dh, &hi);
+    if (IS_ERR(e)) {
+        hvfs_err(xnet, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
+        goto out;
     }
-    return 0;
+    hvfs_debug(xnet, "Insert dir:%lx in DH w/  %p\n", uuid, e);
+out:
+    return err;
+}
+
+int dh_search(u64 uuid)
+{
+    struct dhe *e;
+    int err = 0;
+
+    e = mds_dh_search(&hmo.dh, uuid);
+    if (IS_ERR(e)) {
+        hvfs_err(xnet, "mds_dh_search() failed %ld\n", PTR_ERR(e));
+        err = PTR_ERR(e);
+        goto out;
+    }
+    hvfs_debug(xnet, "Search dir:%lx in DH hit %p\n", uuid, e);
+out:
+    return err;
+}
+
+int dh_remove(u64 uuid)
+{
+    return mds_dh_remove(&hmo.dh, uuid);
+}
+
+int bitmap_insert(u64 uuid, u64 offset)
+{
+    struct dhe *e;
+    struct itbitmap *b;
+    int err = 0, i;
+
+    b = xzalloc(sizeof(*b));
+    if (!b) {
+        hvfs_err(xnet, "xzalloc() struct itbitmap failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    INIT_LIST_HEAD(&b->list);
+    b->offset = (offset / XTABLE_BITMAP_SIZE) * XTABLE_BITMAP_SIZE;
+    b->flag = BITMAP_END;
+    /* set all bits to 1, within the previous 8 ITBs */
+    for (i = 0; i < ((1 << hmo.conf.itb_depth_default) / 8); i++) {
+        b->array[i] = 0xff;
+    }
+
+    e = mds_dh_search(&hmo.dh, uuid);
+    if (IS_ERR(e)) {
+        hvfs_err(xnet, "mds_dh_search() failed %ld\n", PTR_ERR(e));
+        err = PTR_ERR(e);
+        goto out_free;
+    }
+    err = __mds_bitmap_insert(e, b);
+    if (err) {
+        hvfs_err(xnet, "__mds_bitmap_insert() failed %d\n", err);
+        goto out_free;
+    }
+
+out:
+    return err;
+out_free:
+    xfree(b);
+    return err;
+}
+
+void *__mds_buf_alloc(size_t size, int aflag)
+{
+    if (unlikely(aflag == HVFS_MDS2MDS_SPITB) ||
+        unlikely(aflag == XNET_RPY_DATA_ITB)) {
+        /* alloc the whole ITB */
+        return get_free_itb_fast();
+    } else {
+        return xzalloc(size);
+    }
 }
 
 int main(int argc, char *argv[])
 {
     struct xnet_type_ops ops = {
-        .buf_alloc = NULL,
+        .buf_alloc = __mds_buf_alloc,
         .buf_free = NULL,
-        .recv_handler = mds_client_dispatch,
+        .recv_handler = mds_spool_dispatch,
+        .dispatcher = mds_fe_dispatch,
     };
     int err = 0;
-    int dsite, self;
-    short port;
+    int self, sport, i, j;
+    int memonly, memlimit;
+    char *value;
+    char profiling_fname[256];
     
-    if (argc == 2) {
-        /* Server Mode */
-        port = 8210;
-        dsite = HVFS_CLIENT(0);
-        self = HVFS_MDS(0);
+    hvfs_info(xnet, "MDS Unit Testing...\n");
+
+    if (argc < 2) {
+        hvfs_err(xnet, "Self ID is not provided.\n");
+        err = EINVAL;
+        goto out;
     } else {
-        /* Client Mode */
-        port = 8412;
-        dsite = HVFS_MDS(0);
-        self = HVFS_CLIENT(0);
+        self = atoi(argv[1]);
+        hvfs_info(xnet, "Self type+ID is mds:%d.\n", self);
     }
-    
-    hvfs_info(xnet, "MDS w/ XNET Simple UNIT TESTing Mode(%s)...\n",
-              (HVFS_IS_MDS(self) ? "Server" : "Client"));
+
+    value = getenv("memonly");
+    if (value) {
+        memonly = atoi(value);
+    } else
+        memonly = 1;
+
+    value = getenv("memlimit");
+    if (value) {
+        memlimit = atoi(value);
+    } else
+        memlimit = 0;
 
     st_init();
     mds_pre_init();
-    mds_init(10);
     hmo.prof.xnet = &g_xnet_prof;
+    hmo.conf.itbid_check = 1;
+    hmo.conf.prof_plot = 1;
+    mds_init(10);
 
-    hmo.xc = xnet_register_type(0, port, self, &ops);
+    for (i = 0; i < 4; i++) {
+        for (j = 0; j < 4; j++) {
+            xnet_update_ipaddr(HVFS_TYPE(i, j), 1, &ipaddr[i],
+                               (short *)(&port[i][j]));
+        }
+    }
+
+    /* setup the profiling file */
+    memset(profiling_fname, 0, sizeof(profiling_fname));
+    sprintf(profiling_fname, "./CP-BACK-mds.%d", self);
+    hmo.conf.pf_file = fopen(profiling_fname, "w+");
+    if (!hmo.conf.pf_file) {
+        hvfs_err(xnet, "fopen() profiling file %s faield %d\n",
+                 profiling_fname, errno);
+        return EINVAL;
+    }
+
+    sport = port[TYPE_MDS][self];
+    self = HVFS_MDS(self);
+
+    hmo.xc = xnet_register_type(0, sport, self, &ops);
     if (IS_ERR(hmo.xc)) {
         err = PTR_ERR(hmo.xc);
         goto out;
     }
     hmo.site_id = self;
+    mds_verify();
+    hmi.gdt_salt = 0;
+    hvfs_info(xnet, "Select GDT salt to %lx\n", hmi.gdt_salt);
+    hmi.root_uuid = 1;
+    hmi.root_salt = 0xdfeadb0;
+    hvfs_info(xnet, "Select root salt to %lx\n", hmi.root_salt);
 
-    xnet_update_ipaddr(HVFS_CLIENT(0), 1, ipaddr1, port1);
-    xnet_update_ipaddr(HVFS_MDS(0), 1, ipaddr2, port2);
+    ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
+    ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(1));
+    ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(0));
+    ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(1));
+
+    /* insert the GDT DH */
+    dh_insert(hmi.gdt_uuid, hmi.gdt_uuid, hmi.gdt_salt);
+    bitmap_insert(0, 0);
+
+    err = mds_verify();
+    if (err) {
+        hvfs_err(xnet, "Verify MDS configration failed!\n");
+        goto out;
+    }
 
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
 //    SET_TRACING_FLAG(mds, HVFS_DEBUG);
 
-    if (HVFS_IS_CLIENT(self))
-        msg_send(dsite, 100000);
-    else
-        msg_wait(dsite);
+    msg_wait();
 
     xnet_unregister_type(hmo.xc);
 out:

@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-04-04 16:47:33 macan>
+# Time-stamp: <2010-04-16 16:12:38 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -47,7 +47,7 @@ LFLAGS += -lrt -lpthread
 TEST_MDS_SOURCE = cbht.c tx.c dh.c cmd_sender.c misc.c itbsplit.c \
                   itb_analyzer.c bitmapc.c
 TEST_MDSL_SOURCE = mdsl.c storage.c
-TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c
+TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c client.c
 MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \
 				dispatch.c c2m.c fe.c async.c m2m.c spool.c bitmapc.c
 MDSL_AR_SOURCE = mdsl.c spool.c tcc.c dispatch.c m2ml.c prof.c storage.c \
