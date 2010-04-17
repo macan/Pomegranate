@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-14 19:53:50 macan>
+ * Time-stamp: <2010-04-17 20:15:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -365,8 +365,8 @@ int mds_bc_dir_lookup(struct hvfs_index *hi, u64 *location, u64 *size)
     struct column *column;
     int nr = 0, err = 0;
     
-    hvfs_debug(mds, "BC LOOKUP %ld %ld %lx\n",
-               hi->puuid, hi->itbid, hi->hash);
+    hvfs_debug(mds, "BC LOOKUP %ld %ld %lx %lx\n",
+               hi->puuid, hi->itbid, hi->hash, hi->uuid);
     /* alloc hmr */
     hmr = get_hmr();
     if (!hmr) {
@@ -432,6 +432,9 @@ int mds_bc_backend_load(struct bc_entry *be, u64 itbid, u64 location)
     struct chp *p;
     int err = 0;
 
+    if (unlikely(hmo.conf.option & HVFS_MDS_MEMONLY))
+        return -EINVAL;
+
     /* Step 1: find the target mdsl site */
     p = ring_get_point(itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDSL]);
     if (IS_ERR(p)) {
@@ -447,6 +450,9 @@ int mds_bc_backend_load(struct bc_entry *be, u64 itbid, u64 location)
         err = -ENOMEM;
         goto out;
     }
+
+    hvfs_err(mds, "Load bitmap %ld %ld %ld %ld\n", 
+             be->uuid, itbid, location, be->offset);
 
     /* Step 3: construct the xnet_msg to send it to the destination */
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
@@ -466,6 +472,12 @@ int mds_bc_backend_load(struct bc_entry *be, u64 itbid, u64 location)
 
     /* we got the reply now */
     ASSERT(msg->pair, mds);
+    if (msg->pair->tx.err) {
+        err = msg->pair->tx.err;
+        hvfs_err(mds, "Load bitmap from %lx failed w/ %d\n", p->site_id, err);
+        goto out_free;
+    }
+
     if (msg->pair->xm_datacheck) {
         memcpy(be->array, msg->pair->xm_data, msg->pair->tx.len);
     } else {
@@ -475,6 +487,7 @@ int mds_bc_backend_load(struct bc_entry *be, u64 itbid, u64 location)
         goto out_free_msg;
     }
 
+out_free:
     xnet_free_msg(msg);
     
     return err;
@@ -522,7 +535,7 @@ int __customized_send_request(struct bc_commit *commit)
     err = msg->pair->tx.err;
     /* if the errno is zero, and bcc->core.size is not -1UL, we should got and
      * update the new file location */
-    if (!err && commit->core.size == -1UL) {
+    if (!err && commit->core.size != -1UL) {
         struct hvfs_txg *txg;
         struct hvfs_index hi = {
             .flag = INDEX_MDU_UPDATE | INDEX_BY_UUID,
@@ -554,6 +567,7 @@ int __customized_send_request(struct bc_commit *commit)
         memset(mu, 0, sizeof(mu));
         mu->valid = MU_COLUMN | MU_SIZE;
         mu->size = commit->core.size += XTABLE_BITMAP_BYTES;
+        ASSERT(mu->size == msg->tx.arg1, mds);
         mu->column_no = 1;
         mc = (void *)mu + sizeof(struct mdu_update);
         mc->cno = HVFS_GDT_BITMAP_COLUMN;
@@ -641,7 +655,7 @@ int mds_bc_backend_commit(void)
     LIST_HEAD(errlist);
     LIST_HEAD(commit_list);
     struct bc_delta *pos, *n;
-    struct bc_commit *x, *y, *bc;
+    struct bc_commit *bc;
     struct dhe *gdte;
     struct chp *p;
     struct hvfs_txg *txg;
@@ -752,6 +766,9 @@ int mds_bc_backend_commit(void)
         bc->delta = pos;
         list_del_init(&pos->list);
 
+        hvfs_err(mds, "Construct BCC %ld %ld location %ld size %ld\n", 
+                 pos->uuid, pos->itbid, location, size);
+
         /* Step 1: find if we need to enlarge the bitmap region */
         if (pos->itbid >= (size << 3)) {
             /* we need to enlarge the bitmap region */
@@ -761,39 +778,32 @@ int mds_bc_backend_commit(void)
              * -1UL to indicate just a bit change in the data region */
             bc->core.size = -1UL;
         }
+
         /* Step 2: prepare to write the deltas to the dsite */
-        list_add(&bc->list, &commit_list);
-        deal++;
+        err = __customized_send_request(bc);
+        if (err) {
+            hvfs_err(mds, "send bitmap commit request to MDS %lx failed w/ %d.\n",
+                     bc->dsite_id, err);
+            list_add(&bc->delta->list, &errlist);
+        } else {
+            /* before freeing the bc->delta, we should send the reply to the
+             * source site now */
+            /* if the reply is failed to sent, we just wait for the ssite to
+             * resend the request:) */
+            if (bc->delta->site_id == hmo.site_id) {
+                /* self shortcut */
+                async_aubitmap_cleanup(bc->delta->uuid, bc->delta->itbid);
+            } else {
+                __customized_send_reply(bc->delta);
+            }
+            /* free the resource */
+            xfree(bc->delta);
+        }
+        mds_bc_commit_put(bc);
     }
 
     /* free hmr */
     xfree(hmr);
-
-    /* checking the commit_list and send the request to MDSL */
-    list_for_each_entry_safe(x, y, &commit_list, list) {
-        list_del(&x->list);
-        /* try to send it */
-        err = __customized_send_request(x);
-        if (err) {
-            hvfs_err(mds, "send bitmap commit request to MDS %lx failed w/ %d.\n",
-                     x->dsite_id, err);
-            list_add(&x->delta->list, &errlist);
-        } else {
-            /* before freeing the x->delta, we should send the reply to the
-             * source site now */
-            /* if the reply is failed to sent, we just wait for the ssite to
-             * resend the request:) */
-            if (x->delta->site_id == hmo.site_id) {
-                /* self shortcut */
-                async_aubitmap_cleanup(x->delta->uuid, x->delta->itbid);
-            } else {
-                __customized_send_reply(x->delta);
-            }
-            /* free the resource */
-            xfree(x->delta);
-            mds_bc_commit_put(x);
-        }
-    }
 
     /* checking the errlist to re-insert to hmo.bc.deltas */
     list_for_each_entry_safe(pos, n, &errlist, list) {

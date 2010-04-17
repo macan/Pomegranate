@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-28 15:38:39 macan>
+ * Time-stamp: <2010-04-17 15:26:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -150,7 +150,7 @@ int mds_dh_remove(struct dh *dh, u64 uuid)
  */
 struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
 {
-    struct hvfs_md_reply *hmr;
+    struct hvfs_md_reply *hmr = NULL;
     struct hvfs_index thi, *rhi;
     struct xnet_msg *msg;
     struct chp *p;
@@ -177,6 +177,8 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     /* prepare the hvfs_index */
     memset(&thi, 0, sizeof(thi));
     thi.flag = INDEX_BY_UUID;
+    thi.puuid = hmi.gdt_uuid;
+    thi.psalt = hmi.gdt_salt;
     thi.uuid = duuid;
     thi.hash = hvfs_hash(duuid, hmi.gdt_salt, 0, HASH_SEL_GDT);
 
@@ -198,42 +200,68 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         e = ERR_PTR(-ECHP);
         goto out_free;
     }
-    hvfs_err(mds, "Load DH: itbid %ld, site %lx\n", thi.itbid, p->site_id);
-    /* prepare the msg */
-    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.xc->site_id, 
-                     p->site_id);
-    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_LD, duuid, 0);
-#ifdef XNET_EAGER_WRITEV
-    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
-#endif
-    xnet_msg_add_sdata(msg, &thi, sizeof(thi));
+    if (p->site_id == hmo.site_id) {
+        struct hvfs_txg *txg;
+        
+        hvfs_err(mds, "Load DH (self): itbid %ld, site %lx\n", thi.itbid, p->site_id);
+        /* the GDT service MDS server is myself, so we just lookup the entry
+         * in my CBHT. */
+        hmr = get_hmr();
+        if (!hmr) {
+            hvfs_err(mds, "get_hmr() failed\n");
+            goto out_free;
+        }
+        
+        thi.flag |= INDEX_LOOKUP;
+        txg = mds_get_open_txg(&hmo);
+        err = mds_cbht_search(&thi, hmr, txg, &txg);
+        txg_put(txg);
 
-send_msg:
-    err = xnet_send(hmo.xc, msg);
-    if (err) {
-        hvfs_err(mds, "xnet_send() failed with %d\n", err);
-        e = ERR_PTR(err);
-        goto out_free;
-    }
-    /* ok, we get the reply: have the mdu in the reply msg */
-    ASSERT(msg->pair, mds);
-    hmr = (struct hvfs_md_reply *)(msg->pair->xm_data);
-    if (!hmr || hmr->err) {
-        hvfs_err(mds, "dh_load request failed %d\n", !hmr ? -ENOTEXIST : 
-                 hmr->err);
-        e = !hmr ? ERR_PTR(-ENOTEXIST) : ERR_PTR(hmr->err);
-        goto out_free;
-    }
-    rhi = hmr_extract(hmr, EXTRACT_HI, &no);
-    if (!rhi) {
-        hvfs_err(mds, "hmr_extract MDU failed, not found this subregion.\n");
-        goto out_free;
-    }
-    /* key, we got the mdu, let us insert it to the dh table */
-    e = mds_dh_insert(dh, rhi);
-    if (IS_ERR(e)) {
-        hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
-        goto out_free;
+        e = mds_dh_insert(dh, &thi);
+        if (IS_ERR(e)) {
+            hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
+        }
+        xfree(hmr);
+    } else {
+        /* ok, we should send the request to the remote site now */
+        hvfs_err(mds, "Load DH (remote): itbid %ld, site %lx\n", thi.itbid, p->site_id);
+
+        /* prepare the msg */
+        xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.xc->site_id, 
+                         p->site_id);
+        xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_LD, duuid, 0);
+#ifdef XNET_EAGER_WRITEV
+        xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+        xnet_msg_add_sdata(msg, &thi, sizeof(thi));
+        
+    send_msg:
+        err = xnet_send(hmo.xc, msg);
+        if (err) {
+            hvfs_err(mds, "xnet_send() failed with %d\n", err);
+            e = ERR_PTR(err);
+            goto out_free;
+        }
+        /* ok, we get the reply: have the mdu in the reply msg */
+        ASSERT(msg->pair, mds);
+        hmr = (struct hvfs_md_reply *)(msg->pair->xm_data);
+        if (!hmr || hmr->err) {
+            hvfs_err(mds, "dh_load request failed %d\n", !hmr ? -ENOTEXIST : 
+                     hmr->err);
+            e = !hmr ? ERR_PTR(-ENOTEXIST) : ERR_PTR(hmr->err);
+            goto out_free;
+        }
+        rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(mds, "hmr_extract MDU failed, not found this subregion.\n");
+            goto out_free;
+        }
+        /* key, we got the mdu, let us insert it to the dh table */
+        e = mds_dh_insert(dh, rhi);
+        if (IS_ERR(e)) {
+            hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
+            goto out_free;
+        }
     }
     
 out_free:
@@ -261,6 +289,7 @@ struct dhe *mds_dh_search(struct dh *dh, u64 duuid)
     i = mds_dh_hash(duuid);
     rh = dh->ht + i;
 
+retry:
     xlock_lock(&rh->lock);
     hlist_for_each_entry(e, l, &rh->h, hlist) {
         if (e->uuid == duuid) {
@@ -274,7 +303,11 @@ struct dhe *mds_dh_search(struct dh *dh, u64 duuid)
         /* Hoo, we have not found the directory. We need to request the
          * directory information from the GDT server */
         e = mds_dh_load(dh, duuid);
-        if (IS_ERR(e)) {
+        if (e == ERR_PTR(-EEXIST)) {
+            /* this means the entry is load by another thread, it is ok to
+             * research in the cache */
+            goto retry;
+        } else if (IS_ERR(e)) {
             hvfs_err(mds, "Hoo, loading DH %ld failed\n", duuid);
             goto out;
         }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-14 18:45:11 macan>
+ * Time-stamp: <2010-04-17 13:26:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -77,6 +77,9 @@ int mds_client_dispatch(struct xnet_msg *msg)
         break;
     case HVFS_CLT2MDS_DITB:
         mds_dump_itb(tx);
+        break;
+    case HVFS_CLT2MDS_LD:
+        mds_c2m_ldh(tx);
         break;
     default:
         hvfs_err(mds, "Invalid client2MDS command: 0x%lx\n", msg->tx.cmd);

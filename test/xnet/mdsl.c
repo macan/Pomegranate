@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-16 16:38:29 macan>
+ * Time-stamp: <2010-04-17 11:32:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -146,7 +146,6 @@ int main(int argc, char *argv[])
     };
     int err = 0;
     int self, sport, i, j;
-    char *value;
     char profiling_fname[256];
 
     hvfs_info(xnet, "MDSL Unit Testing...\n");

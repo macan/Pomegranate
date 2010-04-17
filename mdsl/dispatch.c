@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 16:13:04 macan>
+ * Time-stamp: <2010-04-17 16:17:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,6 +40,9 @@ int mdsl_mds_dispatch(struct xnet_msg *msg)
         break;
     case HVFS_MDS2MDSL_WDATA:
         mdsl_wdata(msg);
+        break;
+    case HVFS_MDS2MDSL_BTCOMMIT:
+        mdsl_bitmap_commit(msg);
         break;
     default:
         hvfs_err(mdsl, "Invalid mds2mdsl command: 0x%lx\n", msg->tx.cmd);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-14 15:43:43 macan>
+ * Time-stamp: <2010-04-17 20:56:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1204,9 +1204,10 @@ int __bitmap_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
                 hvfs_err(mdsl, "pread failed w/ %d\n", errno);
                 err = -errno;
                 goto out;
-            } else if (br == 0) {
+            } else if (br == 0 && bl > 0) {
                 hvfs_err(mdsl, "reach EOF.\n");
                 err = -EINVAL;
+                goto out;
             }
             bl += br;
         } while (bl < (msa->iov + i)->iov_len);

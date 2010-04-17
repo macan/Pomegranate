@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-14 10:25:07 macan>
+ * Time-stamp: <2010-04-17 13:27:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -689,4 +689,14 @@ void mds_dump_itb(struct hvfs_tx *tx)
 out:
     mds_tx_done(tx);
     return;
+}
+
+void mds_c2m_ldh(struct hvfs_tx *tx)
+{
+    struct xnet_msg *msg = tx->req;
+
+    /* call the m2m API here */
+    mds_ldh(msg);
+
+    mds_tx_done(tx);
 }

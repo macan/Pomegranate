@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 16:11:17 macan>
+ * Time-stamp: <2010-04-17 15:32:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -162,6 +162,12 @@ int mds_fe_dispatch(struct xnet_msg *msg)
         struct hvfs_tx *tx;
         struct chp *p;
         struct dhe *e;
+
+        /* fast path for proxy load bitmap */
+        if (unlikely(msg->tx.cmd & HVFS_CLT2MDS_LB_PROXY)) {
+            mds_m2m_lb(msg);
+            return 0;
+        }
 
         /* sanity checking */
         if (likely(msg->xm_datacheck))

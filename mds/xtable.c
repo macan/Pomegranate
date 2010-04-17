@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-14 14:37:12 macan>
+ * Time-stamp: <2010-04-17 15:36:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -286,7 +286,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
     int err;
     
     /* round up offset */
-    offset = (offset + XTABLE_BITMAP_SIZE - 1) & ~(XTABLE_BITMAP_SIZE - 1);
+    offset = BITMAP_ROUNDUP(offset);
 
     msg = xnet_alloc_msg(XNET_MSG_CACHE);
     if (!msg) {

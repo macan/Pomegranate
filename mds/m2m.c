@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-14 18:46:43 macan>
+ * Time-stamp: <2010-04-17 15:41:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -435,6 +435,7 @@ void mds_m2m_lb(struct xnet_msg *msg)
     }
     
     memset(&hi, 0, sizeof(hi));
+    hi.flag = INDEX_BY_UUID;
     hi.uuid = msg->tx.arg0;
     hi.puuid = hmi.gdt_uuid;
     hi.psalt = hmi.gdt_salt;

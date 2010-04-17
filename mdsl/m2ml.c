@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-14 15:37:41 macan>
+ * Time-stamp: <2010-04-17 21:00:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -276,7 +276,8 @@ out:
 }
 
 static inline
-int __customized_send_reply(struct xnet_msg *msg, int err, u64 location)
+int __customized_send_reply(struct xnet_msg *msg, int err, u64 location, 
+                            u64 size)
 {
     struct xnet_msg *rpy;
 
@@ -292,7 +293,7 @@ int __customized_send_reply(struct xnet_msg *msg, int err, u64 location)
     xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0,
                      hmo.site_id, msg->tx.ssite_id);
     xnet_msg_fill_reqno(rpy, msg->tx.reqno);
-    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, location, 0);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, location, size);
     /* match the original request at the source site */
     rpy->tx.handle = msg->tx.handle;
 #ifdef XNET_EAGER_WRITEV
@@ -314,6 +315,7 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
     struct bc_commit_core *bcc;
     size_t len;
     u64 location = -1UL;
+    u64 size = 0;
     int err = 0;
 
     len = msg->tx.len;
@@ -321,6 +323,9 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
         bcc = msg->xm_data;
     else
         goto out;
+
+    hvfs_err(mdsl, "Recv bitmap commit request on %ld %ld\n", 
+             bcc->uuid, bcc->itbid);
 
     /* the uuid/itbid/location is in the bcc */
     /* Step 1: open the GDT dir/data-default file */
@@ -368,6 +373,7 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
             goto out_reply;
         }
 
+        hvfs_err(mdsl, "fd_read success\n");
         /* if bcc->size is ZERO, it means that we are writing the first bitmap
          * slice, we should set the default bits */
         memset(data, 0xff, (1 << hmi.itb_depth) >> 3);
@@ -376,6 +382,7 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
          * cost */
         /* Next, we will write the region to disk plus a new slice */
         iov.iov_len += fde->bmmap.len;
+        size = iov.iov_len;
         msa.arg = &location;
         err = mdsl_storage_fd_write(fde, &msa);
         if (err) {
@@ -400,7 +407,7 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
 
     /* We need to send the reply here! reply w/ the errno and new location! */
 out_reply:
-    __customized_send_reply(msg, err, location);
+    __customized_send_reply(msg, err, location, size);
     
 out:
     return;

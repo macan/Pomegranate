@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-14 10:23:36 macan>
+ * Time-stamp: <2010-04-17 15:30:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -51,6 +51,12 @@
 #define HVFS_CLT2MDS_UNLINK     0x8040000000000000
 #define HVFS_CLT2MDS_SYMLINK    0x8080000000000000
 #define HVFS_CLT2MDS_LB         0x8100000000000000 /* load bitmap */
+#define HVFS_CLT2MDS_LB_PROXY   (HVFS_MDS2MDS_LB)  /* proxy for MDS2MDS request */
+#define HVFS_CLT2MDS_LD         0x8200000000000000 /* Note that, this is just
+                                                    * a shadow ldh usage in
+                                                    * client, you should not
+                                                    * rely on this
+                                                    * interface */
 
 #define HVFS_CLT2MDS_DITB       0x8000000100000000 /* dump itb */
 #define HVFS_CLT2MDS_DEBUG      (HVFS_CLT2MDS_DITB)
@@ -60,7 +66,8 @@
         ~HVFS_CLT2MDS_BASE)
 #define HVFS_CLT2MDS_NOCACHE (                              \
         (HVFS_CLT2MDS_LOOKUP | HVFS_CLT2MDS_NODHLOOKUP |    \
-         HVFS_CLT2MDS_LB | HVFS_CLT2MDS_DEBUG) &            \
+         HVFS_CLT2MDS_LB | HVFS_CLT2MDS_DEBUG |             \
+         HVFS_CLT2MDS_LD) &                                 \
         ~HVFS_CLT2MDS_BASE)
 #define HVFS_CLT2MDS_RDONLY     (HVFS_CLT2MDS_NOCACHE)
 
@@ -70,7 +77,7 @@
 #define HVFS_MDS2MDS_AUPDATE    0x0000000080000002 /* async update */
 #define HVFS_MDS2MDS_REDODELTA  0x0000000080000003 /* redo delta */
 #define HVFS_MDS2MDS_LB         0x0000000080000004 /* load bitmap */
-#define HVFS_MDS2MDS_LD         0x0000000080000005 /* load directory hash
+#define HVFS_MDS2MDS_LD         (HVFS_CLT2MDS_LD)  /* load directory hash
                                                     * info */
 #define HVFS_MDS2MDS_AUBITMAP   0x0000000080000006 /* async bitmap flip */
 #define HVFS_MDS2MDS_AUBITMAP_R 0x0000000080000007 /* async bitmap flip confirm */
