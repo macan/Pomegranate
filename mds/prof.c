@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-12 19:52:30 macan>
+ * Time-stamp: <2010-04-18 22:18:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -103,7 +103,8 @@ void dump_profiling_human(time_t t)
               atomic64_read(&hmo.prof.cbht.buckets),
               HVFS_COLOR_END, 
               atomic64_read(&hmo.prof.cbht.depth));
-    hvfs_info(mds, "%16ld |  ITB Prof: active %ld, cowed %ld, async_unlink %ld, "
+    hvfs_info(mds, "%16ld |  ITB Prof: active %ld, cowed %ld, "
+              "async_unlink %ld, "
               "split_submit %ld, split_local %ld\n",
               t, 
               atomic64_read(&hmo.prof.cbht.aitb),

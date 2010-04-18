@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 20:06:59 macan>
+ * Time-stamp: <2010-04-18 22:17:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -223,7 +223,8 @@ int __customized_send_request(struct bc_delta *bd)
 
     err = xnet_send(hmo.xc, msg);
     if (err) {
-        hvfs_err(mds, "Request to AU update the uuid %ld flip %ld failed w/ %d\n",
+        hvfs_err(mds, "Request to AU update the uuid %ld flip %ld "
+                 "failed w/ %d\n",
                  bd->uuid, bd->itbid, err);
         goto out_free_msg;
     }

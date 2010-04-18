@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 20:03:14 macan>
+ * Time-stamp: <2010-04-18 22:18:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -528,8 +528,8 @@ void mds_m2m_lb(struct xnet_msg *msg)
             /* we need to send the reply w/ the bitmap data */
             ibmap.offset = be->offset;
             /* FIXME */
-            ibmap.flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_BYTES) ? 0 :
-                          BITMAP_END);
+            ibmap.flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_BYTES) ? 
+                          0 : BITMAP_END);
             ibmap.ts = time(NULL);
             iov[0].iov_base = &ibmap;
             iov[0].iov_len = sizeof(struct ibmap);

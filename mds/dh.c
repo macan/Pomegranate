@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 18:41:28 macan>
+ * Time-stamp: <2010-04-18 22:02:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -275,9 +275,13 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         }
         rhi = hmr_extract(hmr, EXTRACT_HI, &no);
         if (!rhi) {
-            hvfs_err(mds, "hmr_extract MDU failed, not found this subregion.\n");
+            hvfs_err(mds, "hmr_extract MDU failed, do not found this "
+                     "subregion.\n");
             goto out_free;
         }
+
+        /* Note that, we know that the LDH will return the HI with ssalt
+         * set. */
 
         /* key, we got the mdu, let us insert it to the dh table */
         e = mds_dh_insert(dh, rhi);

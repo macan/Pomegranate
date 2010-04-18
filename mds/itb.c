@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 13:25:21 macan>
+ * Time-stamp: <2010-04-18 22:20:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -219,7 +219,8 @@ void __itb_add_index(struct itb *i, u64 offset, long nr, char *name)
         hvfs_debug(mds, "CONFLICT ITB %p: %ld %ld, %s offset %ld, nr %ld\n",
                    i, i->h.puuid, i->h.itbid, name, offset, nr);
     } else if (ii[offset].flag == ITB_INDEX_OVERFLOW) {
-        hvfs_err(mds, "Hoo, this ITB overflowed, for now we can't handle it!\n");
+        hvfs_err(mds, "Hoo, this ITB overflowed, for now we can't "
+                 "handle it!\n");
     } else {
         hvfs_err(mds, "Invalid ITE flag 0x%x\n", ii[offset].flag);
     }
@@ -233,7 +234,8 @@ void __itb_add_index(struct itb *i, u64 offset, long nr, char *name)
      * ZERO. */
     if (atomic_read(&i->h.max_offset) <= nr) {
         atomic_set(&i->h.max_offset, nr);
-        atomic_set(&i->h.len, sizeof(struct itb) + (nr + 1) * sizeof(struct ite));
+        atomic_set(&i->h.len, sizeof(struct itb) + 
+                   (nr + 1) * sizeof(struct ite));
     }
 #ifdef _USE_SPINLOCK
     xspinlock_unlock(&i->h.ilock);
@@ -262,7 +264,8 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
     /* Step1.0: check whether this ITB is full */
     if (atomic_inc_return(&i->h.entries) <= (1 << i->h.adepth)) {
     retry:
-        nr = find_first_zero_bit((unsigned long *)i->bitmap, (1 << i->h.adepth));
+        nr = find_first_zero_bit((unsigned long *)i->bitmap, 
+                                 (1 << i->h.adepth));
         if (nr < (1 << i->h.adepth)) {
             /* ok, find one */
             /* test and set the bit now */
@@ -270,7 +273,8 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
                 /* someone has set this bit, let us retry */
                 goto retry;
             }
-            hvfs_verbose(mds, "ITB %p: %ld, %ld, 0x%lx %s, offset %ld, nr %ld\n", 
+            hvfs_verbose(mds, "ITB %p: %ld, %ld, 0x%lx %s, offset %ld, "
+                         "nr %ld\n", 
                          i, i->h.puuid, i->h.itbid, hi->hash, 
                          hi->name, offset, nr);
             /* now we got a free ITE entry at position nr */
@@ -1280,7 +1284,8 @@ retry:
                         ret = -EAGAIN;  /* w/ itb.rlocked */
                         goto out_nolock;
                     } else {
-                        /* this means the itb is cowed, we should refresh ourself */
+                        /* this means the itb is cowed, we should refresh
+                         * ourself */
                         /* w/ itb.runlocked and oi->rlocked */
                         goto refresh;
                     }
@@ -1418,7 +1423,8 @@ refresh:
  *
  * NOTE: holding the bucket.rlock, be.rlock, itb.rlock
  */
-int itb_readdir(struct hvfs_index *hi, struct itb *i, struct hvfs_md_reply *hmr)
+int itb_readdir(struct hvfs_index *hi, struct itb *i, 
+                struct hvfs_md_reply *hmr)
 {
     return 0;
 }
@@ -1524,7 +1530,8 @@ void async_unlink_ite(struct itb *i, int *dc)
                 __ite_unlink(i, offset);
                 (*dc)++;
                 atomic64_inc(as);
-                hvfs_debug(mds, "UNIQUE unlink w/ AU %ld\n", atomic64_read(as));
+                hvfs_debug(mds, "UNIQUE unlink w/ AU %ld\n", 
+                           atomic64_read(as));
             }
         } else {
             /* this offset has at least two entries */

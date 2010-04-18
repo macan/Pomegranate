@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 20:06:38 macan>
+ * Time-stamp: <2010-04-18 22:19:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -241,7 +241,8 @@ int mds_fe_dispatch(struct xnet_msg *msg)
                     if (msg->tx.flag & XNET_FWD) {
                         goto recal_itbid;
                     } else {
-                        hvfs_debug(mds, "itbid %ld %d RING CHANGED (%lx vs %lx)\n",
+                        hvfs_debug(mds, "itbid %ld %d RING CHANGED "
+                                   "(%lx vs %lx)\n",
                                    itbid, (msg->tx.flag & XNET_FWD), 
                                    hmo.site_id, p->site_id);
                         HVFS_BUG();
@@ -249,7 +250,8 @@ int mds_fe_dispatch(struct xnet_msg *msg)
                         goto out;
                     }
                 }
-                hvfs_debug(mds, "NEED FORWARD the request to Site %lx (%ld vs %ld).\n",
+                hvfs_debug(mds, "NEED FORWARD the request to Site %lx "
+                           "(%ld vs %ld).\n",
                            p->site_id, itbid, hi->itbid);
                 /* doing the forward now */
                 hi->flag |= INDEX_BIT_FLIP;

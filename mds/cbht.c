@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 14:20:54 macan>
+ * Time-stamp: <2010-04-18 22:19:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -180,7 +180,8 @@ void cbht_print_dir(struct eh *eh)
 
 /* cbht_copy_dir()
  */
-void __cbht cbht_copy_dir(struct segment *s, u64 offset, u64 len, struct eh *eh)
+void __cbht cbht_copy_dir(struct segment *s, u64 offset, u64 len, 
+                          struct eh *eh)
 {
     u64 clen, cplen = 0;
     struct segment *pos;
@@ -771,8 +772,10 @@ void __cbht mds_cbht_scan(struct eh *eh, int op)
             hlist_for_each_entry(ih, pos, &be->h, cbht) {
                 if (ih->state == ITB_STATE_CLEAN) {
                     /* ok, this is the target to operate on */
-                    hvfs_debug(mds, "DO op %d on ITB %ld, soff %ld boff %ld\n", 
-                               op, ih->itbid, seg_offsets[op], bucket_offsets[op]);
+                    hvfs_debug(mds, "DO op %d on ITB %ld, soff %ld "
+                               "boff %ld\n", 
+                               op, ih->itbid, seg_offsets[op], 
+                               bucket_offsets[op]);
                     /* FIXME: add clean/evict operatons here! */
                     xrwlock_runlock(&be->lock);
                     goto bypass;

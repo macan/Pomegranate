@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 17:04:38 macan>
+ * Time-stamp: <2010-04-18 22:17:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -529,7 +529,8 @@ int __customized_send_request(struct bc_commit *commit)
 
     err = xnet_send(hmo.xc, msg);
     if (err) {
-        hvfs_err(mds, "Request to commit the bitmap %ld flip @ location 0x%lx failed\n",
+        hvfs_err(mds, "Request to commit the bitmap %ld flip @ location "
+                 "0x%lx failed\n",
                  commit->core.uuid, commit->core.location);
         goto out_free_msg;
     }
@@ -555,7 +556,8 @@ int __customized_send_request(struct bc_commit *commit)
         e = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
         if (IS_ERR(e)) {
             /* fatal error */
-            hvfs_err(mds, "This is a fatal error, we can not find the GDT DHE.\n");
+            hvfs_err(mds, "This is a fatal error, we can not find "
+                     "the GDT DHE.\n");
             err = PTR_ERR(e);
             goto out_free_msg;
         }
@@ -608,7 +610,8 @@ int __customized_send_request(struct bc_commit *commit)
             }
             hvfs_err(mds, "FATAL ERROR: update the ITE failed w/ %d\n", err);
         }
-        hvfs_debug(mds, "Got reply from MDSL and change bitmap to location 0x%lx\n",
+        hvfs_debug(mds, "Got reply from MDSL and change bitmap to "
+                   "location 0x%lx\n",
                    msg->pair->tx.arg0);
         xfree(hmr);
     }
@@ -646,7 +649,8 @@ int __customized_send_reply(struct bc_delta *bd)
 
     err = xnet_send(hmo.xc, msg);
     if (err) {
-        hvfs_err(mds, "Request to confirm the uuid %ld flip %ld failed w/ %d\n",
+        hvfs_err(mds, "Request to confirm the uuid %ld flip %ld "
+                 "failed w/ %d\n",
                  bd->uuid, bd->itbid, err);
         goto out_free_msg;
     }
@@ -800,7 +804,8 @@ int mds_bc_backend_commit(void)
         /* Step 2: prepare to write the deltas to the dsite */
         err = __customized_send_request(bc);
         if (err) {
-            hvfs_err(mds, "send bitmap commit request to MDS %lx failed w/ %d.\n",
+            hvfs_err(mds, "send bitmap commit request to MDS %lx "
+                     "failed w/ %d.\n",
                      bc->dsite_id, err);
             list_add(&bc->delta->list, &errlist);
         } else {

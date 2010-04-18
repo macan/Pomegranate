@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-17 13:27:48 macan>
+ * Time-stamp: <2010-04-18 22:13:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -613,8 +613,8 @@ void mds_lb(struct hvfs_tx *tx)
             }
             /* we need to send the reply w/ the bitmap data */
             ibmap.offset = be->offset;
-            ibmap.flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_BYTES) ? 0 :
-                          BITMAP_END);
+            ibmap.flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_BYTES) ? 
+                          0 : BITMAP_END);
             ibmap.ts = time(NULL);
             iov[0].iov_base = &ibmap;
             iov[0].iov_len = sizeof(struct ibmap);

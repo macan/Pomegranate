@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 11:25:13 macan>
+ * Time-stamp: <2010-04-18 22:14:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -221,8 +221,9 @@ int mds_setup_timers(void)
             err = errno;
             goto out;
         }
-        hvfs_debug(mds, "OK, we have created a timer thread to handle txg change"
-                   " and profiling events every %d second(s).\n", interval);
+        hvfs_debug(mds, "OK, we have created a timer thread to handle txg "
+                   "change and profiling events every %d second(s).\n", 
+                   interval);
     } else {
         hvfs_debug(mds, "Hoo, there is no need to setup itimers based on the"
                    " configration.\n");
