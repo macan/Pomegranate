@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-17 15:41:34 macan>
+ * Time-stamp: <2010-04-18 20:03:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -180,6 +180,28 @@ void mds_ldh(struct xnet_msg *msg)
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
+
+    /* Note that we should set the salt manually */
+    {
+        struct hvfs_index *_hi;
+        struct gdt_md *m;
+        int nr = 0;
+        
+        _hi = hmr_extract_local(hmr, EXTRACT_HI, &nr);
+        if (!_hi) {
+            hvfs_err(mds, "Extract HI failed\n");
+            err = -EINVAL;
+            goto send_rpy;
+        }
+        
+        m = hmr_extract_local(hmr, EXTRACT_MDU, &nr);
+        if (!m) {
+            hvfs_err(mds, "Extract MDU failed\n");
+            err = -EINVAL;
+            goto send_rpy;
+        }
+        _hi->ssalt = m->salt;
+    }
 
 actually_send:
     mds_send_reply(msg, hmr, err);
@@ -557,5 +579,4 @@ void mds_aubitmap_r(struct xnet_msg *msg)
     /* we should call async_aubitmap_cleanup to remove the entry in the
      * g_bitmap_deltas list */
     async_aubitmap_cleanup(msg->tx.arg0, msg->tx.arg1);
-    xnet_free_msg(msg);
 }

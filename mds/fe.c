@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-17 15:32:43 macan>
+ * Time-stamp: <2010-04-18 20:06:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -249,8 +249,8 @@ int mds_fe_dispatch(struct xnet_msg *msg)
                         goto out;
                     }
                 }
-                hvfs_debug(mds, "NEED FORWARD the request to Site %lx.\n",
-                           p->site_id);
+                hvfs_debug(mds, "NEED FORWARD the request to Site %lx (%ld vs %ld).\n",
+                           p->site_id, itbid, hi->itbid);
                 /* doing the forward now */
                 hi->flag |= INDEX_BIT_FLIP;
                 hi->itbid = itbid;

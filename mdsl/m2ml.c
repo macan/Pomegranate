@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-17 21:00:39 macan>
+ * Time-stamp: <2010-04-18 16:30:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -324,8 +324,8 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
     else
         goto out;
 
-    hvfs_err(mdsl, "Recv bitmap commit request on %ld %ld\n", 
-             bcc->uuid, bcc->itbid);
+    hvfs_debug(mdsl, "Recv bitmap commit request on %ld %ld %ld\n", 
+               bcc->uuid, bcc->itbid, bcc->location);
 
     /* the uuid/itbid/location is in the bcc */
     /* Step 1: open the GDT dir/data-default file */
@@ -350,7 +350,9 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
     } else {
         /* First, we should read the whole region of the existed bitmap */
         void *data;
-        struct iovec iov;
+        struct iovec iov = {
+            .iov_len = 0,
+        };
 
         data = xmalloc(bcc->size + fde->bmmap.len);
         if (!data) {
@@ -360,20 +362,21 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
         }
         memset(data + bcc->size, 0, fde->bmmap.len);
 
-        iov.iov_base = data;
-        iov.iov_len = bcc->size;
-        msa.offset = bcc->location;
-        msa.iov = &iov;
-        msa.iov_nr = 1;
-        err = mdsl_storage_fd_read(fde, &msa);
-        if (err) {
-            hvfs_err(mdsl, "read the dir %ld bitmap %ld location %lx failed w/ %d\n",
-                     bcc->uuid, bcc->itbid, bcc->location, err);
-            xfree(data);
-            goto out_reply;
+        if (bcc->size) {
+            iov.iov_base = data;
+            iov.iov_len = bcc->size;
+            msa.offset = bcc->location;
+            msa.iov = &iov;
+            msa.iov_nr = 1;
+            err = mdsl_storage_fd_read(fde, &msa);
+            if (err) {
+                hvfs_err(mdsl, "read the dir %ld bitmap %ld location %lx failed w/ %d\n",
+                         bcc->uuid, bcc->itbid, bcc->location, err);
+                xfree(data);
+                goto out_reply;
+            }
         }
 
-        hvfs_err(mdsl, "fd_read success\n");
         /* if bcc->size is ZERO, it means that we are writing the first bitmap
          * slice, we should set the default bits */
         memset(data, 0xff, (1 << hmi.itb_depth) >> 3);
@@ -381,9 +384,12 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
         /* FIXME: maybe ftruncate can be used here to minimize the write
          * cost */
         /* Next, we will write the region to disk plus a new slice */
+        iov.iov_base = data;
         iov.iov_len += fde->bmmap.len;
         size = iov.iov_len;
         msa.arg = &location;
+        msa.iov = &iov;
+        msa.iov_nr = 1;
         err = mdsl_storage_fd_write(fde, &msa);
         if (err) {
             hvfs_err(mdsl, "write the dir %ld bitmap %ld location %lx failed w/ %d\n",
@@ -400,7 +406,7 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
         err = mdsl_storage_fd_write(fde, &msa);
         if (err) {
             hvfs_err(mdsl, "write the dir %ld bitmap %ld location %lx failed w/ %d\n",
-                     bcc->uuid, bcc->itbid, bcc->location, err);
+                     bcc->uuid, bcc->itbid, location, err);
             goto out_reply;
         }
     }

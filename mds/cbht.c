@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-28 19:12:00 macan>
+ * Time-stamp: <2010-04-18 14:20:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -901,6 +901,7 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     if (unlikely(hi->flag & INDEX_COLUMN)) {
         hmr->flag |= MD_REPLY_WITH_DC;
         hmr->len += sizeof(struct column);
+        hmr->dc_no = 1;
     }
     
     hmr->flag |= MD_REPLY_WITH_HI;
@@ -918,10 +919,10 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     offset += sizeof(*hi);
     /* prepare MDU/LS */
     if (m->flags & HVFS_MDU_IF_LINKT) {
-        memcpy(hmr->data + sizeof(*hi), mdu_rpy, sizeof(struct link_source));
+        memcpy(hmr->data + offset, mdu_rpy, sizeof(struct link_source));
         offset += sizeof(struct link_source);
     } else {
-        memcpy(hmr->data + sizeof(*hi), mdu_rpy, HVFS_MDU_SIZE);
+        memcpy(hmr->data + offset, mdu_rpy, HVFS_MDU_SIZE);
         offset += HVFS_MDU_SIZE;
     }
     /* prepare BITMAP */

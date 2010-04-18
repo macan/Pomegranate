@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-17 20:51:21 macan>
+ * Time-stamp: <2010-04-18 13:25:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -536,7 +536,7 @@ void ite_unlink(struct ite *e, struct itb *i, u64 offset, u64 pos)
 void ite_create(struct hvfs_index *hi, struct ite *e)
 {
     /* there is always a struct mdu_update with normal create request */
-    memset(e->column, 0, sizeof(e->column));
+
     e->namelen = hi->namelen;
     if (likely(hi->namelen)) {
         memcpy(&e->s.name, hi->name, hi->namelen);
@@ -1184,10 +1184,6 @@ void __data_column_hook(struct hvfs_index *hi, struct itb *itb,
         memcpy(data + HVFS_MDU_SIZE, 
                &(itb->ite[ii->entry].column[hi->column]), 
                sizeof(struct column));
-        if (itb->ite[ii->entry].column[hi->column].offset != 0) {
-            hvfs_err(mds, "offset %ld\n", itb->ite[ii->entry].column[hi->column].offset);
-            ASSERT(1, mds);
-        }
     }
 }
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-17 12:01:47 macan>
+ * Time-stamp: <2010-04-18 17:42:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -765,7 +765,7 @@ resend:
     hvfs_err(xnet, "Got suuid 0x%lx ssalt %lx puuid %lx psalt %lx.\n", 
                hi->uuid, mdu->salt, mdu->puuid, mdu->psalt);
     /* we should export the self salt to the caller */
-    hi->ssalt = mdu->salt;
+    oi->ssalt = mdu->salt;
     
     /* finally, we wait for the commit respond */
 skip:
@@ -786,6 +786,87 @@ out_msg:
     return err;
 out:
     xfree(hi);
+    return err;
+}
+
+int lookup_root()
+{
+    struct xnet_msg *msg;
+    struct hvfs_index hi;
+    struct hvfs_md_reply *hmr;
+    struct dhe *gdte;
+    u64 dsite;
+    int err = 0;
+
+    gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+    if (IS_ERR(gdte)) {
+        /* fatal error */
+        hvfs_err(xnet, "This is a fatal error, we can not find the GDT DHE.\n");
+        err = PTR_ERR(gdte);
+        goto out;
+    }
+
+    memset(&hi, 0, sizeof(hi));
+    hi.puuid = hmi.gdt_uuid;
+    hi.psalt = hmi.gdt_salt;
+    hi.uuid = hmi.root_uuid;
+    hi.hash = hvfs_hash_gdt(hi.uuid, hmi.gdt_salt);
+    hi.itbid = mds_get_itbid(gdte, hi.hash);
+    hi.flag = INDEX_LOOKUP | INDEX_BY_UUID;
+
+    dsite = SELECT_SITE(hi.itbid, hi.psalt, CH_RING_MDS);
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_LOOKUP, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &hi, sizeof(hi));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_free;
+    }
+
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err) {
+        hvfs_err(mds, "lookup root failed w/ %d\n",
+                 msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out_free;
+    }
+    if (msg->pair->xm_datacheck)
+        hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
+    else {
+        hvfs_err(xnet, "Invalid LOOKUP reply from site %lx.\n",
+                 msg->pair->tx.ssite_id);
+        err = -EFAULT;
+        goto out_free;
+    }
+    /* ok, get the root mdu */
+    {
+        struct gdt_md *m;
+        int no = 0;
+
+        m = hmr_extract(hmr, EXTRACT_MDU, &no);
+        if (!m) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+        }
+        hmi.root_salt = m->salt;
+        hvfs_info(xnet, "Change root salt to %lx\n", hmi.root_salt);
+    }
+    xnet_set_auto_free(msg->pair);
+out_free:
+    xnet_free_msg(msg);
+out:
     return err;
 }
 
@@ -820,6 +901,13 @@ int create_root()
         goto out;
     }
 
+    /* ok, step 1, we lookup the root entry, if failed we will create a new
+     * root entry */
+    if (lookup_root() == 0) {
+        hvfs_info(xnet, "Lookup root entry successfully.\n");
+        return 0;
+    }
+
     memset(data, 0, HVFS_MDU_SIZE);
     mdu->mode = 0xff;
     mdu->nlink = 2;
@@ -836,6 +924,7 @@ int create_root()
 
     /* update the root salt now */
     hmi.root_salt = hi.ssalt;
+    hvfs_info(xnet, "Change root salt to %lx\n", hmi.root_salt);
     
 out:
     return err;
@@ -1010,6 +1099,7 @@ int main(int argc, char *argv[])
     lib_init();
     mds_pre_init();
     hmo.prof.xnet = &g_xnet_prof;
+    hmo.conf.prof_plot = 1;
     mds_init(10);
     
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);

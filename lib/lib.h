@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-28 16:50:40 macan>
+ * Time-stamp: <2010-04-18 10:59:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,6 +68,7 @@ void lib_init(void);
 u64 lib_random(int hint);
 
 void *hmr_extract(void *, int, int *);
+void *hmr_extract_local(void *, int, int *);
 
 /* Region for fast bit operations */
 #if __GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 1)

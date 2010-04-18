@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-17 20:56:43 macan>
+ * Time-stamp: <2010-04-18 16:30:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1144,8 +1144,8 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
             bw = pwrite(fde->fd, msa->iov->iov_base + bl,
                         msa->iov->iov_len - bl, new_offset + bl);
             if (bw < 0) {
-                hvfs_err(mdsl, "pwrite bitmap fd %d failed w/ %d\n",
-                         fde->fd, errno);
+                hvfs_err(mdsl, "pwrite bitmap fd %d offset %ld failed w/ %d\n",
+                         fde->fd, new_offset + bl, errno);
                 err = -errno;
                 goto out;
             }
@@ -1156,8 +1156,8 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         /* what a nice day! */
 
         /* find the byte offset */
-        snr = ((offset >> 3) + (XTABLE_BITMAP_SIZE / 8) - 1) & 
-            ~(((XTABLE_BITMAP_SIZE / 8) - 1));
+        snr = ((((offset >> 3) + (XTABLE_BITMAP_BYTES - 1)) & 
+                ~(XTABLE_BITMAP_BYTES - 1)) >> XTABLE_BITMAP_SHIFT) - 1;
         fde->bmmap.addr = mmap(NULL, fde->bmmap.len, PROT_READ | PROT_WRITE,
                                MAP_SHARED, fde->fd, 
                                msa->offset + snr * fde->bmmap.len);
@@ -1177,6 +1177,8 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
             err = -errno;
             goto out;
         }
+        hvfs_debug(mdsl, "map offset %ld and update bit %ld snr %ld\n",
+                   msa->offset + snr * fde->bmmap.len, offset, snr);
     }
 out:
     return err;
@@ -1196,6 +1198,8 @@ int __bitmap_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
     /* msa->offset is the real file location! */
     offset = msa->offset;
     for (i = 0; i < msa->iov_nr; i++) {
+        if ((msa->iov + i)->iov_len == 0)
+            continue;
         bl = 0;
         do {
             br = pread(fde->fd, (msa->iov + i)->iov_base + bl,
@@ -1204,7 +1208,7 @@ int __bitmap_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
                 hvfs_err(mdsl, "pread failed w/ %d\n", errno);
                 err = -errno;
                 goto out;
-            } else if (br == 0 && bl > 0) {
+            } else if (br == 0) {
                 hvfs_err(mdsl, "reach EOF.\n");
                 err = -EINVAL;
                 goto out;

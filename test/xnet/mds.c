@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-17 15:24:38 macan>
+ * Time-stamp: <2010-04-18 17:32:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -709,6 +709,9 @@ int main(int argc, char *argv[])
     ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(1));
     ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(0));
     ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(1));
+
+    ring_dump(hmo.chring[CH_RING_MDS]);
+    ring_dump(hmo.chring[CH_RING_MDSL]);
 
     /* insert the GDT DH */
     dh_insert(hmi.gdt_uuid, hmi.gdt_uuid, hmi.gdt_salt);

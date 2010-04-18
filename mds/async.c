@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-14 19:59:36 macan>
+ * Time-stamp: <2010-04-18 20:06:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -142,7 +142,7 @@ int __aur_itb_split(struct async_update_request *aur)
         /* Step 3.inf we should free the ITB */
         itb_put((struct itb *)i->h.twin);
         itb_free(i);
-        hvfs_err(mds, "Receive the AU split %ld reply.\n", i->h.itbid);
+        hvfs_debug(mds, "Receive the AU split %ld reply.\n", i->h.itbid);
         atomic64_inc(&hmo.prof.mds.split);
     msg_free:
         xnet_free_msg(msg);
@@ -191,7 +191,7 @@ int __aur_itb_split(struct async_update_request *aur)
         atomic64_inc(&hmo.prof.itb.split_local);
         atomic64_add(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
 
-        hvfs_err(mds, "we update the bit of ITB %ld\n", i->h.itbid);
+        hvfs_debug(mds, "We update the bit of ITB %ld locally\n", i->h.itbid);
 /*         mds_dh_bitmap_dump(&hmo.dh, i->h.puuid); */
     }
     

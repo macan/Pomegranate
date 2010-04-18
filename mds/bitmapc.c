@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-17 20:15:30 macan>
+ * Time-stamp: <2010-04-18 17:04:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -393,7 +393,7 @@ retry:
     }
 
     /* get the location and size */
-    mdu = hmr_extract(hmr, EXTRACT_MDU, &nr);
+    mdu = hmr_extract_local(hmr, EXTRACT_MDU, &nr);
     if (!mdu) {
         hvfs_err(mds, "extract MDU failed on lookup %ld %ld %lx\n",
                  hi->puuid, hi->itbid, hi->hash);
@@ -401,13 +401,18 @@ retry:
         goto out_free;
     }
     *size = mdu->size;
-    column = hmr_extract(hmr, EXTRACT_DC, &nr);
+    column = hmr_extract_local(hmr, EXTRACT_DC, &nr);
     if (!column) {
         hvfs_err(mds, "extract DC failed on lookup %ld %ld %lx\n",
                  hi->puuid, hi->itbid, hi->hash);
         err = -EINVAL;
         goto out_free;
     }
+    hvfs_debug(mds, "BC LOOKUP ITE puuid %ld uuid %ld itbid %ld "
+               "column offset %ld len %ld itbid %ld size %ld\n",
+               hi->puuid, hi->uuid, hi->itbid, 
+               column->offset, column->len, column->stored_itbid,
+               mdu->size);
     *location = column->offset;
 
     /* free all the resources */
@@ -537,6 +542,7 @@ int __customized_send_request(struct bc_commit *commit)
      * update the new file location */
     if (!err && commit->core.size != -1UL) {
         struct hvfs_txg *txg;
+        struct dhe *e;
         struct hvfs_index hi = {
             .flag = INDEX_MDU_UPDATE | INDEX_BY_UUID,
             .puuid = hmi.gdt_uuid,
@@ -545,6 +551,14 @@ int __customized_send_request(struct bc_commit *commit)
         struct mdu_update *mu;
         struct mu_column *mc;
         int retry_nr = 0;
+
+        e = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+        if (IS_ERR(e)) {
+            /* fatal error */
+            hvfs_err(mds, "This is a fatal error, we can not find the GDT DHE.\n");
+            err = PTR_ERR(e);
+            goto out_free_msg;
+        }
 
     realloc0:
         mu = xzalloc(sizeof(struct mdu_update) + sizeof(struct mu_column));
@@ -560,20 +574,24 @@ int __customized_send_request(struct bc_commit *commit)
         }
         hi.uuid = commit->core.uuid;
         hi.hash = hvfs_hash_gdt(hi.uuid, hmi.gdt_salt);
-        hi.itbid = commit->core.itbid;
+        hi.itbid = mds_get_itbid(e, hi.hash);
         hi.data = mu;
 
         /* update the size and the offset in ITE */
         memset(mu, 0, sizeof(mu));
         mu->valid = MU_COLUMN | MU_SIZE;
-        mu->size = commit->core.size += XTABLE_BITMAP_BYTES;
-        ASSERT(mu->size == msg->tx.arg1, mds);
+        mu->size = commit->core.size + XTABLE_BITMAP_BYTES;
+        ASSERT(mu->size == msg->pair->tx.arg1, mds);
         mu->column_no = 1;
         mc = (void *)mu + sizeof(struct mdu_update);
         mc->cno = HVFS_GDT_BITMAP_COLUMN;
         mc->c.stored_itbid = hi.itbid;
         mc->c.len = mu->size;
-        mc->c.offset = msg->tx.arg0;
+        mc->c.offset = msg->pair->tx.arg0;
+        hvfs_err(mds, "Update puuid %ld uuid %ld itbid %ld column offset %ld "
+                 "len %ld itbid %ld\n",
+                 hi.puuid, hi.uuid, hi.itbid, mc->c.offset,
+                 mc->c.len, mc->c.stored_itbid);
         
         /* search and update in the CBHT */
     retry:
@@ -590,8 +608,8 @@ int __customized_send_request(struct bc_commit *commit)
             }
             hvfs_err(mds, "FATAL ERROR: update the ITE failed w/ %d\n", err);
         }
-        hvfs_info(mds, "Got reply from MDSL and change bitmap to location 0x%lx\n",
-                  msg->tx.arg0);
+        hvfs_debug(mds, "Got reply from MDSL and change bitmap to location 0x%lx\n",
+                   msg->pair->tx.arg0);
         xfree(hmr);
     }
 
@@ -724,7 +742,7 @@ int mds_bc_backend_commit(void)
             continue;
         }
         /* get the location and size */
-        mdu = hmr_extract(hmr, EXTRACT_MDU, &nr);
+        mdu = hmr_extract_local(hmr, EXTRACT_MDU, &nr);
         if (!mdu) {
             hvfs_err(mds, "extract MDU failed on lookup %ld %ld %lx\n",
                          hi.puuid, hi.itbid, hi.hash);
@@ -733,7 +751,7 @@ int mds_bc_backend_commit(void)
             continue;
         }
         size = mdu->size;
-        column = hmr_extract(hmr, EXTRACT_DC, &nr);
+        column = hmr_extract_local(hmr, EXTRACT_DC, &nr);
         if (!column) {
             hvfs_err(mds, "extract DC failed on lookup %ld %ld %lx\n",
                      hi.puuid, hi.itbid, hi.hash);
@@ -766,8 +784,8 @@ int mds_bc_backend_commit(void)
         bc->delta = pos;
         list_del_init(&pos->list);
 
-        hvfs_err(mds, "Construct BCC %ld %ld location %ld size %ld\n", 
-                 pos->uuid, pos->itbid, location, size);
+        hvfs_debug(mds, "Construct BCC %ld %ld location %ld size %ld\n", 
+                   pos->uuid, pos->itbid, location, size);
 
         /* Step 1: find if we need to enlarge the bitmap region */
         if (pos->itbid >= (size << 3)) {

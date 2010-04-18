@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-17 15:30:46 macan>
+ * Time-stamp: <2010-04-18 11:46:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -127,6 +127,7 @@ struct itbitmap
     u64 ts;
 #define XTABLE_BITMAP_SIZE      (128 * 1024 * 8) /* default is 128K storage */
 #define XTABLE_BITMAP_BYTES     (128 * 1024)
+#define XTABLE_BITMAP_SHIFT     (17)
     u8 array[XTABLE_BITMAP_BYTES];
 };
 

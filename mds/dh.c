@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-17 15:26:00 macan>
+ * Time-stamp: <2010-04-18 18:41:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -203,12 +203,14 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     if (p->site_id == hmo.site_id) {
         struct hvfs_txg *txg;
         
-        hvfs_err(mds, "Load DH (self): itbid %ld, site %lx\n", thi.itbid, p->site_id);
+        hvfs_err(mds, "Load DH (self): uuid %ld itbid %ld, site %lx\n", 
+                 thi.uuid, thi.itbid, p->site_id);
         /* the GDT service MDS server is myself, so we just lookup the entry
          * in my CBHT. */
         hmr = get_hmr();
         if (!hmr) {
             hvfs_err(mds, "get_hmr() failed\n");
+            err = -ENOMEM;
             goto out_free;
         }
         
@@ -216,15 +218,35 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         txg = mds_get_open_txg(&hmo);
         err = mds_cbht_search(&thi, hmr, txg, &txg);
         txg_put(txg);
+        if (err) {
+            hvfs_err(mds, "lookup uuid %ld failed w/ %d.\n",
+                     thi.uuid, err);
+            goto out_free_hmr;
+        }
 
+        /* Note that we should set the salt manually */
+        {
+            struct gdt_md *m;
+            int nr = 0;
+            
+            m = hmr_extract_local(hmr, EXTRACT_MDU, &nr);
+            if (!m) {
+                hvfs_err(mds, "Extract MDU failed\n");
+                goto out_free_hmr;
+            }
+            thi.ssalt = m->salt;
+        }
+        
         e = mds_dh_insert(dh, &thi);
         if (IS_ERR(e)) {
             hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
         }
+    out_free_hmr:
         xfree(hmr);
     } else {
         /* ok, we should send the request to the remote site now */
-        hvfs_err(mds, "Load DH (remote): itbid %ld, site %lx\n", thi.itbid, p->site_id);
+        hvfs_err(mds, "Load DH (remote): uuid %ld itbid %ld, site %lx\n", 
+                 thi.uuid, thi.itbid, p->site_id);
 
         /* prepare the msg */
         xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.xc->site_id, 
@@ -256,6 +278,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
             hvfs_err(mds, "hmr_extract MDU failed, not found this subregion.\n");
             goto out_free;
         }
+
         /* key, we got the mdu, let us insert it to the dh table */
         e = mds_dh_insert(dh, rhi);
         if (IS_ERR(e)) {
