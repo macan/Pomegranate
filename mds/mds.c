@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 22:14:00 macan>
+ * Time-stamp: <2010-04-20 13:28:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -340,6 +340,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(bitmap_cache_interval, value);
     HVFS_MDS_GET_ENV_atoi(txg_buf_len, value);
     HVFS_MDS_GET_ENV_atoi(bc_roof, value);
+    HVFS_MDS_GET_ENV_atoi(txg_ddht_size, value);
 
     HVFS_MDS_GET_ENV_atol(memlimit, value);
 

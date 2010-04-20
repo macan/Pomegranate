@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-14 14:29:21 macan>
+ * Time-stamp: <2010-04-20 20:08:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,23 +30,35 @@
 struct hvfs_txg *txg_alloc(void)
 {
     struct hvfs_txg *t;
+    int i;
     
-    t = xzalloc(sizeof(struct hvfs_txg));
+    t = xzalloc(sizeof(struct hvfs_txg) + 
+                hmo.conf.txg_ddht_size * sizeof(struct regular_hash));
     if (!t)
         return NULL;
+
     /* init the lock region */
     t->state = TXG_STATE_OPEN;
     mcond_init(&t->cond);
     xlock_init(&t->ckpt_lock);
     xlock_init(&t->itb_lock);
-    xlock_init(&t->ddb_lock);
+    xlock_init(&t->rddb_lock);
     xlock_init(&t->bdb_lock);
     xlock_init(&t->ccb_lock);
+    xlock_init(&t->ddht_lock);
     INIT_LIST_HEAD(&t->bdb);
     INIT_LIST_HEAD(&t->ddb);
     INIT_LIST_HEAD(&t->ckpt);
+    INIT_LIST_HEAD(&t->rddb);
     INIT_LIST_HEAD(&t->dirty_list);
     INIT_LIST_HEAD(&t->ccb_list);
+    INIT_LIST_HEAD(&t->ddht_list);
+
+    /* init the hash table */
+    for (i = 0; i < hmo.conf.txg_ddht_size; i++) {
+        INIT_HLIST_HEAD(&t->ddht[i].h);
+        xlock_init(&t->ddht[i].lock);
+    }
 
     return t;
 }
@@ -67,6 +79,11 @@ void txg_free(struct hvfs_txg *t)
         xfree(ddb);
     }
 
+    list_for_each_entry_safe(ddb, ddbn, &t->rddb, list) {
+        list_del(&ddb->list);
+        xfree(ddb);
+    }
+
     list_for_each_entry_safe(ckpt, ckptn, &t->ckpt, list) {
         list_del(&ckpt->list);
         xfree(ckpt);
@@ -82,6 +99,12 @@ void txg_free(struct hvfs_txg *t)
 int txg_init(u64 txg)
 {
     struct hvfs_txg *t;
+
+    /* init the default hash table size */
+    if (hmo.conf.txg_ddht_size <= 0) {
+        hmo.conf.txg_ddht_size = HVFS_TXG_DDHT_SIZE;
+    }
+    
     t = txg_alloc();
     if (!t) {
         hvfs_err(mds, "txg_alloc() failed\n");
@@ -215,6 +238,13 @@ int txg_prepare_begin(struct commit_thread_arg *cta, struct hvfs_txg *t)
     }
 
     /* dir delta nr */
+    /* Step 1: we should construct the ddb buffer */
+    err = txg_ddht_compact(t);
+    if (err) {
+        hvfs_err(mds, "txg_ddht_compact() failed w/ %d, metadata lossing\n",
+                 err);
+    }
+    /* Step 2: compute the ddb buffer size */
     if (!list_empty(&t->ddb)) {
         /* Note that we do NOT need any locks here, becaust we know nobody
          * could access this list now. */
@@ -222,6 +252,17 @@ int txg_prepare_begin(struct commit_thread_arg *cta, struct hvfs_txg *t)
 
         list_for_each_entry(pos, &t->ddb, list) {
             cta->begin.dir_delta_nr += pos->asize;
+        }
+    }
+
+    /* remote dir delta nr */
+    if (!list_empty(&t->rddb)) {
+        /* Note that we do NOT need any locks here, because we know nobody
+         * could access this list now. */
+        struct hvfs_dir_delta_buf *pos;
+
+        list_for_each_entry(pos, &t->rddb, list) {
+            cta->begin.rdd_nr += pos->asize;
         }
     }
 
@@ -666,3 +707,114 @@ out_unlock:
     return err;
 }
 
+/*
+ * txg_add_update_ddelta() add or update a dir delta entry.
+ *
+ * @txg:
+ * @duid: which dir uuid you want to update
+ * @nlink:
+ * @flag: NLINK/ATIME/CTIME/MTIME
+ */
+int txg_add_update_ddelta(struct hvfs_txg *txg, u64 duuid, s32 nlink, u32 flag)
+{
+    struct dir_delta_entry *dde;
+    struct hlist_node *n;
+    int err = 0;
+    int idx, found = 0;
+
+    idx = hvfs_hash_ddht(duuid, txg->txg) % hmo.conf.txg_ddht_size;
+    xlock_lock(&txg->ddht_lock);
+    hlist_for_each_entry(dde, n, &txg->ddht[idx].h, hlist) {
+        if (dde->dd.duuid == duuid) {
+            /* ok, we find the target in the hash table */
+            found = 1;
+            /* we just update the entry now */
+            if (flag & DIR_DELTA_NLINK) {
+                dde->dd.nlink += nlink;
+            }
+            dde->dd.flag |= flag;
+            break;
+        }
+    }
+    xlock_unlock(&txg->ddht_lock);
+
+    if (!found) {
+        /* we should add a new dde to the hash table */
+        dde = txg_dde_alloc();
+        if (!dde) {
+            err = -ENOMEM;
+            goto out;
+        }
+        if (flag & DIR_DELTA_NLINK) {
+            dde->dd.nlink = nlink;
+        }
+        dde->dd.flag |= flag;
+        /* then, insert the new entry to the hash table */
+        xlock_lock(&txg->ddht_lock);
+        hlist_add_head(&dde->hlist, &txg->ddht[idx].h);
+        list_add_tail(&dde->list, &txg->ddht_list);
+        txg->ddht_nr++;
+        xlock_unlock(&txg->ddht_lock);
+    }
+    
+out:
+    return err;
+}
+
+/*
+ * txg_ddht_compact() compact the ddht hash table to the ddb buffer
+ *
+ * Note: should we hold the ddht locks, if we try to support multiple compact,
+ * then we need the ddht locks to protect us :)
+ */
+int txg_ddht_compact(struct hvfs_txg *t)
+{
+    struct dir_delta_entry *dde, *n;
+    struct hvfs_dir_delta_buf *ddb;
+    int err = 0;
+
+    ddb = xzalloc(sizeof(*ddb) + sizeof(struct hvfs_dir_delta) * t->ddht_nr);
+    if (!ddb) {
+        hvfs_err(mds, "xzalloc() dir_delta_buf failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    INIT_LIST_HEAD(&ddb->list);
+    ddb->psize = t->ddht_nr;
+    ddb->asize = 0;
+
+    xlock_lock(&t->ddht_lock);
+    list_for_each_entry_safe(dde, n, &t->ddht_list, list) {
+        list_del(&dde->list);
+        hlist_del(&dde->hlist);
+        /* copy the dde content to the buffer */
+        ddb->buf[ddb->asize++] = dde->dd;
+        xfree(dde);
+    }
+    xlock_unlock(&t->ddht_lock);
+
+    /* finally, add the ddb to the hvfs_txg */
+    list_add_tail(&ddb->list, &t->ddb);
+    /* FIXME: do we need lock here? */
+
+out:
+    return err;
+}
+
+/*
+ * txg_rddb_add() add an entry to the txg's rddb buffer list
+ *
+ * @site_id: which site this request comes from
+ * @txg: the txg id on the remote site
+ * @duuid: the affected dir uuid
+ */
+int txg_rddb_add(struct hvfs_txg *t, u64 site_id, u64 txg, u64 duuid)
+{
+    struct hvfs_dir_delta_buf *rddb;
+    int err = 0, found = 0;
+
+    xlock_lock(&t->rddb_lock);
+    xlock_unlock(&t->rddb_lock);
+    
+    return err;
+}

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-24 15:19:59 macan>
+ * Time-stamp: <2010-04-20 19:18:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,13 +28,28 @@
 #include "xtable.h"
 #include "mdsl_api.h"
 
+/* we do NOT need to log the atime/mtime/ctime, cause the time on the source
+ * site has no means to the target site, we just using the target site's local
+ * time.  */
 struct hvfs_dir_delta 
 {
     u64 site_id;
+    u64 txg;
     u64 duuid;
-    s64 nlink;                  /* not enough? now enough! */
-    u64 atime;
-    u64 ctime;
+    s32 nlink;                  /* not enough? now enough! */
+#define DIR_DELTA_NLINK         0x01
+#define DIR_DELTA_ATIME         0x02
+#define DIR_DELTA_CTIME         0x04
+#define DIR_DELTA_MTIME         0x08
+    u32 flag;
+};
+
+/* this struct only for txg ddht */
+struct dir_delta_entry
+{
+    struct hlist_node hlist;
+    struct list_head list;
+    struct hvfs_dir_delta dd;
 };
 
 #define HVFS_MDSL_TXG_BUF_LEN   (512)
@@ -73,15 +88,22 @@ struct hvfs_txg
     u8 state;
     u8 dirty;                   /* whether this txg is dirtied, using in the
                                  * SIGALARM handler to changing txg. */
+    u32 ddht_nr;
 
-    xlock_t ckpt_lock, ddb_lock, bdb_lock, ccb_lock, itb_lock;
+    xlock_t ckpt_lock, rddb_lock, bdb_lock, ccb_lock, itb_lock, ddht_lock;
     struct list_head ckpt;      /* hvfs_rmds_ckpt_buf list, for ckpt
                                  * entries */
     struct list_head ddb;       /* hvfs_dir_delta_buf list, for dir deltas */
+    struct list_head rddb;      /* remote dir deltas */
     struct list_head bdb;       /* bitmap_delta_buf list, for bitmap deltas */
     
     struct list_head dirty_list;      /* dirty list of ITBs */
     struct list_head ccb_list;        /* commit callback list */
+
+    /* we need a hash table to aggregate the dir update in one txg */
+    struct list_head ddht_list; /* linear access for ddht */
+    struct regular_hash ddht[0];
+#define HVFS_TXG_DDHT_SIZE              (64)
 };
 
 #define TXG_SET_DIRTY(txg) do { \
@@ -223,6 +245,27 @@ struct txg_wb_slice *tws_find_create(struct commit_thread_arg *cta, u64 dsite)
         tws_insert(cta, tws);
     }
     return tws;
+}
+
+static inline
+struct dir_delta_entry *txg_dde_alloc(void)
+{
+    struct dir_delta_entry *dde;
+
+    dde = xzalloc(sizeof(struct dir_delta_entry));
+    if (dde) {
+        /* init the dde */
+        INIT_HLIST_NODE(&dde->hlist);
+        INIT_LIST_HEAD(&dde->list);
+    }
+
+    return dde;
+}
+
+static inline
+void txg_dde_free(struct dir_delta_entry *dde)
+{
+    xfree(dde);
 }
 
 #endif

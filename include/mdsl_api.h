@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-08 19:39:40 macan>
+ * Time-stamp: <2010-04-20 19:58:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -152,6 +152,7 @@ struct txg_begin
     u64 session_id;             /* committer session id */
 
     u32 itb_nr;                 /* itb nr to saved to disk */
+    u32 rdd_nr;                 /* # of remote dir deltas */
 };
 
 struct itb_info

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 22:02:49 macan>
+ * Time-stamp: <2010-04-20 15:04:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -238,7 +238,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         }
         
         e = mds_dh_insert(dh, &thi);
-        if (IS_ERR(e)) {
+        if (IS_ERR(e) && e != ERR_PTR(-EEXIST)) {
             hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
         }
     out_free_hmr:
@@ -285,7 +285,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
 
         /* key, we got the mdu, let us insert it to the dh table */
         e = mds_dh_insert(dh, rhi);
-        if (IS_ERR(e)) {
+        if (IS_ERR(e) && e != ERR_PTR(-EEXIST)) {
             hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
             goto out_free;
         }

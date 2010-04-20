@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 16:14:07 macan>
+ * Time-stamp: <2010-04-20 14:22:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -915,10 +915,10 @@ retry:
             }
             err = connect(csock, &xa->sa, sizeof(xa->sa));
             if (err < 0) {
-                hvfs_err(xnet, "connect() %s %d failed %d\n",
+                hvfs_err(xnet, "connect() %s %d failed %s\n",
                          inet_ntoa(((struct sockaddr_in *)&xa->sa)->sin_addr),
                          ntohs(((struct sockaddr_in *)&xa->sa)->sin_port), 
-                         errno);
+                         strerror(errno));
                 err = -errno;
                 if (reconn < 10) {
                     reconn++;
