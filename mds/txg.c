@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-20 20:08:25 macan>
+ * Time-stamp: <2010-04-21 19:34:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -342,6 +342,10 @@ int txg_wb_itb_ll(struct commit_thread_arg *cta, struct itb *itb)
         if (cta->begin.dir_delta_nr) {
             msg->tx.arg0 |= HVFS_WBTXG_DIR_DELTA;
             TXG_ADD_SDATA(hvfs_dir_delta_buf, ddb, hvfs_dir_delta, cta, msg);
+        }
+        if (cta->begin.rdd_nr) {
+            msg->tx.arg0 |= HVFS_WBTXG_R_DIR_DELTA;
+            TXG_ADD_SDATA(hvfs_dir_delta_buf, rddb, hvfs_dir_delta, cta, msg);
         }
         if (cta->begin.bitmap_delta_nr) {
             msg->tx.arg0 |= HVFS_WBTXG_BITMAP_DELTA;
@@ -801,6 +805,27 @@ out:
     return err;
 }
 
+struct hvfs_dir_delta_buf *__dir_delta_buf_alloc(void)
+{
+    struct hvfs_dir_delta_buf *buf;
+
+    if (unlikely(!hmo.conf.txg_buf_len)) {
+        hvfs_err(mds, "Hey, seems that you do not call mds_verify().\n");
+        hmo.conf.txg_buf_len = HVFS_MDSL_TXG_BUF_LEN;
+    }
+    buf = xzalloc(sizeof(*buf) +
+                  hmo.conf.txg_buf_len * sizeof(struct hvfs_dir_delta));
+    if (!buf) {
+        hvfs_err(mds, "alloc dir_delta_buf failed.\n");
+        return NULL;
+    }
+
+    INIT_LIST_HEAD(&buf->list);
+    buf->psize = hmo.conf.txg_buf_len;
+
+    return buf;
+}
+
 /*
  * txg_rddb_add() add an entry to the txg's rddb buffer list
  *
@@ -814,6 +839,28 @@ int txg_rddb_add(struct hvfs_txg *t, u64 site_id, u64 txg, u64 duuid)
     int err = 0, found = 0;
 
     xlock_lock(&t->rddb_lock);
+    list_for_each_entry(rddb, &t->rddb, list) {
+        if (rddb->asize < rddb->psize) {
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found) {
+        /* ok, we should add a new dir delta buffer here */
+        rddb = __dir_delta_buf_alloc();
+        if (!buf) {
+            hvfs_err(mds, "alloc dir_delta_buf failed.\n");
+            err = -ENOMEM;
+            goto out_unlock;
+        }
+        list_add_tail(&rddb->list, &t->rddb);
+    }
+
+    rddb->buf[buf->asize].site_id = site_id;
+    rddb->buf[buf->asize].uuid = duuid;
+    rddb->buf[buf->asize].txg = txg;
+out_unlock:
     xlock_unlock(&t->rddb_lock);
     
     return err;

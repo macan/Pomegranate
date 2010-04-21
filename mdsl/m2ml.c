@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 16:30:23 macan>
+ * Time-stamp: <2010-04-21 19:36:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -510,6 +510,9 @@ void mdsl_wbtxg(struct xnet_msg *msg)
 
         if (msg->tx.arg0 & HVFS_WBTXG_DIR_DELTA) {
             /* the offset of this region is 0 */
+            /* FIXME: should we do sth on this region? */
+        }
+        if (msg->tx.arg0 & HVFS_WBTXG_R_DIR_DELTA) {
             /* FIXME: should we do sth on this region? */
         }
         if (msg->tx.arg0 & HVFS_WBTXG_BITMAP_DELTA) {

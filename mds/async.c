@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 22:17:30 macan>
+ * Time-stamp: <2010-04-21 20:14:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,6 +39,9 @@ struct async_update_mlist g_aum;
  */
 LIST_HEAD(g_bitmap_deltas);
 xlock_t g_bitmap_deltas_lock;
+
+LIST_HEAD(g_dir_deltas);
+xlock_t g_dir_deltas_lock;
 
 void async_update_checking(time_t t)
 {
@@ -347,6 +350,38 @@ void async_aubitmap_cleanup(u64 uuid, u64 itbid)
     xlock_unlock(&g_bitmap_deltas_lock);
 }
 
+/* AUR DIR_DELTA is used to do async dir updates. In this function we should
+ * send the request to the target MDS, then wait for the reply. ONLY AFTER
+ * receiving the reply we can safely free the dir delta
+ */
+int __aur_dir_delta(struct async_update_request *aur)
+{
+    struct hvfs_dir_delta *pos;
+    struct dir_delta_au *dda;
+    int err = 0;
+
+    /* we should iterate on the wbt->ddb list and transform each entry to
+     * dir_delta_au and adding to the g_dir_deltas and sending each entry to
+     * the destination site. */
+    list_for_each_entry(pos, &txg->ddb, list) {
+        for (i = 0; i < pos->asize; i++) {
+            /* Step 1: allco the dir_delta_au */
+            dda = txg_dda_alloc();
+            if (!dda) {
+                hvfs_err(mds, "dir delta au alloc failed on uuid %ld\n",
+                         pos->buf[i].uuid);
+                continue;
+            }
+            /* Step 2: transform the dir delta to dir delta au */
+            /* FIXME: we should do the site_id recalculation */
+            dda->dd = pos->buf[i];
+            dda->salt = lib_random(0xffffffff);
+        }
+    }
+
+    /* FIXME */
+}
+
 int __aur_txg_wb(struct async_update_request *aur)
 {
     hvfs_err(mds, "AU TXG write-back has not been implemented yet.\n");
@@ -380,6 +415,9 @@ int __au_req_handle(void)
         break;
     case AU_TXG_WB:
         err = __aur_txg_wb(aur);
+        break;
+    case AU_DIR_DELTA:
+        err = __aur_dir_delta(aur);
         break;
     default:
         hvfs_err(mds, "Invalid AU Request: op %ld arg 0x%lx\n",
@@ -475,6 +513,7 @@ int async_tp_init(void)
     INIT_LIST_HEAD(&g_aum.aurlist);
     xlock_init(&g_aum.lock);
     xlock_init(&g_bitmap_deltas_lock);
+    xlock_init(&g_dir_deltas_lock);
     
     sem_init(&hmo.async_sem, 0, 0);
 

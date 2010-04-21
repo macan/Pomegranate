@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-20 19:18:57 macan>
+ * Time-stamp: <2010-04-21 20:10:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,6 +42,14 @@ struct hvfs_dir_delta
 #define DIR_DELTA_CTIME         0x04
 #define DIR_DELTA_MTIME         0x08
     u32 flag;
+};
+
+/* this struct only for async dir delta usage */
+struct dir_delta_au
+{
+    u64 salt;                   /* use this salt to match the request and
+                                 * reply */
+    struct hvfs_dir_delta dd;
 };
 
 /* this struct only for txg ddht */
@@ -266,6 +274,22 @@ static inline
 void txg_dde_free(struct dir_delta_entry *dde)
 {
     xfree(dde);
+}
+
+static inline
+struct dir_delta_au *txg_dda_alloc(void)
+{
+    struct dir_delta_au *dda;
+
+    dda = xzalloc(sizeof(*dda));
+
+    return dda;
+}
+
+static inline
+void txg_dda_free(struct dir_delta_au *dda)
+{
+    xfree(dda);
 }
 
 #endif
