@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-21 19:42:33 macan>
+ * Time-stamp: <2010-04-22 20:10:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,10 +33,11 @@ struct async_thread_arg
 
 struct async_update_request
 {
-#define AU_ITB_SPLIT    0x01    /* w/ itb pointer in arg */
-#define AU_ITB_BITMAP   0x02    /* w/ bit operations in arg */
-#define AU_TXG_WB       0x03    /* w/ txg pointer in arg */
-#define AU_DIR_DELTA    0x04    /* w/ hvfs_dir_delta pointer in arg */
+#define AU_ITB_SPLIT            0x01    /* w/ itb pointer in arg */
+#define AU_ITB_BITMAP           0x02    /* w/ bit operations in arg */
+#define AU_TXG_WB               0x03    /* w/ txg pointer in arg */
+#define AU_DIR_DELTA            0x04    /* w/ hvfs_dir_delta pointer in arg */
+#define AU_DIR_DELTA_REPLY      0x05    /* w/ rddb list pointer in arg */
     u64 op;
     u64 arg;
     struct list_head list;

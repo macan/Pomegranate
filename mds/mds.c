@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-20 13:28:00 macan>
+ * Time-stamp: <2010-04-22 18:53:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -411,7 +411,7 @@ int mds_init(int bdepth)
     err = mds_bitmap_cache_init();
     if (err)
         goto out_bc;
-    
+
     /* FIXME: setup the timers */
     err = mds_setup_timers();
     if (err)

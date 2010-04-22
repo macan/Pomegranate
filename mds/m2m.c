@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 22:18:34 macan>
+ * Time-stamp: <2010-04-22 19:47:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -580,3 +580,74 @@ void mds_aubitmap_r(struct xnet_msg *msg)
      * g_bitmap_deltas list */
     async_aubitmap_cleanup(msg->tx.arg0, msg->tx.arg1);
 }
+
+void mds_audirdelta(struct xnet_msg *msg)
+{
+    struct dir_delta_au *dda;
+    struct hvfs_txg *txg;
+    u64 uuid;
+    s32 nlink;
+    u32 flag;
+    
+    /* sanity check */
+    if (msg->tx.len > 0) {
+        hvfs_err(mds, "Invalid AUDIRDELTA request %d received from %lx\n",
+                 msg->tx.reqno, msg->tx.ssite_id);
+        err = -EINVAL;
+        goto send_rpy;
+    }
+
+    /* ABI:
+     *
+     * arg0: dir uuid
+     * arg1: flag << 32 | nlink
+     */
+    uuid = msg->tx.arg0;
+    nlink = msg->tx.arg1 & 0xffffffff;
+    flag = msg->tx.arg1 >> 32;
+
+    /* construct a dir_delta_au struct and add this entry to the txg's ddb
+     * list and update the local CBHT state */
+    dda = txg_dda_alloc();
+    if (!dda) {
+        hvfs_err(mds, "alloc dir_delta_au failed.\n");
+        err = -ENOMEM;
+        goto send_rpy;
+    }
+
+    /* update the local CBHT state */
+    err = txg_ddc_update_cbht(dda);
+    if (err) {
+        hvfs_err(mds, "DDA %ld update CBHT failed w/ %d\n",
+                 uuid);
+    }
+
+    /* add to the txg->rddb list */
+    txg = mds_get_open_txg(&hmo);
+    err = txg_rddb_add(txg, msg->tx.site_id, 0, uuid,
+                       DIR_DELTA_REMOTE_UPDATE);
+    txg_put(txg);
+    if (err) {
+        hvfs_err(mds, "Remote update uuid %ld to rddb failed w/ %d\n",
+                 uuid, err);
+        err = -EUPDATED;        /* this means that the original site can be
+                                 * safely release the dda entry even there is
+                                 * a error in myself. */
+        goto send_rpy;
+    }
+
+    /* the reply will be send after TXG commit on rddb list handling. */
+    
+out_free:
+    xnet_free_msg(msg);
+
+    return;
+send_rpy:
+    /* Note That:
+     *
+     * XNET-simple do not support isend, so we cant send the reply here :(
+     * After the true XNET is working, we should change this behavier.
+     */
+    goto out_free;
+}
+

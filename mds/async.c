@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-21 20:14:01 macan>
+ * Time-stamp: <2010-04-22 20:13:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -344,6 +344,7 @@ void async_aubitmap_cleanup(u64 uuid, u64 itbid)
     list_for_each_entry_safe(bd, n, &g_bitmap_deltas, list) {
         if (uuid == bd->uuid && itbid == bd->itbid) {
             list_del(&bd->list);
+            xfree(bd);
             break;
         }
     }
@@ -357,13 +358,14 @@ void async_aubitmap_cleanup(u64 uuid, u64 itbid)
 int __aur_dir_delta(struct async_update_request *aur)
 {
     struct hvfs_dir_delta *pos;
-    struct dir_delta_au *dda;
+    struct dir_delta_au *dda, *n;
+    struct list_head *tl = (struct list_head *)aur->arg;
     int err = 0;
 
     /* we should iterate on the wbt->ddb list and transform each entry to
      * dir_delta_au and adding to the g_dir_deltas and sending each entry to
      * the destination site. */
-    list_for_each_entry(pos, &txg->ddb, list) {
+    list_for_each_entry(pos, tl, list) {
         for (i = 0; i < pos->asize; i++) {
             /* Step 1: allco the dir_delta_au */
             dda = txg_dda_alloc();
@@ -375,11 +377,122 @@ int __aur_dir_delta(struct async_update_request *aur)
             /* Step 2: transform the dir delta to dir delta au */
             /* FIXME: we should do the site_id recalculation */
             dda->dd = pos->buf[i];
-            dda->salt = lib_random(0xffffffff);
+            dda->dd.salt = lib_random(0xffffffff);
+            /* Step 3: add it to the g_dir_deltas */
+            list_add(&dda->list, &g_dir_deltas);
         }
     }
 
-    /* FIXME */
+    gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+    if (IS_ERR(gdte)) {
+        /* fatal error */
+        hvfs_err(mds, "This is a fatal error, we can not find the GDT DHE.\n");
+        err = PTR_ERR(gdte);
+        goto out;
+    }
+
+    /* Interate on the g_dir_deltas list to send the request now. */
+    xlock_lock(&g_dir_deltas_lock);
+    list_for_each_entry(dda, n, &g_dir_deltas, list) {
+        /* Step 1: recalculate the dest site_id, actually the site_id is not
+         * set on the first sending. */
+        hash = hvfs_hash_gdt(dda->dd.duuid, hmi.gdt_salt);
+        itbid = mds_get_itbid(gdte, hash);
+        p = ring_get_point(itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
+        if (IS_ERR(p)) {
+            hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
+            continue;
+        }
+        dda->dd.site_id = p->site_id;
+        /* Step 2: send it to dest site, using isend(ONESHOT) */
+        if (dda->dd.site_id == hmo.site_id) {
+            /* 
+             * Self update? If this happend, it means that the target MDS is
+             * down and myself take cover of the GDT ITBs of the original
+             * site. We known that the update should be done localy, then just
+             * waiting for the next TXG acks.
+             */
+            struct dir_delta_au *ndda;
+
+            ndda = txg_dda_alloc();
+            if (!ndda) {
+                hvfs_err(mds, "txg_dda_alloc() failed.\n");
+            }
+            ndda->dd = dda->dd;
+
+            /* NOTE THAT:
+             *
+             * add the dir delta to the local DDC is just one step, we should
+             * update the local ITB!
+             */
+            err = txg_ddc_update_cbht(ndda);
+            if (err) {
+                hvfs_err(mds, "DDA %ld update CBHT failed w/ %d\n",
+                         ndda->dd.duuid);
+            }
+
+            /* add to the txg->rddb list */
+            t = mds_get_open_txg(&hmo);
+            err = txg_rddb_add(t, dda->dd.site_id, 0, dda->dd.duuid,
+                               DIR_DELTA_REMOTE_UPDATE);
+            txg_put(t);
+            if (err) {
+                hvfs_err(mds, "Self update add uuid %ld to rddb failed w/ %d\n",
+                         dda->dd.duuid, err);
+                /* we have updated the cbht before. if we do not remove this
+                 * entry, another update will triggered, and the update maybe
+                 * not idempotent ... So, we need to remove the entry! */
+                list_del(&dda->list);
+                xfree(dda);
+                continue;
+            }
+
+            local++;
+        } else {
+            err = ddc_send_request(dda);
+            if (err) {
+                hvfs_err(mds, "send AU dir delta request failed w/ %d\n",
+                         err);
+            }
+            remote++;
+        }
+    }
+    xlock_unlock(&g_dir_deltas_lock);
+    hvfs_err(mds, "local %d remote %d\n", local, remote);
+
+out:
+    return err;
+}
+
+void async_audirdelta_cleanup(u64 uuid, u64 salt)
+{
+    struct dir_delta_au *dda, *n;
+    int found = 0, err = 0;
+
+    xlock_lock(&g_dir_deltas_lock);
+    list_for_each_entry_safe(dda, n, &g_dir_deltas, list) {
+        if (uuid == dda->dd.duuid && salt == dda->dd.salt) {
+            list_del(dda->list);
+            found = 1;
+            break;
+        }
+    }
+    xlock_unlock(&g_dir_deltas_lock);
+
+    /* we should insert the acked entries into the current txg's rddb list */
+    if (found) {
+        err = txg_rddb_add(txg, dda->dd.site_id, dda->dd.txg, dda->dd.duuid);
+        if (err) {
+            hvfs_err(mds, "Add remote(%lx) dir delta uuid %ld txg %ld "
+                     "failed w/ %d\n",
+                     dda->dd.site_id, dda->dd.duuid, dda->dd.txg, err);
+        }
+        /* then, release the acked dir delta au */
+        xfree(dda);
+    } else {
+        hvfs_err(mds, "Orphan dir delta uuid %ld salt %ld\n",
+                 uuid, salt);
+    }
 }
 
 int __aur_txg_wb(struct async_update_request *aur)
@@ -418,6 +531,9 @@ int __au_req_handle(void)
         break;
     case AU_DIR_DELTA:
         err = __aur_dir_delta(aur);
+        break;
+    case AU_DIR_DELTA_REPLY:
+        err = __aur_dir_delta_reply(aur);
         break;
     default:
         hvfs_err(mds, "Invalid AU Request: op %ld arg 0x%lx\n",

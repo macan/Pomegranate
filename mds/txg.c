@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-21 19:34:27 macan>
+ * Time-stamp: <2010-04-22 20:14:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -575,6 +575,37 @@ void *txg_commit(void *arg)
         mcond_destroy(&t->cond);
         /* trigger the commit callback on the TXs */
         txg_trigger_ccb(t);
+        /* FIXME: I should add dir delta async update here! */
+        /* FIXME: I should add dir delta async update reply here! */
+#if 1
+        {
+            /* we should take cover of the txg->rddb list and construct a
+             * request to instruct async thread to sending the request. */
+            struct asycn_update_request *aur =
+                xzalloc(sizeof(struct async_update_request) + 
+                        sizeof(struct list_head));
+            struct list_head *list = (void *)aur + 
+                sizeof(struct async_update_request);
+            
+            if (!aur) {
+                hvfs_err(mds, "xzalloc() AU request faield, data lossing.\n");
+            } else {
+                aur->op = AU_DIR_DELTA_REPLY;
+                aur->arg = (u64)list;
+                INIT_LIST_HEAD(&aur->list);
+                INIT_LIST_HEAD(list);
+                /* magic here, we move the rddb list to a temp list 8-) */
+                list_add(list, &t->rddb);
+                list_del_init(&t->rddb);
+
+                err = au_submit(aur);
+                if (err) {
+                    hvfs_err(mds, "submit AU request failed, data lossing.\n");
+                    xfree(aur);
+                }
+            }
+        }
+#endif
         /* FIXME: I should add bitmap async update here! */
 #if 1
         {
@@ -833,7 +864,7 @@ struct hvfs_dir_delta_buf *__dir_delta_buf_alloc(void)
  * @txg: the txg id on the remote site
  * @duuid: the affected dir uuid
  */
-int txg_rddb_add(struct hvfs_txg *t, u64 site_id, u64 txg, u64 duuid)
+int txg_rddb_add(struct hvfs_txg *t, u64 site_id, u64 txg, u64 duuid, u32 flag)
 {
     struct hvfs_dir_delta_buf *rddb;
     int err = 0, found = 0;
@@ -860,6 +891,7 @@ int txg_rddb_add(struct hvfs_txg *t, u64 site_id, u64 txg, u64 duuid)
     rddb->buf[buf->asize].site_id = site_id;
     rddb->buf[buf->asize].uuid = duuid;
     rddb->buf[buf->asize].txg = txg;
+    rddb->buf[buf->asize].flag = flag;
 out_unlock:
     xlock_unlock(&t->rddb_lock);
     

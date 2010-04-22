@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-21 20:10:25 macan>
+ * Time-stamp: <2010-04-22 19:30:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,6 +34,8 @@
 struct hvfs_dir_delta 
 {
     u64 site_id;
+    u64 salt;                   /* use this salt to match the request and
+                                 * reply */
     u64 txg;
     u64 duuid;
     s32 nlink;                  /* not enough? now enough! */
@@ -41,14 +43,17 @@ struct hvfs_dir_delta
 #define DIR_DELTA_ATIME         0x02
 #define DIR_DELTA_CTIME         0x04
 #define DIR_DELTA_MTIME         0x08
+
+    /* The following flags only used and valid in rddb log region */
+#define DIR_DELTA_REMOTE_UPDATE 0x8000
+#define DIR_DELTA_REMOTE_ACK    0x4000
     u32 flag;
 };
 
 /* this struct only for async dir delta usage */
 struct dir_delta_au
 {
-    u64 salt;                   /* use this salt to match the request and
-                                 * reply */
+    struct list_head list;
     struct hvfs_dir_delta dd;
 };
 
@@ -282,6 +287,10 @@ struct dir_delta_au *txg_dda_alloc(void)
     struct dir_delta_au *dda;
 
     dda = xzalloc(sizeof(*dda));
+    if (dda) {
+        /* init the dda */
+        INIT_LIST_HEAD(&dda->list);
+    }
 
     return dda;
 }

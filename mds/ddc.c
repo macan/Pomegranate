@@ -1,0 +1,93 @@
+/**
+ * Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
+ *                           <macan@ncic.ac.cn>
+ *
+ * Armed with EMACS.
+ * Time-stamp: <2010-04-22 19:20:00 macan>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ */
+
+#include "hvfs.h"
+#include "xnet.h"
+#include "ring.h"
+#include "mds.h"
+
+int txg_ddc_send_request(struct dir_delta_au *dda)
+{
+    struct xnet_msg *msg;
+    int err = 0;
+
+    /* Step 1: prepare the xnet_msg */
+    msg = xnet_allco_msg(XNET_MSG_CACHE);
+    if (!msg) {
+        hvfs_err(mds, "xnet_alloc_msg() failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    /* Step 2: construct the xnet_msg to send it to the destination */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0,
+                     hmo.site_id, bd->site_id);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_AUDIRDELTA, dda->dd.duuid,
+                      dda->dd.flag << 32 | dda->dd.nlink);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(mds, "Request to AU dir delta the uuid %ld flag 0x%x nlink %d"
+                 " failed w/ %d\n",
+                 dda->dd.duuid, dda->dd.flag, dda->dd.nlink, err);
+        goto out_free_msg;
+    }
+
+    /* We should got the reply to confirm and delete the dir delta au, but we
+     * do not do this operation here. We us send w/o XNET_NEED_REPLY because
+     * the reply mayb delievered very late. */
+    xnet_free_msg(msg);
+
+    return err;
+out_free_msg:
+    xnet_raw_free_msg(msg);
+out:
+    return err;
+}
+
+/* txg_ddc_update_cbht()
+ *
+ * Update the cbht state based on the arguments
+ */
+int txg_ddc_update_cbht(struct dir_delta_au *dda)
+{
+    int err = 0;
+
+    return err;
+}
+
+/* txg_ddc_commit()
+ *
+ * We iterate the hmo.ddc cache to send the pending request to the dest
+ * site. After each TXG commit, the ddb entries will moved the the ddc cache's
+ * out list. Then, we send the request to the dest site in async mode.
+ */
+int txg_ddc_commit(struct list_head *gl)
+{
+    int err = 0;
+    
+    return err;
+}
