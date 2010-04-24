@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-22 20:13:39 macan>
+ * Time-stamp: <2010-04-24 16:57:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -357,7 +357,7 @@ void async_aubitmap_cleanup(u64 uuid, u64 itbid)
  */
 int __aur_dir_delta(struct async_update_request *aur)
 {
-    struct hvfs_dir_delta *pos;
+    struct hvfs_dir_delta_buf *pos;
     struct dir_delta_au *dda, *n;
     struct list_head *tl = (struct list_head *)aur->arg;
     int err = 0;
@@ -464,6 +464,10 @@ out:
     return err;
 }
 
+/*
+ * This function should be called in m2m_audirdelta_r() to clean the
+ * g_dir_deltas list.
+ */
 void async_audirdelta_cleanup(u64 uuid, u64 salt)
 {
     struct dir_delta_au *dda, *n;
@@ -493,6 +497,39 @@ void async_audirdelta_cleanup(u64 uuid, u64 salt)
         hvfs_err(mds, "Orphan dir delta uuid %ld salt %ld\n",
                  uuid, salt);
     }
+}
+
+/* 
+ * AUR DIR_DELTA_REPLY is used to do async dir updates' reply. In this
+ * function we should send the reply message to the target MDS, then clean the
+ * local queue.
+ */
+int __aur_dir_delta_reply(struct async_update_request *aur)
+{
+    struct hvfs_dir_delta_buf *pos;
+    struct dir_delta_au *dda, *n;
+    struct list_head *tl = (struct list_head *)aur->arg;
+    int err = 0;
+
+    /* we should iterate on the rddb list: first, we should select all the
+     * flag UPDATE entries and send them to the destination. */
+    list_for_each_entry(pos, tl, list) {
+        for (i = 0; i < pos->asize, i++) {
+            /* Step 1: check the flag */
+            if (pos->buf[i].flag & DIR_DELTA_REMOTE_UPDATE) {
+                /* ok, we should send the reply now */
+                err = ddc_send_reply(&pos->buf[i]);
+                if (err) {
+                    hvfs_err(mds, "Send AU dir delta uuid %ld reply "
+                             "failed w %d\n",
+                             pos->buf[i].duuid, err);
+                }
+            }
+        }
+    }
+
+out:
+    return err;
 }
 
 int __aur_txg_wb(struct async_update_request *aur)

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-22 19:47:31 macan>
+ * Time-stamp: <2010-04-24 16:59:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -651,3 +651,8 @@ send_rpy:
     goto out_free;
 }
 
+void mds_audirdelta_r(struct xnet_msg *msg)
+{
+    /* Step 1: add this entry to the txg->rddb list */
+    /* Step 2: cleanup the local g_dir_deltas list */
+}

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-22 20:14:24 macan>
+ * Time-stamp: <2010-04-23 14:48:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -576,12 +576,41 @@ void *txg_commit(void *arg)
         /* trigger the commit callback on the TXs */
         txg_trigger_ccb(t);
         /* FIXME: I should add dir delta async update here! */
+#if 1
+        {
+            /* we should take over of the txg->ddb list and construct a
+             * request to instruct async thread to sending the request */
+            struct async_update_request *aur =
+                xzalloc(sizeof(struct async_update_request) +
+                        sizeof(struct list_head));
+            struct list_head *list = (void *)aur +
+                sizeof(struct async_update_request);
+
+            if (!aur) {
+                hvfs_err(mds, "xzalloc() AU request failed, data lossing.\n");
+            } else {
+                aur->op = AU_DIR_DELTA;
+                aur->arg = (u64)list;
+                INIT_LIST_HEAD(&aur->list);
+                INIT_LIST_HEAD(&list);
+                /* magic here, we move the ddb list to a temp list 8-) */
+                list_add(list, &t->ddb);
+                list_del_init(&t->ddb);
+
+                err = au_submit(aur);
+                if (err) {
+                    hvfs_err(mds, "submit AU request failed, data lossing.\n");
+                    xfree(aur);
+                }
+            }
+        }
+#endif
         /* FIXME: I should add dir delta async update reply here! */
 #if 1
         {
             /* we should take cover of the txg->rddb list and construct a
              * request to instruct async thread to sending the request. */
-            struct asycn_update_request *aur =
+            struct async_update_request *aur =
                 xzalloc(sizeof(struct async_update_request) + 
                         sizeof(struct list_head));
             struct list_head *list = (void *)aur + 
