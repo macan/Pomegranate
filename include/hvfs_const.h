@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 20:35:01 macan>
+ * Time-stamp: <2010-04-26 20:04:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -67,4 +67,7 @@ static char *hvfs_ccolor[] __attribute__((unused)) =
 #define EHSTOP          1030    /* Stop */
 #define EBITMAP         1031    /* Bitmap not correct, you should reload the
                                  * bitmap */
+#define EUPDATED        1032    /* the delta has already been applied,
+                                 * although thereis an error in another
+                                 * logic */
 #endif

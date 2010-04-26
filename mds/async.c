@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-24 16:57:57 macan>
+ * Time-stamp: <2010-04-26 20:01:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -359,8 +359,12 @@ int __aur_dir_delta(struct async_update_request *aur)
 {
     struct hvfs_dir_delta_buf *pos;
     struct dir_delta_au *dda, *n;
+    struct dhe *gdte;
+    struct chp *p;
     struct list_head *tl = (struct list_head *)aur->arg;
-    int err = 0;
+    u64 hash, itbid;
+    int new = 0, local = 0, remote = 0;
+    int err = 0, i;
 
     /* we should iterate on the wbt->ddb list and transform each entry to
      * dir_delta_au and adding to the g_dir_deltas and sending each entry to
@@ -371,7 +375,7 @@ int __aur_dir_delta(struct async_update_request *aur)
             dda = txg_dda_alloc();
             if (!dda) {
                 hvfs_err(mds, "dir delta au alloc failed on uuid %ld\n",
-                         pos->buf[i].uuid);
+                         pos->buf[i].duuid);
                 continue;
             }
             /* Step 2: transform the dir delta to dir delta au */
@@ -380,6 +384,7 @@ int __aur_dir_delta(struct async_update_request *aur)
             dda->dd.salt = lib_random(0xffffffff);
             /* Step 3: add it to the g_dir_deltas */
             list_add(&dda->list, &g_dir_deltas);
+            new++;
         }
     }
 
@@ -393,7 +398,7 @@ int __aur_dir_delta(struct async_update_request *aur)
 
     /* Interate on the g_dir_deltas list to send the request now. */
     xlock_lock(&g_dir_deltas_lock);
-    list_for_each_entry(dda, n, &g_dir_deltas, list) {
+    list_for_each_entry_safe(dda, n, &g_dir_deltas, list) {
         /* Step 1: recalculate the dest site_id, actually the site_id is not
          * set on the first sending. */
         hash = hvfs_hash_gdt(dda->dd.duuid, hmi.gdt_salt);
@@ -413,6 +418,7 @@ int __aur_dir_delta(struct async_update_request *aur)
              * waiting for the next TXG acks.
              */
             struct dir_delta_au *ndda;
+            struct hvfs_txg *t;
 
             ndda = txg_dda_alloc();
             if (!ndda) {
@@ -428,7 +434,7 @@ int __aur_dir_delta(struct async_update_request *aur)
             err = txg_ddc_update_cbht(ndda);
             if (err) {
                 hvfs_err(mds, "DDA %ld update CBHT failed w/ %d\n",
-                         ndda->dd.duuid);
+                         ndda->dd.duuid, err);
             }
 
             /* add to the txg->rddb list */
@@ -449,7 +455,7 @@ int __aur_dir_delta(struct async_update_request *aur)
 
             local++;
         } else {
-            err = ddc_send_request(dda);
+            err = txg_ddc_send_request(dda);
             if (err) {
                 hvfs_err(mds, "send AU dir delta request failed w/ %d\n",
                          err);
@@ -458,7 +464,7 @@ int __aur_dir_delta(struct async_update_request *aur)
         }
     }
     xlock_unlock(&g_dir_deltas_lock);
-    hvfs_err(mds, "local %d remote %d\n", local, remote);
+    hvfs_err(mds, "new %d local %d remote %d\n", new, local, remote);
 
 out:
     return err;
@@ -471,12 +477,13 @@ out:
 void async_audirdelta_cleanup(u64 uuid, u64 salt)
 {
     struct dir_delta_au *dda, *n;
+    struct hvfs_txg *txg;
     int found = 0, err = 0;
 
     xlock_lock(&g_dir_deltas_lock);
     list_for_each_entry_safe(dda, n, &g_dir_deltas, list) {
         if (uuid == dda->dd.duuid && salt == dda->dd.salt) {
-            list_del(dda->list);
+            list_del(&dda->list);
             found = 1;
             break;
         }
@@ -485,7 +492,10 @@ void async_audirdelta_cleanup(u64 uuid, u64 salt)
 
     /* we should insert the acked entries into the current txg's rddb list */
     if (found) {
-        err = txg_rddb_add(txg, dda->dd.site_id, dda->dd.txg, dda->dd.duuid);
+        txg = mds_get_open_txg(&hmo);
+        err = txg_rddb_add(txg, dda->dd.site_id, dda->dd.txg, dda->dd.duuid,
+                           DIR_DELTA_REMOTE_ACK);
+        txg_put(txg);
         if (err) {
             hvfs_err(mds, "Add remote(%lx) dir delta uuid %ld txg %ld "
                      "failed w/ %d\n",
@@ -503,32 +513,37 @@ void async_audirdelta_cleanup(u64 uuid, u64 salt)
  * AUR DIR_DELTA_REPLY is used to do async dir updates' reply. In this
  * function we should send the reply message to the target MDS, then clean the
  * local queue.
+ *
+ * Note that all the entries should be freed on exit!
  */
 int __aur_dir_delta_reply(struct async_update_request *aur)
 {
-    struct hvfs_dir_delta_buf *pos;
-    struct dir_delta_au *dda, *n;
+    struct hvfs_dir_delta_buf *pos, *n;
     struct list_head *tl = (struct list_head *)aur->arg;
-    int err = 0;
+    int total = 0;
+    int err = 0, i;
 
     /* we should iterate on the rddb list: first, we should select all the
      * flag UPDATE entries and send them to the destination. */
-    list_for_each_entry(pos, tl, list) {
-        for (i = 0; i < pos->asize, i++) {
+    list_for_each_entry_safe(pos, n, tl, list) {
+        list_del(&pos->list);
+        for (i = 0; i < pos->asize; i++) {
             /* Step 1: check the flag */
             if (pos->buf[i].flag & DIR_DELTA_REMOTE_UPDATE) {
                 /* ok, we should send the reply now */
-                err = ddc_send_reply(&pos->buf[i]);
+                err = txg_ddc_send_reply(&pos->buf[i]);
                 if (err) {
                     hvfs_err(mds, "Send AU dir delta uuid %ld reply "
                              "failed w %d\n",
                              pos->buf[i].duuid, err);
                 }
+                total++;
             }
         }
+        xfree(pos);
     }
+    hvfs_err(mds, "total = %d\n", total);
 
-out:
     return err;
 }
 

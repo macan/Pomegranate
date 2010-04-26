@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 22:20:16 macan>
+ * Time-stamp: <2010-04-26 16:33:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -353,8 +353,27 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
         goto out;
     }
 
-    err = 0;
     atomic64_inc(&hmo.prof.cbht.aentry);
+
+    /* Now, we know that we have create a new ITE entry, if we created is a
+     * SDT entry, then we should send a async dir delta update to the dest
+     * site. We can just add the dir delta entry to the TXG's list. The txg
+     * should be dirtied by this insertion. If we insert the entry in the txg
+     * which is not the txg we dirty the ITE, it should be ok either. Aftal
+     * all, the txg we inserted must be a txg which can make sure the dirty
+     * region is either on the disk or going to be on the disk. */
+    if (hi->flag & INDEX_CREATE_DIR) {
+        err = txg_add_update_ddelta(txg, hi->puuid, 1, 
+                                    DIR_DELTA_NLINK | DIR_DELTA_CTIME 
+                                    | DIR_DELTA_MTIME);
+        if (err) {
+            hvfs_err(mds, "Update dir delta %ld on create failed w/ %d,"
+                     " data loss\n",
+                     hi->puuid, err);
+            /* FIXME: we should return the err and revoke the inserted ITE! */
+        }
+    }
+    err = 0;
     
 out:
     return err;
@@ -1275,7 +1294,10 @@ retry:
             }
             /* FIXME: ok, forcely do it */
             if (hi->flag & INDEX_CREATE_DIR) {
-                hvfs_debug(mds, "Forcely create dir now ... should not happen?\n");
+                hvfs_debug(mds, "Forcely create dir now \n");
+                /* Forcely create dir? should not happen! */
+                ret = -EEXIST;
+                goto out;
             } else if (hi->flag & INDEX_CREATE_COPY) {
                 hvfs_debug(mds, "Forcely create with MDU ...\n");
                 *oi = itb_dirty(itb, txg, l, otxg);

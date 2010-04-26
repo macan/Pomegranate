@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-23 14:48:17 macan>
+ * Time-stamp: <2010-04-26 16:46:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -222,6 +222,8 @@ void txg_trigger_ccb(struct hvfs_txg *txg)
  */
 int txg_prepare_begin(struct commit_thread_arg *cta, struct hvfs_txg *t)
 {
+    int err = 0;
+    
     /* construct the TXG_BEGIN region, prepare writing back */
     memset(&cta->begin, 0, sizeof(cta->begin));
     cta->begin.magic = TXG_BEGIN_MAGIC;
@@ -244,6 +246,7 @@ int txg_prepare_begin(struct commit_thread_arg *cta, struct hvfs_txg *t)
         hvfs_err(mds, "txg_ddht_compact() failed w/ %d, metadata lossing\n",
                  err);
     }
+
     /* Step 2: compute the ddb buffer size */
     if (!list_empty(&t->ddb)) {
         /* Note that we do NOT need any locks here, becaust we know nobody
@@ -592,7 +595,7 @@ void *txg_commit(void *arg)
                 aur->op = AU_DIR_DELTA;
                 aur->arg = (u64)list;
                 INIT_LIST_HEAD(&aur->list);
-                INIT_LIST_HEAD(&list);
+                INIT_LIST_HEAD(list);
                 /* magic here, we move the ddb list to a temp list 8-) */
                 list_add(list, &t->ddb);
                 list_del_init(&t->ddb);
@@ -909,7 +912,7 @@ int txg_rddb_add(struct hvfs_txg *t, u64 site_id, u64 txg, u64 duuid, u32 flag)
     if (!found) {
         /* ok, we should add a new dir delta buffer here */
         rddb = __dir_delta_buf_alloc();
-        if (!buf) {
+        if (!rddb) {
             hvfs_err(mds, "alloc dir_delta_buf failed.\n");
             err = -ENOMEM;
             goto out_unlock;
@@ -917,10 +920,10 @@ int txg_rddb_add(struct hvfs_txg *t, u64 site_id, u64 txg, u64 duuid, u32 flag)
         list_add_tail(&rddb->list, &t->rddb);
     }
 
-    rddb->buf[buf->asize].site_id = site_id;
-    rddb->buf[buf->asize].uuid = duuid;
-    rddb->buf[buf->asize].txg = txg;
-    rddb->buf[buf->asize].flag = flag;
+    rddb->buf[rddb->asize].site_id = site_id;
+    rddb->buf[rddb->asize].duuid = duuid;
+    rddb->buf[rddb->asize].txg = txg;
+    rddb->buf[rddb->asize].flag = flag;
 out_unlock:
     xlock_unlock(&t->rddb_lock);
     

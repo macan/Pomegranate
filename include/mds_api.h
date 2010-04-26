@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-28 16:33:45 macan>
+ * Time-stamp: <2010-04-26 17:37:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -139,6 +139,7 @@ struct mdu_update
 #define MU_SIZE         (1 << 8) /* for truncate? */
 #define MU_FLAG_CLR     (1 << 9)
 #define MU_COLUMN       (1 << 10) /* update column infomation? */
+#define MU_NLINK        (1 << 11)
 
     u64 atime;
     u64 mtime;
@@ -153,6 +154,7 @@ struct mdu_update
     u32 flags;
 
     u32 version;
+    s32 nlink;
     u16 mode;
     u16 column_no;              /* # of columns */
 };

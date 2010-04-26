@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-24 16:59:12 macan>
+ * Time-stamp: <2010-04-26 20:05:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -588,6 +588,7 @@ void mds_audirdelta(struct xnet_msg *msg)
     u64 uuid;
     s32 nlink;
     u32 flag;
+    int err = 0;
     
     /* sanity check */
     if (msg->tx.len > 0) {
@@ -619,12 +620,12 @@ void mds_audirdelta(struct xnet_msg *msg)
     err = txg_ddc_update_cbht(dda);
     if (err) {
         hvfs_err(mds, "DDA %ld update CBHT failed w/ %d\n",
-                 uuid);
+                 uuid, err);
     }
 
     /* add to the txg->rddb list */
     txg = mds_get_open_txg(&hmo);
-    err = txg_rddb_add(txg, msg->tx.site_id, 0, uuid,
+    err = txg_rddb_add(txg, msg->tx.ssite_id, 0, uuid,
                        DIR_DELTA_REMOTE_UPDATE);
     txg_put(txg);
     if (err) {
@@ -653,6 +654,39 @@ send_rpy:
 
 void mds_audirdelta_r(struct xnet_msg *msg)
 {
+    struct hvfs_dir_delta *hdd;
+    int err = 0;
+    
+    /* sanity checking */
+    if (msg->tx.len < sizeof(struct hvfs_dir_delta)) {
+        hvfs_err(mds, "Invalid AUDIRDELTA_R request %d received from %lx\n",
+                 msg->tx.reqno, msg->tx.ssite_id);
+        err = -EINVAL;
+        goto out;
+    }
+
+    if (msg->xm_datacheck) {
+        hdd = (struct hvfs_dir_delta *)msg->xm_data;
+    } else {
+        hvfs_err(mds, "Internal error, data lossing...\n");
+        goto out;
+    }
+
+    /* ABI:
+     *
+     * tx.arg0: duuid
+     * tx.arg1: salt
+     * data: struct hvfs_dir_delta
+     */
+
+    /* Step 0: data checking? */
     /* Step 1: add this entry to the txg->rddb list */
     /* Step 2: cleanup the local g_dir_deltas list */
+    ASSERT(msg->tx.arg0 == hdd->duuid, mds);
+    async_audirdelta_cleanup(msg->tx.arg0, msg->tx.arg1);
+
+out:
+    xnet_free_msg(msg);
+    
+    return;
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-22 15:16:53 macan>
+ * Time-stamp: <2010-04-26 20:06:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -151,7 +151,6 @@ struct hvfs_mds_object
     struct hvfs_txc txc;
     struct itb_cache ic;
     struct bitmap_cache bc;
-    struct dir_delta_cache ddc;
 #define HMO_STATE_INIT          0x00
 #define HMO_STATE_LAUNCH        0x01
 #define HMO_STATE_RUNNING       0x02
@@ -335,6 +334,10 @@ int mds_add_bitmap_delta(struct hvfs_txg *, u64, u64, u64, u64);
         }                                                               \
     } while (0)
 
+int txg_add_update_ddelta(struct hvfs_txg *, u64, s32, u32);
+int txg_ddht_compact(struct hvfs_txg *);
+int txg_rddb_add(struct hvfs_txg *, u64, u64, u64, u32);
+
 /* for prof.c */
 void dump_profiling(time_t);
 
@@ -380,6 +383,7 @@ void async_tp_destroy(void);
 void async_update_checking(time_t);
 void au_handle_split_sync(void);
 void async_aubitmap_cleanup(u64, u64);
+void async_audirdelta_cleanup(u64, u64);
 
 /* please do not move the follow section */
 /* SECTION BEGIN */
@@ -450,5 +454,10 @@ int itb_split_local(struct itb *, int, struct itb_lock *, struct hvfs_txg *);
 /* bitmapc.c */
 int mds_bitmap_cache_init(void);
 void mds_bitmap_cache_destroy(void);
+
+/* ddc.c */
+int txg_ddc_update_cbht(struct dir_delta_au *);
+int txg_ddc_send_request(struct dir_delta_au *);
+int txg_ddc_send_reply(struct hvfs_dir_delta *);
 
 #endif
