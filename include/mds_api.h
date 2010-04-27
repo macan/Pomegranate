@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-26 17:37:54 macan>
+ * Time-stamp: <2010-04-27 22:08:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -109,7 +109,7 @@ struct hvfs_md_reply
     void *data;                 /* how to alloc data region more faster? */
     /* Layout of data region
      *
-     * |---HI---|---MDU---|---LS---|---BITMAP---|---DC---|
+     * |---HI---|---MDU---/---LS---|---BITMAP---|---DC---|
      */
     /*
      * Layout of the data region: low->high, selected by flags

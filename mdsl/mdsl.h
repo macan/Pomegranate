@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-26 20:11:48 macan>
+ * Time-stamp: <2010-04-27 08:54:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -183,6 +183,7 @@ struct txg_open_entry_disk
 #define TXG_OPEN_ENTRY_DISK_BITMAP      0x08
 #define TXG_OPEN_ENTRY_DISK_CKPT        0x10
 #define TXG_OPEN_ENTRY_DISK_END         0x20
+#define TXG_OPEN_ENTRY_DISK_DIR_R       0x40
     u32 type;
     u32 len;
     u64 ssite;

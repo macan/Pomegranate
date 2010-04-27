@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-21 19:36:48 macan>
+ * Time-stamp: <2010-04-27 14:39:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -477,6 +477,8 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                 /* alloc space for region info */
                 toe->osize = tb->dir_delta_nr * 
                     sizeof(struct hvfs_dir_delta) +
+                    tb->rdd_nr *
+                    sizeof(struct hvfs_dir_delta) +
                     tb->bitmap_delta_nr * 
                     sizeof(struct bitmap_delta) +
                     tb->ckpt_nr * 
@@ -497,10 +499,17 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                                  tb->site_id, tb->txg, data, tb->dir_delta_nr);
                 data += tb->dir_delta_nr * sizeof(struct hvfs_dir_delta);
                 len -= tb->dir_delta_nr * sizeof(struct hvfs_dir_delta);
+
+                toe_to_tmpfile_N(TXG_OPEN_ENTRY_DISK_DIR_R,
+                                 tb->site_id, tb->txg, data, tb->rdd_nr);
+                data += tb->rdd_nr * sizeof(struct hvfs_dir_delta);
+                len -= tb->rdd_nr * sizeof(struct hvfs_dir_delta);
+                
                 toe_to_tmpfile_N(TXG_OPEN_ENTRY_DISK_BITMAP,
                                  tb->site_id, tb->txg, data, tb->bitmap_delta_nr);
                 data += tb->bitmap_delta_nr * sizeof(struct bitmap_delta);
                 len -= tb->bitmap_delta_nr * sizeof(struct bitmap_delta);
+
                 toe_to_tmpfile_N(TXG_OPEN_ENTRY_DISK_CKPT,
                                  tb->site_id, tb->txg, data, tb->ckpt_nr);
                 data += tb->ckpt_nr * sizeof(struct checkpoint);
@@ -511,17 +520,48 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         if (msg->tx.arg0 & HVFS_WBTXG_DIR_DELTA) {
             /* the offset of this region is 0 */
             /* FIXME: should we do sth on this region? */
+            size_t region_len = 0;
+
+            if (tb && toe && toe->other_region) {
+                region_len = tb->dir_delta_nr * sizeof(struct hvfs_dir_delta);
+                p = toe->other_region;
+
+                struct hvfs_dir_delta *hdd = (struct hvfs_dir_delta *)p;
+                int i;
+                for (i = 0; i < tb->dir_delta_nr; i++) {
+                    hvfs_err(mdsl, "Dir Delta from site %lx uuid %ld flag %x "
+                             "nlink %d\n",
+                             hdd->site_id, hdd->duuid, hdd->flag, 
+                             atomic_read(&hdd->nlink));
+                }
+            }
         }
         if (msg->tx.arg0 & HVFS_WBTXG_R_DIR_DELTA) {
             /* FIXME: should we do sth on this region? */
+            size_t region_len = 0;
+            loff_t offset = tb->dir_delta_nr * sizeof(struct hvfs_dir_delta);
+
+            if (tb && toe && toe->other_region) {
+                region_len = tb->rdd_nr * sizeof(struct hvfs_dir_delta);
+                p = toe->other_region + offset;
+#if 0
+                struct hvfs_dir_delta *hdd = (struct hvfs_dir_delta *)p;
+                int i;
+                for (i = 0; i < tb->rdd_nr; i++) {
+                    hvfs_err(mdsl, "HDD site %lx uuid %ld flag %x nlink %d\n",
+                             hdd->site_id, hdd->duuid, hdd->flag, hdd->nlink);
+                }
+#endif
+            }
         }
         if (msg->tx.arg0 & HVFS_WBTXG_BITMAP_DELTA) {
             size_t region_len = 0;
-            loff_t offset = tb->dir_delta_nr * sizeof(struct hvfs_dir_delta);
+            loff_t offset = tb->dir_delta_nr * sizeof(struct hvfs_dir_delta) +
+                tb->rdd_nr * sizeof(struct hvfs_dir_delta);
             
             if (tb && toe && toe->other_region) {
                 region_len = sizeof(struct bitmap_delta) * tb->bitmap_delta_nr;
-                p = toe->other_region += offset;
+                p = toe->other_region + offset;
 #if 0
                 struct bitmap_delta *bd = (struct bitmap_delta *)p;
                 int i;

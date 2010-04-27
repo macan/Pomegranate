@@ -1,7 +1,7 @@
 Title: Client-MDS APIs ABIs
 
 Writter: Ma Can <macan@ncic.ac.cn>
-Time-stamp: <2010-02-04 13:27:40 macan>
+Time-stamp: <2010-04-27 22:07:37 macan>
 
 
 1. Structures for Interactive 
@@ -10,7 +10,8 @@ Time-stamp: <2010-02-04 13:27:40 macan>
 
 struct hvfs_index
 {
-    int namelen;                /* the name length */
+    u16 namelen;                /* the name length */
+    u16 column;                 /* which data column do you want */
 
 #define INDEX_BY_NAME           0x00000001 /* search by name */
 #define INDEX_BY_UUID           0x00000002 /* search by uuid */
@@ -20,6 +21,7 @@ struct hvfs_index
 
 #define INDEX_LOOKUP            0x00000010 /* LOOKUP */
 #define INDEX_INTENT_OPEN       0x00000020 /* open with ITE.ct++ */
+#define INDEX_COLUMN            0x00000040 /* lookup the column info */
 
 #define INDEX_LINK_ADD          0x00000100 /* lookup & nlink++, TXC */
 
@@ -28,6 +30,7 @@ struct hvfs_index
 #define INDEX_CREATE_DIR        0x00004000 /* create new dir in SDT */
 #define INDEX_CREATE_COPY       0x00008000 /* use the MDU to create */
 #define INDEX_CREATE_FORCE      0x00010000 /* forced create */
+#define INDEX_CREATE_GDT        0x00020000 /* create the gdt entry */
 
 #define INDEX_CREATE_LARGE      0x00020000 /* create large file */
 #define INDEX_CREATE_SMALL      0x00040000 /* create small file */
@@ -40,6 +43,8 @@ struct hvfs_index
 #define INDEX_ITE_SHADOW        0x02000000 /* shadow/unlinked ITE */
 
 #define INDEX_ITB_LOAD          0x10000000 /* load ITB */
+#define INDEX_BIT_FLIP          0x80000000 /* need flip the bit of itbid @
+                                            * client side*/
     u32 flag;
     u64 uuid;                   /* self uuid */
     u64 hash;                   /* hash value of the name, or manual set */
@@ -129,6 +134,9 @@ struct hvfs_md_reply
                     IF .flag & INDEX_BY_UUID then
                         REQUIRED: .hash
                     FI
+                    IF .flag & INDEX_COLUMN then
+                        REQUIRED: .column
+                    FI
                     REQUIRED: .flag & INDEX_ITE_ACTIVE
                 }
       OPTIONAL: NONE
@@ -140,6 +148,7 @@ struct hvfs_md_reply
                     REQUIRED: .flag & MD_REPLY_WITH_HI
                     REQUIRED: .flag & (MD_REPLY_WITH_MDU | MD_REPLY_WITH_LS)
                     OPTIONAL: .flag & MD_REPLY_WITH_BITMAP
+                    OPTIONAL: .flag & MD_REPLY_WITH_BFLIP
                 }
 
       API: hmr_extract()
@@ -156,6 +165,7 @@ struct hvfs_md_reply
                     OPTIONAL: .flag & INDEX_CREATE_LINK
                     OPTIONAL: .flag & INDEX_CREATE_LARGE
                     OPTIONAL: .flag & INDEX_CREATE_SMALL
+                    OPTIONAL: .flag & INDEX_CREATE_GDT
                     OPTIONAL: .flag & INDEX_BY_NAME
                     REQUIRED: .namelen, .name
                 }
@@ -170,6 +180,7 @@ struct hvfs_md_reply
                     REQUIRED: .flag & MD_REPLY_WITH_HI
                     REQUIRED: .flag & (MD_REPLY_WITH_MDU | MD_REPLY_WITH_LS)
                     OPTIONAL: .flag & MD_REPLY_WITH_BITMAP
+                    OPTIONAL: .flag & MD_REPLY_WITH_BFLIP
                 }
 
       API: hmr_extract()
@@ -192,6 +203,7 @@ struct hvfs_md_reply
                     REQUIRED: .flag & MD_REPLY_WITH_HI
                     REQUIRED: .flag & (MD_REPLY_WITH_MDU | MD_REPLY_WITH_LS)
                     OPTIONAL: .flag & MD_REPLY_WITH_BITMAP
+                    OPTIONAL: .flag & MD_REPLY_WITH_BFLIP
                 }
 
       API: hmr_extract()
@@ -215,6 +227,7 @@ struct hvfs_md_reply
                     REQUIRED: .flag & MD_REPLY_WITH_HI
                     REQUIRED: .flag & (MD_REPLY_WITH_MDU | MD_REPLY_WITH_LS)
                     OPTIONAL: .flag & MD_REPLY_WITH_BITMAP
+                    OPTIONAL: .flag & MD_REPLY_WITH_BFLIP
                 }
 
       API: hmr_extract()

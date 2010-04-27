@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-26 20:01:37 macan>
+ * Time-stamp: <2010-04-27 17:22:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -279,6 +279,7 @@ int __aur_itb_bitmap(struct async_update_request *aur)
             /* Step 3: add it to the g_bitmap_deltas */
             list_add(&bd->list, &g_bitmap_deltas);
         }
+        atomic64_add(pos->asize, &hmo.prof.misc.au_bitmap);
     }
 
     txg_free(txg);
@@ -381,11 +382,12 @@ int __aur_dir_delta(struct async_update_request *aur)
             /* Step 2: transform the dir delta to dir delta au */
             /* FIXME: we should do the site_id recalculation */
             dda->dd = pos->buf[i];
-            dda->dd.salt = lib_random(0xffffffff);
+            dda->dd.salt = lib_random(0x3fffffab);
             /* Step 3: add it to the g_dir_deltas */
             list_add(&dda->list, &g_dir_deltas);
             new++;
         }
+        atomic64_add(pos->asize, &hmo.prof.misc.au_dd);
     }
 
     gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
@@ -417,41 +419,33 @@ int __aur_dir_delta(struct async_update_request *aur)
              * site. We known that the update should be done localy, then just
              * waiting for the next TXG acks.
              */
-            struct dir_delta_au *ndda;
             struct hvfs_txg *t;
-
-            ndda = txg_dda_alloc();
-            if (!ndda) {
-                hvfs_err(mds, "txg_dda_alloc() failed.\n");
-            }
-            ndda->dd = dda->dd;
 
             /* NOTE THAT:
              *
              * add the dir delta to the local DDC is just one step, we should
              * update the local ITB!
              */
-            err = txg_ddc_update_cbht(ndda);
+            err = txg_ddc_update_cbht(dda);
             if (err) {
                 hvfs_err(mds, "DDA %ld update CBHT failed w/ %d\n",
-                         ndda->dd.duuid, err);
+                         dda->dd.duuid, err);
             }
 
             /* add to the txg->rddb list */
             t = mds_get_open_txg(&hmo);
-            err = txg_rddb_add(t, dda->dd.site_id, 0, dda->dd.duuid,
-                               DIR_DELTA_REMOTE_UPDATE);
+            err = txg_rddb_add(t, dda, DIR_DELTA_REMOTE_UPDATE);
             txg_put(t);
             if (err) {
                 hvfs_err(mds, "Self update add uuid %ld to rddb failed w/ %d\n",
                          dda->dd.duuid, err);
-                /* we have updated the cbht before. if we do not remove this
-                 * entry, another update will triggered, and the update maybe
-                 * not idempotent ... So, we need to remove the entry! */
-                list_del(&dda->list);
-                xfree(dda);
-                continue;
             }
+
+            /* we have updated the cbht before. if we do not remove this
+             * entry, another update will be triggered, and the update maybe
+             * not idempotent ... So, we need to remove the entry! */
+            list_del(&dda->list);
+            xfree(dda);
 
             local++;
         } else {
@@ -493,8 +487,7 @@ void async_audirdelta_cleanup(u64 uuid, u64 salt)
     /* we should insert the acked entries into the current txg's rddb list */
     if (found) {
         txg = mds_get_open_txg(&hmo);
-        err = txg_rddb_add(txg, dda->dd.site_id, dda->dd.txg, dda->dd.duuid,
-                           DIR_DELTA_REMOTE_ACK);
+        err = txg_rddb_add(txg, dda, DIR_DELTA_REMOTE_ACK);
         txg_put(txg);
         if (err) {
             hvfs_err(mds, "Add remote(%lx) dir delta uuid %ld txg %ld "
@@ -520,7 +513,7 @@ int __aur_dir_delta_reply(struct async_update_request *aur)
 {
     struct hvfs_dir_delta_buf *pos, *n;
     struct list_head *tl = (struct list_head *)aur->arg;
-    int total = 0;
+    int total = 0, skip = 0, acked = 0;
     int err = 0, i;
 
     /* we should iterate on the rddb list: first, we should select all the
@@ -531,18 +524,26 @@ int __aur_dir_delta_reply(struct async_update_request *aur)
             /* Step 1: check the flag */
             if (pos->buf[i].flag & DIR_DELTA_REMOTE_UPDATE) {
                 /* ok, we should send the reply now */
-                err = txg_ddc_send_reply(&pos->buf[i]);
-                if (err) {
-                    hvfs_err(mds, "Send AU dir delta uuid %ld reply "
-                             "failed w %d\n",
-                             pos->buf[i].duuid, err);
+                if (pos->buf[i].site_id != hmo.site_id) {
+                    err = txg_ddc_send_reply(&pos->buf[i]);
+                    if (err) {
+                        hvfs_err(mds, "Send AU dir delta uuid %ld reply "
+                                 "failed w %d\n",
+                                 pos->buf[i].duuid, err);
+                    }
+                    total++;
+                } else {
+                    skip++;
                 }
-                total++;
+            } else {
+                acked++;
             }
         }
+        atomic64_add(pos->asize, &hmo.prof.misc.au_ddr);
         xfree(pos);
     }
-    hvfs_err(mds, "total = %d\n", total);
+    hvfs_err(mds, "total = %d, skip = %d, acked = %d\n", 
+             total, skip, acked);
 
     return err;
 }
@@ -591,6 +592,7 @@ int __au_req_handle(void)
         hvfs_err(mds, "Invalid AU Request: op %ld arg 0x%lx\n",
                      aur->op, aur->arg);
     }
+    atomic64_inc(&hmo.prof.misc.au_handle);
     return err;
 }
 
@@ -632,7 +634,7 @@ int au_submit(struct async_update_request *aur)
     xlock_lock(&g_aum.lock);
     list_add_tail(&aur->list, &g_aum.aurlist);
     xlock_unlock(&g_aum.lock);
-    atomic64_inc(&hmo.prof.itb.split_submit);
+    atomic64_inc(&hmo.prof.misc.au_submit);
     sem_post(&hmo.async_sem);
 
     return 0;

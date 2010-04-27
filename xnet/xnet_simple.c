@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-20 14:22:37 macan>
+ * Time-stamp: <2010-04-27 11:35:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -896,6 +896,10 @@ int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
     int lock_idx = 0;
     int __attribute__((unused))bw, bt;
     
+    if (msg->tx.ssite_id == msg->tx.dsite_id) {
+        hvfs_err(xnet, "Warning: target site is the original site, BYPASS?\n");
+    }
+
     err = st_lookup(&gst, &xs, msg->tx.dsite_id);
     if (err) {
         hvfs_err(xnet, "Dest Site(%lx) unreachable.\n", msg->tx.dsite_id);
@@ -1130,12 +1134,12 @@ int xnet_msg_add_sdata(struct xnet_msg *msg, void *buf, int len)
     
     if (!msg->siov_alen) {
         /* first access, alloc some entries */
-        msg->siov = xzalloc(sizeof(struct iovec) * 10);
+        msg->siov = xzalloc(sizeof(struct iovec) * 20);
         if (!msg->siov) {
             err = -ENOMEM;
             goto out;
         }
-        msg->siov_alen = 10;
+        msg->siov_alen = 20;
     }
     if (unlikely(msg->siov_alen == msg->siov_ulen)) {
         hvfs_err(xnet, "For now, we do not support iovec expanding!\n");

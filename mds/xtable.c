@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-17 15:36:34 macan>
+ * Time-stamp: <2010-04-27 17:16:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -191,6 +191,7 @@ ni->h.itbid);
                 hvfs_err(mds, "submit AU request failed, data lossing.\n");
                 xfree(aur);
             }
+            atomic64_inc(&hmo.prof.itb.split_submit);
         }
     }
 #endif
@@ -283,7 +284,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
     struct dhe *gdte;
     struct itbitmap *bitmap, *b;
     u64 hash, itbid;
-    int err;
+    int err = 0;
     
     /* round up offset */
     offset = BITMAP_ROUNDUP(offset);
@@ -302,6 +303,8 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
     if (unlikely(e->uuid == hmi.gdt_uuid)) {
         /* ok, we should send the request to the ROOT server */
         /* FIXME: set the dsite_id!!! */
+        hvfs_err(mds, "Auto load GDT bitmap from ROOT server is not "
+                 "supported yet.\n");
         goto send_msg;
     }
 
@@ -319,74 +322,236 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
     p = ring_get_point(itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
     if (IS_ERR(p)) {
         hvfs_err(mds, "ring_get_point() failed with %ld\n", PTR_ERR(p));
-        return PTR_ERR(p);
-    }
-    /* prepare the msg */
-    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
-                     hmo.site_id, p->site_id);
-    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_LB, e->uuid, offset);
-#ifdef XNET_EAGER_WRITEV
-    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
-#endif
-
-send_msg:
-    err = xnet_send(hmo.xc, msg);
-    if (err) {
-        hvfs_err(mds, "xnet_send() failed with %d\n", err);
-        goto out_free;
-    }
-    /* ok, we get the reply: have the bitmap slice in the reply msg */
-    ASSERT(msg->pair, mds);
-    if (msg->pair->tx.err) {
-        hvfs_err(mds, "Reply w/ error %d\n", msg->pair->tx.err);
-        err = msg->pair->tx.err;
-        xnet_set_auto_free(msg->pair);
-        goto out_free;
-    }
-    if (msg->pair->tx.len < sizeof(struct itbitmap)) {
-        hvfs_err(mds, "Reply w/ incorrect data length %d vs %ld\n",
-                 msg->pair->tx.len, sizeof(struct itbitmap));
-        err = -EINVAL;
-        xnet_set_auto_free(msg->pair);
+        err = PTR_ERR(p);
         goto out_free;
     }
 
-    if (msg->pair->xm_datacheck)
-        bitmap = msg->pair->xm_data;
-    else {
-        hvfs_err(mds, "Wrong xm_datacheck!\n");
-        err = -EINVAL;
-        xnet_set_auto_free(msg->pair);
-        goto out_free;
-    }
+    /* check if the target MDS server is myself */
+    if (p->site_id == hmo.site_id) {
+        /* we should lookup the bitmap in my own bitmap cache */
+        u64 location, size;
+        struct bc_entry *be;
+        struct itbitmap *b, *bitmap;
+        struct hvfs_index hi;
 
-    /* hey, we got some bitmap slice, let us insert them to the dhe list */
-    xlock_lock(&e->lock);
-    if (!list_empty(&e->bitmap)) {
-        list_for_each_entry(b, &e->bitmap, list) {
-            if (b->offset < offset)
-                continue;
-            if (b->offset == offset) {
-                /* hoo, someone insert the bitmap prior us, we just update our
-                 * bitmap to the previous one */
-                mds_bitmap_update(b, bitmap);
-                break;
+        memset(&hi, 0, sizeof(hi));
+        hi.flag = INDEX_BY_UUID;
+        hi.uuid = e->uuid;
+        hi.puuid = hmi.gdt_uuid;
+        hi.psalt = hmi.gdt_salt;
+        hi.hash = hash;
+        hi.itbid = itbid;
+        
+        hvfs_err(mds, "Self bitmap load uuid %ld offset %ld\n",
+                 e->uuid, offset);
+
+        /* cut the bitmap to valid range */
+        err = mds_bc_dir_lookup(&hi, &location, &size);
+        if (err) {
+            hvfs_err(mds, "bc_dir_lookup() failed w/ %d\n", err);
+            goto out_free;
+        }
+
+        if (size == 0) {
+            /* this means that offset should be ZERO */
+            offset = 0;
+        } else {
+            /* Caution: we should cut the offset to the valid bitmap range by
+             * size! */
+            offset = mds_bitmap_cut(offset, size << 3);
+            offset = BITMAP_ROUNDUP(offset);
+        }
+
+        be = mds_bc_get(e->uuid, offset);
+        if (IS_ERR(be)) {
+            if (be == ERR_PTR(-ENOENT)) {
+                struct bc_entry *nbe;
+
+                /* ok, we should create one bc_entry now */
+                be = mds_bc_new();
+                if (!be) {
+                    hvfs_err(mds, "New BC entry failed\n");
+                    err = -ENOMEM;
+                    goto out_free;
+                }
+                mds_bc_set(be, e->uuid, offset);
+
+                /* we should load the bitmap from mdsl */
+                err = mds_bc_dir_lookup(&hi, &location, &size);
+                if (err) {
+                    hvfs_err(mds, "bc_dir_lookup failed w/ %d\n", err);
+                    goto out_free;
+                }
+
+                if (size == 0) {
+                    /* this means that we should just return a new default
+                     * btimap slice */
+                    be->array[0] = 0xff;
+                } else {
+                    /* load the btimap slice from MDSL */
+                    err = mds_bc_backend_load(be, hi.itbid, location);
+                    if (err) {
+                        hvfs_err(mds, "bc_backend_load failed w/ %d\n", err);
+                        mds_bc_free(be);
+                        goto out_free;
+                    }
+                }
+
+                /* finally, we insert the bc into the cache, should we check
+                 * whether there is a conflice? */
+                nbe = mds_bc_insert(be);
+                if (nbe != be) {
+                    mds_bc_free(be);
+                    be = nbe;
+                }
+                /* we should copy the content of bc_entry to itbitmap */
+                bitmap = xmalloc(sizeof(struct itbitmap));
+                if (!bitmap) {
+                    err = -ENOMEM;
+                    goto out_free;
+                }
+                INIT_LIST_HEAD(&bitmap->list);
+                bitmap->offset = be->offset;
+                bitmap->flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_BYTES)
+                                ? 0 : BITMAP_END);
+                bitmap->ts = time(NULL);
+                memcpy(bitmap->array, be->array, XTABLE_BITMAP_BYTES);
+
+                xlock_lock(&e->lock);
+                if (!list_empty(&e->bitmap)) {
+                    list_for_each_entry(b, &e->bitmap, list) {
+                        if (b->offset < offset) {
+                            continue;
+                        }
+                        if (b->offset == offset) {
+                            /* hoo, someone insert the bitmap prior us, we
+                             * just update our bitmap to the previous one */
+                            mds_bitmap_update(b, bitmap);
+                            break;
+                        }
+                        if (b->offset > offset) {
+                            /* ok, insert ourself prior this slice */
+                            list_add_tail(&bitmap->list, &b->list);
+                            break;
+                        }
+                    }
+                } else {
+                    /* ok, this is an empty list */
+                    list_add_tail(&bitmap->list, &e->bitmap);
+                }
+                xlock_unlock(&e->lock);
+            } else {
+                hvfs_err(mds, "bc_get() failed w/ %d\n", err);
+                goto out_free;
             }
-            if (b->offset > offset) {
-                /* ok, insert ourself prior this slice */
-                list_add_tail(&bitmap->list, &b->list);
-                /* FIXME: XNET clear the auto free flag */
-                xnet_clear_auto_free(msg->pair);
-                break;
+        } else {
+            /* we find the entry in the cache, just construct the itbitmap
+             * entry and insert it to the dh list */
+            bitmap = xmalloc(sizeof(struct itbitmap));
+            if (!bitmap) {
+                err = -ENOMEM;
+                goto out_free;
             }
+            bitmap->offset = be->offset;
+            bitmap->flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_BYTES)
+                            ? 0 : BITMAP_END);
+            bitmap->ts = time(NULL);
+            memcpy(bitmap->array, be->array, XTABLE_BITMAP_BYTES);
+
+            xlock_lock(&e->lock);
+            if (!list_empty(&e->bitmap)) {
+                list_for_each_entry(b, &e->bitmap, list) {
+                    if (b->offset < offset) {
+                        continue;
+                    }
+                    if (b->offset == offset) {
+                        /* hoo, someone insert the bitmap prior us, we just
+                         * update our bitmap to the previous one */
+                        mds_bitmap_update(b, bitmap);
+                        break;
+                    }
+                    if (b->offset > offset) {
+                        /* ok, insert ourself prior this slice */
+                        list_add_tail(&bitmap->list, &b->list);
+                        break;
+                    }
+                }
+            } else {
+                /* ok, this is an empty list */
+                list_add_tail(&bitmap->list, &e->bitmap);
+            }
+            xlock_unlock(&e->lock);
         }
     } else {
-        /* ok, this is an empty list */
-        list_add_tail(&bitmap->list, &e->bitmap);
-        /* FIXME: XNET clear the auto free flag */
-        xnet_clear_auto_free(msg->pair);
+        /* prepare the msg */
+        xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
+                         hmo.site_id, p->site_id);
+        xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_LB, e->uuid, offset);
+#ifdef XNET_EAGER_WRITEV
+        xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    send_msg:
+        err = xnet_send(hmo.xc, msg);
+        if (err) {
+            hvfs_err(mds, "xnet_send() failed with %d\n", err);
+            goto out_free;
+        }
+        /* ok, we get the reply: have the bitmap slice in the reply msg */
+        ASSERT(msg->pair, mds);
+        if (msg->pair->tx.err) {
+            hvfs_err(mds, "Reply w/ error %d\n", msg->pair->tx.err);
+            err = msg->pair->tx.err;
+            xnet_set_auto_free(msg->pair);
+            goto out_free;
+        }
+        if (msg->pair->tx.len < sizeof(struct itbitmap)) {
+            hvfs_err(mds, "Reply w/ incorrect data length %d vs %ld\n",
+                     msg->pair->tx.len, sizeof(struct itbitmap));
+            err = -EINVAL;
+            xnet_set_auto_free(msg->pair);
+            goto out_free;
+        }
+        
+        if (msg->pair->xm_datacheck)
+            bitmap = msg->pair->xm_data;
+        else {
+            hvfs_err(mds, "Wrong xm_datacheck!\n");
+            err = -EINVAL;
+            xnet_set_auto_free(msg->pair);
+            goto out_free;
+        }
+
+        INIT_LIST_HEAD(&bitmap->list);
+        /* hey, we got some bitmap slice, let us insert them to the dhe list */
+        xlock_lock(&e->lock);
+        if (!list_empty(&e->bitmap)) {
+            list_for_each_entry(b, &e->bitmap, list) {
+                if (b->offset < offset)
+                    continue;
+                if (b->offset == offset) {
+                    /* hoo, someone insert the bitmap prior us, we just update our
+                     * bitmap to the previous one */
+                    mds_bitmap_update(b, bitmap);
+                    xnet_set_auto_free(msg->pair);
+                    break;
+                }
+                if (b->offset > offset) {
+                    /* ok, insert ourself prior this slice */
+                    list_add_tail(&bitmap->list, &b->list);
+                    /* FIXME: XNET clear the auto free flag */
+                    xnet_clear_auto_free(msg->pair);
+                    break;
+                }
+            }
+        } else {
+            /* ok, this is an empty list */
+            list_add_tail(&bitmap->list, &e->bitmap);
+            /* FIXME: XNET clear the auto free flag */
+            xnet_clear_auto_free(msg->pair);
+        }
+        xlock_unlock(&e->lock);
     }
-    xlock_unlock(&e->lock);
 
 out_free:
     xnet_free_msg(msg);

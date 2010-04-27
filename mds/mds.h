@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-26 20:06:00 macan>
+ * Time-stamp: <2010-04-27 16:17:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -336,7 +336,7 @@ int mds_add_bitmap_delta(struct hvfs_txg *, u64, u64, u64, u64);
 
 int txg_add_update_ddelta(struct hvfs_txg *, u64, s32, u32);
 int txg_ddht_compact(struct hvfs_txg *);
-int txg_rddb_add(struct hvfs_txg *, u64, u64, u64, u32);
+int txg_rddb_add(struct hvfs_txg *, struct dir_delta_au *, u32);
 
 /* for prof.c */
 void dump_profiling(time_t);
@@ -376,6 +376,8 @@ void mds_forward(struct xnet_msg *msg);
 void mds_aubitmap(struct xnet_msg *msg);
 void mds_aubitmap_r(struct xnet_msg *msg);
 void mds_m2m_lb(struct xnet_msg *msg);
+void mds_audirdelta(struct xnet_msg *msg);
+void mds_audirdelta_r(struct xnet_msg *msg);
 
 /* for async.c */
 int async_tp_init(void);

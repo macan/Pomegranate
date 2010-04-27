@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-22 19:30:19 macan>
+ * Time-stamp: <2010-04-27 09:34:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@ struct hvfs_dir_delta
                                  * reply */
     u64 txg;
     u64 duuid;
-    s32 nlink;                  /* not enough? now enough! */
+    atomic_t nlink;             /* not enough? now enough! */
 #define DIR_DELTA_NLINK         0x01
 #define DIR_DELTA_ATIME         0x02
 #define DIR_DELTA_CTIME         0x04
@@ -103,7 +103,8 @@ struct hvfs_txg
                                  * SIGALARM handler to changing txg. */
     u32 ddht_nr;
 
-    xlock_t ckpt_lock, rddb_lock, bdb_lock, ccb_lock, itb_lock, ddht_lock;
+    xlock_t ckpt_lock, rddb_lock, bdb_lock, ccb_lock, itb_lock;
+    xrwlock_t ddht_lock;    
     struct list_head ckpt;      /* hvfs_rmds_ckpt_buf list, for ckpt
                                  * entries */
     struct list_head ddb;       /* hvfs_dir_delta_buf list, for dir deltas */

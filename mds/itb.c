@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-26 16:33:00 macan>
+ * Time-stamp: <2010-04-27 21:33:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -551,6 +551,23 @@ void ite_unlink(struct ite *e, struct itb *i, u64 offset, u64 pos)
         /* FIXME: hard link file, nobody refer it, just delete it */
         itb_del_ite(i, e, offset, pos);
     }
+
+    /* FIXME: should we do async dir delta update here? */
+    if (e->flag & ITE_FLAG_SDT) {
+        struct hvfs_txg *txg;
+        int err = 0;
+
+        txg = mds_get_open_txg(&hmo);
+        err = txg_add_update_ddelta(txg, i->h.puuid, -1,
+                                    DIR_DELTA_NLINK | DIR_DELTA_CTIME
+                                    | DIR_DELTA_MTIME);
+        txg_put(txg);
+        if (err) {
+            hvfs_err(mds, "Update dir delta %ld on unlink failed w/ %d,"
+                     " data loss\n",
+                     i->h.puuid, err);
+        }
+    }
 }
 
 /*
@@ -605,10 +622,14 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.flags |= HVFS_MDU_IF_LARGE;
         e->s.mdu.nlink = 1;
 
+        /* we should not change this region, otherwise the name is changing
+         * :(  The caller now must set the puuid and psalt themself. */
+#if 0
         if (hi->flag & INDEX_CREATE_DIR) {
             e->g.puuid = hi->puuid;
             e->g.psalt = hi->psalt;
         }
+#endif
 
         if (!mu || !mu->valid)
             return;
@@ -724,8 +745,7 @@ inline int ite_match(struct ite *e, struct hvfs_index *hi)
             return ITE_MATCH_MISS;
     } else if (hi->flag & INDEX_BY_NAME) {
         if (hi->namelen == e->namelen && 
-            memcmp(e->s.name, hi->name, hi->namelen) == 0 &&
-            e->s.name[hi->namelen] == '\0') {
+            memcmp(e->s.name, hi->name, hi->namelen) == 0) {
             return ITE_MATCH_HIT;
         } else
             return ITE_MATCH_MISS;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-26 16:46:21 macan>
+ * Time-stamp: <2010-04-27 10:57:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,7 +45,7 @@ struct hvfs_txg *txg_alloc(void)
     xlock_init(&t->rddb_lock);
     xlock_init(&t->bdb_lock);
     xlock_init(&t->ccb_lock);
-    xlock_init(&t->ddht_lock);
+    xrwlock_init(&t->ddht_lock);
     INIT_LIST_HEAD(&t->bdb);
     INIT_LIST_HEAD(&t->ddb);
     INIT_LIST_HEAD(&t->ckpt);
@@ -784,26 +784,26 @@ out_unlock:
  */
 int txg_add_update_ddelta(struct hvfs_txg *txg, u64 duuid, s32 nlink, u32 flag)
 {
-    struct dir_delta_entry *dde;
+    struct dir_delta_entry *dde, *pos;
     struct hlist_node *n;
     int err = 0;
     int idx, found = 0;
 
     idx = hvfs_hash_ddht(duuid, txg->txg) % hmo.conf.txg_ddht_size;
-    xlock_lock(&txg->ddht_lock);
+    xrwlock_rlock(&txg->ddht_lock);
     hlist_for_each_entry(dde, n, &txg->ddht[idx].h, hlist) {
         if (dde->dd.duuid == duuid) {
             /* ok, we find the target in the hash table */
             found = 1;
             /* we just update the entry now */
             if (flag & DIR_DELTA_NLINK) {
-                dde->dd.nlink += nlink;
+                atomic_add(nlink, &dde->dd.nlink);
             }
             dde->dd.flag |= flag;
             break;
         }
     }
-    xlock_unlock(&txg->ddht_lock);
+    xrwlock_runlock(&txg->ddht_lock);
 
     if (!found) {
         /* we should add a new dde to the hash table */
@@ -813,15 +813,35 @@ int txg_add_update_ddelta(struct hvfs_txg *txg, u64 duuid, s32 nlink, u32 flag)
             goto out;
         }
         if (flag & DIR_DELTA_NLINK) {
-            dde->dd.nlink = nlink;
+            atomic_set(&dde->dd.nlink, nlink);
         }
         dde->dd.flag |= flag;
+        dde->dd.duuid = duuid;
+
         /* then, insert the new entry to the hash table */
-        xlock_lock(&txg->ddht_lock);
-        hlist_add_head(&dde->hlist, &txg->ddht[idx].h);
-        list_add_tail(&dde->list, &txg->ddht_list);
-        txg->ddht_nr++;
-        xlock_unlock(&txg->ddht_lock);
+        xrwlock_wlock(&txg->ddht_lock);
+        /* recheck if this entry has been inserted by another thread */
+        hlist_for_each_entry(pos, n, &txg->ddht[idx].h, hlist) {
+            if (pos->dd.duuid == duuid) {
+                /* bad, we should release this new dde */
+                found = 1;
+                break;
+            }
+        }
+        if (!found) {
+            hlist_add_head(&dde->hlist, &txg->ddht[idx].h);
+            list_add_tail(&dde->list, &txg->ddht_list);
+            txg->ddht_nr++;
+        } else {
+            if (flag & DIR_DELTA_NLINK) {
+                atomic_add(nlink, &pos->dd.nlink);
+            }
+            pos->dd.flag |= flag;
+        }
+        xrwlock_wunlock(&txg->ddht_lock);
+        if (found) {
+            xfree(dde);
+        }
     }
     
 out:
@@ -850,19 +870,22 @@ int txg_ddht_compact(struct hvfs_txg *t)
     ddb->psize = t->ddht_nr;
     ddb->asize = 0;
 
-    xlock_lock(&t->ddht_lock);
+    xrwlock_wlock(&t->ddht_lock);
     list_for_each_entry_safe(dde, n, &t->ddht_list, list) {
         list_del(&dde->list);
         hlist_del(&dde->hlist);
         /* copy the dde content to the buffer */
+        dde->dd.site_id = hmo.site_id; /* set the site_id to myself */
         ddb->buf[ddb->asize++] = dde->dd;
         xfree(dde);
     }
-    xlock_unlock(&t->ddht_lock);
+    xrwlock_wunlock(&t->ddht_lock);
 
     /* finally, add the ddb to the hvfs_txg */
     list_add_tail(&ddb->list, &t->ddb);
     /* FIXME: do we need lock here? */
+    hvfs_err(mds, "In txg %ld compact %d dir delta(s)\n",
+             t->txg, t->ddht_nr);
 
 out:
     return err;
@@ -896,7 +919,8 @@ struct hvfs_dir_delta_buf *__dir_delta_buf_alloc(void)
  * @txg: the txg id on the remote site
  * @duuid: the affected dir uuid
  */
-int txg_rddb_add(struct hvfs_txg *t, u64 site_id, u64 txg, u64 duuid, u32 flag)
+int txg_rddb_add(struct hvfs_txg *t, struct dir_delta_au *dda, 
+                 u32 add_flag)
 {
     struct hvfs_dir_delta_buf *rddb;
     int err = 0, found = 0;
@@ -920,10 +944,11 @@ int txg_rddb_add(struct hvfs_txg *t, u64 site_id, u64 txg, u64 duuid, u32 flag)
         list_add_tail(&rddb->list, &t->rddb);
     }
 
-    rddb->buf[rddb->asize].site_id = site_id;
-    rddb->buf[rddb->asize].duuid = duuid;
-    rddb->buf[rddb->asize].txg = txg;
-    rddb->buf[rddb->asize].flag = flag;
+    rddb->buf[rddb->asize] = dda->dd;
+    rddb->buf[rddb->asize].flag |= add_flag;
+    rddb->asize++;
+
+    TXG_SET_DIRTY(t);
 out_unlock:
     xlock_unlock(&t->rddb_lock);
     

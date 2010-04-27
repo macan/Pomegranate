@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 16:09:07 macan>
+ * Time-stamp: <2010-04-27 16:04:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -447,6 +447,13 @@ int msg_send(int dsite, int loop, int type)
             if (err) {
                 hvfs_err(xnet, "create 'mds-xnet-test-%ld-%ld-%d' failed\n",
                          puuid, 0UL, i);
+            }
+            /* API change: You should set the puuid and psalt by yourself */
+            {
+                struct gdt_md *mdu = (struct gdt_md *)data;
+
+                mdu->puuid = hmi.root_uuid;
+                mdu->psalt = hmi.root_salt;
             }
             err = get_send_msg_create_gdt(dsite, i, puuid, 0, &hi, data);
             if (err) {

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-26 20:10:53 macan>
+ * Time-stamp: <2010-04-27 15:06:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,7 +29,6 @@
 int txg_ddc_send_request(struct dir_delta_au *dda)
 {
     struct xnet_msg *msg;
-    u64 data;
     int err = 0;
 
     /* Step 1: prepare the xnet_msg */
@@ -41,25 +40,26 @@ int txg_ddc_send_request(struct dir_delta_au *dda)
     }
 
     /* Step 2: construct the xnet_msg to send it to the destination */
-    data = dda->dd.flag;
-    data <<= 32;
-    data |= dda->dd.nlink;
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0,
                      hmo.site_id, dda->dd.site_id);
-    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_AUDIRDELTA, dda->dd.duuid,
-                      data);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_AUDIRDELTA, dda->dd.duuid, 0);
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
+    xnet_msg_add_sdata(msg, &dda->dd, sizeof(dda->dd));
 
     err = xnet_send(hmo.xc, msg);
     if (err) {
         hvfs_err(mds, "Request to AU dir delta the uuid %ld flag 0x%x nlink %d"
                  " failed w/ %d\n",
-                 dda->dd.duuid, dda->dd.flag, dda->dd.nlink, err);
+                 dda->dd.duuid, dda->dd.flag, 
+                 atomic_read(&dda->dd.nlink), err);
         goto out_free_msg;
     }
 
+    hvfs_err(mds, "Send AUDD uuid %ld nlink %d to site %lx salt %ld\n",
+             dda->dd.duuid, atomic_read(&dda->dd.nlink), dda->dd.site_id,
+             dda->dd.salt);
     /* We should got the reply to confirm and delete the dir delta au, but we
      * do not do this operation here. We us send w/o XNET_NEED_REPLY because
      * the reply mayb delievered very late. */
@@ -99,10 +99,14 @@ int txg_ddc_send_reply(struct hvfs_dir_delta *hdd)
     if (err) {
         hvfs_err(mds, "Request to AU dir delta reply uuid %ld flag 0x%x "
                  "nlink %d failed w/ %d\n",
-                 hdd->duuid, hdd->flag, hdd->nlink, err);
+                 hdd->duuid, hdd->flag, 
+                 atomic_read(&hdd->nlink), err);
         goto out_free_msg;
     }
 
+    hvfs_err(mds, "Send AUDD reply uuid %ld nlink %d to site %lx salt %ld\n",
+             hdd->duuid, atomic_read(&hdd->nlink), hdd->site_id,
+             hdd->salt);
     /* We should not wait any reply :) */
     xnet_free_msg(msg);
 
@@ -156,7 +160,7 @@ int txg_ddc_update_cbht(struct dir_delta_au *dda)
     memset(&mu, 0, sizeof(mu));
     if (dda->dd.flag & DIR_DELTA_NLINK) {
         mu.valid |= MU_NLINK;
-        mu.nlink = dda->dd.nlink;
+        mu.nlink = atomic_read(&dda->dd.nlink);
     }
     err = gettimeofday(&tv, NULL);
     if (err) {
@@ -196,7 +200,8 @@ retry:
         }
         hvfs_err(mds, "Error for AU update the dir delta %ld flag %x "
                  "nlink %d w/ %d\n",
-                 hi.uuid, dda->dd.flag, dda->dd.nlink, err);
+                 hi.uuid, dda->dd.flag, 
+                 atomic_read(&dda->dd.nlink), err);
     }
 
 out_free:

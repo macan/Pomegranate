@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-26 20:05:11 macan>
+ * Time-stamp: <2010-04-27 15:06:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -447,6 +447,12 @@ void mds_m2m_lb(struct xnet_msg *msg)
     u64 location, size, offset;
     int err = 0;
 
+    /* ABI:
+     *
+     * tx.arg0: uuid to load
+     * tx.arg1: offset
+     */
+
     /* first, we should get hte bc_entry */
     gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
     if (IS_ERR(gdte)) {
@@ -584,17 +590,23 @@ void mds_aubitmap_r(struct xnet_msg *msg)
 void mds_audirdelta(struct xnet_msg *msg)
 {
     struct dir_delta_au *dda;
+    struct hvfs_dir_delta *hdd;
     struct hvfs_txg *txg;
-    u64 uuid;
-    s32 nlink;
-    u32 flag;
     int err = 0;
     
     /* sanity check */
-    if (msg->tx.len > 0) {
+    if (msg->tx.len < sizeof(*hdd)) {
         hvfs_err(mds, "Invalid AUDIRDELTA request %d received from %lx\n",
                  msg->tx.reqno, msg->tx.ssite_id);
         err = -EINVAL;
+        goto send_rpy;
+    }
+
+    if (msg->xm_datacheck) {
+        hdd = (struct hvfs_dir_delta *)msg->xm_data;
+    } else {
+        hvfs_err(mds, "Internal error, data lossing...\n");
+        err = -EFAULT;
         goto send_rpy;
     }
 
@@ -603,9 +615,10 @@ void mds_audirdelta(struct xnet_msg *msg)
      * arg0: dir uuid
      * arg1: flag << 32 | nlink
      */
-    uuid = msg->tx.arg0;
-    nlink = msg->tx.arg1 & 0xffffffff;
-    flag = msg->tx.arg1 >> 32;
+
+    hvfs_err(mds, "Recv uuid %ld nlink %d from site %lx salt %ld\n", 
+             hdd->duuid, atomic_read(&hdd->nlink), msg->tx.ssite_id,
+             hdd->salt);
 
     /* construct a dir_delta_au struct and add this entry to the txg's ddb
      * list and update the local CBHT state */
@@ -617,20 +630,23 @@ void mds_audirdelta(struct xnet_msg *msg)
     }
 
     /* update the local CBHT state */
+    dda->dd = *hdd;
+    dda->dd.site_id = msg->tx.ssite_id;
+    ASSERT(msg->tx.arg0 == dda->dd.duuid, mds);
+    
     err = txg_ddc_update_cbht(dda);
     if (err) {
         hvfs_err(mds, "DDA %ld update CBHT failed w/ %d\n",
-                 uuid, err);
+                 hdd->duuid, err);
     }
 
     /* add to the txg->rddb list */
     txg = mds_get_open_txg(&hmo);
-    err = txg_rddb_add(txg, msg->tx.ssite_id, 0, uuid,
-                       DIR_DELTA_REMOTE_UPDATE);
+    err = txg_rddb_add(txg, dda, DIR_DELTA_REMOTE_UPDATE);
     txg_put(txg);
     if (err) {
         hvfs_err(mds, "Remote update uuid %ld to rddb failed w/ %d\n",
-                 uuid, err);
+                 hdd->duuid, err);
         err = -EUPDATED;        /* this means that the original site can be
                                  * safely release the dda entry even there is
                                  * a error in myself. */
@@ -684,6 +700,10 @@ void mds_audirdelta_r(struct xnet_msg *msg)
     /* Step 2: cleanup the local g_dir_deltas list */
     ASSERT(msg->tx.arg0 == hdd->duuid, mds);
     async_audirdelta_cleanup(msg->tx.arg0, msg->tx.arg1);
+
+    hvfs_err(mds, "Recv AUDD reply uuid %ld nlink %d from site %lx salt %ld\n",
+             hdd->duuid, atomic_read(&hdd->nlink), msg->tx.ssite_id,
+             hdd->salt);
 
 out:
     xnet_free_msg(msg);

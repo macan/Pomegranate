@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-17 13:26:28 macan>
+ * Time-stamp: <2010-04-27 09:54:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -106,6 +106,10 @@ int mds_mds_dispatch(struct xnet_msg *msg)
     } else if (msg->tx.cmd == HVFS_MDS2MDS_AUBITMAP_R) {
         mds_aubitmap_r(msg);
         xnet_free_msg(msg);
+    } else if (msg->tx.cmd == HVFS_MDS2MDS_AUDIRDELTA) {
+        mds_audirdelta(msg);
+    } else if (msg->tx.cmd == HVFS_MDS2MDS_AUDIRDELTA_R) {
+        mds_audirdelta_r(msg);
     } else if (msg->tx.cmd == HVFS_MDS2MDS_AUPDATE) {
         /* FIXME: async update */
     } else if (msg->tx.cmd == HVFS_MDS2MDS_REDODELTA) {

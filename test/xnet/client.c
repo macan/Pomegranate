@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 17:42:45 macan>
+ * Time-stamp: <2010-04-26 21:19:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,6 +36,7 @@
 #define OP_CREATE       0
 #define OP_LOOKUP       1
 #define OP_UNLINK       2
+#define OP_CREATE_DIR   3
 #define OP_ALL          100
 
 u64 __attribute__((unused)) split_retry = 0;
@@ -168,6 +169,144 @@ int get_send_msg_create(int nid, u64 puuid, u64 itbid,
     dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS);
     
     hi->flag = INDEX_CREATE | INDEX_BY_NAME;
+    memcpy(hi->name, name, strlen(name));
+    hi->namelen = strlen(name);
+    if (imu) {
+        mu = (struct mdu_update *)((void *)hi + sizeof(struct hvfs_index) +
+                                   strlen(name));
+        memcpy(mu, imu, sizeof(struct mdu_update));
+        /* The following line is very IMPORTANT! */
+        hi->dlen = sizeof(struct mdu_update);
+    }
+
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE |
+                     XNET_NEED_REPLY, hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_CREATE, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(struct xnet_msg_tx));
+#endif
+    xnet_msg_add_sdata(msg, hi, dpayload);
+
+    hvfs_debug(xnet, "MDS dpayload %d (namelen %d, dlen %ld)\n", 
+               msg->tx.len, hi->namelen, hi->dlen);
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+    /* this means we have got the reply, parse it! */
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT && !recreate) {
+        /* the ITB is under spliting, we need retry */
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        recreate = 1;
+        split_retry++;
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "CREATE failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        create_failed++;
+        goto out_msg;
+    }
+    if (msg->pair->xm_datacheck)
+        hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
+    else {
+        hvfs_err(xnet, "Invalid CREATE reply from site %lx.\n",
+                 msg->pair->tx.ssite_id);
+        err = -EFAULT;
+        goto out_msg;
+    }
+    /* now, checking the hmr err */
+    if (hmr->err) {
+        /* hoo, sth wrong on the MDS. IMPOSSIBLE code path! */
+        hvfs_err(xnet, "MDS Site %lx reply w/ %d\n",
+                 msg->pair->tx.ssite_id, hmr->err);
+        xnet_set_auto_free(msg->pair);
+        goto out_msg;
+    } else if (hmr->len) {
+        hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+        if (hmr->flag & MD_REPLY_WITH_BFLIP) {
+            struct hvfs_index *rhi;
+            int no = 0;
+
+            rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+            if (!rhi) {
+                hvfs_err(xnet, "extract HI failed, not found.\n");
+            }
+            mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
+                                 MDS_BITMAP_SET);
+            hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
+                       rhi->puuid, rhi->itbid);
+        }
+    }
+
+    /* finally, we wait for the commit respond */
+    if (msg->tx.flag & XNET_NEED_TX) {
+    rewait:
+        err = sem_wait(&msg->event);
+        if (err < 0) {
+            if (errno == EINTR)
+                goto rewait;
+            else
+                hvfs_err(xnet, "sem_wait() failed %d\n", errno);
+        }
+    }
+    xnet_set_auto_free(msg->pair);
+
+out_msg:
+    xnet_free_msg(msg);
+    return err;
+out:
+    xfree(hi);
+    return err;
+}
+
+int get_send_msg_create_dir(int nid, u64 puuid, u64 itbid,
+                            struct mdu_update *imu, void *data)
+{
+    char name[HVFS_MAX_NAME_LEN];
+    size_t dpayload;
+    struct xnet_msg *msg;
+    struct hvfs_index *hi;
+    struct hvfs_md_reply *hmr;
+    struct mdu_update *mu;
+    u64 dsite;
+    int err = 0, recreate = 0;
+
+    /* construct the hvfs_index */
+    memset(name, 0, sizeof(name));
+    snprintf(name, HVFS_MAX_NAME_LEN, "client-xnet-test-%ld-%ld-%d", 
+             puuid, itbid, nid);
+    dpayload = sizeof(struct hvfs_index) + strlen(name) + 
+        (imu ? sizeof(struct mdu_update) : 0);
+    hi = (struct hvfs_index *)xzalloc(dpayload);
+    if (!hi) {
+        hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
+        return -ENOMEM;
+    }
+    hi->hash = hvfs_hash(puuid, (u64)name, strlen(name), HASH_SEL_EH);
+    hi->puuid = hmi.root_uuid;
+    hi->psalt = hmi.root_salt;
+    /* calculate the itbid now */
+    err = SET_ITBID(hi);
+    if (err)
+        goto out;
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS);
+    
+    hi->flag = INDEX_CREATE | INDEX_BY_NAME | INDEX_CREATE_DIR;
     memcpy(hi->name, name, strlen(name));
     hi->namelen = strlen(name);
     if (imu) {
@@ -579,6 +718,19 @@ int msg_send(int entry, int op, int base)
         }
         lib_timer_E();
         lib_timer_O(entry, "Unlink Latency: ");
+        break;
+    case OP_CREATE_DIR:
+        lib_timer_B();
+        for (i = 0; i < entry; i++) {
+            err = get_send_msg_create_dir(i + base, hmi.root_uuid, hmo.site_id, 
+                                          NULL, (void *)data);
+            if (err) {
+                hvfs_err(xnet, "create 'client-xnet-test-%ld-%ld-%d' failed\n",
+                         hmi.root_uuid, hmo.site_id, i + base);
+            }
+        }
+        lib_timer_E();
+        lib_timer_O(entry, "Create DIR Latency: ");
         break;
     default:;
     }

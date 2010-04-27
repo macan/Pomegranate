@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-22 18:53:25 macan>
+ * Time-stamp: <2010-04-27 16:12:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,6 +48,9 @@ void mds_sigaction_default(int signo, siginfo_t *info, void *arg)
                   HVFS_COLOR_END,
                   SIGCODES(info->si_code));
         lib_segv(signo, info, arg);
+    }
+    if (signo == SIGHUP) {
+        hvfs_info(lib, "Exit MDS Server ...\n");
     }
     return;
 }
