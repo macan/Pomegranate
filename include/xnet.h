@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 16:06:45 macan>
+ * Time-stamp: <2010-04-28 14:36:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,6 +31,8 @@ struct xnet_msg_tx
 #define XNET_MSG_REQ    1
 #define XNET_MSG_RPY    2
 #define XNET_MSG_CMD    3
+#define XNET_MSG_HELLO  4
+#define XNET_MSG_HELLO_ACK 5
     u8 type;                           /* msg type */
 #define XNET_NEED_REPLY         0x0001 /* otherwise, no reply data */
 #define XNET_NEED_TX            0x0002 /* otherwise, no commit msg */

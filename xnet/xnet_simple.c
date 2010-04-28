@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-27 11:35:56 macan>
+ * Time-stamp: <2010-04-28 23:07:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -255,6 +255,30 @@ int __xnet_handle_tx(int fd)
                     INIT_LIST_HEAD(&ac->list);
                     ac->sockfd = fd;
                     list_add_tail(&ac->list, &accept_list);
+                }
+            }
+            {
+                struct xnet_msg_tx htx = {
+                    .version = 0,
+                    .len = sizeof(htx),
+                    .type = XNET_MSG_HELLO_ACK,
+                    .ssite_id = msg->tx.dsite_id,
+                    .dsite_id = msg->tx.ssite_id,
+                };
+                struct iovec __iov = {
+                    .iov_base = &htx,
+                    .iov_len = sizeof(htx),
+                };
+                struct msghdr __msg = {
+                    .msg_iov = &__iov,
+                    .msg_iovlen = 1,
+                };
+                int bt;
+                
+                bt = sendmsg(fd, &__msg, 0);
+                if (bt < 0 || bt < sizeof(htx)) {
+                    hvfs_err(xnet, "sendmsg do not support redo now :(\n");
+                    HVFS_BUG();
                 }
             }
         }
@@ -883,6 +907,34 @@ int SELECT_CONNECTION(struct xnet_addr *xa, int *idx)
     return ssock;
 }
 
+static inline
+void __iov_recal(struct iovec *in, struct iovec **out, int inlen, size_t *outlen,
+                 int offset)
+{
+    struct iovec *__out;
+    int i, j;
+
+    __out = xmalloc(sizeof(struct iovec) * inlen);
+    if (!__out) {
+        hvfs_err(xnet, "xmalloc iovec failed.\n");
+        ASSERT(0, xnet);
+    }
+
+    for (i = 0, j = 0; i < inlen; i++) {
+        if (offset < (in + i)->iov_len) {
+            (__out + j)->iov_base = (in + i)->iov_base + offset;
+            (__out + j)->iov_len = (in + i)->iov_len - offset;
+            j++;
+            offset = 0;
+        } else {
+            /* skip this iov entry */
+            offset -= (in + i)->iov_len;
+        }
+    }
+    *out = __out;
+    *outlen = j;
+}
+
 /* xnet_send()
  */
 int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
@@ -954,6 +1006,49 @@ retry:
                     goto retry;
                 }
 
+                /* yap, we have connected, following the current protocol, we
+                 * should send a hello msg and recv a hello ack msg */
+                {
+                    struct xnet_msg_tx htx = {
+                        .version = 0,
+                        .len = sizeof(htx),
+                        .type = XNET_MSG_HELLO,
+                        .ssite_id = xc->site_id,
+                    };
+                    struct iovec __iov = {
+                        .iov_base = &htx,
+                        .iov_len = sizeof(htx),
+                    };
+                    struct msghdr __msg = {
+                        .msg_iov = &__iov,
+                        .msg_iovlen = 1,
+                    };
+                    int bt, br;
+
+                    bt = sendmsg(csock, &__msg, 0);
+                    if (bt < 0 || bt < sizeof(htx)) {
+                        hvfs_err(xnet, "sendmsg do not support redo now :(\n");
+                        HVFS_BUG();
+                    }
+                    /* recv the hello ack in handle_tx thread */
+                    br = 0;
+                    do {
+                        bt = recv(csock, (void *)&htx + br, sizeof(htx) - br,
+                                  MSG_WAITALL);
+                        if (bt < 0) {
+                            if (errno == EAGAIN || errno == EINTR) {
+                                sched_yield();
+                                continue;
+                            }
+                            hvfs_err(xnet, "recv error: %s\n", strerror(errno));
+                            csock = 0;
+                            goto retry;
+                        }
+                        br += bt;
+                    } while (br < sizeof(htx));
+                }
+
+                /* now, it is ok to push this socket to the epoll thread */
                 setnonblocking(csock);
                 setnodelay(csock);
                 ev.events = EPOLLIN | EPOLLET;
@@ -971,6 +1066,7 @@ retry:
                            inet_ntoa(((struct sockaddr_in *)&xa->sa)->sin_addr),
                            ntohs(((struct sockaddr_in *)&xa->sa)->sin_port), 
                            csock);
+
                 nr_conn++;
                 if (nr_conn < XNET_CONNS_DEF) {
                     csock = 0;
@@ -1039,24 +1135,38 @@ reselect_conn:
                 .msg_iov = msg->siov,
                 .msg_iovlen = msg->siov_ulen,
             };
-            
-            bt = sendmsg(ssock, &__msg, 0);
-            if (bt < 0 || msg->tx.len > bt) {
-                hvfs_err(xnet, "sendmsg(%d[%lx],%d,%d) err %d, for now we do not "
-                         "support redo:(\n", ssock, msg->tx.dsite_id, bt,
-                         msg->tx.len, 
-                         errno);
-                HVFS_BUG();
-                if (errno == ECONNRESET || errno == EBADF) {
-                    /* select another link and resend the whole msg */
-                    xlock_unlock(&xa->socklock[lock_idx]);
-                    st_clean_sockfd(&gst, ssock);
-                    hvfs_err(xnet, "Reselect Conn [%d] --> ?\n", ssock);
-                    goto reselect_conn;
+
+            bw = 0;
+            do {
+                bt = sendmsg(ssock, &__msg, 0);
+                if (bt < 0 || msg->tx.len > bt) {
+                    if (bt >= 0) {
+                        /* ok, we should adjust the iov */
+                        __iov_recal(msg->siov, &__msg.msg_iov, msg->siov_ulen,
+                                    &__msg.msg_iovlen, bt + bw);
+                        bw += bt;
+                        continue;
+                    } else if (errno == EINTR || errno == EAGAIN) {
+                        continue;
+                    }
+                    hvfs_err(xnet, "sendmsg(%d[%lx],%d,%d) err %d, "
+                             "for now we do support redo:)\n", 
+                             ssock, msg->tx.dsite_id, bt,
+                             msg->tx.len, 
+                             errno);
+                    HVFS_BUG();
+                    if (errno == ECONNRESET || errno == EBADF) {
+                        /* select another link and resend the whole msg */
+                        xlock_unlock(&xa->socklock[lock_idx]);
+                        st_clean_sockfd(&gst, ssock);
+                        hvfs_err(xnet, "Reselect Conn [%d] --> ?\n", ssock);
+                        goto reselect_conn;
+                    }
+                    err = -errno;
+                    goto out_unlock;
                 }
-                err = -errno;
-                goto out_unlock;
-            }
+                bw += bt;
+            } while (bw < msg->tx.len);
             atomic64_add(bt, &g_xnet_prof.outbytes);
         }
 #elif 1
