@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-28 23:07:50 macan>
+ * Time-stamp: <2010-04-29 10:36:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -295,7 +295,7 @@ int __xnet_handle_tx(int fd)
 #ifdef XNET_EAGER_WRITEV
     msg->tx.len -= sizeof(struct xnet_msg_tx);
 #endif
-    if (msg->tx.len) {
+    if (msg->tx.len > 0) {
         /* we should pre-alloc the buffer */
         void *buf;
 
@@ -998,13 +998,6 @@ retry:
                 xlock_lock(&active_list_lock);
                 list_add_tail(&ac->list, &active_list);
                 xlock_unlock(&active_list_lock);
-                err = st_update_sockfd(&gst, csock, msg->tx.dsite_id);
-                if (err) {
-                    st_clean_sockfd(&gst, csock);
-                    csock = 0;
-                    sleep(1);
-                    goto retry;
-                }
 
                 /* yap, we have connected, following the current protocol, we
                  * should send a hello msg and recv a hello ack msg */
@@ -1046,6 +1039,15 @@ retry:
                         }
                         br += bt;
                     } while (br < sizeof(htx));
+                }
+
+                /* ok, it is ok to update this socket to the site table */
+                err = st_update_sockfd(&gst, csock, msg->tx.dsite_id);
+                if (err) {
+                    st_clean_sockfd(&gst, csock);
+                    csock = 0;
+                    sleep(1);
+                    goto retry;
                 }
 
                 /* now, it is ok to push this socket to the epoll thread */

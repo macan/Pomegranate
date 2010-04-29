@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-20 19:58:17 macan>
+ * Time-stamp: <2010-04-29 15:18:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,23 +39,25 @@ struct si_mds
 {
     u64 offset;                 /* for read_bitmap: the bitmap offset */
     u32 len;                    /* the data length */
+    u8 data[0];
+};
+
+struct column_req
+{
+    u64 cno;                    /* requested column number */
+    u64 stored_itbid;           /* stored itbid for selecting MDSL */
+    u64 file_offset;            /* the offset of the MDSL file */
+    u64 req_offset;             /* requested data offset in the logical file
+                                 * region */
+    u64 req_len;                /* requested data length */
 };
 
 /* storage index for client */
-struct si_client 
+struct si_client_data
 {
-    u64 hash;                   /* entry hash value */
-    u64 offset;                 /* the data offset of this op */
-    u32 olen;                   /* the data length of this op */
-    u32 column;                 /* the column where the data reside */
-    u32 len;                    /* the total data length */
-    u16 namelen;                /* the name length */
-#define SIC_INDEX_BY_NAME       0x00
-#define SIC_INDEX_BY_UUID       0x01
-    u16 flag;                   /* which index method used */
+    u32 cnr;                    /* column number */
+    struct column_req cr[0];
 };
-
-typedef struct si_client si_data_t;
 
 /* search colump operations */
 struct scop 
@@ -80,38 +82,9 @@ struct storage_index
     struct si_core sic;
     union 
     {
-        struct __si_client 
-        {
-            struct si_client sc;
-            char *name;
-            char *data;
-        } c;
-        struct __si_mds
-        {
-            struct si_mds sm;
-            char *data;
-        } m;
-        struct si_search s;
-    };
-};
-
-struct storage_index_tx
-{
-    struct si_core sic;
-    union 
-    {
-        struct ___si_client
-        {
-            struct si_client sc;
-            char name[0];
-            char data[0];
-        } c;
-        struct ___si_mds
-        {
-            struct si_mds sm;
-            char data[0];
-        } m;
-        struct si_search s;
+        struct si_client_data scd;
+        struct si_mds sm;
+        struct si_search ss;
     };
 };
 
@@ -126,14 +99,13 @@ struct storage_result_core
 #define SR_ITB          0x04
 #define SR_BITMAP       0x05
 #define SR_PRECOMMIT    0x06
-#define SR_WRITED       0x07    /* write data */
     u64 flag;
 };
 
 struct storage_result 
 {
     struct storage_result_core src;
-    void *data;
+    u8 data[0];
 };
 
 /* Region for TXG write back */

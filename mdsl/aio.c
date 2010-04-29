@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-04 16:32:23 macan>
+ * Time-stamp: <2010-04-29 16:09:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,8 +63,14 @@ static struct aio_mgr aio_mgr;
 
 void __mdsl_aio_qdcheck(int flag)
 {
+    int err;
+    
     if (flag == MDSL_AIO_QDCHECK_LOCK) {
-        sem_wait(&aio_mgr.qdsem);
+    retry:
+        err = sem_wait(&aio_mgr.qdsem);
+        if (err < 0 && (errno == EINTR)) {
+            goto retry;
+        }
     } else if (flag == MDSL_AIO_QDCHECK_UNLOCK) {
         sem_post(&aio_mgr.qdsem);
     }

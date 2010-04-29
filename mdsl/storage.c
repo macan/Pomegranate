@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 16:30:55 macan>
+ * Time-stamp: <2010-04-29 19:37:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -92,8 +92,10 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
             goto out_close;
         }
         fde->abuf.len = buf_len;
-        if (!fde->abuf.file_offset)
-            fde->abuf.offset = 1;
+        if (fde->type == MDSL_STORAGE_ITB) {
+            if (!fde->abuf.file_offset)
+                fde->abuf.offset = 1;
+        }
         fde->state = FDE_ABUF;
     }
 
@@ -257,6 +259,9 @@ int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
     memcpy(fde->abuf.addr + fde->abuf.offset, msa->iov->iov_base, msa->iov->iov_len);
     if (fde->type == MDSL_STORAGE_ITB) {
         ((struct itb_info *)msa->arg)->location = fde->abuf.file_offset + 
+            fde->abuf.offset;
+    } else if (fde->type == MDSL_STORAGE_DATA) {
+        *((u64 *)msa->arg) = fde->abuf.file_offset +
             fde->abuf.offset;
     }
     fde->abuf.offset += msa->iov->iov_len;
@@ -729,6 +734,7 @@ int __normal_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         offset = lseek(fde->fd, 0, SEEK_CUR);
     }
     
+    hvfs_err(mdsl, "read offset %ld len %ld\n", offset, msa->iov->iov_len);
     for (i = 0; i < msa->iov_nr; i++) {
         bl = 0;
         do {
@@ -1293,6 +1299,11 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
     case MDSL_STORAGE_DATA:
         sprintf(path, "%s/%ld/%ld/data-%ld", HVFS_MDSL_HOME, hmo.site_id, 
                 fde->uuid, fde->arg);
+        err = append_buf_create(fde, path, FDE_ABUF);
+        if (err) {
+            hvfs_err(mdsl, "append buf create failed w/ %d\n", err);
+            goto out;
+        }
         break;
     case MDSL_STORAGE_BITMAP:
         sprintf(path, "%s/%ld/%ld/data-%ld", HVFS_MDSL_HOME, hmo.site_id, 

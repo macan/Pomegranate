@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-04 16:21:21 macan>
+ * Time-stamp: <2010-04-29 19:35:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -251,6 +251,64 @@ out:
     return err;
 }
 
+int __test_data_rw()
+{
+    char buf1[1024] = {"hello, world!"};
+    char buf2[1024] = {"xxxxxxxxxxxx!"};
+    u64 location;
+    struct iovec test_iov = {
+        .iov_base = buf1,
+        .iov_len = 1024,
+    };
+    struct mdsl_storage_access msa = {
+        .iov = &test_iov,
+        .arg = &location,
+        .iov_nr = 1,
+    };
+    struct fdhash_entry *fde;
+    int err = 0;
+
+    hvfs_info(mdsl, "Begin create the data file...\n");
+    fde = mdsl_storage_fd_lookup_create(0, MDSL_STORAGE_DATA, 0);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create failed w/ %ld\n", PTR_ERR(fde));
+        return PTR_ERR(fde);
+    }
+    hvfs_info(mdsl, "Begin write the data file ...\n");
+
+    err = mdsl_storage_fd_write(fde, &msa);
+    if (err) {
+        hvfs_err(mdsl, "fd_write failed w/ %d\n", err);
+        mdsl_storage_fd_put(fde);
+        goto out;
+    }
+    hvfs_info(mdsl, "End write, location %ld ...\n", location);
+
+    hvfs_info(mdsl, "Begin read the data file ...\n");
+
+    test_iov.iov_base = buf2;
+    msa.offset = location;
+    err = mdsl_storage_fd_read(fde, &msa);
+    if (err) {
+        hvfs_err(mdsl, "fd_read failed w/ %d\n", err);
+        mdsl_storage_fd_put(fde);
+        goto out;
+    }
+    hvfs_info(mdsl, "End read ...\n");
+
+    mdsl_storage_fd_put(fde);
+
+    /* check the bufs */
+    if (memcmp(buf1, buf2, 1024) != 0) {
+        hvfs_info(mdsl, "Read verify failed (%s vs %s).\n", buf1, buf2);
+    } else {
+        hvfs_info(mdsl, "Read verify ok.\n");
+    }
+
+out:
+    return err;
+}
+
 int main(int argc, char *argv[])
 {
     int err = 0;
@@ -268,12 +326,12 @@ int main(int argc, char *argv[])
         hvfs_err(mdsl, "append buf test failed w/ %d\n", err);
         goto out;
     }
-#endif
     err = __test_fdht();
     if (err) {
         hvfs_err(mdsl, "test fdht failed w/ %d\n", err);
         goto out;
     }
+#endif
 #if 0
     err = __test_all();
     if (err) {
@@ -286,6 +344,11 @@ int main(int argc, char *argv[])
         goto out;
     }
 #endif
+    err = __test_data_rw();
+    if (err) {
+        hvfs_err(mdsl, "test data rw failed w/ %d\n", err);
+        goto out;
+    }
 
     mdsl_destroy();
 

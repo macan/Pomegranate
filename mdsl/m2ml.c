@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-27 14:39:58 macan>
+ * Time-stamp: <2010-04-29 15:48:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -344,7 +344,8 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
         msa.iov = NULL;
         err = mdsl_storage_fd_write(fde, &msa);
         if (err) {
-            hvfs_err(mdsl, "write the dir %ld bitmap %ld @ location %lx failed w/ %d\n",
+            hvfs_err(mdsl, "write the dir %ld bitmap %ld @ location %lx "
+                     "failed w/ %d\n",
                      bcc->uuid, bcc->itbid, bcc->location, err);
         }
     } else {
@@ -370,7 +371,8 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
             msa.iov_nr = 1;
             err = mdsl_storage_fd_read(fde, &msa);
             if (err) {
-                hvfs_err(mdsl, "read the dir %ld bitmap %ld location %lx failed w/ %d\n",
+                hvfs_err(mdsl, "read the dir %ld bitmap %ld location %lx "
+                         "failed w/ %d\n",
                          bcc->uuid, bcc->itbid, bcc->location, err);
                 xfree(data);
                 goto out_reply;
@@ -392,7 +394,8 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
         msa.iov_nr = 1;
         err = mdsl_storage_fd_write(fde, &msa);
         if (err) {
-            hvfs_err(mdsl, "write the dir %ld bitmap %ld location %lx failed w/ %d\n",
+            hvfs_err(mdsl, "write the dir %ld bitmap %ld location %lx "
+                     "failed w/ %d\n",
                      bcc->uuid, bcc->itbid, bcc->location, err);
             xfree(data);
             goto out_reply;
@@ -405,7 +408,8 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
         msa.iov = NULL;
         err = mdsl_storage_fd_write(fde, &msa);
         if (err) {
-            hvfs_err(mdsl, "write the dir %ld bitmap %ld location %lx failed w/ %d\n",
+            hvfs_err(mdsl, "write the dir %ld bitmap %ld location %lx "
+                     "failed w/ %d\n",
                      bcc->uuid, bcc->itbid, location, err);
             goto out_reply;
         }
@@ -413,6 +417,7 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
 
     /* We need to send the reply here! reply w/ the errno and new location! */
 out_reply:
+    mdsl_storage_fd_put(fde);
     __customized_send_reply(msg, err, location, size);
     
 out:
