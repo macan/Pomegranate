@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-29 15:18:52 macan>
+ * Time-stamp: <2010-04-30 10:26:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,19 +27,10 @@
 struct si_core 
 {
     u64 uuid;                   /* the dir UUID */
-    /* for read_itb: itbid
-     * for read_bitmap: self UUID
+    /* 
      * for read/write: itbid
      */
     u64 arg0;
-};
-
-/* storage index for mds */
-struct si_mds 
-{
-    u64 offset;                 /* for read_bitmap: the bitmap offset */
-    u32 len;                    /* the data length */
-    u8 data[0];
 };
 
 struct column_req
@@ -52,10 +43,19 @@ struct column_req
     u64 req_len;                /* requested data length */
 };
 
+/* storage index for mds */
+struct si_mds 
+{
+    u32 cnr;
+    u32 padding;
+    struct column_req cr[0];
+};
+
 /* storage index for client */
 struct si_client_data
 {
     u32 cnr;                    /* column number */
+    u32 padding;
     struct column_req cr[0];
 };
 
@@ -80,7 +80,8 @@ struct si_search
 struct storage_index 
 {
     struct si_core sic;
-    union 
+    union                       /* MAKE SURE that the following structs are
+                                 * the same size! */
     {
         struct si_client_data scd;
         struct si_mds sm;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-26 21:19:24 macan>
+ * Time-stamp: <2010-04-30 18:46:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,7 +37,10 @@
 #define OP_LOOKUP       1
 #define OP_UNLINK       2
 #define OP_CREATE_DIR   3
+#define OP_WDATA        4
+#define OP_RDATA        5
 #define OP_ALL          100
+#define OP_DATA_ALL     200
 
 u64 __attribute__((unused)) split_retry = 0;
 u64 __attribute__((unused)) create_failed = 0;
@@ -675,6 +678,471 @@ out_free:
     return err;
 }
 
+void __data_read(struct hvfs_index *hi, struct column *c)
+{
+    u8 *data;
+    struct storage_index *si;
+    struct xnet_msg *msg;
+    u64 dsite;
+    int err = 0, i;
+
+    hvfs_err(xnet, "Read column itbid %ld len %ld offset %ld\n",
+             c->stored_itbid, c->len, c->offset);
+
+    si = xzalloc(sizeof(*si) + sizeof(struct column_req));
+    if (!si) {
+        hvfs_err(xnet, "xzalloc() storage index failed\n");
+        return;
+    }
+
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err= -ENOMEM;
+        goto out_free;
+    }
+
+    si->sic.uuid = hi->puuid;
+    si->sic.arg0 = c->stored_itbid;
+    si->scd.cnr = 1;
+    si->scd.cr[0].cno = 0;
+    si->scd.cr[0].stored_itbid = hi->itbid;
+    si->scd.cr[0].file_offset = c->offset;
+    si->scd.cr[0].req_offset = 0;
+    si->scd.cr[0].req_len = c->len;
+
+    /* select the MDSL site by itbid */
+    dsite = SELECT_SITE(c->stored_itbid, hi->psalt, CH_RING_MDSL);
+
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDSL_READ, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, si, sizeof(*si) +
+                       sizeof(struct column_req));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply, parse the data now */
+    ASSERT(msg->pair->tx.len == c->len, xnet);
+    if (msg->pair->xm_datacheck) {
+        data = msg->pair->xm_data;
+    } else {
+        hvfs_err(xnet, "recv data read reply ERROR %d\n",
+                 msg->pair->tx.err);
+        xnet_set_auto_free(msg->pair);
+        goto out_msg;
+    }
+
+    /* check the data now */
+    for (i = 0; i < c->len; i++) {
+        if (data[i] != (u8)(hi->uuid & 0xff)) {
+            hvfs_err(xnet, "Data verify error!\n");
+            break;
+        }
+    }
+    
+out_msg:
+    xnet_free_msg(msg);
+out_free:
+    xfree(si);
+
+    return;
+}
+
+int get_send_msg_rdata(int nid, u64 puuid, u64 itbid)
+{
+    char name[HVFS_MAX_NAME_LEN];
+    size_t dpayload;
+    struct xnet_msg *msg;
+    struct hvfs_index *hi;
+    struct hvfs_md_reply *hmr;
+    u64 dsite;
+    int err = 0;
+
+    memset(name, 0, sizeof(name));
+    snprintf(name, HVFS_MAX_NAME_LEN, "client-xnet-test-%ld-%ld-%d",
+             puuid, itbid, nid);
+    dpayload = sizeof(struct hvfs_index) + strlen(name);
+    hi = (struct hvfs_index *)xzalloc(dpayload);
+    if (!hi) {
+        hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
+        return -ENOMEM;
+    }
+    hi->column = 0;             /* magic here:) */
+    hi->hash = hvfs_hash(puuid, (u64)name, strlen(name), HASH_SEL_EH);
+    hi->puuid = hmi.root_uuid;
+    hi->psalt = hmi.root_salt;
+    /* calculate the itbid now */
+    err = SET_ITBID(hi);
+    if (err)
+        goto out_free;
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS);
+
+    hi->flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_COLUMN;
+    memcpy(hi->name, name, strlen(name));
+    hi->namelen = strlen(name);
+
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE |
+                     XNET_NEED_REPLY, hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_LOOKUP, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(struct xnet_msg_tx));
+#endif
+    xnet_msg_add_sdata(msg, hi, dpayload);
+
+    hvfs_debug(xnet, "MDS dpayload %d (namelen %d, dlen %ld)\n", 
+               msg->tx.len, hi->namelen, hi->dlen);
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out;
+    }
+    
+    /* this means we have got the reply, parse it! */
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT) {
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        lookup_failed++;
+        __send_msg_dump(msg);
+        hvfs_err(mds, "DUMP criminal hash 0x%lx\n", hi->hash);
+        goto out;
+    }
+    if (msg->pair->xm_datacheck)
+        hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
+    else {
+        hvfs_err(xnet, "Invalid LOOKUP reply from site %lx.\n",
+                 msg->pair->tx.ssite_id);
+        err = -EFAULT;
+        goto out;
+    }
+    /* now, checking the hmr err */
+    if (hmr->err) {
+        /* hoo, sth wrong on the MDS */
+        hvfs_err(xnet, "MDS Site %lx reply w/ %d\n", 
+                 msg->pair->tx.ssite_id, hmr->err);
+        xnet_set_auto_free(msg->pair);
+        err = hmr->err;
+        goto out;
+    } else if (hmr->len) {
+        struct hvfs_index *rhi;
+        int no = 0;
+
+        hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+        rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+            goto pass;
+        }
+        
+        if (hmr->flag & MD_REPLY_WITH_BFLIP) {
+            mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
+                                 MDS_BITMAP_SET);
+            hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
+                       rhi->puuid, rhi->itbid);
+        }
+        if (hmr->flag & MD_REPLY_WITH_DC) {
+            struct column *c;
+            
+            c = hmr_extract(hmr, EXTRACT_DC, &no);
+            if (!c) {
+                hvfs_err(xnet, "extract DC failed, not found.\n");
+                goto pass;
+            }
+
+            /* now, it is ok to write the data region to the MDSL */
+            __data_read(rhi, c);
+        }
+    }
+    /* ok, we got the correct respond, dump it */
+//    hmr_print(hmr);
+pass:
+    xnet_set_auto_free(msg->pair);
+out:
+    xnet_free_msg(msg);
+    return err;
+out_free:
+    xfree(hi);
+    return err;
+}
+
+void __data_write(struct hvfs_index *hi, struct column *c)
+{
+    u8 data[1024];
+    struct storage_index *si;
+    struct xnet_msg *msg;
+    struct mdu_update *mu;
+    struct mu_column *mc;
+    u64 dsite;
+    u64 location;
+    int len = lib_random(1023) + 1;
+    int err = 0, i;
+
+    hvfs_err(xnet, "Read uuid %ld column itbid %ld len %ld offset %ld "
+             "target len %d\n",
+             hi->uuid, c->stored_itbid, c->len, c->offset, len);
+    
+    si = xzalloc(sizeof(*si) + sizeof(struct column_req));
+    if (!si) {
+        hvfs_err(xnet, "xzalloc() storage index failed\n");
+        return;
+    }
+
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+
+    for (i = 0; i < len; i++) {
+        data[i] = (u8)(hi->uuid & 0xff);
+    }
+    
+    si->sic.uuid = hi->puuid;
+    si->sic.arg0 = hi->itbid;
+    si->scd.cnr = 1;
+    si->scd.cr[0].cno = 0;
+    si->scd.cr[0].stored_itbid = hi->itbid;
+    si->scd.cr[0].req_len = len;
+
+    /* select the MDSL site by itbid */
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDSL);
+
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDSL_WRITE, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, si, sizeof(*si) + 
+                       sizeof(struct column_req));
+    xnet_msg_add_sdata(msg, data, len);
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply, parse the offset now */
+    if (msg->pair->xm_datacheck) {
+        location = *((u64 *)msg->pair->xm_data);
+    } else {
+        hvfs_err(xnet, "recv data write reply ERROR!\n");
+        goto out_free;
+    }
+
+    xnet_free_msg(msg);
+    /* ok, we should update the MDU in MDS! */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+
+    mu = xzalloc(sizeof(*mu) + sizeof(struct mu_column));
+    if (!mu) {
+        hvfs_err(xnet, "xzalloc() mdu update failed\n");
+        goto out_msg;
+    }
+    mc = (void *)mu + sizeof(*mu);
+
+    /* select the MDSL site by itbid */
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS);
+
+    hi->flag = INDEX_MDU_UPDATE | INDEX_BY_UUID;
+    hi->dlen = sizeof(*mu) + sizeof(struct mu_column);
+    hi->namelen = 0;
+    mu->size = len;
+    mu->column_no = 1;
+    mu->valid = MU_COLUMN | MU_SIZE;
+    mc->cno = 0;
+    mc->c.stored_itbid = hi->itbid;
+    mc->c.len = len;
+    mc->c.offset = location;
+    
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_UPDATE, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, hi, sizeof(*hi));
+    xnet_msg_add_sdata(msg, mu, sizeof(*mu) +
+                       sizeof(struct mu_column));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg2;
+    }
+
+out_msg2:
+    xfree(mu);
+out_msg:
+    xnet_free_msg(msg);
+out_free:
+    xfree(si);
+    return;
+}
+
+int get_send_msg_wdata(int nid, u64 puuid, u64 itbid)
+{
+    char name[HVFS_MAX_NAME_LEN];
+    size_t dpayload;
+    struct xnet_msg *msg;
+    struct hvfs_index *hi;
+    struct hvfs_md_reply *hmr;
+    u64 dsite;
+    int err = 0;
+
+    memset(name, 0, sizeof(name));
+    snprintf(name, HVFS_MAX_NAME_LEN, "client-xnet-test-%ld-%ld-%d",
+             puuid, itbid, nid);
+    dpayload = sizeof(struct hvfs_index) + strlen(name);
+    hi = (struct hvfs_index *)xzalloc(dpayload);
+    if (!hi) {
+        hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
+        return -ENOMEM;
+    }
+    hi->column = 0;             /* magic here:) */
+    hi->hash = hvfs_hash(puuid, (u64)name, strlen(name), HASH_SEL_EH);
+    hi->puuid = hmi.root_uuid;
+    hi->psalt = hmi.root_salt;
+    /* calculate the itbid now */
+    err = SET_ITBID(hi);
+    if (err)
+        goto out_free;
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS);
+
+    hi->flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_COLUMN;
+    memcpy(hi->name, name, strlen(name));
+    hi->namelen = strlen(name);
+
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE |
+                     XNET_NEED_REPLY, hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_LOOKUP, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(struct xnet_msg_tx));
+#endif
+    xnet_msg_add_sdata(msg, hi, dpayload);
+
+    hvfs_debug(xnet, "MDS dpayload %d (namelen %d, dlen %ld)\n", 
+               msg->tx.len, hi->namelen, hi->dlen);
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out;
+    }
+    
+    /* this means we have got the reply, parse it! */
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT) {
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        lookup_failed++;
+        __send_msg_dump(msg);
+        hvfs_err(mds, "DUMP criminal hash 0x%lx\n", hi->hash);
+        goto out;
+    }
+    if (msg->pair->xm_datacheck)
+        hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
+    else {
+        hvfs_err(xnet, "Invalid LOOKUP reply from site %lx.\n",
+                 msg->pair->tx.ssite_id);
+        err = -EFAULT;
+        goto out;
+    }
+    /* now, checking the hmr err */
+    if (hmr->err) {
+        /* hoo, sth wrong on the MDS */
+        hvfs_err(xnet, "MDS Site %lx reply w/ %d\n", 
+                 msg->pair->tx.ssite_id, hmr->err);
+        xnet_set_auto_free(msg->pair);
+        err = hmr->err;
+        goto out;
+    } else if (hmr->len) {
+        struct hvfs_index *rhi;
+        int no = 0;
+
+        hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+        rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+            goto pass;
+        }
+        
+        if (hmr->flag & MD_REPLY_WITH_BFLIP) {
+            mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
+                                 MDS_BITMAP_SET);
+            hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
+                       rhi->puuid, rhi->itbid);
+        }
+        if (hmr->flag & MD_REPLY_WITH_DC) {
+            struct column *c;
+            
+            c = hmr_extract(hmr, EXTRACT_DC, &no);
+            if (!c) {
+                hvfs_err(xnet, "extract DC failed, not found.\n");
+                goto pass;
+            }
+
+            /* now, it is ok to write the data region to the MDSL */
+            __data_write(rhi, c);
+        }
+    }
+    /* ok, we got the correct respond, dump it */
+//    hmr_print(hmr);
+pass:
+    xnet_set_auto_free(msg->pair);
+out:
+    xnet_free_msg(msg);
+    return err;
+out_free:
+    xfree(hi);
+    return err;
+}
+
 int msg_send(int entry, int op, int base)
 {
     lib_timer_def();
@@ -732,6 +1200,30 @@ int msg_send(int entry, int op, int base)
         lib_timer_E();
         lib_timer_O(entry, "Create DIR Latency: ");
         break;
+    case OP_WDATA:
+        lib_timer_B();
+        for (i = 0; i < entry; i++) {
+            err = get_send_msg_wdata(i + base, hmi.root_uuid, hmo.site_id);
+            if (err) {
+                hvfs_err(xnet, "wdata 'client-xnet-test-%ld-%ld-%d' failed\n",
+                         hmi.root_uuid, hmo.site_id, i + base);
+            }
+        }
+        lib_timer_E();
+        lib_timer_O(entry, "WDATA Latency: ");
+        break;
+    case OP_RDATA:
+        lib_timer_B();
+        for (i = 0; i < entry; i++) {
+            err = get_send_msg_rdata(i + base, hmi.root_uuid, hmo.site_id);
+            if (err) {
+                hvfs_err(xnet, "rdata 'client-xnet-test-%ld-%ld-%d' failed\n",
+                         hmi.root_uuid, hmo.site_id, i + base);
+            }
+        }
+        lib_timer_E();
+        lib_timer_O(entry, "RDATA Latency: ");
+        break;
     default:;
     }
 
@@ -769,6 +1261,39 @@ void *__msg_send(void *arg)
             lib_timer_E();
             lib_timer_O(msa->entry * msa->thread, "Lookup Aggr Lt: ");
             lib_timer_B();
+        }
+        msg_send(msa->entry, OP_UNLINK, msa->tid * msa->entry);
+        pthread_barrier_wait(msa->pb);
+        if (msa->tid == 0) {
+            lib_timer_E();
+            lib_timer_O(msa->entry * msa->thread, "Unlink Aggr Lt: ");
+        }
+    } else if (msa->op == OP_DATA_ALL) {
+        msg_send(msa->entry, OP_CREATE, msa->tid * msa->entry);
+        pthread_barrier_wait(msa->pb);
+        if (msa->tid == 0) {
+            lib_timer_E();
+            lib_timer_O(msa->entry * msa->thread, "Create Aggr Lt: ");
+            lib_timer_B();
+        }
+        msg_send(msa->entry, OP_LOOKUP, msa->tid * msa->entry);
+        pthread_barrier_wait(msa->pb);
+        if (msa->tid == 0) {
+            lib_timer_E();
+            lib_timer_O(msa->entry * msa->thread, "Lookup Aggr Lt: ");
+            lib_timer_B();
+        }
+        msg_send(msa->entry, OP_WDATA, msa->tid * msa->entry);
+        pthread_barrier_wait(msa->pb);
+        if (msa->tid == 0) {
+            lib_timer_E();
+            lib_timer_O(msa->entry * msa->thread, "WDATA  Aggr Lt: ");
+        }
+        msg_send(msa->entry, OP_RDATA, msa->tid * msa->entry);
+        pthread_barrier_wait(msa->pb);
+        if (msa->tid == 0) {
+            lib_timer_E();
+            lib_timer_O(msa->entry * msa->thread, "RDATA  Aggr Lt: ");
         }
         msg_send(msa->entry, OP_UNLINK, msa->tid * msa->entry);
         pthread_barrier_wait(msa->pb);
@@ -1216,7 +1741,8 @@ int main(int argc, char *argv[])
     char *value;
     char profiling_fname[256];
 
-    hvfs_info(xnet, "op:   0/1/2   => create/lookup/unlink\n");
+    hvfs_info(xnet, "op:   0/1/2/3/4/5/100/200   => "
+              "create/lookup/unlink/create_dir/wdata/rdata/all/data_all\n");
     value = getenv("entry");
     if (value) {
         entry = atoi(value);

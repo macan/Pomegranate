@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-27 21:33:28 macan>
+ * Time-stamp: <2010-04-30 18:45:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,7 +48,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
 
     si.sic.uuid = puuid;
     si.sic.arg0 = itbid;
-    si.m.sm.len = 0;            /* no data */
+    si.sm.cnr = 0;              /* no data */
     msg = xnet_alloc_msg(XNET_MSG_CACHE);
     if (!msg) {
         /* retry with slow method */

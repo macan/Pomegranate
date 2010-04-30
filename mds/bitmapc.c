@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 22:17:50 macan>
+ * Time-stamp: <2010-04-30 16:25:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -693,6 +693,21 @@ int mds_bc_backend_commit(void)
     int err = 0, nr = 0, deal = 0, error = 0;
 
     hi.psalt = hmi.gdt_salt;
+
+    /* memonly mode? */
+    if (hmo.conf.option & HVFS_MDS_MEMONLY) {
+        /* just clean the BC's delta list */
+        xlock_lock(&hmo.bc.delta_lock);
+        list_add(&deltas, &hmo.bc.deltas);
+        list_del_init(&hmo.bc.deltas);
+        xlock_unlock(&hmo.bc.delta_lock);
+
+        list_for_each_entry_safe(pos, n, &deltas, list) {
+            list_del(&pos->list);
+            xfree(pos);
+        }
+        return 0;
+    }
 
     /* alloc hmr */
     hmr = get_hmr();
