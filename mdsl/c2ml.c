@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-29 17:49:54 macan>
+ * Time-stamp: <2010-05-04 22:15:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -91,8 +91,8 @@ void mdsl_read(struct xnet_msg *msg)
         goto send_rpy;
     }
 
-    hvfs_err(mdsl, "Recv read request %ld veclen %d from %lx\n",
-             si->sic.uuid, si->scd.cnr, msg->tx.ssite_id);
+    hvfs_debug(mdsl, "Recv read request %ld veclen %d from %lx\n",
+               si->sic.uuid, si->scd.cnr, msg->tx.ssite_id);
 
     /* We should iterate on the client's column_req vector and read each entry
      * to the result buffer */
@@ -174,24 +174,26 @@ void mdsl_write(struct xnet_msg *msg)
     int err = 0, i;
 
     /* sanity checkint */
-    if (msg->tx.len < sizeof(struct storage_index)) {
+    if (unlikely(msg->tx.len < sizeof(struct storage_index))) {
         hvfs_err(mdsl, "Invalid mdsl read request %d from %lx.\n",
                  msg->tx.reqno, msg->tx.ssite_id);
         err = -EINVAL;
         goto send_rpy;
     }
 
-    if (msg->xm_datacheck) {
+    if (likely(msg->xm_datacheck)) {
         si = msg->xm_data;
-        data = msg->xm_data + sizeof(*si);
+        /* adjust the data pointer */
+        data = msg->xm_data + sizeof(*si) + 
+            si->scd.cnr * sizeof(struct column_req);
     } else {
         hvfs_err(mdsl, "Internal error, data lossing...\n");
         err = -EFAULT;
         goto send_rpy;
     }
 
-    hvfs_err(mdsl, "Recv write request %ld veclen %d from %lx\n",
-             si->sic.uuid, si->scd.cnr, msg->tx.ssite_id);
+    hvfs_debug(mdsl, "Recv write request %ld veclen %d from %lx\n",
+               si->sic.uuid, si->scd.cnr, msg->tx.ssite_id);
 
     /* We should iterate on the client's column_req vector and write each
      * entry to the result buffer */
@@ -206,7 +208,7 @@ void mdsl_write(struct xnet_msg *msg)
         /* prepare to get the data file */
         fde = mdsl_storage_fd_lookup_create(si->sic.uuid, MDSL_STORAGE_DATA,
                                             si->scd.cr[i].cno);
-        if (IS_ERR(fde)) {
+        if (unlikely(IS_ERR(fde))) {
             hvfs_err(mdsl, "lookup create %ld data column %ld failed w/ %ld\n",
                      si->sic.uuid, si->scd.cr[i].cno, PTR_ERR(fde));
             err = PTR_ERR(fde);
@@ -218,16 +220,23 @@ void mdsl_write(struct xnet_msg *msg)
         iov.iov_len = si->scd.cr[i].req_len;
         offset += iov.iov_len;
 
-        msa.arg = &location[i];
+        msa.arg = location + i;
         msa.iov = &iov;
         msa.iov_nr = 1;
         err = mdsl_storage_fd_write(fde, &msa);
         if (err) {
             hvfs_err(mdsl, "write the dir %ld data column %ld failed w/ %d\n",
                      si->sic.uuid, si->scd.cr[i].cno, err);
+            mdsl_storage_fd_put(fde);
             goto cleanup_send_rpy;
         }
 
+        if (*(location + i) == 0) {
+            hvfs_err(mdsl, "fde %d abuf (%d,%ld,%ld) puuid %ld @ L %ld len %ld\n",
+                     fde->fd, fde->type, fde->abuf.file_offset, 
+                     fde->abuf.offset,
+                     si->sic.uuid, *(location + i), iov.iov_len);
+        }
         /* put the fde */
         mdsl_storage_fd_put(fde);
     }

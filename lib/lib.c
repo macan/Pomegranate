@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 14:20:04 macan>
+ * Time-stamp: <2010-05-04 14:16:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,11 +37,6 @@ struct list_head glt;           /* global lock table */
 void lib_init(void)
 {
     srandom(time(NULL));
-}
-
-u64 lib_random(int hint)
-{
-    return random() % hint;
 }
 
 /**

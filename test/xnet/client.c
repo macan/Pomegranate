@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-30 18:46:12 macan>
+ * Time-stamp: <2010-05-04 20:50:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -686,8 +686,8 @@ void __data_read(struct hvfs_index *hi, struct column *c)
     u64 dsite;
     int err = 0, i;
 
-    hvfs_err(xnet, "Read column itbid %ld len %ld offset %ld\n",
-             c->stored_itbid, c->len, c->offset);
+    hvfs_debug(xnet, "Read column itbid %ld len %ld offset %ld\n",
+               c->stored_itbid, c->len, c->offset);
 
     si = xzalloc(sizeof(*si) + sizeof(struct column_req));
     if (!si) {
@@ -745,7 +745,11 @@ void __data_read(struct hvfs_index *hi, struct column *c)
     /* check the data now */
     for (i = 0; i < c->len; i++) {
         if (data[i] != (u8)(hi->uuid & 0xff)) {
-            hvfs_err(xnet, "Data verify error!\n");
+            hvfs_err(xnet, "Data verify error @ %lx uuid %ld! i %d r %x vs %x "
+                     "(f %ld len %ld)\n",
+                     dsite, hi->puuid, 
+                     i, data[i], (u8)(hi->uuid & 0xff),
+                     c->offset, c->len);
             break;
         }
     }
@@ -900,9 +904,9 @@ void __data_write(struct hvfs_index *hi, struct column *c)
     int len = lib_random(1023) + 1;
     int err = 0, i;
 
-    hvfs_err(xnet, "Read uuid %ld column itbid %ld len %ld offset %ld "
-             "target len %d\n",
-             hi->uuid, c->stored_itbid, c->len, c->offset, len);
+    hvfs_debug(xnet, "Read uuid %ld column itbid %ld len %ld offset %ld "
+               "target len %d\n",
+               hi->uuid, c->stored_itbid, c->len, c->offset, len);
     
     si = xzalloc(sizeof(*si) + sizeof(struct column_req));
     if (!si) {
@@ -958,6 +962,11 @@ void __data_write(struct hvfs_index *hi, struct column *c)
     }
 
     xnet_free_msg(msg);
+
+    if (location == 0) {
+        hvfs_err(xnet, "puuid %ld uuid 0x%lx to %lx L @ %ld len %d\n",
+                 hi->puuid, hi->uuid, dsite, location, len);
+    }
     /* ok, we should update the MDU in MDS! */
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!msg) {
@@ -1003,6 +1012,7 @@ void __data_write(struct hvfs_index *hi, struct column *c)
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out_msg2;
     }
+    xnet_set_auto_free(msg->pair);
 
 out_msg2:
     xfree(mu);
@@ -1288,12 +1298,14 @@ void *__msg_send(void *arg)
         if (msa->tid == 0) {
             lib_timer_E();
             lib_timer_O(msa->entry * msa->thread, "WDATA  Aggr Lt: ");
+            lib_timer_B();
         }
         msg_send(msa->entry, OP_RDATA, msa->tid * msa->entry);
         pthread_barrier_wait(msa->pb);
         if (msa->tid == 0) {
             lib_timer_E();
             lib_timer_O(msa->entry * msa->thread, "RDATA  Aggr Lt: ");
+            lib_timer_B();
         }
         msg_send(msa->entry, OP_UNLINK, msa->tid * msa->entry);
         pthread_barrier_wait(msa->pb);

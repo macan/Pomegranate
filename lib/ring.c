@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-13 10:19:15 macan>
+ * Time-stamp: <2010-05-04 13:48:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -131,13 +131,8 @@ int ring_del_point(struct chp *p, struct chring *r)
     return 0;
 }
 
-struct chp *ring_get_point(u64 key, u64 salt, struct chring *r)
-{
-    return ring_get_point2(hvfs_hash(key, salt, sizeof(salt), 
-                                     HASH_SEL_RING), r);
-}
-
-struct chp *ring_get_point2(u64 point, struct chring *r)
+static inline
+struct chp *__ring_get_point2(u64 point, struct chring *r)
 {
     s64 highp;
     s64 lowp = 0, midp;
@@ -177,6 +172,17 @@ struct chp *ring_get_point2(u64 point, struct chring *r)
 out:
     xrwlock_runlock(&r->rwlock);
     return p;
+}
+
+struct chp *ring_get_point2(u64 point, struct chring *r)
+{
+    return __ring_get_point2(point, r);
+}
+
+struct chp *ring_get_point(u64 key, u64 salt, struct chring *r)
+{
+    return ring_get_point2(hvfs_hash(key, salt, sizeof(salt), 
+                                     HASH_SEL_RING), r);
 }
 
 void ring_dump(struct chring *r)

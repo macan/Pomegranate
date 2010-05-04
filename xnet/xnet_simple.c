@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-29 10:36:49 macan>
+ * Time-stamp: <2010-05-04 14:36:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -66,6 +66,9 @@ struct accept_conn
 {
     struct list_head list;
     int sockfd;
+#define AC_INIT         0
+#define AC_CONFIRM      1
+    int state;
 };
 
 struct active_conn
@@ -93,13 +96,18 @@ int accept_lookup(int fd)
 
     list_for_each_entry_safe(pos, n, &accept_list, list) {
         if (pos->sockfd == fd) {
-            ret = 1;
-            list_del(&pos->list);
+            if (pos->state == AC_INIT) {
+                ret = 2;
+                pos->state = AC_CONFIRM;
+            } else {
+                ret = 1;
+                list_del(&pos->list);
+                xfree(pos);
+            }
             break;
         }
     }
-    if (ret)
-        xfree(pos);
+
     return ret;
 }
 
@@ -243,7 +251,9 @@ int __xnet_handle_tx(int fd)
     {
         int err;
 
-        if (unlikely(accept_lookup(fd))) {
+        err = accept_lookup(fd);
+
+        if (unlikely(err == 1)) {
             err = st_update_sockfd(&gst, fd, msg->tx.ssite_id);
             if (err) {
                 struct accept_conn *ac;
@@ -252,34 +262,34 @@ int __xnet_handle_tx(int fd)
                 if (!ac) {
                     hvfs_err(xnet, "xzalloc() struct accept_conn failed\n");
                 } else {
+                    /* FIXME: a lock is needed here! */
                     INIT_LIST_HEAD(&ac->list);
                     ac->sockfd = fd;
                     list_add_tail(&ac->list, &accept_list);
                 }
             }
-            {
-                struct xnet_msg_tx htx = {
-                    .version = 0,
-                    .len = sizeof(htx),
-                    .type = XNET_MSG_HELLO_ACK,
-                    .ssite_id = msg->tx.dsite_id,
-                    .dsite_id = msg->tx.ssite_id,
-                };
-                struct iovec __iov = {
-                    .iov_base = &htx,
-                    .iov_len = sizeof(htx),
-                };
-                struct msghdr __msg = {
-                    .msg_iov = &__iov,
-                    .msg_iovlen = 1,
-                };
-                int bt;
-                
-                bt = sendmsg(fd, &__msg, 0);
-                if (bt < 0 || bt < sizeof(htx)) {
-                    hvfs_err(xnet, "sendmsg do not support redo now :(\n");
-                    HVFS_BUG();
-                }
+        } else if (unlikely(err == 2)) {
+            struct xnet_msg_tx htx = {
+                .version = 0,
+                .len = sizeof(htx),
+                .type = XNET_MSG_HELLO_ACK,
+                .ssite_id = msg->tx.dsite_id,
+                .dsite_id = msg->tx.ssite_id,
+            };
+            struct iovec __iov = {
+                .iov_base = &htx,
+                .iov_len = sizeof(htx),
+            };
+            struct msghdr __msg = {
+                .msg_iov = &__iov,
+                .msg_iovlen = 1,
+            };
+            int bt;
+            
+            bt = sendmsg(fd, &__msg, 0);
+            if (bt < 0 || bt < sizeof(htx)) {
+                hvfs_err(xnet, "sendmsg do not support redo now :(\n");
+                HVFS_BUG();
             }
         }
     }

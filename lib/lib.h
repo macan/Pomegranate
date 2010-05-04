@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 10:59:51 macan>
+ * Time-stamp: <2010-05-04 14:17:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,7 +65,11 @@ long find_next_bit(const unsigned long *, long, long);
 void lib_segv(int, siginfo_t *, void *);
 
 void lib_init(void);
-u64 lib_random(int hint);
+static inline
+u64 lib_random(int hint)
+{
+    return random() % hint;
+}
 
 void *hmr_extract(void *, int, int *);
 void *hmr_extract_local(void *, int, int *);

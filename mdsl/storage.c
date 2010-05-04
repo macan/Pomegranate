@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-29 19:37:44 macan>
+ * Time-stamp: <2010-05-04 21:53:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,6 +95,8 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
         if (fde->type == MDSL_STORAGE_ITB) {
             if (!fde->abuf.file_offset)
                 fde->abuf.offset = 1;
+        } else {
+            fde->abuf.offset = 0;
         }
         fde->state = FDE_ABUF;
     }
@@ -241,7 +243,8 @@ int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 {
     int err = 0;
 
-    if (!msa->iov_nr || !msa->iov || fde->state == FDE_FREE) {
+    if (!msa->iov_nr || !msa->iov || fde->state == FDE_FREE ||
+        msa->iov->iov_len < 0) {
         return -EINVAL;
     }
 
@@ -256,13 +259,19 @@ int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         }
     }
     /* ok, we can copy the region to the abuf now */
-    memcpy(fde->abuf.addr + fde->abuf.offset, msa->iov->iov_base, msa->iov->iov_len);
+    memcpy(fde->abuf.addr + fde->abuf.offset, msa->iov->iov_base, 
+           msa->iov->iov_len);
     if (fde->type == MDSL_STORAGE_ITB) {
         ((struct itb_info *)msa->arg)->location = fde->abuf.file_offset + 
             fde->abuf.offset;
     } else if (fde->type == MDSL_STORAGE_DATA) {
         *((u64 *)msa->arg) = fde->abuf.file_offset +
             fde->abuf.offset;
+        if (*((u64 *)msa->arg) == 0) {
+            hvfs_err(mdsl, "fde %d abuf (%d,%ld,%ld) @ L 0\n",
+                     fde->fd, fde->type, fde->abuf.file_offset,
+                     fde->abuf.offset);
+        }
     }
     fde->abuf.offset += msa->iov->iov_len;
     atomic64_add(msa->iov->iov_len, &hmo.prof.storage.cpbytes);
@@ -433,7 +442,8 @@ int odirect_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
     } else if (offset < fde->odirect.file_offset + fde->odirect.len) {
         /* this request may be handled by the odirect buffer */
         /* Step 1: copy the data now */
-        memcpy(msa->iov->iov_base, fde->odirect.addr + offset - fde->odirect.file_offset,
+        memcpy(msa->iov->iov_base, 
+               fde->odirect.addr + offset - fde->odirect.file_offset,
                msa->iov->iov_len);
         /* Step 2: recheck */
         if (offset < fde->odirect.file_offset) {
@@ -734,7 +744,7 @@ int __normal_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         offset = lseek(fde->fd, 0, SEEK_CUR);
     }
     
-    hvfs_err(mdsl, "read offset %ld len %ld\n", offset, msa->iov->iov_len);
+    hvfs_debug(mdsl, "read offset %ld len %ld\n", offset, msa->iov->iov_len);
     for (i = 0; i < msa->iov_nr; i++) {
         bl = 0;
         do {
@@ -1340,7 +1350,8 @@ out:
     return err;
 }
 
-struct fdhash_entry *mdsl_storage_fd_lookup_create(u64 duuid, int fdtype, u64 arg)
+struct fdhash_entry *mdsl_storage_fd_lookup_create(u64 duuid, int fdtype, 
+                                                   u64 arg)
 {
     struct fdhash_entry *fde;
     int err = 0;

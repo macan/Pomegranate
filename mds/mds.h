@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-27 16:17:29 macan>
+ * Time-stamp: <2010-05-04 08:53:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -87,6 +87,8 @@ struct mds_conf
     s8 itbid_check;             /* should we do ITBID check? */
     u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
                                  * conflicts */
+    u8 cbht_congestion;         /* set to 1 to slow down the incoming
+                                 * request handling */
     u8 prof_plot;               /* do we dump profilings for gnuplot? */
 
     /* intervals */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 19:49:13 macan>
+ * Time-stamp: <2010-05-04 15:21:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -330,7 +330,8 @@ void mdsl_help(void)
     hvfs_plain(mdsl, "MDSL build @ %s on %s\n", CDATE, CHOST);
     hvfs_plain(mdsl, "Usage: [EV list] mdsl\n\n");
     hvfs_plain(mdsl, "General Environment Variables:\n"
-               " hvfs_mdsl_dcaddr               dynamic config addr for UNIX sockets.\n"
+               " hvfs_mdsl_dcaddr               dynamic config addr for "
+               "UNIX sockets.\n"
                " hvfs_mdsl_profiling_file       profiling file name.\n"
                " hvfs_mdsl_conf_file            config file name.\n"
                " hvfs_mdsl_log_file             log file name.\n"
@@ -362,7 +363,7 @@ int mdsl_init(void)
     mdsl_config();
     hmo.conf.profiling_thread_interval = 5;
     hmo.conf.gc_interval = 5;
-    hmo.conf.spool_threads = 8;
+    hmo.conf.spool_threads = 8; /* double # of CPUs */
 
     /* init the txg_compact_cache */
     err = mdsl_tcc_init();
