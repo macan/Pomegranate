@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-29 16:09:34 macan>
+ * Time-stamp: <2010-05-05 14:55:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -199,6 +199,8 @@ int __serv_odirect_request(struct aio_request *ar)
     if (bw < len) {
         hvfs_err(mdsl, "Should we support O_DIRECT redo?\n");
     }
+
+    atomic64_add(len, &hmo.prof.storage.wbytes);
     /* we should release the buffer now */
     xfree(ar->addr);
     xfree(ar);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 09:29:06 macan>
+ * Time-stamp: <2010-05-05 15:05:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -214,7 +214,7 @@ int append_buf_flush_remap(struct fdhash_entry *fde)
                 goto out;
             }
             fde->abuf.falloc_offset += fde->abuf.falloc_size;
-            hvfs_err(mdsl, "ftruncate offset %lx\n", fde->abuf.falloc_offset);
+            hvfs_debug(mdsl, "ftruncate offset %lx\n", fde->abuf.falloc_offset);
         }
         mdsl_aio_start();
         fde->abuf.addr = mmap(NULL, fde->abuf.len, PROT_WRITE | PROT_READ,
@@ -228,9 +228,6 @@ int append_buf_flush_remap(struct fdhash_entry *fde)
         }
         fde->state = FDE_ABUF;
         fde->abuf.offset = 0;
-        hvfs_err(mdsl, "fd %d remap %p abuf (%d,%ld,%ld)\n",
-                 fde->fd, fde->abuf.addr, fde->type,
-                 fde->abuf.file_offset, fde->abuf.offset);
         break;
     default:
         hvfs_err(mdsl, "ABUF flush remap w/ other state %x\n",
@@ -270,11 +267,6 @@ int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
     } else if (fde->type == MDSL_STORAGE_DATA) {
         *((u64 *)msa->arg) = fde->abuf.file_offset +
             fde->abuf.offset;
-        if (*((u64 *)msa->arg) == 0) {
-            hvfs_err(mdsl, "fde %d abuf (%d,%ld,%ld) @ L 0\n",
-                     fde->fd, fde->type, fde->abuf.file_offset,
-                     fde->abuf.offset);
-        }
     } else {
         hvfs_err(mdsl, "WHAT type? fde %d abuf (%d,%ld,%ld) @ L %ld\n",
                  fde->fd, fde->type, fde->abuf.file_offset,
@@ -416,7 +408,8 @@ int odirect_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         }
     }
     /* ok, we can copy the region to the odirect buffer now */
-    memcpy(fde->odirect.addr + fde->odirect.offset, msa->iov->iov_base, msa->iov->iov_len);
+    memcpy(fde->odirect.addr + fde->odirect.offset, msa->iov->iov_base, 
+           msa->iov->iov_len);
     if (fde->type == MDSL_STORAGE_ITB_ODIRECT) {
         ((struct itb_info *)msa->arg)->location = fde->odirect.file_offset +
             fde->odirect.offset;
@@ -768,6 +761,7 @@ int __normal_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
             }
             bl += br;
         } while (bl < (msa->iov + i)->iov_len);
+        atomic64_add(bl, &hmo.prof.storage.rbytes);
     }
 
 out:
@@ -839,6 +833,10 @@ int __mdisk_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
             bl += bw;
         } while (bl < sizeof(range_t) * fde->mdisk.new_size);
     }
+
+    atomic64_add(sizeof(struct md_disk) + 
+                 fde->mdisk.size + fde->mdisk.new_size, 
+                 &hmo.prof.storage.wbytes);
 out:            
     xlock_unlock(&fde->lock);
     
@@ -1175,6 +1173,8 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
             bl += bw;
         } while (bl < msa->iov->iov_len);
         xlock_unlock(&fde->bmmap.lock);
+
+        atomic64_add(bl, &hmo.prof.storage.wbytes);
     } else {
         /* what a nice day! */
 
@@ -1238,6 +1238,7 @@ int __bitmap_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
             }
             bl += br;
         } while (bl < (msa->iov + i)->iov_len);
+        atomic64_add(bl, &hmo.prof.storage.rbytes);
     }
 
 out:

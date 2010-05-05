@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-20 09:56:56 macan>
+ * Time-stamp: <2010-05-05 14:45:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -53,6 +53,8 @@ struct mdsl_misc_prof
 {
     atomic64_t reqin_total;     /* # of total requests coming in */
     atomic64_t reqin_handle;    /* # of handled requests */
+    atomic_t tcc_size;          /* total # of TCC */
+    atomic_t tcc_used;          /* used # of TCC */
 };
 
 struct mdsl_storage_prof

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-04 15:57:37 macan>
+ * Time-stamp: <2010-05-05 14:49:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,6 +55,8 @@ int mdsl_tcc_init(void)
     atomic_set(&hmo.tcc.size, hmo.conf.tcc_size);
     atomic_set(&hmo.tcc.used, 0);
 
+    atomic_set(&hmo.prof.misc.tcc_size, hmo.conf.tcc_size);
+
     return 0;
 }
 
@@ -81,7 +83,6 @@ struct txg_open_entry *get_txg_open_entry(struct txg_compact_cache *tcc)
 
     if (l) {
         toe = list_entry(l, struct txg_open_entry, list);
-        atomic_inc(&tcc->used);
     } else {
         /* we should alloc a new TOE here! */
         if (unlikely(hmo.conf.option & HVFS_MDSL_MEMLIMIT)) {
@@ -97,8 +98,12 @@ struct txg_open_entry *get_txg_open_entry(struct txg_compact_cache *tcc)
             hvfs_err(mdsl, "xzalloc() txg_open_entry failed\n");
             return ERR_PTR(-ENOMEM);
         }
+        atomic_inc(&hmo.prof.misc.tcc_size);
+        atomic_inc(&tcc->size);
     }
 
+    atomic_inc(&tcc->used);
+    atomic_inc(&hmo.prof.misc.tcc_used);
     /* init the TOE now */
     INIT_LIST_HEAD(&toe->list);
     INIT_LIST_HEAD(&toe->itb);
@@ -117,6 +122,7 @@ void put_txg_open_entry(struct txg_open_entry *toe)
     list_add_tail(&toe->list, &hmo.tcc.free_list);
     mcond_destroy(&toe->cond);
     atomic_dec(&hmo.tcc.used);
+    atomic_dec(&hmo.prof.misc.tcc_used);
 }
 
 void toe_active(struct txg_open_entry *toe)

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-04 14:36:11 macan>
+ * Time-stamp: <2010-05-05 14:22:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -311,8 +311,11 @@ int __xnet_handle_tx(int fd)
 
         if (xc->ops.buf_alloc)
             buf = xc->ops.buf_alloc(msg->tx.len, msg->tx.cmd);
-        else
+        else {
             buf = xzalloc(msg->tx.len);
+            /* we should default to free all the resource from xnet. */
+            xnet_set_auto_free(msg);
+        }
         if (!buf) {
             hvfs_err(xnet, "xmalloc() buffer failed\n");
             ASSERT(0, xnet);

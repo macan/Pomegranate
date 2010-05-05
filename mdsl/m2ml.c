@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-29 15:48:53 macan>
+ * Time-stamp: <2010-05-05 14:27:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -202,6 +202,7 @@ void mdsl_itb(struct xnet_msg *msg)
         err = mdsl_storage_fd_read(fde, &msa);
         if (err) {
             hvfs_err(mdsl, "fd read failed w/ %d\n", err);
+            xfree(data);
             goto out_put2;
         }
     }
@@ -211,6 +212,7 @@ out_put2:
 out:
     if (err) {
         __mdsl_send_err_rpy(msg, err);
+        xfree(itb);
     } else {
         itb_iov[0].iov_base = itb;
         itb_iov[0].iov_len = sizeof(*itb);
