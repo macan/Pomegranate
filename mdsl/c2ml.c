@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-04 22:15:13 macan>
+ * Time-stamp: <2010-05-05 09:09:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -232,7 +232,9 @@ void mdsl_write(struct xnet_msg *msg)
         }
 
         if (*(location + i) == 0) {
-            hvfs_err(mdsl, "fde %d abuf (%d,%ld,%ld) puuid %ld @ L %ld len %ld\n",
+            hvfs_err(mdsl, "i %d location %p "
+                     "fde %d abuf (%d,%ld,%ld) puuid %ld @ L %ld len %ld\n",
+                     i, (location + i), 
                      fde->fd, fde->type, fde->abuf.file_offset, 
                      fde->abuf.offset,
                      si->sic.uuid, *(location + i), iov.iov_len);

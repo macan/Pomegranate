@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-04 21:53:43 macan>
+ * Time-stamp: <2010-05-05 09:29:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -214,7 +214,7 @@ int append_buf_flush_remap(struct fdhash_entry *fde)
                 goto out;
             }
             fde->abuf.falloc_offset += fde->abuf.falloc_size;
-            hvfs_debug(mdsl, "ftruncate offset %lx\n", fde->abuf.falloc_offset);
+            hvfs_err(mdsl, "ftruncate offset %lx\n", fde->abuf.falloc_offset);
         }
         mdsl_aio_start();
         fde->abuf.addr = mmap(NULL, fde->abuf.len, PROT_WRITE | PROT_READ,
@@ -228,6 +228,9 @@ int append_buf_flush_remap(struct fdhash_entry *fde)
         }
         fde->state = FDE_ABUF;
         fde->abuf.offset = 0;
+        hvfs_err(mdsl, "fd %d remap %p abuf (%d,%ld,%ld)\n",
+                 fde->fd, fde->abuf.addr, fde->type,
+                 fde->abuf.file_offset, fde->abuf.offset);
         break;
     default:
         hvfs_err(mdsl, "ABUF flush remap w/ other state %x\n",
@@ -272,6 +275,10 @@ int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
                      fde->fd, fde->type, fde->abuf.file_offset,
                      fde->abuf.offset);
         }
+    } else {
+        hvfs_err(mdsl, "WHAT type? fde %d abuf (%d,%ld,%ld) @ L %ld\n",
+                 fde->fd, fde->type, fde->abuf.file_offset,
+                 fde->abuf.offset, msa->iov->iov_len);
     }
     fde->abuf.offset += msa->iov->iov_len;
     atomic64_add(msa->iov->iov_len, &hmo.prof.storage.cpbytes);
@@ -1413,7 +1420,7 @@ int mdsl_storage_fd_write(struct fdhash_entry *fde,
     int err = 0;
 
 retry:
-    if (fde->state == FDE_ABUF) {
+    if (fde->state == FDE_ABUF || fde->state == FDE_ABUF_UNMAPPED) {
         err = append_buf_write(fde, msa);
         if (err) {
             hvfs_err(mdsl, "append_buf_write failed w/ %d\n", err);
@@ -1472,7 +1479,8 @@ int mdsl_storage_fd_read(struct fdhash_entry *fde,
     int err = 0;
 
 retry:
-    if (fde->state == FDE_ABUF || fde->state == FDE_NORMAL) {
+    if (fde->state == FDE_ABUF || fde->state == FDE_NORMAL || 
+        fde->state == FDE_ABUF_UNMAPPED) {
         err = __normal_read(fde, msa);
         if (err) {
             hvfs_err(mdsl, "__normal_read failed w/ %d\n", err);

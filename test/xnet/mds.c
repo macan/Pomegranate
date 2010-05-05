@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-04 16:23:21 macan>
+ * Time-stamp: <2010-05-05 10:09:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -681,7 +681,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    xnet_update_ipaddr(HVFS_CLIENT(8), 1, &ipaddr[4], (short *)(&port[4][0]));
+    xnet_update_ipaddr(HVFS_CLIENT(12), 1, &ipaddr[4], (short *)(&port[4][0]));
     xnet_update_ipaddr(HVFS_MDS(4), 1, &ipaddr[0], (short *)(&port[4][1]));
 
     /* setup the profiling file */

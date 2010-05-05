@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-04 20:50:20 macan>
+ * Time-stamp: <2010-05-05 10:09:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,8 +54,8 @@ char *ipaddr[] = {
     "10.10.111.9",              /* ring */
 };
 
-short port[4][4] = {
-    {8210, 8211, 8212, 8213,},  /* mds */
+short port[5][5] = {
+    {8210, 8211, 8212, 8213, 8214,},  /* mds */
     {8412, 8413, 8414, 8415,},  /* client */
     {8810, 8811, 8812, 8813,},  /* mdsl */
     {8710, 8711, 8712, 8713,},  /* ring */
@@ -1810,6 +1810,7 @@ int main(int argc, char *argv[])
                                (short *)(&port[i][j]));
         }
     }
+    xnet_update_ipaddr(HVFS_MDS(4), 1, &ipaddr[0], (short *)(&port[0][4]));
 
     sport = port[TYPE_CLIENT][self];
     self = HVFS_CLIENT(self);
@@ -1827,8 +1828,12 @@ int main(int argc, char *argv[])
     hmi.root_salt = 0xdfeadb0;
     hvfs_info(xnet, "Select root salt to %lx\n", hmi.root_salt);
 
+#if 1
     ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
     ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(1));
+#else
+    ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(4));
+#endif
     ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(0));
     ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(1));
 
