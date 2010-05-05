@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 22:13:39 macan>
+ * Time-stamp: <2010-05-05 16:26:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -177,8 +177,8 @@ void mds_lookup(struct hvfs_tx *tx)
 
     /* sanity checking */
     if (tx->req->tx.len < sizeof(*hi)) {
-        hvfs_err(mds, "Invalid LOOKUP request %d received\n", 
-                 tx->req->tx.reqno);
+        hvfs_err(mds, "Invalid LOOKUP request %d received len %d\n", 
+                 tx->req->tx.reqno, tx->req->tx.len);
         err = -EINVAL;
         goto send_rpy;
     }

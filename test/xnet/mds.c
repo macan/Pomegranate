@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 10:09:29 macan>
+ * Time-stamp: <2010-05-05 16:35:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -710,7 +710,7 @@ int main(int argc, char *argv[])
     hmi.root_salt = 0xdfeadb0;
     hvfs_info(xnet, "Select root salt to %lx\n", hmi.root_salt);
 
-#if 1
+#if 0
     ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
     ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(1));
 #else
@@ -732,7 +732,7 @@ int main(int argc, char *argv[])
         goto out;
     }
 
-//    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
+    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
 //    SET_TRACING_FLAG(mds, HVFS_DEBUG);
 
     msg_wait();

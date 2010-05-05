@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 10:09:18 macan>
+ * Time-stamp: <2010-05-05 20:01:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1551,6 +1551,8 @@ int lookup_root()
         }
         hmi.root_salt = m->salt;
         hvfs_info(xnet, "Change root salt to %lx\n", hmi.root_salt);
+        hvfs_info(xnet, "root mdu mode %o nlink %d flags %x\n", 
+                  m->mdu.mode, m->mdu.nlink, m->mdu.flags);
     }
     xnet_set_auto_free(msg->pair);
 out_free:
@@ -1598,7 +1600,7 @@ int create_root()
     }
 
     memset(data, 0, HVFS_MDU_SIZE);
-    mdu->mode = 0xff;
+    mdu->mode = 0040755;
     mdu->nlink = 2;
     mdu->flags = HVFS_MDU_IF_NORMAL;
     
@@ -1828,7 +1830,7 @@ int main(int argc, char *argv[])
     hmi.root_salt = 0xdfeadb0;
     hvfs_info(xnet, "Select root salt to %lx\n", hmi.root_salt);
 
-#if 1
+#if 0
     ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
     ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(1));
 #else

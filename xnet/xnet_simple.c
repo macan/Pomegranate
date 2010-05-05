@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 14:22:42 macan>
+ * Time-stamp: <2010-05-05 17:02:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -344,6 +344,9 @@ int __xnet_handle_tx(int fd)
         /* add the data to the riov */
         xnet_msg_add_rdata(msg, buf, br);
         atomic64_add(br, &g_xnet_prof.inbytes);
+    } else if (msg->tx.len < 0) {
+        hvfs_err(xnet, "Recv invalid xnet_msg len %d from %lx\n",
+                 msg->tx.len, msg->tx.ssite_id);
     }
     
     /* find the related msg */
@@ -1169,7 +1172,6 @@ reselect_conn:
                              ssock, msg->tx.dsite_id, bt,
                              msg->tx.len, 
                              errno);
-                    HVFS_BUG();
                     if (errno == ECONNRESET || errno == EBADF) {
                         /* select another link and resend the whole msg */
                         xlock_unlock(&xa->socklock[lock_idx]);

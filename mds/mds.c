@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-27 16:12:05 macan>
+ * Time-stamp: <2010-05-05 19:49:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -385,11 +385,10 @@ int mds_init(int bdepth)
 
     /* FIXME: configations */
     dconf_init();
-    mds_config();
     /* default configurations */
     hmo.conf.option |= HVFS_MDS_ITB_RWLOCK | HVFS_MDS_CHRECHK;
     hmo.conf.max_async_unlink = 1024;
-    hmo.conf.async_unlink = 0;  /* enable async unlink */
+    hmo.conf.async_unlink = 0;  /* disable async unlink */
     hmo.conf.unlink_interval = 2;
     hmo.conf.txc_hash_size = 1024;
     hmo.conf.txc_ftx = 1;
@@ -398,6 +397,9 @@ int mds_init(int bdepth)
     hmo.conf.async_update_N = 4;
     hmo.conf.spool_threads = 8;
     hmo.conf.mp_to = 60;
+
+    /* get configs from env */
+    mds_config();
 
     /* Init the signal handlers */
     err = mds_init_signal();
