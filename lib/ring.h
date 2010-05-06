@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 11:51:44 macan>
+ * Time-stamp: <2010-05-06 16:48:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,6 +44,13 @@ struct chring
     u32 group;
     xrwlock_t rwlock;      /* protect the array */
     struct chp *array;          /* array of struct chp, sorted by `point' */
+};
+
+struct chring_tx
+{
+    u32 group;
+    u32 nr;                     /* # of points in the ring */
+    struct chp array[0];
 };
 
 #define RING_ALLOC_FACTOR       32

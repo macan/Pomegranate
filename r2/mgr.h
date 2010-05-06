@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 22:33:08 macan>
+ * Time-stamp: <2010-05-06 16:50:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,10 +57,16 @@ struct site_entry
  * sites. indexed by ring group id? */
 struct ring_mgr
 {
+    struct regular_hash *rht;
+    xrwlock_t rwlock;
+    u32 active_ring;
 };
 
 struct ring_entry
 {
+    struct hlist_node hlist;
+    struct chring ring;
+    atomic_t ref;
 };
 
 /* root manager to manage the HVFS root info, indexed by hvfs fsid */
@@ -81,31 +87,14 @@ struct root_entry
                                  * lookup either. */
 };
 
-struct hvfs_tcp_addr
-{
-    struct list_head list;
-    struct sockaddr sa;
-};
-
-struct hvfs_site
-{
-    /* stable flag, saved */
-#define HVFS_SITE_PROTOCOL_TCP  0x80000000
-    /* caller flag, not saved */
-#define HVFS_SITE_REPLACE       0x00008000 /* replace all the addr */
-#define HVFS_SITE_ADD           0x00004000
-#define HVFS_SITE_DEL           0x00002000
-    u32 flag;
-    struct list_head addr;      /* addr list */
-};
-
 /* address mgr to manage the global site address table, we do support dynamic
  * changes on this table */
 struct addr_mgr
 {
     struct hvfs_site *xs[1 << 20];
-    xrwlock_t lock;
-    u32 used;
+    xrwlock_t rwlock;
+    u32 used_addr;              /* # of used addr */
+    u32 active_site;            /* # of active site */
 };
 
 #endif

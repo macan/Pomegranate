@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-22 15:49:41 macan>
+ * Time-stamp: <2010-05-06 10:35:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -125,6 +125,7 @@
 struct itbitmap
 {
     struct list_head list;
+    struct list_head lru;
     u64 offset:56;
 #define BITMAP_END      0x80    /* means there is no slice after this slice */
     u64 flag:8;
@@ -142,6 +143,7 @@ struct itbitmap
 struct ibmap
 {
     struct list_head list;
+    struct list_head lru;
     u64 offset:56;
     u64 flag:8;
     u64 ts;
