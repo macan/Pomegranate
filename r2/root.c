@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 20:23:35 macan>
+ * Time-stamp: <2010-05-07 16:34:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,10 +95,24 @@ int root_init(void)
     /* get configs from env */
     root_config();
 
+    /* FIXME: in the service threads' pool */
+    err = root_spool_create();
+    if (err)
+        goto out_spool;
+
+    /* ok to run */
+    hro.state = HMO_STATE_RUNNING;
+
+out_spool:
     return err;
 }
 
 void root_destroy(void)
 {
+    hvfs_verbose(root, "OK, stop it now ...\n");
+
     /* free something */
+
+    /* destroy the service thread pool */
+    root_spool_destory();
 }

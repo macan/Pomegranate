@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-20 13:47:29 macan>
+ * Time-stamp: <2010-05-07 08:58:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -99,6 +99,17 @@ int main(int argc, char *argv[])
     hvfs_info(mds, "TXG ddht size: %d\n", hmo.conf.txg_ddht_size);
     hvfs_info(mds, "TXG Size: %ld B\n", sizeof(struct hvfs_tx) + 
               hmo.conf.txg_ddht_size * sizeof(struct regular_hash));
+
+    {
+        u64 mask;
+        int nr = fls64(XTABLE_BITMAP_SIZE);
+
+        if (nr < 0)
+            hvfs_info(mds, "ZERO!\n");
+
+        mask = (1 << nr) - 1;
+        hvfs_info(mds, "result %ld \n", 2096896 & mask);
+    }
 
     return err;
 }

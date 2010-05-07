@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-30 10:26:03 macan>
+ * Time-stamp: <2010-05-07 11:18:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -126,6 +126,12 @@ struct txg_begin
 
     u32 itb_nr;                 /* itb nr to saved to disk */
     u32 rdd_nr;                 /* # of remote dir deltas */
+
+    /* backup the hmi */
+    u64 mi_txg;
+    u64 mi_uuid;
+    u64 mi_fnum;
+    u64 mi_dnum;
 };
 
 struct itb_info

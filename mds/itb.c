@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-30 18:45:37 macan>
+ * Time-stamp: <2010-05-07 11:16:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -291,10 +291,23 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
                 ite->flag |= ITE_FLAG_GDT;
                 ite->uuid = hi->uuid;
             } else {
-                ite->uuid = atomic64_inc_return(&hmi.mi_uuid) | hmi.uuid_base;
-                if (hi->flag & INDEX_CREATE_DIR) {
-                    ite->flag |= ITE_FLAG_SDT;
-                    ite->uuid |= HVFS_UUID_HIGHEST_BIT;
+                if (hi->flag & INDEX_BY_NAME) {
+                    ite->uuid = atomic64_inc_return(&hmi.mi_uuid) | 
+                        hmi.uuid_base;
+                    if (hi->flag & INDEX_CREATE_DIR) {
+                        ite->flag |= ITE_FLAG_SDT;
+                        ite->uuid |= HVFS_UUID_HIGHEST_BIT;
+                        atomic64_inc(&hmi.mi_fnum);
+                    } else {
+                        atomic64_inc(&hmi.mi_dnum);
+                    }
+                } else if (hi->flag & INDEX_BY_UUID) {
+                    ite->uuid = hi->uuid;
+                    if (hi->flag & INDEX_CREATE_DIR) {
+                        ite->flag |= ITE_FLAG_SDT;
+                        if (ite->uuid != hmi.root_uuid)
+                            ite->uuid |= HVFS_UUID_HIGHEST_BIT;
+                    }
                 }
             }
             if (likely(hi->flag & INDEX_CREATE_SMALL)) {
@@ -613,6 +626,7 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
     } else {
         /* INDEX_CREATE_DIR and non-flag, mdu_update */
         struct mdu_update *mu = (struct mdu_update *)hi->data;
+        struct timeval tv;
 
         /* default fields */
         e->s.mdu.flags |= HVFS_MDU_IF_NORMAL;
@@ -624,17 +638,22 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
 
         /* we should not change this region, otherwise the name is changing
          * :(  The caller now must set the puuid and psalt themself. */
-#if 0
         if (hi->flag & INDEX_CREATE_DIR) {
+            e->s.mdu.mode |= S_IFDIR;
+#if 0
             e->g.puuid = hi->puuid;
             e->g.psalt = hi->psalt;
-        }
 #endif
+        }
 
         if (!mu || !mu->valid)
             return;
+        gettimeofday(&tv, NULL);
+
         if (mu->valid & MU_MODE)
             e->s.mdu.mode = mu->mode;
+        else
+            e->s.mdu.mode = HVFS_DEFAULT_UMASK | S_IFREG;
         if (mu->valid & MU_UID)
             e->s.mdu.uid = mu->uid;
         if (mu->valid & MU_GID)
@@ -645,10 +664,16 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.flags &= ~(mu->flags);
         if (mu->valid & MU_ATIME)
             e->s.mdu.atime = mu->atime;
+        else
+            e->s.mdu.atime = tv.tv_sec;
         if (mu->valid & MU_CTIME)
             e->s.mdu.ctime = mu->ctime;
+        else
+            e->s.mdu.ctime = tv.tv_sec;
         if (mu->valid & MU_MTIME)
             e->s.mdu.mtime = mu->mtime;
+        else
+            e->s.mdu.mtime = tv.tv_sec;
         if (mu->valid & MU_VERSION)
             e->s.mdu.version = mu->version;
         if (mu->valid & MU_SIZE)

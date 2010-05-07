@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-06 16:49:50 macan>
+ * Time-stamp: <2010-05-07 17:28:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,7 +79,7 @@ struct site_entry *site_mgr_lookup(struct site_mgr *sm, u64 site_id)
     struct site_entry *pos;
     struct hlist_node *n;
     struct regular_hash *rh;
-    int idx;
+    int idx, found = 0;
 
     idx = hvfs_hash_site_mgr(site_id, HVFS_ROOT_SITE_MGR_SALT) % 
         hro.conf.site_mgr_htsize;
@@ -115,7 +115,7 @@ struct site_entry *site_mgr_insert(struct site_mgr *sm, struct site_entry *se)
     
     xlock_lock(&rh->lock);
     hlist_for_each_entry(pos, n, &rh->h, hlist) {
-        if (site_id == pos->site_id) {
+        if (se->site_id == pos->site_id) {
             /* ok, we find a conflict entry */
             found = 1;
             break;
@@ -190,21 +190,23 @@ out:
 
 int addr_mgr_init(struct addr_mgr *am)
 {
-    xrwlock_init(&am->lock);
-    am->used = 0;
+    xrwlock_init(&am->rwlock);
+    am->used_addr = 0;
+    am->active_site = 0;
 }
 
 void addr_mgr_destroy(struct addr_mgr *am)
 {
     /* should we do something */
+    xrwlock_destroy(&am->rwlock);
 }
 
 /* addr_mgr_update_one()
  *
  * @flag: HVFS_SITE_REPLACE/ADD/DEL | HVFS_SITE_PROTOCOL_TCP
  */
-int addr_mgr_update_one(struct add_mgr *am, u32 flag, u64 site_id, 
-                       void *addr)
+int addr_mgr_update_one(struct addr_mgr *am, u32 flag, u64 site_id, 
+                        void *addr)
 {
     int err = 0;
     
@@ -223,16 +225,17 @@ int addr_mgr_update_one(struct add_mgr *am, u32 flag, u64 site_id,
             goto out;
         }
         hta->flag = HVFS_SITE_PROTOCOL_TCP;
-        INIT_LIST_HEAD(&hta->sock.list);
+        INIT_LIST_HEAD(&hta->list);
         *((struct sockaddr_in *)&hta->sock.sa) = *(si);
 
         /* next, we should do the OP on the site table */
         if (flag & HVFS_SITE_REPLACE) {
-            xrwlock_wlock(&am->lock);
+            xrwlock_wlock(&am->rwlock);
             if (am->xs[site_id]) {
                 /* the hvfs_site exists, we just free the table list */
-                list_for_each_entry_safe(pos, n, &am->xs[site_id]->addr, list) {
-                    list_del(&pos->sock.list);
+                list_for_each_entry_safe(pos, n, &am->xs[site_id]->addr, 
+                                         list) {
+                    list_del(&pos->list);
                     am->xs[site_id]->nr--;
                     am->used_addr--;
                     xfree(pos);
@@ -255,13 +258,13 @@ int addr_mgr_update_one(struct add_mgr *am, u32 flag, u64 site_id,
             }
             
             /* add the new addr to the list */
-            list_add_tail(&hta->sock.list, &am->xs[site_id]->addr);
+            list_add_tail(&hta->list, &am->xs[site_id]->addr);
             am->xs[site_id]->nr++;
             am->used_addr++;
         out_unlock_replace:
-            xrwlock_wunlock(&am->lock);
+            xrwlock_wunlock(&am->rwlock);
         } else if (flag & HVFS_SITE_ADD) {
-            xrwlock_wlock(&am->lock);
+            xrwlock_wlock(&am->rwlock);
             if (!am->xs[site_id]) {
                 /* add a new hvfs_site to the table */
                 struct hvfs_site *hs;
@@ -278,19 +281,24 @@ int addr_mgr_update_one(struct add_mgr *am, u32 flag, u64 site_id,
                 am->active_site++;
             }
             /* add the new addr to the list */
-            list_add_tail(&hta->sock.list, &am->xs[site_id]->addr);
+            list_add_tail(&hta->list, &am->xs[site_id]->addr);
             am->xs[site_id]->nr++;
             am->used_addr++;
         out_unlock_add:
-            xrwlock_wunlock(&am->lock);
+            xrwlock_wunlock(&am->rwlock);
         } else if (flag & HVFS_SITE_DEL) {
             err = -ENOTEXIST;
-            xrwlock_wlock(&am->lock);
+            xrwlock_wlock(&am->rwlock);
             if (am->xs[site_id]) {
                 /* iterate on the table to find the entry */
                 list_for_each_entry_safe(pos, n, &am->xs[site_id]->addr, list) {
-                    if (*si == *((struct sockaddr_in *)&hta->sock.sa)) {
-                        list_del(&pos->sock.list);
+                    if ((si->sin_port == 
+                         ((struct sockaddr_in *)&hta->sock.sa)->sin_port) ||
+                        (si->sin_addr.s_addr ==
+                         ((struct sockaddr_in *)&hta->sock.sa)->sin_addr.s_addr) ||
+                        (si->sin_family ==
+                         ((struct sockaddr_in *)&hta->sock.sa)->sin_family)) {
+                        list_del(&pos->list);
                         xfree(pos);
                         am->xs[site_id]->nr--;
                         am->used_addr--;
@@ -302,7 +310,7 @@ int addr_mgr_update_one(struct add_mgr *am, u32 flag, u64 site_id,
                 goto out_unlock_del;
             }
         out_unlock_del:
-            xrwlock_wunlock(&am->lock);
+            xrwlock_wunlock(&am->rwlock);
         } else {
             /* no OP, we just free the allocated resouces */
             xfree(hta);
@@ -323,7 +331,7 @@ int addr_mgr_compact(struct addr_mgr *am, void **data, int *len)
 
     /* NOTE THAT: we lock the site table to protect the am->used_addr and
      * am->active_site extends. */
-    xrwlock_rlock(&am->lock);
+    xrwlock_rlock(&am->rwlock);
 
     /* try to alloc the memory space */
     *len = sizeof(struct hvfs_site_tx) * am->active_site +
@@ -336,7 +344,7 @@ int addr_mgr_compact(struct addr_mgr *am, void **data, int *len)
     }
 
     hst = *data;
-    for (i = 0; i < (1 << 20); i++) {
+    for (i = 0; i < (HVFS_SITE_MAX); i++) {
         if (am->xs[i]) {
             hst[j].site_id = i;
             hst[j].flag = HVFS_SITE_REPLACE;
@@ -374,11 +382,11 @@ int addr_mgr_compact(struct addr_mgr *am, void **data, int *len)
     }
 
 out_unlock:
-    xrwlock_runlock(&am->lock);
+    xrwlock_runlock(&am->rwlock);
 
     return err;
 out_free:
-    xrwlock_runlock(&am->lock);
+    xrwlock_runlock(&am->rwlock);
     xfree(*data);
     return err;
 }
@@ -398,7 +406,7 @@ int addr_mgr_compact_one(struct addr_mgr *am, u64 site_id, u32 flag,
         return -EINVAL;
 
     /* Note that: we lock the site table to protect the am->xs[i]->nr */
-    xrwlock_rlock(&am->lock);
+    xrwlock_rlock(&am->rwlock);
     if (am->xs[site_id]) {
         *len = sizeof(struct hvfs_site_tx) +
             sizeof(struct hvfs_addr_tx) * am->xs[site_id]->nr;
@@ -438,11 +446,11 @@ int addr_mgr_compact_one(struct addr_mgr *am, u64 site_id, u32 flag,
     }
 
 out_unlock:
-    xrwlock_runlock(&am->lock);
+    xrwlock_runlock(&am->rwlock);
 
     return err;
 out_free:
-    xrwlock_runlock(&am->lock);
+    xrwlock_runlock(&am->rwlock);
     xfree(*data);
     return err;
 }
@@ -463,6 +471,8 @@ int ring_mgr_init(struct ring_mgr *rm)
         goto out;
     }
 
+    xrwlock_init(&rm->rwlock);
+
     /* init the hash table */
     for (i = 0; i < hro.conf.ring_mgr_htsize; i++) {
         INIT_HLIST_HEAD(&(rm->rht + i)->h);
@@ -478,6 +488,7 @@ void ring_mgr_destory(struct ring_mgr *rm)
     if (rm->rht) {
         xfree(rm->rht);
     }
+    xrwlock_destroy(&rm->rwlock);
 }
 
 struct ring_entry *ring_mgr_alloc_re()
@@ -487,7 +498,7 @@ struct ring_entry *ring_mgr_alloc_re()
     re = xzalloc(sizeof(*re));
     if (re) {
         INIT_HLIST_NODE(&re->hlist);
-        atomic_set(&re->ref, 0);
+        atomic_set(&re->ref, 1);
     }
 
     return re;
@@ -507,7 +518,7 @@ struct ring_entry *ring_mgr_lookup(struct ring_mgr *rm, u32 gid)
     struct ring_entry *pos;
     struct hlist_node *n;
     struct regular_hash *rh;
-    int idx;
+    int idx, found = 0;
 
     idx = hvfs_hash_ring_mgr(gid, HVFS_ROOT_RING_MGR_SALT) %
         hro.conf.ring_mgr_htsize;
@@ -531,11 +542,53 @@ struct ring_entry *ring_mgr_lookup(struct ring_mgr *rm, u32 gid)
     }
 }
 
+static inline
+struct regular_hash *__group2rh(struct ring_mgr *rm, u32 gid)
+{
+    struct regular_hash *rh;
+    int idx;
+
+    idx = hvfs_hash_ring_mgr(gid, HVFS_ROOT_RING_MGR_SALT) %
+        hro.conf.ring_mgr_htsize;
+    rh = rm->rht + idx;
+
+    return rh;
+}
+
+struct ring_entry *ring_mgr_lookup_nolock(struct ring_mgr *rm, u32 gid)
+{
+    struct ring_entry *pos;
+    struct hlist_node *n;
+    struct regular_hash *rh;
+    int idx;
+
+    idx = hvfs_hash_ring_mgr(gid, HVFS_ROOT_RING_MGR_SALT) %
+        hro.conf.ring_mgr_htsize;
+    rh = rm->rht + idx;
+
+    hlist_for_each_entry(pos, n, &rh->h, hlist) {
+        if (gid == pos->ring.group) {
+            /* ok, we find the entry */
+            found = 1;
+            atomic_inc(&pos->ref);
+            break;
+        }
+    }
+
+    if (found) {
+        return pos;
+    } else {
+        return PTR_ERR(-ENOENT);
+    }
+}
+
 void ring_mgr_put(struct ring_entry *re)
 {
     atomic_dec(&re->ref);
 }
 
+/* Note that you should put the ring_entry after calling insert().
+ */
 struct ring_entry *ring_mgr_insert(struct ring_mgr *rm, struct ring_entry *re)
 {
     struct ring_entry *pos;
@@ -552,11 +605,15 @@ struct ring_entry *ring_mgr_insert(struct ring_mgr *rm, struct ring_entry *re)
         if (re->ring.group == pos->ring.group) {
             /* ok, we find a conflict entry */
             found = 1;
+            atomic_inc(&re->ref);
             break;
         }
     }
     if (!found) {
+        xrwlock_wlock(&rm->rwlock);
         hlist_add_head(&re->hlist, &(rm->rht + idx)->h);
+        rm->active_ring++;
+        xrwlock_wunlock(&rm->rwlock);
         pos = re;
     }
     xlock_unlock(&rh->lock);
@@ -564,33 +621,488 @@ struct ring_entry *ring_mgr_insert(struct ring_mgr *rm, struct ring_entry *re)
     return pos;
 }
 
-/* ring_mgr_compact to get the buffer */
+void ring_mgr_remove(struct ring_mgr *rm, u32 gid)
+{
+    struct ring_entry *pos;
+    struct hlist_node *n;
+    struct regular_hash *rh;
+    int idx, found = 0;
+
+    idx = hvfs_hash_ring_mgr(gid, HVFS_ROOT_RING_MGR_SALT) %
+        hro.conf.ring_mgr_htsize;
+    rh = rm->rht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry(pos, n, &rh->h, hlist) {
+        if (gid == pos->ring.group) {
+            /* ok, we find the entry here */
+            found = 1;
+            break;
+        }
+    }
+    if (found) {
+        /* remove it */
+        xrwlock_wlock(&rm->rwlock);
+        hlist_del_init(&pos->hlist);
+        rm->active_ring--;
+        xrwlock_wunlock(&rm->rwlock);
+    } else {
+        hvfs_err(root, "Try to remove ring %d failed, not found.\n",
+                 gid);
+    }
+    xlock_unlock(&rh->lock);
+}
+
+/* ring_mgr_compact to get the buffer
+ *
+ * Note that: if you want to modify the chring, you should hold the
+ * rm->rwlock!!!
+*/
 int ring_mgr_compact(struct ring_mgr *rm, void **data, int *len)
 {
-    int err = 0;
+    struct ring_entry *pos;
+    struct hlist_node *n;
+    struct chring_tx *ct;
+    int err = 0, i, j = 0;
     
     if (!len || !*data)
         return -EINVAL;
 
-    *len = rm->active_ring * sizeof(struct chring_tx) +
-        
+    *len = rm->active_ring * sizeof(struct chring_tx);
+    xrwlock_rlock(&rm->rwlock);
+    for (i = 0; i < (HVFS_SITE_MAX); i++) {
+        if (rm->rht[i]) {
+            hlist_for_each_entry(pos, n, &rm->rht[i]->h, hlist) {
+                *len += pos->ring.used * sizeof(struct chp);
+            }
+        }
+    }
+    *data = xmalloc(*len);
+    if (!*data) {
+        hvfs_err(root, "xmalloc addr space failed.\n");
+        err = -ENOMEM;
+        goto out_unlock;
+    }
+    ct = *data;
+
+    for (i = 0; i < HVFS_SITE_MAX; i++) {
+        if (rm->rht[i]) {
+            hlist_for_each_entry(pos, n, &rm->rht[i]->h, hlist) {
+                ct[j].group = pos->ring.group;
+                ct[j].nr = pos->ring.used;
+                memcpy(ct[j].array, pos->ring.array, 
+                       ct[j].nr * sizeof(struct chp));
+                j++;
+            }
+        }
+    }
+
+    if (j != rm->active_ring) {
+        hvfs_err(root, "Detect active ring change in compacting.\n");
+        err = -EFAULT;
+        goto out_unlock;
+    }
+    /* NOTE: do not check the # of chp, may buffer overflow? */
+    
+out_unlock:
+    xrwlock_runlock(&rm->rwlock);
 }
 
 /* ring_mgr_update to update a chring
  *
  * Note that: holding the rh->lock
+ *
+ * Note that: we do not do deep copy on the chring.array, so please do not
+ * free the array in the caller.
  */
 void ring_mgr_re_update(struct ring_entry *re, struct chring *ring)
 {
     while (atomic_read(&re->ring.ref) > 0) {
         xsleep(1);
     }
+
+    xrwlock_wlock(&rm->rwlock);
+
     /* free the current chring */
-    xfree(re->ring.rray);
+    xfree(re->ring.array);
     xrwlock_destory(&re->ring.rwlock);
 
     /* copy the new chring */
     memcpy(&re->ring, ring, sizeof(struct chring));
     xrwlock_init(&re->ring.rwlock);
+    atomic_set(&re->ring.ref, 0);
+
+    xrwlock_wunlock(&rm->rwlock);
 }
 
+int root_mgr_init(struct root_mgr *rm)
+{
+    int err = 0, i;
+
+    if (!hro.conf.root_mgr_htsize) {
+        /* default to ...ROOT_MGR_HTSIZE */
+        hro.conf.root_mgr_htsize = HVFS_ROOT_ROOT_MGR_HTSIZE;
+    }
+
+    rm->rht = xzalloc(hro.conf.root_mgr_htsize * sizeof(struct regular_hash));
+    if (!rm->rht) {
+        hvfs_err(root, "xzalloc() root mgr hash table failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    xrwlock_init(&rm->rwlock);
+
+    /* init the hash table */
+    for (i = 0; i < hro.conf.root_mgr_htsize; i++) {
+        INIT_HLIST_HEAD(&(rm->rht + i)->h);
+        xlock_init(&(rm->rht + i)->lock);
+    }
+
+out:
+    return err;
+}
+
+void root_mgr_destory(struct root_mgr *rm)
+{
+    if (rm->rht) {
+        xfree(rm->rht);
+    }
+    xrwlock_destroy(&rm->rwlock);
+}
+
+struct root_entry *root_mgr_allco_re()
+{
+    struct root_entry *re;
+
+    re = xzalloc(sizeof(*re));
+    if (re) {
+        INIT_HLIST_NODE(&re->hlist);
+    }
+
+    return re;
+}
+
+void root_mgr_free_re(struct root_entry *re)
+{
+    xfree(re);
+}
+
+/* root_mgr_lookup() to lookup the root entry
+ *
+ * @fsid: file system id
+ */
+struct root_entry *root_mgr_lookup(struct root_mgr *rm, u64 fsid)
+{
+    struct root_entry *pos;
+    struct hlist_node *n;
+    struct regular_hash *rh;
+    int idx, found = 0;
+
+    idx = hvfs_hash_root_mgr(fsid, HVFS_ROOT_ROOT_MGR_SALT) %
+        hro.conf.root_mgr_htsize;
+    rh = rm->rht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry(pos, n, &rh->h, hlist) {
+        if (fsid == pos->fsid) {
+            /* ok, we find the entry */
+            found = 1;
+            break;
+        }
+    }
+    xlock_unlock(&rh->lock);
+
+    if (found) {
+        return pos;
+    } else {
+        return PTR_ERR(-ENOENT);
+    }
+}
+
+struct root_entry *root_mgr_insert(struct root_mgr *rm, struct root_entry *re)
+{
+    struct root_entry *pos;
+    struct hlist_node *n;
+    struct regular_hash *rh;
+    int idx, found = 0;
+
+    idx = hvfs_hash_root_mgr(re->fsid, HVFS_ROOT_ROOT_MGR_SALT) %
+        hro.conf.root_mgr_htsize;
+    rh = rm->rht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry(pos, n, &rh->h, hlist) {
+        if (re->fsid == pos->fsid) {
+            /* ok, we find a conflict entry */
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        xrwlock_wlock(&rm->rwlock);
+        hlist_add_head(&re->hlist, &(rm->rht + idx)->h);
+        rm->active_root++;
+        xrwlock_wunlock(&rm->rwlock);
+        pos = re;
+    }
+    xlock_unlock(&rh->lock);
+
+    return pos;
+}
+
+void root_mgr_remove(struct root_mgr *rm, u64 fsid)
+{
+    struct root_entry *pos;
+    struct hlist_node *n;
+    struct regular_hash *rh;
+    int idx, found = 0;
+
+    idx = hvfs_hash_root_mgr(fsid, HVFS_ROOT_ROOT_MGR_SALT) %
+        hro.conf.root_mgr_htsize;
+    rh = rm->rht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry(pos, n, &rh->h, hlist) {
+        if (fsid == pos->fsid) {
+            /* ok, we find the entry here */
+            found = 1;
+            break;
+        }
+    }
+    if (found) {
+        /* remove it */
+        xrwlock_wlock(&rm->rwlock);
+        hlist_del_init(&pos->hlist);
+        rm->active_root--;
+        xrwlock_wunlock(&rm->rwlock);
+    } else {
+        hvfs_err(root, "Try to remove fsid %ld failed, not found.\n",
+                 fsid);
+    }
+    xlock_unlock(&rh->lock);
+}
+
+/* root_compact_hxi()
+ *
+ * This function compact the need info for a request client:
+ * mds/mdsl/client. The caller should supply the needed arguments.
+ *
+ * @site_id: requested site_id
+ * @fsid: requested fsid
+ * @gid: request group id
+ */
+int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info **ohxi)
+{
+    union hvfs_x_info *hxi;
+    struct site_entry *se;
+    int err = 0;
+
+    if (!*ohxi)
+        return -EINVAL;
+
+    hxi = xzalloc(sizeof(*hxi));
+    if (!hxi) {
+        hvfs_err(root, "xzalloc() hvfs_x_info failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    if (HVFS_IS_CLIENT(site_id)) {
+    } else if (HVFS_IS_MDS(site_id)) {
+        /* Step 1: find state in the site_mgr */
+        se = site_mgr_lookup(&hro.site, site_id);
+        if (se == ERR_PTR(-ENOENT)) {
+            hvfs_err(root, "site_mgr_lookup() site %lx failed, "
+                     "no such site.\n", site_id);
+            err = -ENOENT;
+            goto out;
+        }
+
+        /* check whether the group id is correct */
+        if (gid != se->gid) {
+            hvfs_err(root, "CHRING group mismatch: "
+                     "request %d conflict w/ %d\n",
+                     gid, se->gid);
+            err = -EINVAL;
+            goto out;
+        }
+
+        switch (se->state) {
+        case SE_STATE_INIT:
+            /* we should init the se->hxi by read the hxi in from MDSL */
+            err = root_read_hxi(site_id, fsid, hxi);
+            if (err) {
+                hvfs_err(root, "root_read_hxi() failed w/ %d\n", err);
+                goto out;
+            }
+            se->hxi.hmi = hxi->hmi;
+            se->state = SE_STATE_NORMAL;
+            break;
+        case SE_STATE_SHUTDOWN:
+            /* we should check whether the fsid is the same as in the
+             * se->hxi. if not, we must reload the new view from MDSL */
+
+            /* fall through */
+        case SE_STATE_NORMAL:
+            /* we should check whether the fsid is the same as in the
+             * se->hxi. if not, we must reject the new request. */
+            root = root_mgr_lookup(&hro.root, fsid);
+            if (root == ERR_PTR(-ENOENT)) {
+                hvfs_err(root, "root_mgr_lookup() fsid %ld failed, "
+                         "no such root entry.\n", fsid);
+                err = -ENOENT;
+                goto out;
+            }
+
+            if (root->gdt_salt != hxi->hmi.gdt_salt ||
+                root->root_salt != hxi->hmi.root_salt) {
+                /* hoo, the site requested another fsid, we should change the
+                 * current site entry to the new view. but, we must check
+                 * whether there is another instance that is running. */
+                if (se->state != SE_STATE_SHUTDOWN) {
+                    /* ok, we reject the fs change */
+                    err = -EEXIST;
+                    goto out;
+                }
+                /* ok, we can change the fs now */
+                err = root_read_hxi(site_id, fsid, hxi);
+                if (err) {
+                    hvfs_err(root, "root_read_hxi() failed w/ %d\n", err);
+                    goto out;
+                }
+                se->hxi.hmi = hxi->hmi;
+                se->state = SE_STATE_NORMAL;
+            } else {
+                /* fs not change, we just modify the state */
+                hxi->hmi = se->hxi.hmi;
+                se->state = SE_STATE_NORMAL;
+            }
+            break;
+        case SE_STATE_TRANSIENT:
+            /* we should just wait for the system come back to normal or
+             * error. */
+            err = -EHWAIT;
+            break;
+        case SE_STATE_ERROR:
+            /* in the error state means, we can safely reload/unload the se
+             * state. */
+            err = root_write_hxi(se);
+            if (err) {
+                hvfs_err(root, "root_write_hxi() failed w/ %d\n", err);
+            }
+            se->state = SE_STATE_INIT;
+            /* reload the requested fsid */
+            err = root_read_hxi(site_id, fsid, hxi);
+            if (err) {
+                hvfs_err(root, "root_read_hxi() failed w/ %d\n", err);
+                goto out;
+            }
+            se->hxi.hmi = hxi->hmi;
+            se->state = SE_STATE_NORMAL;
+            break;
+        default:;
+        }
+        
+        /* Step final: release all the resources */
+    } else if (HVFS_IS_MDSL(site_id)) {
+        /* Step 1: find state in the site_mgr */
+        se = site_mgr_lookup(&hro.site, site_id);
+        if (se == ERR_PTR(-ENOENT)) {
+            hvfs_err(root, "site_mgr_lookup() site %lx failed, "
+                     "no such site.\n", site_id);
+            err = -ENOENT;
+            goto out;
+        }
+
+        /* check whether the group id is correct */
+        if (gid != se->gid) {
+            hvfs_err(root, "CHRING group mismatch: "
+                     "request %d conflict w/ %d\n",
+                     gid, se->gid);
+            err = -EINVAL;
+            goto out;
+        }
+
+        switch (se->state) {
+        case SE_STATE_INIT:
+            /* we should init the se->hxi by read the hxi in from MDSL */
+            err = root_read_hxi(site_id, fsid, hxi);
+            if (err) {
+                hvfs_err(root, "root_read_hxi() failed w/ %d\n", err);
+                goto out;
+            }
+            se->hxi.hmi = hxi->hmi;
+            se->state = SE_STATE_NORMAL;
+            break;
+        case SE_STATE_SHUTDOWN:
+            /* we should check whether the fsid is the same as in the
+             * se->hxi. if not, we must reload the new view from MDSL. */
+
+            /* fall through */
+        case SE_STATE_NORMAL:
+            /* we should check whether the fsid is the same as in the se->hxi.
+             * if not, we must reject the new request. */
+            root = root_mgr_lookup(&hro.root, fsid);
+            if (root == ERR_PTR(-ENOENT)) {
+                hvfs_err(root, "root_mgr_lookup() fsid %ld failed, "
+                         "no such root entry.\n", fsid);
+                err = -ENOENT;
+                goto out;
+            }
+
+            if (root->gdt_salt != hxi->hmi.gdt_salt ||
+                root->root_salt != hxi->hmi.root_salt) {
+                /* hoo, the site requested another fsid, we should change the
+                 * current site entry to the new view. but, we must check
+                 * whether there is another instance that is running. */
+                if (se->state != SE_STATE_SHUTDOWN) {
+                    /* ok, we reject the fs change */
+                    err = -EEXIST;
+                    goto out;
+                }
+                /* ok, we can change the fs now */
+                err = root_read_hxi(site_id, fsid, hxi);
+                if (err) {
+                    hvfs_err(root, "root_read_hxi() failed w/ %d\n", err);
+                    goto out;
+                }
+                se->hxi.hmli = hxi->hmli;
+                se->state = SE_STATE_NORMAL;
+            } else {
+                /* fs not change, we just modify the state */
+                hxi->hmli = se->hxi.hmli;
+                se->state = SE_STATE_NORMAL;
+            }
+            break;
+        case SE_STATE_TRANSIENT:
+            /* we should just wait for the system come back to normal or err
+             * state */
+            err = root_write_hxi(se);
+            if (err) {
+                hvfs_err(root, "root_write_hxi() failed w/ %d\n", err);
+            }
+            se->state = SE_STATE_INIT;
+            /* reload the requested fsid */
+            err = root_read_hxi(site_id, fsid, hxi);
+            if (err) {
+                hvfs_err(root, "root_read_hxi() failed w/ %d\n", err);
+                goto out;
+            }
+            se->hxi.hmi = hxi->hmi;
+            se->state = SE_STATE_NORMAL;
+            break;
+        default:;
+        }
+        /* Step final: release all the resources */
+    } else if (HVFS_IS_ROOT(site_id)) {
+    } else if (HVFS_IS_AMC(site_id)) {
+    } else {
+        hvfs_err(root, "Unknown site type: %lx\n", site_id);
+        err = -EINVAL;
+        goto out;
+    }
+
+out:
+    return err;
+}

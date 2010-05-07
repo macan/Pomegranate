@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-06 11:28:49 macan>
+ * Time-stamp: <2010-05-07 17:23:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,11 +28,7 @@
 
 struct hvfs_sock_addr
 {
-    struct list_head list;
     struct sockaddr sa;
-    /* stable flag, saved */
-#define HVFS_SITE_PROTOCOL_TCP  0x80000000
-    u32 flag;
 };
 
 /* hvfs_sock_addr_tx for NET transfer */
@@ -43,6 +39,9 @@ struct hvfs_sock_addr_tx
 
 struct hvfs_addr
 {
+    struct list_head list;
+    /* stable flag, saved */
+#define HVFS_SITE_PROTOCOL_TCP  0x80000000
     u32 flag;
     union 
     {
@@ -79,5 +78,14 @@ struct hvfs_site_tx
     struct hvfs_addr_tx addr[0];
 };
 
-
+/* The following is the region for HXI exchange ABI */
+/*
+ * Note: we just saving the data region to the storage, ourself do not
+ * interpret it.
+ */
+#define HVFS_X_INFO_LEN         (256)
+union hvfs_x_info
+{
+    u8 array[HVFS_X_INFO_LEN];
+};
 #endif

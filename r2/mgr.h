@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-06 16:50:55 macan>
+ * Time-stamp: <2010-05-07 16:58:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@
 #include "hvfs.h"
 #include "ring.h"
 #include "lib.h"
+#include "hvfs_addr.h"
 
 /* site manager to manage the registered site group, on chring changing mgr
  * should notify the registered sites. 
@@ -44,12 +45,16 @@ struct site_entry
 {
     struct hlist_node hlist;
     u64 site_id;
+    
 #define SE_STATE_INIT           0x00
-#define SE_STATE_NORMAL         0x01
-#define SE_STATE_TRANSIENT      0x02
-#define SE_STATE_ERROR          0x03
+#define SE_STATE_NORMAL         0x10
+#define SE_STATE_SHUTDOWN       0x11
+#define SE_STATE_TRANSIENT      0x20
+#define SE_STATE_ERROR          0x30 /* innormal, need recover */
     u32 state;
-    u8 hb_lost;                 /* # of lost heart beat messages */
+    u32 hb_lost;                /* # of lost heart beat messages */
+    union hvfs_x_info hxi;
+    u32 gid;                    /* group of the ring */
 };
 
 /* ring manager to manage the consistent hash ring, we can support dynamic
@@ -73,6 +78,8 @@ struct ring_entry
 struct root_mgr
 {
     struct regular_hash *rht;
+    xrwlock_t rwlock;
+    u32 active_root;
 };
 
 struct root_entry
@@ -91,7 +98,7 @@ struct root_entry
  * changes on this table */
 struct addr_mgr
 {
-    struct hvfs_site *xs[1 << 20];
+    struct hvfs_site *xs[HVFS_SITE_MAX];
     xrwlock_t rwlock;
     u32 used_addr;              /* # of used addr */
     u32 active_site;            /* # of active site */

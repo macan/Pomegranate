@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 16:26:49 macan>
+ * Time-stamp: <2010-05-07 14:11:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -191,8 +191,9 @@ void mds_lookup(struct hvfs_tx *tx)
         goto send_rpy;
     }
 
-    hvfs_debug(mds, "LOOKUP %ld %ld %lx %s %d\n",
-               hi->puuid, hi->itbid, hi->hash, hi->name, hi->namelen);
+    hvfs_debug(mds, "LOOKUP %ld %ld %lx %s %d uuid %ld flag %x\n",
+               hi->puuid, hi->itbid, hi->hash, hi->name, hi->namelen,
+               hi->uuid, hi->flag);
 
     if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
         hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 

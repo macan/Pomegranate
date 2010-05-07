@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-27 10:57:56 macan>
+ * Time-stamp: <2010-05-07 11:21:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -227,6 +227,10 @@ int txg_prepare_begin(struct commit_thread_arg *cta, struct hvfs_txg *t)
     /* construct the TXG_BEGIN region, prepare writing back */
     memset(&cta->begin, 0, sizeof(cta->begin));
     cta->begin.magic = TXG_BEGIN_MAGIC;
+    cta->begin.mi_txg = t->txg;
+    cta->begin.mi_uuid = atomic64_read(&hmi.mi_uuid);
+    cta->begin.mi_fnum = atomic64_read(&hmi.mi_fnum);
+    cta->begin.mi_dnum = atomic64_read(&hmi.mi_dnum);
 
     /* bitmap delta nr */
     if (!list_empty(&t->bdb)) {

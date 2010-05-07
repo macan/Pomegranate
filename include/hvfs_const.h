@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-26 20:04:27 macan>
+ * Time-stamp: <2010-05-07 17:05:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,10 +26,13 @@
 
 #define HVFS_MAX_NAME_LEN       256
 #define MDS_DCONF_MAX_NAME_LEN  64
-#define MDSL_DCONF_MAX_NAME_LEN  MDS_DCONF_MAX_NAME_LEN
+#define MDSL_DCONF_MAX_NAME_LEN MDS_DCONF_MAX_NAME_LEN
+#define ROOT_DCONF_MAX_NAME_LEN MDS_DCONF_MAX_NAME_LEN
 #define HVFS_RING_VID_MAX       256
 
 #define HVFS_GDT_BITMAP_COLUMN  0 /* default bitmap data column in GDT dir */
+
+#define HVFS_DEFAULT_UMASK      0644
 
 /* UUID bits
  *
@@ -70,4 +73,5 @@ static char *hvfs_ccolor[] __attribute__((unused)) =
 #define EUPDATED        1032    /* the delta has already been applied,
                                  * although thereis an error in another
                                  * logic */
+#define EHWAIT          1033    /* wait a few seconds and retry */
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 20:22:48 macan>
+ * Time-stamp: <2010-05-07 17:10:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,12 +27,13 @@
 #include "hvfs.h"
 #include "prof.h"
 #include "lib.h"
+#include "rprof.h"
 #include "mgr.h"
 
 struct root_conf
 {
     /* section for dynamic configuration */
-    char dcaddr[RING_DCONF_MAX_NAME_LEN];
+    char dcaddr[ROOT_DCONF_MAX_NAME_LEN];
     int dcfd, dcepfd;
     pthread_t dcpt;
 
@@ -91,14 +92,23 @@ struct hvfs_root_object
      *
      * Note that: now we just support ONE root server, next step we can
      * support BFT root service. */
-    struct site_mgr root;
+    struct site_mgr site;
 
     /* ring manager */
     struct ring_mgr ring;
 
     /* root service manager */
     struct root_mgr root;
+
+    struct root_conf conf;
+
+    /* the following region is used for threads */
+    pthread_t *spool_thread;    /* array of service threads */
+
+    u8 spool_thread_stop;       /* running flag for service thread */
 };
+
+extern struct hvfs_root_object hro;
 
 #ifdef HVFS_TRACING
 extern u32 hvfs_root_tracing_flags;

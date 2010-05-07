@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 14:27:32 macan>
+ * Time-stamp: <2010-05-07 15:52:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -189,10 +189,12 @@ void mdsl_itb(struct xnet_msg *msg)
 
     hvfs_err(mdsl, "Read ITB %ld len %d\n", itb->h.itbid, atomic_read(&itb->h.len));
     data_len = atomic_read(&itb->h.len) - sizeof(*itb);
-    if (data_len) {
+    if (data_len > 0) {
         data = xmalloc(data_len);
         if (!data) {
-            hvfs_err(mdsl, "try to alloc memory for ITB data region failed\n");
+            hvfs_err(mdsl, "try to alloc memory for ITB data region (len %d) "
+                     "failed\n", data_len);
+            err = -EFAULT;
             goto out_put2;
         }
         /* ok, do pread now */
@@ -205,6 +207,10 @@ void mdsl_itb(struct xnet_msg *msg)
             xfree(data);
             goto out_put2;
         }
+    } else if (data_len < 0) {
+        hvfs_err(mdsl, "data_len %d is minus, internal error!\n", data_len);
+        err = -EFAULT;
+        goto out_put2;
     }
 
 out_put2:
