@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-15 19:10:45 macan>
+ * Time-stamp: <2010-05-15 23:27:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -709,6 +709,43 @@ int ring_mgr_compact(struct ring_mgr *rm, void **data, int *len)
     
 out_unlock:
     xrwlock_runlock(&rm->rwlock);
+
+    return err;
+}
+
+int ring_mgr_compact_one(struct ring_mgr *rm, u32 gid, void **data,
+                         int *len) 
+{
+    struct ring_entry *pos;
+    struct chring_tx *ct;
+    int err = 0;
+
+    pos = ring_mgr_lookup(rm, gid);
+    if(IS_ERR(pos)) {
+        hvfs_err(root, "ring_mgr_lookup() failed w/ %ld\n",
+                 PTR_ERR(pos));
+        return PTR_ERR(pos);
+    }
+    /* lock the ring */
+    xrwlock_rlock(&pos->ring.rwlock);
+    *len = pos->ring.used * sizeof(struct chp);
+    *data = xmalloc(*len);
+    if (!*data) {
+        hvfs_err(root, "xmalloc addr space failed.\n");
+        err = -ENOMEM;
+        goto out_unlock;
+    }
+    ct = *data;
+
+    ct->group = gid;
+    ct->nr = pos->ring.used;
+    memcpy(ct->array, pos->ring.array, ct->nr * sizeof(struct chp));
+    
+out_unlock:
+    xrwlock_runlock(&pos->ring.rwlock);
+    
+    /* put the ring_entry */
+    ring_mgr_put(pos);
 
     return err;
 }

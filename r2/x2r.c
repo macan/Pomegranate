@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-15 21:14:08 macan>
+ * Time-stamp: <2010-05-15 23:06:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -101,6 +101,13 @@ int root_do_reg(struct xnet_msg *msg)
             goto send_rpy;
         }
         /* pack the ring info */
+        ring = ring_mgr_lookup(&hro.ring, msg->tx.reserved);
+        if (IS_ERR(ring)) {
+            hvfs_err(root, "ring_mgr_lookup() failed w/ %ld\n",
+                     PTR_ERR(ring));
+            goto send_rpy;
+        }
+        err = __pack_msg(&ring->ring, 
         /* pack the root info */
         /* pack the gdt bitmap */
         /* pack the global site table */
