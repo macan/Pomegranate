@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-15 13:30:10 macan>
+ * Time-stamp: <2010-05-15 19:10:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -64,6 +64,7 @@ struct site_entry *site_mgr_alloc_se()
     se = xzalloc(sizeof(*se));
     if (se) {
         INIT_HLIST_NODE(&se->hlist);
+        xlock_init(&se->lock);
     }
 
     return se;

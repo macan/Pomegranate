@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-15 13:27:21 macan>
+ * Time-stamp: <2010-05-15 19:09:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,6 +54,7 @@ struct site_entry
     u32 state;
     u32 hb_lost;                /* # of lost heart beat messages */
     union hvfs_x_info hxi;
+    xlock_t lock;
     u32 gid;                    /* group of the ring */
 };
 
