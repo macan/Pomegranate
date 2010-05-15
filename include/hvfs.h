@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-06 10:35:00 macan>
+ * Time-stamp: <2010-05-15 16:27:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,6 +37,7 @@
 #include "hvfs_const.h"
 #include "xhash.h"
 #include "site.h"
+#include "hvfs_addr.h"
 #include "xprof.h"
 
 /* This section for HVFS cmds & reqs */
@@ -109,6 +110,10 @@
 #define HVFS_CLT2MDSL_WRITE     0x0000000080060000
 #define HVFS_CLT2MDSL_SYNC      0x0000000080070000
 #define HVFS_CLT2MDSL_BGSEARCH  0x0000000080080000
+
+/* * to ROOT/RING */
+#define HVFS_R2_REG             0x0000000040000001
+#define HVFS_R2_UNREG           0x0000000040000002
 
 /* APIs */
 #define HASH_SEL_EH     0x00

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 16:58:46 macan>
+ * Time-stamp: <2010-05-15 13:27:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -62,6 +62,8 @@ struct site_entry
  * sites. indexed by ring group id? */
 struct ring_mgr
 {
+#define HVFS_ROOT_RING_MGR_SALT         (0xeadf90878afe)
+#define HVFS_ROOT_RING_MGR_HTSIZE       64
     struct regular_hash *rht;
     xrwlock_t rwlock;
     u32 active_ring;
@@ -77,6 +79,8 @@ struct ring_entry
 /* root manager to manage the HVFS root info, indexed by hvfs fsid */
 struct root_mgr
 {
+#define HVFS_ROOT_ROOT_MGR_SALT         (0xfedaafe8970087f)
+#define HVFS_ROOT_ROOT_MGR_HTSIZE       64
     struct regular_hash *rht;
     xrwlock_t rwlock;
     u32 active_root;
@@ -103,5 +107,9 @@ struct addr_mgr
     u32 used_addr;              /* # of used addr */
     u32 active_site;            /* # of active site */
 };
+
+/* APIs */
+int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi);
+int root_write_hxi(struct site_entry *se);
 
 #endif

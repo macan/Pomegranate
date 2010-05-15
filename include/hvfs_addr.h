@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 17:23:27 macan>
+ * Time-stamp: <2010-05-15 13:19:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -80,6 +80,48 @@ struct hvfs_site_tx
 
 /* The following is the region for HXI exchange ABI */
 /*
+ * Read(open) from the r2 manager. If reopen an opened one, r2 should initiate
+ * the recover process to get the newest values from the MDSLs.
+ */
+#define HMI_STATE_CLEAN         0x01
+#define HMI_STATE_LASTOPEN      0x02
+#define HMI_STATE_LASTMIG       0x03
+#define HMI_STATE_LASTPAUSE     0x04
+
+struct hvfs_mds_info 
+{
+    u32 state;
+    u64 gdt_salt;
+    u64 gdt_uuid;               /* special UUID for GDT */
+    u64 root_salt;
+    u64 root_uuid;
+    u64 group;
+    u64 uuid_base;              /* the base value of UUID allocation */
+    u64 session_id;
+    atomic64_t mi_tx;           /* next tx # */
+    atomic64_t mi_txg;          /* next txg # */
+    atomic64_t mi_uuid;         /* next file and dir uuid */
+    atomic64_t mi_fnum;         /* total allocated file number */
+    atomic64_t mi_dnum;         /* total allocated dir number */
+};
+
+struct hvfs_mdsl_info
+{
+    u32 state;
+    u32 itb_depth;
+    u64 gdt_salt;
+    u64 gdt_uuid;
+    u64 root_salt;
+    u64 root_uuid;
+    u64 group;
+    u64 uuid_base;
+    atomic64_t mi_tx;           /* next tx # */
+    atomic64_t mi_txg;          /* next txg # */
+    atomic64_t mi_uuid;         /* next file uuid */
+    atomic64_t mi_fnum;         /* total allocated file # */
+};
+
+/*
  * Note: we just saving the data region to the storage, ourself do not
  * interpret it.
  */
@@ -87,5 +129,7 @@ struct hvfs_site_tx
 union hvfs_x_info
 {
     u8 array[HVFS_X_INFO_LEN];
+    struct hvfs_mds_info hmi;
+    struct hvfs_mdsl_info hmli;
 };
 #endif

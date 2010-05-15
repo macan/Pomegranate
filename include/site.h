@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 09:12:46 macan>
+ * Time-stamp: <2010-05-15 13:54:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,7 +36,8 @@
 #define HVFS_SITE_TYPE_MDS      0x02
 #define HVFS_SITE_TYPE_MDSL     0x03
 #define HVFS_SITE_TYPE_RING     0x04
-#define HVFS_SITE_TYPE_ROOT     0x05
+#define HVFS_SITE_TYPE_ROOT     0x04 /* Note that, RING and ROOT are the
+                                      * same server now. */
 #define HVFS_SITE_TYPE_AMC      0x06 /* another metadata client */
 
 #define HVFS_SITE_TYPE_MASK     (0x7 << 17)
@@ -57,6 +58,9 @@
 #define HVFS_IS_ROOT(site) (((site & HVFS_SITE_TYPE_MASK) >> 17) == \
                             HVFS_SITE_TYPE_ROOT)
 
+#define HVFS_IS_AMC(site) (((site & HVFS_SITE_TYPE_MASK) >> 17) == \
+                           HVFS_SITE_TYPE_AMC)
+
 #define HVFS_SITE_N_MASK        ((1 << 17) - 1)
 
 #define HVFS_CLIENT(n) ((HVFS_SITE_TYPE_CLIENT << 17) | (n & HVFS_SITE_N_MASK))
@@ -68,4 +72,6 @@
 #define HVFS_RING(n) ((HVFS_SITE_TYPE_RING << 17) | (n & HVFS_SITE_N_MASK))
 
 #define HVFS_ROOT(n) ((HVFS_SITE_TYPE_ROOT << 17) | (n & HVFS_SITE_N_MASK))
+
+#define HVFS_AMC(n) ((HVFS_SITE_TYPE_AMC << 17) | (n & HVFS_SITE_N_MASK))
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-29 17:44:08 macan>
+ * Time-stamp: <2010-05-15 13:17:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -243,26 +243,6 @@ struct mdsl_conf
 #define HVFS_MDSL_WDROP         0x01 /* drop all the writes to this MDSL */
 #define HVFS_MDSL_MEMLIMIT      0x02 /* limit the TCC memory usage */
     u64 option;
-};
-
-struct hvfs_mdsl_info
-{
-#define HMI_STATE_CLEAN         0x01
-#define HMI_STATE_LASTOPEN      0x02
-#define HMI_STATE_LASTMIG       0x03
-#define HMI_STATE_LASTPAUSE     0x04
-    u32 state;
-    u32 itb_depth;
-    u64 gdt_salt;
-    u64 gdt_uuid;
-    u64 root_salt;
-    u64 root_uuid;
-    u64 group;
-    u64 uuid_base;
-    atomic64_t mi_tx;           /* next tx # */
-    atomic64_t mi_txg;          /* next txg # */
-    atomic64_t mi_uuid;         /* next file uuid */
-    atomic64_t mi_fnum;         /* total allocated file # */
 };
 
 struct hvfs_mdsl_object

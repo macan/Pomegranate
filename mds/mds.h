@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-04 08:53:09 macan>
+ * Time-stamp: <2010-05-15 13:17:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -104,31 +104,6 @@ struct mds_conf
 #define HVFS_MDS_MEMONLY        0x08 /* memory only service */
 #define HVFS_MDS_MEMLIMIT       0x10 /* limit the ITB memory usage */
     u64 option;
-};
-
-/*
- * Read(open) from the r2 manager. If reopen an opened one, r2 should initiate
- * the recover process to get the newest values from the MDSLs.
- */
-struct hvfs_mds_info 
-{
-#define HMI_STATE_CLEAN         0x01
-#define HMI_STATE_LASTOPEN      0x02
-#define HMI_STATE_LASTMIG       0x03
-#define HMI_STATE_LASTPAUSE     0x04
-    u32 state;
-    u64 gdt_salt;
-    u64 gdt_uuid;               /* special UUID for GDT */
-    u64 root_salt;
-    u64 root_uuid;
-    u64 group;
-    u64 uuid_base;              /* the base value of UUID allocation */
-    u64 session_id;
-    atomic64_t mi_tx;           /* next tx # */
-    atomic64_t mi_txg;          /* next txg # */
-    atomic64_t mi_uuid;         /* next file and dir uuid */
-    atomic64_t mi_fnum;         /* total allocated file number */
-    atomic64_t mi_dnum;         /* total allocated dir number */
 };
 
 struct hvfs_mds_object

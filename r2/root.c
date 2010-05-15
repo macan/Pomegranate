@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 16:34:36 macan>
+ * Time-stamp: <2010-05-15 13:38:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -69,7 +69,7 @@ int root_config(void)
     HVFS_ROOT_GET_ENV_atoi(ring_push_interval, value);
     HVFS_ROOT_GET_ENV_atoi(prof_plot, value);
 
-    HVFS_MDS_GET_ENV_option(opt_memonly, MEMONLY, value);
+    HVFS_ROOT_GET_ENV_option(opt_memonly, MEMONLY, value);
 
     /* default configs */
     if (!hro.conf.ring_push_interval) {
@@ -90,7 +90,7 @@ int root_init(void)
 
     /* FIXME: configrations */
     /* default configurations */
-    hmo.conf.ring_push_interval = 600; /* 600 seconds */
+    hro.conf.ring_push_interval = 600; /* 600 seconds */
 
     /* get configs from env */
     root_config();
@@ -101,7 +101,7 @@ int root_init(void)
         goto out_spool;
 
     /* ok to run */
-    hro.state = HMO_STATE_RUNNING;
+    hro.state = HRO_STATE_RUNNING;
 
 out_spool:
     return err;

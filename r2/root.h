@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 17:10:47 macan>
+ * Time-stamp: <2010-05-15 14:05:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -101,6 +101,7 @@ struct hvfs_root_object
     struct root_mgr root;
 
     struct root_conf conf;
+    struct root_prof prof;
 
     /* the following region is used for threads */
     pthread_t *spool_thread;    /* array of service threads */
@@ -117,5 +118,9 @@ extern u32 hvfs_root_tracing_flags;
 /* API Region */
 int root_init(void);
 void root_destroy(void);
+
+int root_spool_create(void);
+void root_spool_destroy(void);
+int root_spool_dispatch(struct xnet_msg *msg);
 
 #endif

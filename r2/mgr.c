@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 17:28:13 macan>
+ * Time-stamp: <2010-05-15 13:30:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -193,6 +193,8 @@ int addr_mgr_init(struct addr_mgr *am)
     xrwlock_init(&am->rwlock);
     am->used_addr = 0;
     am->active_site = 0;
+
+    return 0;
 }
 
 void addr_mgr_destroy(struct addr_mgr *am)
@@ -323,6 +325,7 @@ out:
 /* compact to a replace buffer */
 int addr_mgr_compact(struct addr_mgr *am, void **data, int *len)
 {
+    struct hvfs_addr *pos;
     struct hvfs_site_tx *hst;
     int err =0, i, j = 0, k;
 
@@ -348,7 +351,7 @@ int addr_mgr_compact(struct addr_mgr *am, void **data, int *len)
         if (am->xs[i]) {
             hst[j].site_id = i;
             hst[j].flag = HVFS_SITE_REPLACE;
-            hst[j].nr = am->xs[i].nr;
+            hst[j].nr = am->xs[i]->nr;
             if (hst[j].nr) {
                 k = 0;
                 /* add the addr to the hvfs_addr region */
@@ -363,12 +366,12 @@ int addr_mgr_compact(struct addr_mgr *am, void **data, int *len)
                     }
                 }
                 if (k > hst[j].nr) {
-                    hvfs_err(root, "Address in site %lx extends, we failed\n",
+                    hvfs_err(root, "Address in site %x extends, we failed\n",
                              i);
                     err = -EFAULT;
                     goto out_free;
                 } else if (k < hst[j].nr) {
-                    hvfs_err(root, "Address in site %lx shrinks, we continue\n",
+                    hvfs_err(root, "Address in site %x shrinks, we continue\n",
                              i);
                     hst[j].nr = k;
                 }
@@ -377,7 +380,7 @@ int addr_mgr_compact(struct addr_mgr *am, void **data, int *len)
         }
     }
     if (j != am->active_site) {
-        hvfs_err(root, "We missed some active sites (%ld vs %ld).\n",
+        hvfs_err(root, "We missed some active sites (%d vs %d).\n",
                  am->active_site, j);
     }
 
@@ -399,8 +402,9 @@ out_free:
 int addr_mgr_compact_one(struct addr_mgr *am, u64 site_id, u32 flag,
                          void **data, int *len)
 {
+    struct hvfs_addr *pos;
     struct hvfs_site_tx *hst;
-    int err = 0;
+    int err = 0, i = 0;
 
     if (!len || !data)
         return -EINVAL;
@@ -499,6 +503,8 @@ struct ring_entry *ring_mgr_alloc_re()
     if (re) {
         INIT_HLIST_NODE(&re->hlist);
         atomic_set(&re->ref, 1);
+        // init the chring structure
+        xrwlock_init(&re->ring.rwlock);
     }
 
     return re;
@@ -538,7 +544,7 @@ struct ring_entry *ring_mgr_lookup(struct ring_mgr *rm, u32 gid)
     if (found) {
         return pos;
     } else {
-        return PTR_ERR(-ENOENT);
+        return ERR_PTR(-ENOENT);
     }
 }
 
@@ -560,7 +566,7 @@ struct ring_entry *ring_mgr_lookup_nolock(struct ring_mgr *rm, u32 gid)
     struct ring_entry *pos;
     struct hlist_node *n;
     struct regular_hash *rh;
-    int idx;
+    int idx, found = 0;
 
     idx = hvfs_hash_ring_mgr(gid, HVFS_ROOT_RING_MGR_SALT) %
         hro.conf.ring_mgr_htsize;
@@ -578,7 +584,7 @@ struct ring_entry *ring_mgr_lookup_nolock(struct ring_mgr *rm, u32 gid)
     if (found) {
         return pos;
     } else {
-        return PTR_ERR(-ENOENT);
+        return ERR_PTR(-ENOENT);
     }
 }
 
@@ -671,10 +677,8 @@ int ring_mgr_compact(struct ring_mgr *rm, void **data, int *len)
     *len = rm->active_ring * sizeof(struct chring_tx);
     xrwlock_rlock(&rm->rwlock);
     for (i = 0; i < (HVFS_SITE_MAX); i++) {
-        if (rm->rht[i]) {
-            hlist_for_each_entry(pos, n, &rm->rht[i]->h, hlist) {
-                *len += pos->ring.used * sizeof(struct chp);
-            }
+        hlist_for_each_entry(pos, n, &(rm->rht + i)->h, hlist) {
+            *len += pos->ring.used * sizeof(struct chp);
         }
     }
     *data = xmalloc(*len);
@@ -686,14 +690,12 @@ int ring_mgr_compact(struct ring_mgr *rm, void **data, int *len)
     ct = *data;
 
     for (i = 0; i < HVFS_SITE_MAX; i++) {
-        if (rm->rht[i]) {
-            hlist_for_each_entry(pos, n, &rm->rht[i]->h, hlist) {
-                ct[j].group = pos->ring.group;
-                ct[j].nr = pos->ring.used;
-                memcpy(ct[j].array, pos->ring.array, 
-                       ct[j].nr * sizeof(struct chp));
-                j++;
-            }
+        hlist_for_each_entry(pos, n, &(rm->rht + i)->h, hlist) {
+            ct[j].group = pos->ring.group;
+            ct[j].nr = pos->ring.used;
+            memcpy(ct[j].array, pos->ring.array, 
+                   ct[j].nr * sizeof(struct chp));
+            j++;
         }
     }
 
@@ -706,31 +708,36 @@ int ring_mgr_compact(struct ring_mgr *rm, void **data, int *len)
     
 out_unlock:
     xrwlock_runlock(&rm->rwlock);
+
+    return err;
 }
 
 /* ring_mgr_update to update a chring
  *
- * Note that: holding the rh->lock
+ * Note that: holding the re->ring.rwlock wlock
  *
  * Note that: we do not do deep copy on the chring.array, so please do not
  * free the array in the caller.
  */
-void ring_mgr_re_update(struct ring_entry *re, struct chring *ring)
+void ring_mgr_re_update(struct ring_mgr *rm, struct ring_entry *re, 
+                        struct chring *ring)
 {
-    while (atomic_read(&re->ring.ref) > 0) {
+    while (atomic_read(&re->ref) > 0) {
+        xrwlock_wunlock(&re->ring.rwlock);
         xsleep(1);
+        xrwlock_wlock(&re->ring.rwlock);
     }
 
     xrwlock_wlock(&rm->rwlock);
 
     /* free the current chring */
     xfree(re->ring.array);
-    xrwlock_destory(&re->ring.rwlock);
+    xrwlock_destroy(&re->ring.rwlock);
 
     /* copy the new chring */
     memcpy(&re->ring, ring, sizeof(struct chring));
     xrwlock_init(&re->ring.rwlock);
-    atomic_set(&re->ring.ref, 0);
+    atomic_set(&re->ref, 0);
 
     xrwlock_wunlock(&rm->rwlock);
 }
@@ -816,7 +823,7 @@ struct root_entry *root_mgr_lookup(struct root_mgr *rm, u64 fsid)
     if (found) {
         return pos;
     } else {
-        return PTR_ERR(-ENOENT);
+        return ERR_PTR(-ENOENT);
     }
 }
 
@@ -895,6 +902,7 @@ void root_mgr_remove(struct root_mgr *rm, u64 fsid)
 int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info **ohxi)
 {
     union hvfs_x_info *hxi;
+    struct root_entry *root;
     struct site_entry *se;
     int err = 0;
 
@@ -1104,5 +1112,19 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info **ohxi)
     }
 
 out:
+    return err;
+}
+
+int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
+{
+    int err = 0;
+
+    return err;
+}
+
+int root_write_hxi(struct site_entry *se)
+{
+    int err = 0;
+
     return err;
 }
