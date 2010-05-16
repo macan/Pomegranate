@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-15 14:05:58 macan>
+ * Time-stamp: <2010-05-16 15:28:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@
 #include "lib.h"
 #include "rprof.h"
 #include "mgr.h"
+#include "xnet.h"
 
 struct root_conf
 {
@@ -71,24 +72,16 @@ struct hvfs_root_object
 #define HRO_STATE_RUNNING       0x02
 #define HRO_STATE_PAUSE         0x03
 #define HRO_STATE_RDONLY        0x04
-    u32 state;
+    u32 state;                  /* this site id */
     u64 site_id;
+    struct xnet_context *xc;
 
     /* list for HVFS filesystem instances */
     struct list_head hfs;
     /* list for low-level filesystem instances */
     struct list_head llfs;
 
-    /* register pool of clients */
-    struct site_mgr client;
-    
-    /* register pool of mds */
-    struct site_mgr mds;
-    
-    /* register pool of mdsl */
-    struct site_mgr mdsl;
-    
-    /* Other ROOT servers. 
+    /* Register pool of client, mds, mdsl and Other ROOT servers. 
      *
      * Note that: now we just support ONE root server, next step we can
      * support BFT root service. */
@@ -99,6 +92,9 @@ struct hvfs_root_object
 
     /* root service manager */
     struct root_mgr root;
+
+    /* address service manager */
+    struct addr_mgr addr;
 
     struct root_conf conf;
     struct root_prof prof;

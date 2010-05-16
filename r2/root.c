@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-15 13:38:01 macan>
+ * Time-stamp: <2010-05-16 17:57:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -114,5 +114,5 @@ void root_destroy(void)
     /* free something */
 
     /* destroy the service thread pool */
-    root_spool_destory();
+    root_spool_destroy();
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-15 19:09:46 macan>
+ * Time-stamp: <2010-05-16 17:53:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,7 +45,8 @@ struct site_entry
 {
     struct hlist_node hlist;
     u64 site_id;
-    
+    u64 fsid;
+
 #define SE_STATE_INIT           0x00
 #define SE_STATE_NORMAL         0x10
 #define SE_STATE_SHUTDOWN       0x11
@@ -97,6 +98,12 @@ struct root_entry
     u64 root_uuid;
     u64 root_salt;              /* root salt can be discovered from GDT
                                  * lookup either. */
+    /* the following region is the gdt bitmap */
+    /* Note that the bitmap region is just a memory region backstored by a
+     * file, the size is the file size, we only do simple mmap/munmap on
+     * it. */
+    u64 gdt_flen;
+    u8 *gdt_bitmap;
 };
 
 /* address mgr to manage the global site address table, we do support dynamic
@@ -112,5 +119,16 @@ struct addr_mgr
 /* APIs */
 int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi);
 int root_write_hxi(struct site_entry *se);
+int root_read_re(struct root_entry *re);
+int root_write_re(struct root_entry *re);
+int site_mgr_lookup_create(struct site_mgr *, u64, struct site_entry **);
+int root_mgr_lookup_create(struct root_mgr *, u64, struct root_entry **);
+int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *);
+int ring_mgr_compact_one(struct ring_mgr *, u32, void **, int *);
+struct ring_entry *ring_mgr_lookup(struct ring_mgr *, u32);
+void ring_mgr_put(struct ring_entry *);
+struct root_entry *root_mgr_lookup(struct root_mgr *, u64);
+int addr_mgr_compact(struct addr_mgr *, void **, int *);
+struct site_entry *site_mgr_lookup(struct site_mgr *, u64);
 
 #endif

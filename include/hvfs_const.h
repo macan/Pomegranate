@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 17:05:54 macan>
+ * Time-stamp: <2010-05-16 10:55:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -74,4 +74,5 @@ static char *hvfs_ccolor[] __attribute__((unused)) =
                                  * although thereis an error in another
                                  * logic */
 #define EHWAIT          1033    /* wait a few seconds and retry */
+#define ERECOVER        1034    /* notify a recover process to the caller */
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-15 13:19:09 macan>
+ * Time-stamp: <2010-05-16 10:07:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -132,4 +132,15 @@ union hvfs_x_info
     struct hvfs_mds_info hmi;
     struct hvfs_mdsl_info hmli;
 };
+
+/* please refer to r2/mgr.h struct root, this is a mirror of that structure */
+struct root_tx
+{
+    u64 fsid;
+    u64 gdt_uuid;
+    u64 gdt_salt;
+    u64 root_uuid;
+    u64 root_salt;
+};
+
 #endif
