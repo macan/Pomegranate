@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-15 14:04:45 macan>
+ * Time-stamp: <2010-05-16 21:48:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -92,7 +92,7 @@ u64 HVFS_TYPE_SEL(int type, int id)
 int msg_wait()
 {
     while (1) {
-        xnet_wait_any(hmo.xc);
+        xnet_wait_any(hro.xc);
     }
     return 0;
 }
@@ -121,7 +121,44 @@ int main(int argc, char *argv[])
     }
 
     st_init();
-    
-    
+    root_pre_init();
+    root_config();
+    err = root_init();
+    if (err) {
+        hvfs_err(xnet, "root_init() failed w/ %d\n", err);
+        goto out;
+    }
+
+    /* init misc configurations */
+    hro.prof.xnet = &g_xnet_prof;
+
+    /* setup the profiling file */
+    memset(profiling_fname, 0, sizeof(profiling_fname));
+    sprintf(profiling_fname, "./CP-BACK-root.%d", self);
+    hro.conf.pf_file = fopen(profiling_fname, "w+");
+    if (!hro.conf.pf_file) {
+        hvfs_err(xnet, "fopen() profiling file %s faield %d\n",
+                 profiling_fname, errno);
+        return EINVAL;
+    }
+
+    sport = port[TYPE_RING][self];
+    self = HVFS_ROOT(self);
+
+    hro.xc = xnet_register_type(0, sport, self, &ops);
+    if (IS_ERR(hro.xc)) {
+        err = PTR_ERR(hro.xc);
+        goto out;
+    }
+
+    hro.site_id = self;
+    root_verify();
+
+    msg_wait();
+
+    xnet_unregister_type(hro.xc);
+    root_destroy();
+out:
+    return err;
 }
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-16 21:19:54 macan>
+ * Time-stamp: <2010-05-16 21:39:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,6 +27,8 @@
 #ifdef HVFS_TRACING
 u32 hvfs_root_tracing_flags = HVFS_DEFAULT_LEVEL;
 #endif
+
+struct hvfs_root_object hro;
 
 /* root_pre_init()
  * 

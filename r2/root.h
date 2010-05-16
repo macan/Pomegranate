@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-16 21:17:07 macan>
+ * Time-stamp: <2010-05-16 21:53:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -119,11 +119,20 @@ extern u32 hvfs_root_tracing_flags;
 #endif
 
 /* API Region */
+void root_pre_init(void);
+int root_verify(void);
+int root_config(void);
 int root_init(void);
 void root_destroy(void);
 
 int root_spool_create(void);
 void root_spool_destroy(void);
 int root_spool_dispatch(struct xnet_msg *msg);
+
+int root_dispatch(struct xnet_msg *msg);
+
+int root_do_reg(struct xnet_msg *);
+int root_do_unreg(struct xnet_msg *);
+int root_do_update(struct xnet_msg *);
 
 #endif

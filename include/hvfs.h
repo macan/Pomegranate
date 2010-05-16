@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-15 16:27:57 macan>
+ * Time-stamp: <2010-05-16 21:52:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -114,6 +114,7 @@
 /* * to ROOT/RING */
 #define HVFS_R2_REG             0x0000000040000001
 #define HVFS_R2_UNREG           0x0000000040000002
+#define HVFS_R2_UPDATE          0x0000000040000003
 
 /* APIs */
 #define HASH_SEL_EH     0x00

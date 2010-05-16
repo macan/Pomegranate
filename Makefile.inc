@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-05-16 13:16:31 macan>
+# Time-stamp: <2010-05-16 21:50:59 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -38,7 +38,7 @@ XCFLAGS = -O2 -rdynamic -g -pg -std=gnu99
 CFLAGS += $(XCFLAGS)
 CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" \
 			-DCHOST="\"$(COMPILE_HOST)\"" -I$(INC_PATH) \
-			-I$(LIB_PATH) -I$(MDS) -I$(MDSL) -D_GNU_SOURCE\
+			-I$(LIB_PATH) -I$(MDS) -I$(MDSL) -I$(R2) -D_GNU_SOURCE\
 			-DHVFS_TRACING -DHVFS_DEBUG_MEMORY -DHVFS_DEBUG_LOCK_ \
             -D_USE_SPINLOCK_ -DHVFS_DEBUG_LATENCY_ -DXNET_BLOCKING \
 			-DXNET_EAGER_WRITEV -DCPU_CORE=$(__CORES__)
@@ -48,7 +48,8 @@ LFLAGS += -lrt -lpthread
 TEST_MDS_SOURCE = cbht.c tx.c dh.c cmd_sender.c misc.c itbsplit.c \
                   itb_analyzer.c bitmapc.c
 TEST_MDSL_SOURCE = mdsl.c storage.c
-TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c client.c
+TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c client.c \
+					root.c
 
 MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \
 				dispatch.c c2m.c fe.c async.c m2m.c spool.c bitmapc.c \
@@ -57,7 +58,7 @@ MDSL_AR_SOURCE = mdsl.c spool.c tcc.c dispatch.c m2ml.c prof.c storage.c \
 				 aio.c c2ml.c
 LIB_AR_SOURCE = lib.c ring.c time.c bitmap.c xlock.c segv.c
 XNET_AR_SOURCE = xnet.c xnet_simple.c
-R2_AR_SOURCE = mgr.c root.c spool.c x2r.c
+R2_AR_SOURCE = mgr.c root.c spool.c x2r.c dispatch.c
 
 INC_H_SOURCE = atomic.h err.h hvfs.h hvfs_common.h hvfs_const.h hvfs_k.h \
 				hvfs_u.h ite.h mds_api.h mdsl_api.h memory.h site.h tx.h \
@@ -95,5 +96,5 @@ r2_depend_files = $(patsubst %.c, $(R2)/%.c, $(R2_AR_SOURCE)) \
 HVFS_LIB = $(LIB_PATH)/libhvfs.a
 MDS_LIB = $(MDS)/libmds.a
 MDSL_LIB = $(MDSL)/libmdsl.a
-R2_LIB = $(MDSL)/libr2.a
+R2_LIB = $(R2)/libr2.a
 XNET_LIB = $(XNET)/libxnet.a
