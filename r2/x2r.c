@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-16 17:53:21 macan>
+ * Time-stamp: <2010-05-16 21:21:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -317,8 +317,10 @@ int root_do_unreg(struct xnet_msg *msg)
     xlock_lock(&se->lock);
     if (se->fsid != msg->tx.arg0 ||
         se->gid != msg->tx.arg1) {
-        hvfs_err(root, "fsid mismatch %ld vs %ld on site %lx\n",
-                 se->fsid, msg->tx.arg0, msg->tx.ssite_id);
+        hvfs_err(root, "fsid mismatch %ld vs %ld or gid mismatch "
+                 "%d vs %ld on site %lx\n",
+                 se->fsid, msg->tx.arg0, se->gid, msg->tx.arg1,
+                 msg->tx.ssite_id);
         err = -EINVAL;
         goto out_unlock;
     }
@@ -329,6 +331,7 @@ int root_do_unreg(struct xnet_msg *msg)
         hvfs_err(root, "site entry %lx in state %x, check whether "
                  "we can update it.\n", msg->tx.ssite_id,
                  se->state);
+        se->hb_lost = 0;
         /* fall-through */
     case SE_STATE_NORMAL:
         /* ok, we just change the state to shutdown */
@@ -378,7 +381,97 @@ out_free:
 
 int root_do_update(struct xnet_msg *msg)
 {
+    union hvfs_x_info *hxi;
+    struct site_entry *se;
+    struct xnet_msg *rpy;
     int err = 0;
 
+    /* ABI:
+     * @tx.arg0: fsid
+     * @tx.arg1: gid
+     */
+
+    /* prepare the reply message */
+    err = __prepare_xnet_msg(msg, &rpy);
+    if (err) {
+        hvfs_err(root, "prepare reply msg failed w/ %d\n", err);
+        goto out_free;
+    }
+    
+    /* sanity checking */
+    if (msg->tx.len < sizeof(*hxi)) {
+        hvfs_err(root, "Invalid update request from %lx w/ len %d\n",
+                 msg->tx.ssite_id, msg->tx.len);
+        err = -EINVAL;
+        goto out;
+    }
+
+    if (msg->xm_datacheck) {
+        hxi = msg->xm_data;
+    } else {
+        hvfs_err(root, "Internal error, data lossing...\n");
+        err = -EFAULT;
+        goto out;
+    }
+
+    /* update the hxi to the site entry */
+    se = site_mgr_lookup(&hro.site, msg->tx.ssite_id);
+    if (IS_ERR(se)) {
+        hvfs_err(root, "site mgr lookup %lx failed w/ %ld\n",
+                 msg->tx.ssite_id, PTR_ERR(se));
+        err = PTR_ERR(se);
+        goto out;
+    }
+
+    xlock_lock(&se->lock);
+    if (se->fsid != msg->tx.arg0 ||
+        se->gid != msg->tx.arg1) {
+        hvfs_err(root, "fsid mismatch %ld vs %ld or gid mismatch "
+                 "%d vs %ld on site %lx\n",
+                 se->fsid, msg->tx.arg0, se->gid, msg->tx.arg1,
+                 msg->tx.ssite_id);
+        err = -EINVAL;
+        goto out_unlock;
+    }
+
+    switch (se->state) {
+    case SE_STATE_INIT:
+    case SE_STATE_TRANSIENT:
+    case SE_STATE_ERROR:
+        hvfs_err(root, "site entry %lx in state %x, check whether "
+                 "we can update it.\n", msg->tx.ssite_id,
+                 se->state);
+        se->hb_lost = 0;
+        /* fall-through */
+    case SE_STATE_NORMAL:
+        /* ok, we just change the state to normal */
+        memcpy(&se->hxi, hxi, sizeof(*hxi));
+        se->state = SE_STATE_NORMAL;
+        break;
+    case SE_STATE_SHUTDOWN:
+        hvfs_err(root, "the site %lx is already shutdown.",
+                 se->site_id);
+        break;
+    default:
+        hvfs_err(root, "site_entry %lx in wrong state %x\n",
+                 se->site_id, se->state);
+    }
+out_unlock:
+    xlock_unlock(&se->lock);
+    if (err)
+        goto out;
+
+    /* ok, then we should init a flush operation now */
+    err = root_write_hxi(se);
+    if (err) {
+        hvfs_err(root, "Flush site %lx hxi to storage failed w/ %d.\n",
+                 se->site_id, err);
+    }
+
+out:    
+    __root_send_rpy(rpy, err);
+out_free:
+    xnet_free_msg(msg);
+    
     return err;
 }

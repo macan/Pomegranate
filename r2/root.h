@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-16 15:28:59 macan>
+ * Time-stamp: <2010-05-16 21:17:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,6 +57,9 @@ struct root_conf
     u32 root_mgr_htsize;        /* root mgr hash table size */
     u32 ring_push_interval;     /* interval to push the CHRing to
                                  * subscribers */
+    u32 hb_interval;            /* interval to check the site entry
+                                 * heartbeat */
+    u32 sync_interval;          /* interval to do self sync */
 
     u8 prof_plot;
 
@@ -99,10 +102,14 @@ struct hvfs_root_object
     struct root_conf conf;
     struct root_prof prof;
 
+    sem_t timer_sem;
+
     /* the following region is used for threads */
     pthread_t *spool_thread;    /* array of service threads */
+    pthread_t timer_thread;
 
     u8 spool_thread_stop;       /* running flag for service thread */
+    u8 timer_thread_stop;       /* running flag for timer thread */
 };
 
 extern struct hvfs_root_object hro;
