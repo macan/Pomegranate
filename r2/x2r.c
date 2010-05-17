@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-16 21:21:35 macan>
+ * Time-stamp: <2010-05-17 13:03:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -293,9 +293,19 @@ int root_do_unreg(struct xnet_msg *msg)
     }
 
     /* ABI:
-     * @tx.arg0: fsid
-     * @tx.arg1: gid
+     * @tx.arg0: site_id
+     * @tx.arg1: fsid
+     * @tx.reserved: gid
      */
+
+    if (msg->tx.arg0 != msg->tx.ssite_id) {
+        hvfs_err(root, "Unreg other site %lx from site %lx\n",
+                 msg->tx.arg0, msg->tx.ssite_id);
+        err = -EINVAL;
+#if 0
+        goto out;
+#endif
+    }
 
     if (msg->xm_datacheck) {
         hxi = msg->xm_data;
@@ -306,21 +316,21 @@ int root_do_unreg(struct xnet_msg *msg)
     }
 
     /* update the hxi to the site entry */
-    se = site_mgr_lookup(&hro.site, msg->tx.ssite_id);
+    se = site_mgr_lookup(&hro.site, msg->tx.arg0);
     if (IS_ERR(se)) {
         hvfs_err(root, "site mgr lookup %lx failed w/ %ld\n",
-                 msg->tx.ssite_id, PTR_ERR(se));
+                 msg->tx.arg0, PTR_ERR(se));
         err = PTR_ERR(se);
         goto out;
     }
 
     xlock_lock(&se->lock);
-    if (se->fsid != msg->tx.arg0 ||
-        se->gid != msg->tx.arg1) {
+    if (se->fsid != msg->tx.arg1 ||
+        se->gid != msg->tx.reserved) {
         hvfs_err(root, "fsid mismatch %ld vs %ld or gid mismatch "
                  "%d vs %ld on site %lx\n",
-                 se->fsid, msg->tx.arg0, se->gid, msg->tx.arg1,
-                 msg->tx.ssite_id);
+                 se->fsid, msg->tx.arg1, se->gid, msg->tx.reserved,
+                 msg->tx.arg0);
         err = -EINVAL;
         goto out_unlock;
     }
@@ -329,7 +339,7 @@ int root_do_unreg(struct xnet_msg *msg)
     case SE_STATE_TRANSIENT:
     case SE_STATE_ERROR:
         hvfs_err(root, "site entry %lx in state %x, check whether "
-                 "we can update it.\n", msg->tx.ssite_id,
+                 "we can update it.\n", msg->tx.arg0,
                  se->state);
         se->hb_lost = 0;
         /* fall-through */
@@ -387,8 +397,9 @@ int root_do_update(struct xnet_msg *msg)
     int err = 0;
 
     /* ABI:
-     * @tx.arg0: fsid
-     * @tx.arg1: gid
+     * @tx.arg0: site_id
+     * @tx.arg1: fsid
+     * @tx.reserved: gid
      */
 
     /* prepare the reply message */
@@ -406,6 +417,15 @@ int root_do_update(struct xnet_msg *msg)
         goto out;
     }
 
+    if (msg->tx.arg0 != msg->tx.ssite_id) {
+        hvfs_err(root, "Update site %lx from site %lx\n",
+                 msg->tx.arg0, msg->tx.ssite_id);
+        err = -EINVAL;
+#if 0
+        goto out;
+#endif
+    }
+
     if (msg->xm_datacheck) {
         hxi = msg->xm_data;
     } else {
@@ -415,21 +435,21 @@ int root_do_update(struct xnet_msg *msg)
     }
 
     /* update the hxi to the site entry */
-    se = site_mgr_lookup(&hro.site, msg->tx.ssite_id);
+    se = site_mgr_lookup(&hro.site, msg->tx.arg0);
     if (IS_ERR(se)) {
         hvfs_err(root, "site mgr lookup %lx failed w/ %ld\n",
-                 msg->tx.ssite_id, PTR_ERR(se));
+                 msg->tx.arg0, PTR_ERR(se));
         err = PTR_ERR(se);
         goto out;
     }
 
     xlock_lock(&se->lock);
-    if (se->fsid != msg->tx.arg0 ||
-        se->gid != msg->tx.arg1) {
+    if (se->fsid != msg->tx.arg1 ||
+        se->gid != msg->tx.reserved) {
         hvfs_err(root, "fsid mismatch %ld vs %ld or gid mismatch "
                  "%d vs %ld on site %lx\n",
-                 se->fsid, msg->tx.arg0, se->gid, msg->tx.arg1,
-                 msg->tx.ssite_id);
+                 se->fsid, msg->tx.arg1, se->gid, msg->tx.reserved,
+                 msg->tx.arg0);
         err = -EINVAL;
         goto out_unlock;
     }
@@ -439,7 +459,7 @@ int root_do_update(struct xnet_msg *msg)
     case SE_STATE_TRANSIENT:
     case SE_STATE_ERROR:
         hvfs_err(root, "site entry %lx in state %x, check whether "
-                 "we can update it.\n", msg->tx.ssite_id,
+                 "we can update it.\n", msg->tx.arg0,
                  se->state);
         se->hb_lost = 0;
         /* fall-through */

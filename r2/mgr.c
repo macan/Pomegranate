@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-16 17:47:53 macan>
+ * Time-stamp: <2010-05-17 13:58:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -488,7 +488,7 @@ out:
     return err;
 }
 
-void ring_mgr_destory(struct ring_mgr *rm)
+void ring_mgr_destroy(struct ring_mgr *rm)
 {
     if (rm->rht) {
         xfree(rm->rht);
@@ -808,7 +808,7 @@ out:
     return err;
 }
 
-void root_mgr_destory(struct root_mgr *rm)
+void root_mgr_destroy(struct root_mgr *rm)
 {
     if (rm->rht) {
         xfree(rm->rht);

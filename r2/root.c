@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-16 21:39:26 macan>
+ * Time-stamp: <2010-05-17 13:57:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -192,6 +192,7 @@ int root_setup_timers(void)
         value.it_value.tv_usec = 1;
         err = setitimer(which, &value, &ovalue);
         if (err) {
+            hvfs_err(root, "setitimer failed w/ %s\n", strerror(errno));
             err = errno;
             goto out;
         }
@@ -224,6 +225,23 @@ int root_init(void)
     /* get configs from env */
     root_config();
 
+    /* init hro */
+    err = site_mgr_init(&hro.site);
+    if (err)
+        goto out_site_mgr;
+
+    err = ring_mgr_init(&hro.ring);
+    if (err)
+        goto out_ring_mgr;
+
+    err = root_mgr_init(&hro.root);
+    if (err)
+        goto out_root_mgr;
+
+    err = addr_mgr_init(&hro.addr);
+    if (err)
+        goto out_addr_mgr;
+    
     /* FIXME: in the service threads' pool */
     err = root_spool_create();
     if (err)
@@ -239,6 +257,11 @@ int root_init(void)
 
 out_timers:
 out_spool:
+out_addr_mgr:
+out_root_mgr:
+out_ring_mgr:
+out_site_mgr:
+    
     return err;
 }
 
@@ -253,6 +276,14 @@ void root_destroy(void)
 
     /* stop the timer thread */
     hro.timer_thread_stop = 1;
-    if (hro.timer_thread)
+    if (hro.timer_thread) {
+        sem_post(&hro.timer_sem);
         pthread_join(hro.timer_thread, NULL);
+    }
+
+    /* destroy hro */
+    site_mgr_destroy(&hro.site);
+    ring_mgr_destroy(&hro.ring);
+    root_mgr_destroy(&hro.root);
+    addr_mgr_destroy(&hro.addr);
 }
