@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-17 11:47:53 macan>
+ * Time-stamp: <2010-05-19 19:56:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,6 +97,38 @@ int msg_wait()
     return 0;
 }
 
+/* ring_add() add one site to the CH ring
+ */
+int ring_add(struct chring *r, u64 site)
+{
+    struct chp *p;
+    char buf[256];
+    int vid_max, i, err;
+
+    vid_max = hro.conf.ring_vid_max ? hro.conf.ring_vid_max : 
+        HVFS_RING_VID_MAX;
+
+    p = (struct chp *)xzalloc(vid_max * sizeof(struct chp));
+    if (!p) {
+        hvfs_err(xnet, "xzalloc() chp failed\n");
+        return -ENOMEM;
+    }
+
+    for (i = 0; i < vid_max; i++) {
+        snprintf(buf, 256, "%ld.%d", site, i);
+        (p + i)->point = hvfs_hash(site, (u64)buf, strlen(buf), HASH_SEL_VSITE);
+        (p + i)->vid = i;
+        (p + i)->type = CHP_AUTO;
+        (p + i)->site_id = site;
+        err = ring_add_point(p + i, r);
+        if (err) {
+            hvfs_err(xnet, "ring_add_point() failed.\n");
+            return err;
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     struct xnet_type_ops ops = {
@@ -105,9 +137,12 @@ int main(int argc, char *argv[])
         .recv_handler = root_spool_dispatch,
         .dispatcher = root_dispatch,
     };
-    int err = 0;
+    int err = 0, i, j;
     int self, sport;
     char profiling_fname[256];
+    struct sockaddr_in sin = {
+        .sin_family = AF_INET,
+    };
 
     hvfs_info(xnet, "R2 Unit Testing ...\n");
 
@@ -154,6 +189,120 @@ int main(int argc, char *argv[])
     hro.site_id = self;
     root_verify();
 
+    /* we should setup the global address table and then export it as the
+     * st_table */
+
+    for (i = 0; i < 4; i++) {
+        for (j = 0; j < 4; j++) {
+            sin.sin_port = htons(port[i][j]);
+            inet_aton(ipaddr[i], &sin.sin_addr);
+            
+            err = addr_mgr_update_one(&hro.addr, 
+                                      HVFS_SITE_PROTOCOL_TCP | HVFS_SITE_ADD,
+                                      HVFS_TYPE(i, j),
+                                      &sin);
+            if (err) {
+                hvfs_err(xnet, "addr mgr update entry %lx failed w/"
+                         " %d\n", HVFS_TYPE(i, j), err);
+                goto out;
+            }
+        }
+    }
+
+    /* export the addr mgr to st_table */
+    {
+        void *data;
+        int len;
+
+        err = addr_mgr_compact(&hro.addr, &data, &len);
+        if (err) {
+            hvfs_err(xnet, "compact addr mgr faild w/ %d\n", err);
+            goto out;
+        }
+
+        err = hst_to_xsst(data, len);
+        if (err) {
+            hvfs_err(xnet, "hst to xsst failed w/ %d\n", err);
+            goto out;
+        }
+        xfree(data);
+    }
+
+    /* next, we setup the defalt ring mgr */
+    {
+        struct ring_entry *re, *res;
+
+        re = ring_mgr_alloc_re();
+        if (!re) {
+            hvfs_err(xnet, "alloc ring entry failed\n");
+            err = ENOMEM;
+            goto out;
+        }
+        re->ring.group = CH_RING_MDS;
+        ring_add(&re->ring, HVFS_MDS(0));
+        ring_add(&re->ring, HVFS_MDS(1));
+        res = ring_mgr_insert(&hro.ring, re);
+        if (IS_ERR(res)) {
+            hvfs_err(xnet, "ring_mgr_insert %d failed w/ %ld\n",
+                     re->ring.group, PTR_ERR(res));
+            err = PTR_ERR(res);
+            goto out;
+        }
+        ASSERT(res == re, xnet);
+        ring_mgr_put(re);
+
+        re = ring_mgr_alloc_re();
+        if (!re) {
+            hvfs_err(xnet, "alloc ring entry failed\n");
+            err = ENOMEM;
+            goto out;
+        }
+        re->ring.group = CH_RING_MDSL;
+        ring_add(&re->ring, HVFS_MDSL(0));
+        ring_add(&re->ring, HVFS_MDSL(1));
+        res = ring_mgr_insert(&hro.ring, re);
+        if (IS_ERR(res)) {
+            hvfs_err(xnet, "ring_mgr_insert %d failed w/ %ld\n",
+                     re->ring.group, PTR_ERR(res));
+            err = PTR_ERR(res);
+            goto out;
+        }
+        ASSERT(res == re, xnet);
+        ring_mgr_put(re);
+    }
+
+    /* next, we setup the root entry for fsid == 1 */
+    {
+        struct root_entry *re, *res;
+
+        re = root_mgr_alloc_re();
+        if (!re) {
+            hvfs_err(root, "root mgr alloc re failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        re->fsid = 0;
+        re->root_uuid = 1;
+        re->gdt_flen = XTABLE_BITMAP_BYTES;
+        re->gdt_bitmap = xzalloc(re->gdt_flen);
+        if (!re->gdt_bitmap) {
+            hvfs_err(xnet, "xzalloc bitmap failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        re->gdt_bitmap[0] = 0xff;
+        
+        res = root_mgr_insert(&hro.root, re);
+        if (IS_ERR(res)) {
+            hvfs_err(xnet, "insert root entry failed w/ %ld\n",
+                     PTR_ERR(res));
+            err = PTR_ERR(res);
+            goto out;
+        }
+    }
+
+//    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
+//    SET_TRACING_FLAG(root, HVFS_DEBUG);
     msg_wait();
 
     xnet_unregister_type(hro.xc);

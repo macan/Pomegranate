@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-16 21:53:18 macan>
+ * Time-stamp: <2010-05-19 14:34:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,6 +61,8 @@ struct root_conf
                                  * heartbeat */
     u32 sync_interval;          /* interval to do self sync */
 
+    u32 ring_vid_max;
+
     u8 prof_plot;
 
     /* conf */
@@ -91,6 +93,9 @@ struct hvfs_root_object
     struct site_mgr site;
 
     /* ring manager */
+#define CH_RING_NUM     2
+#define CH_RING_MDS     0
+#define CH_RING_MDSL    1
     struct ring_mgr ring;
 
     /* root service manager */

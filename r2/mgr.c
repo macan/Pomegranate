@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-17 13:58:22 macan>
+ * Time-stamp: <2010-05-18 18:54:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -347,36 +347,50 @@ int addr_mgr_compact(struct addr_mgr *am, void **data, int *len)
         goto out_unlock;
     }
 
+    hvfs_err(root, "active site nr %d used addr %d %p\n", 
+             am->active_site, am->used_addr, *data);
     hst = *data;
     for (i = 0; i < (HVFS_SITE_MAX); i++) {
         if (am->xs[i]) {
-            hst[j].site_id = i;
-            hst[j].flag = HVFS_SITE_REPLACE;
-            hst[j].nr = am->xs[i]->nr;
-            if (hst[j].nr) {
+            hst->site_id = i;
+            hst->flag = HVFS_SITE_REPLACE;
+            hst->nr = am->xs[i]->nr;
+            if (hst->nr) {
                 k = 0;
                 /* add the addr to the hvfs_addr region */
                 list_for_each_entry(pos, &am->xs[i]->addr, list) {
                     if (pos->flag & HVFS_SITE_PROTOCOL_TCP) {
-                        hst[j].addr[k].flag = pos->flag;
-                        hst[j].addr[k].sock.sa = pos->sock.sa;
+                        hst->addr[k].flag = pos->flag;
+                        hst->addr[k].sock.sa = pos->sock.sa;
+#if 0
+                        {
+                            struct sockaddr_in *sin = (struct sockaddr_in *)
+                                &pos->sock.sa;
+                            
+                            hvfs_err(root, "compact addr %s %d on site %x\n", 
+                                     inet_ntoa(sin->sin_addr),
+                                     ntohs(sin->sin_port), i);
+                        }
+#endif
                         k++;
                     } else {
                         hvfs_err(root, "Unknown address protocol type, "
                                  "reject it!\n");
                     }
                 }
-                if (k > hst[j].nr) {
+                if (k > hst->nr) {
                     hvfs_err(root, "Address in site %x extends, we failed\n",
                              i);
                     err = -EFAULT;
                     goto out_free;
-                } else if (k < hst[j].nr) {
+                } else if (k < hst->nr) {
                     hvfs_err(root, "Address in site %x shrinks, we continue\n",
                              i);
-                    hst[j].nr = k;
+                    hst->nr = k;
                 }
             }
+            hst = (void *)hst + hst->nr * sizeof(struct hvfs_addr_tx) +
+                sizeof(*hst);
             j++;
         }
     }

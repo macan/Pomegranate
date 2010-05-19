@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-17 13:03:35 macan>
+ * Time-stamp: <2010-05-19 19:02:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -51,10 +51,10 @@ int __prepare_xnet_msg(struct xnet_msg *msg, struct xnet_msg **orpy)
 static inline
 void __root_send_rpy(struct xnet_msg *rpy, int err)
 {
-    if (err != -ERECOVER) {
+    if (err && err != -ERECOVER) {
         /* delete the data payload */
         rpy->tx.len = sizeof(rpy->tx);
-#ifdef XENT_EAGER_WRITEV
+#ifdef XNET_EAGER_WRITEV
         rpy->siov_ulen = 1;
 #else
         rpy->siov_ulen = 0;
@@ -167,6 +167,7 @@ int root_do_reg(struct xnet_msg *msg)
     if (IS_ERR(ring)) {
         hvfs_err(root, "ring_mgr_lookup() gid %d failed w/ %ld\n",
                  gid, PTR_ERR(ring));
+        err = PTR_ERR(ring);
         goto send_rpy;
     }
 
@@ -191,6 +192,7 @@ int root_do_reg(struct xnet_msg *msg)
     if (IS_ERR(ring)) {
         hvfs_err(root, "ring_mgr_lookup() gid %d failed w/ %ld\n",
                  gid, PTR_ERR(ring));
+        err = PTR_ERR(ring);
         goto send_rpy;
     }
 
@@ -215,6 +217,7 @@ int root_do_reg(struct xnet_msg *msg)
     if (IS_ERR(root)) {
         hvfs_err(root, "root_mgr_lookup() failed w/ %ld\n",
                  PTR_ERR(root));
+        err = PTR_ERR(root);
         goto send_rpy;
     }
 
@@ -372,6 +375,7 @@ out_unlock:
     if (IS_ERR(re)) {
         hvfs_err(root, "root mgr lookup fsid %ld failed w/ %ld\n",
                  se->fsid, PTR_ERR(re));
+        err = PTR_ERR(re);
         goto out;
     }
     err = root_write_re(re);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-17 13:57:13 macan>
+ * Time-stamp: <2010-05-19 14:32:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -71,6 +71,7 @@ int root_config(void)
     HVFS_ROOT_GET_ENV_atoi(ring_push_interval, value);
     HVFS_ROOT_GET_ENV_atoi(hb_interval, value);
     HVFS_ROOT_GET_ENV_atoi(sync_interval, value);
+    HVFS_ROOT_GET_ENV_atoi(ring_vid_max, value);
     HVFS_ROOT_GET_ENV_atoi(prof_plot, value);
 
     HVFS_ROOT_GET_ENV_option(opt_memonly, MEMONLY, value);

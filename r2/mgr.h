@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-16 17:53:55 macan>
+ * Time-stamp: <2010-05-19 19:57:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -129,6 +129,21 @@ struct ring_entry *ring_mgr_lookup(struct ring_mgr *, u32);
 void ring_mgr_put(struct ring_entry *);
 struct root_entry *root_mgr_lookup(struct root_mgr *, u64);
 int addr_mgr_compact(struct addr_mgr *, void **, int *);
+int addr_mgr_update_one(struct addr_mgr *, u32, u64, void *);
 struct site_entry *site_mgr_lookup(struct site_mgr *, u64);
+struct ring_entry *ring_mgr_alloc_re();
+void ring_mgr_put(struct ring_entry *);
+struct ring_entry *ring_mgr_insert(struct ring_mgr *, struct ring_entry *);
+struct root_entry *root_mgr_insert(struct root_mgr *, struct root_entry *);
+struct root_entry *root_mgr_alloc_re();
+
+int site_mgr_init(struct site_mgr *);
+int ring_mgr_init(struct ring_mgr *);
+int root_mgr_init(struct root_mgr *);
+int addr_mgr_init(struct addr_mgr *);
+void site_mgr_destroy(struct site_mgr *);
+void ring_mgr_destroy(struct ring_mgr *);
+void root_mgr_destroy(struct root_mgr *);
+void addr_mgr_destroy(struct addr_mgr *);
 
 #endif

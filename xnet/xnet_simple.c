@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 17:02:17 macan>
+ * Time-stamp: <2010-05-19 18:27:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1057,15 +1057,6 @@ retry:
                     } while (br < sizeof(htx));
                 }
 
-                /* ok, it is ok to update this socket to the site table */
-                err = st_update_sockfd(&gst, csock, msg->tx.dsite_id);
-                if (err) {
-                    st_clean_sockfd(&gst, csock);
-                    csock = 0;
-                    sleep(1);
-                    goto retry;
-                }
-
                 /* now, it is ok to push this socket to the epoll thread */
                 setnonblocking(csock);
                 setnodelay(csock);
@@ -1080,6 +1071,15 @@ retry:
                     goto out;
                 }
                 
+                /* ok, it is ok to update this socket to the site table */
+                err = st_update_sockfd(&gst, csock, msg->tx.dsite_id);
+                if (err) {
+                    st_clean_sockfd(&gst, csock);
+                    csock = 0;
+                    sleep(1);
+                    goto retry;
+                }
+
                 hvfs_debug(xnet, "We just create connection %s %d -> fd %d\n",
                            inet_ntoa(((struct sockaddr_in *)&xa->sa)->sin_addr),
                            ntohs(((struct sockaddr_in *)&xa->sa)->sin_port), 
@@ -1220,7 +1220,7 @@ reselect_conn:
 
     xlock_unlock(&xa->socklock[lock_idx]);
 
-    hvfs_debug(xnet, "We have sent the msg %p\n", msg);
+    hvfs_debug(xnet, "We have sent the msg %p throuth link %d\n", msg, ssock);
 
     /* finally, we wait for the reply msg */
     if (msg->tx.flag & XNET_NEED_REPLY) {
@@ -1358,4 +1358,190 @@ int xnet_wait_group_del(void *gwg, struct xnet_msg *msg)
 {
     return -ENOSYS;
 }
+
+/* Note that the following region is used to convert the standard R2 site
+ * table to the st_table used in xnet, it is a little urgly :( */
+int xnet_add_ipaddr(u64 site_id, int argc, struct hvfs_addr_tx *hat)
+{
+    struct xnet_site *xs;
+    struct xnet_addr *xa;
+    int err = 0;
+    int i;
+
+    if (!argc)
+        return 0;
+
+    xa = xzalloc(argc * sizeof(struct xnet_addr));
+    if (!xa) {
+        hvfs_err(xnet, "xzalloc() xnet_addr failed\n");
+        return -ENOMEM;
+    }
+
+    /* lookup it or create it */
+    err = st_lookup(&gst, &xs, site_id);
+    if (err) {
+        hvfs_err(xnet, "lookup site %lx failed w/ %d\n", site_id, err);
+        xs = xzalloc(sizeof(*xs));
+        if (!xs) {
+            hvfs_err(xnet, "xzalloc() xnet_site failed\n");
+            xfree(xa);
+            return -ENOMEM;
+        }
+    }
+
+    for (i = 0; i < argc; i++) {
+        (xa + i)->sa = (hat + i)->sock.sa;
+    }
+
+    /* set the local flag now */
+    if (__find_xc(site_id)) {
+        xs->flag |= XNET_SITE_LOCAL;
+    }
+    INIT_LIST_HEAD(&xs->addr);
+    INIT_LIST_HEAD(&xa->list);
+    for (i = 0; i < XNET_CONNS; i++) {
+        xlock_init(&xa->socklock[i]);
+    }
+    xlock_init(&xa->lock);
+    list_add_tail(&xa->list, &xs->addr);
+    st_update(&gst, xs, site_id);
+
+    i = st_lookup(&gst, &xs, site_id);
+    hvfs_debug(xnet, "Update site %lx w/ %d\n", site_id, i);
+
+    return 0;
+}
+
+int xnet_del_ipaddr(u64 site_id, int argc, struct hvfs_addr_tx *hat)
+{
+    struct xnet_site *xs;
+    struct xnet_addr *xa, *n;
+    int err = 0, i, should_free;
+
+    if (!argc)
+        return 0;
+
+    err = st_lookup(&gst, &xs, site_id);
+    if (err) {
+        hvfs_err(xnet, "lookup site %lx failed w/ %d\n", site_id, err);
+        goto out;
+    }
+    list_for_each_entry_safe(xa, n, &xs->addr, list) {
+        struct sockaddr_in *sin0 = (struct sockaddr_in *)&xa->sa;
+
+        should_free = 0;
+        xlock_lock(&xa->lock);
+        for (i = 0; i < argc; i++) {
+            struct sockaddr_in *sin1 = (struct sockaddr_in *)
+                &(hat + i)->sock.sa;
+            if (sin0->sin_addr.s_addr == sin1->sin_addr.s_addr &&
+                sin0->sin_port == sin1->sin_port) {
+                /* ok, find it */
+                list_del(&xa->list);
+                should_free = 1;
+                break;
+            }
+        }
+        xlock_unlock(&xa->lock);
+        if (should_free)
+            xfree(xa);
+    }
+    
+out:
+    return err;
+}
+
+int xnet_replace_ipaddr(u64 site_id, int argc, struct hvfs_addr_tx *hat)
+{
+    struct xnet_site *xs;
+    struct xnet_addr *xa;
+    int i;
+
+    if (!argc)
+        return 0;
+
+    xa = xzalloc(argc * sizeof(struct xnet_addr));
+    if (!xa) {
+        hvfs_err(xnet, "xzalloc() xnet_addr failed\n");
+        return -ENOMEM;
+    }
+
+    xs = xzalloc(sizeof(*xs));
+    if (!xs) {
+        hvfs_err(xnet, "xzalloc() xnet_site failed\n");
+        xfree(xa);
+        return -ENOMEM;
+    }
+
+    for (i = 0; i < argc; i++) {
+        (xa + i)->sa = (hat + i)->sock.sa;
+        {
+            struct sockaddr_in *sin = (struct sockaddr_in *)
+                &(xa + i)->sa;
+            
+            hvfs_err(xnet, "site %lx addr %s %d\n", site_id, 
+                     inet_ntoa(sin->sin_addr),
+                     ntohs(sin->sin_port));
+        }
+    }
+
+    /* set the local flag now */
+    if (__find_xc(site_id)) {
+        xs->flag |= XNET_SITE_LOCAL;
+    }
+    INIT_LIST_HEAD(&xs->addr);
+    INIT_LIST_HEAD(&xa->list);
+    for (i = 0; i < XNET_CONNS; i++) {
+        xlock_init(&xa->socklock[i]);
+    }
+    xlock_init(&xa->lock);
+    list_add_tail(&xa->list, &xs->addr);
+    st_update(&gst, xs, site_id);
+
+    i = st_lookup(&gst, &xs, site_id);
+    hvfs_debug(xnet, "Update site %lx w/ %d\n", site_id, i);
+
+    return 0;
+}
+
+int hst_to_xsst(void *data, int len)
+{
+    struct hvfs_site_tx *hst = (struct hvfs_site_tx *)data;
+    void *end = data + len;
+    int err = 0;
+    
+    while ((void *)hst < end) {
+        switch (hst->flag) {
+        case HVFS_SITE_REPLACE:
+            err = xnet_replace_ipaddr(hst->site_id, hst->nr, hst->addr);
+            if (err) {
+                hvfs_err(xnet, "replace ipaddr2 failed w/ %d\n", err);
+                continue;
+            }
+            break;
+        case HVFS_SITE_ADD:
+            err = xnet_add_ipaddr(hst->site_id, hst->nr, hst->addr);
+            if (err) {
+                hvfs_err(xnet, "add ipaddr2 failed w/ %d\n", err);
+                continue;
+            }
+            break;
+        case HVFS_SITE_DEL:
+            err = xnet_del_ipaddr(hst->site_id, hst->nr, hst->addr);
+            if (err) {
+                hvfs_err(xnet, "del ipaddr2 failed w. %d\n", err);
+                continue;
+            }
+            break;
+        default:
+            hvfs_err(xnet, "Invalid op flag %x\n", hst->flag);
+        }
+        hst = (void *)hst + sizeof(*hst) + 
+            hst->nr * sizeof(struct hvfs_addr_tx);
+        
+    }
+
+    return err;
+}
+
 #endif
