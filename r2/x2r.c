@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-19 19:02:00 macan>
+ * Time-stamp: <2010-05-20 20:24:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -103,6 +103,7 @@ int root_do_reg(struct xnet_msg *msg)
     struct xnet_msg *rpy;
     struct root_entry *root;
     struct ring_entry *ring;
+    struct addr_entry *addr;
     struct root_tx *root_tx;
     void *addr_data = NULL, *ring_data = NULL, *ring_data2 = NULL;
     u32 gid;
@@ -237,7 +238,14 @@ int root_do_reg(struct xnet_msg *msg)
     }
     
     /* pack the global site table */
-    err = addr_mgr_compact(&hro.addr, &addr_data, &addr_len);
+    addr = addr_mgr_lookup(&hro.addr, msg->tx.arg1);
+    if (IS_ERR(addr)) {
+        hvfs_err(root, "lookup addr for fsid %ld failed w/ %ld\n",
+                 msg->tx.arg1, PTR_ERR(addr));
+        err = PTR_ERR(addr);
+        goto send_rpy;
+    }
+    err = addr_mgr_compact(addr, &addr_data, &addr_len);
     if (err) {
         hvfs_err(root, "compact the site table for %lx failed w/ %d\n",
                  msg->tx.arg0, err);

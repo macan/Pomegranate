@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-19 14:32:46 macan>
+ * Time-stamp: <2010-05-20 19:51:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -56,17 +56,25 @@ int root_verify(void)
  */
 int root_config(void)
 {
-    char *value;
-
+    char *value, *__path;
+    int err = 0;
+    
     if (hro.state != HRO_STATE_LAUNCH) {
         hvfs_err(root, "ROOT state is not in launching, please call "
                  "root_pre_init() firstly!\n");
         return -EINVAL;
     }
 
+    HVFS_ROOT_GET_ENV_cpy(root_home, value);
+    HVFS_ROOT_GET_ENV_cpy(root_store, value);
+    HVFS_ROOT_GET_ENV_cpy(bitmap_store, value);
+    HVFS_ROOT_GET_ENV_cpy(site_store, value);
+    HVFS_ROOT_GET_ENV_cpy(addr_store, value);
+
     HVFS_ROOT_GET_ENV_atoi(site_mgr_htsize, value);
     HVFS_ROOT_GET_ENV_atoi(ring_mgr_htsize, value);
     HVFS_ROOT_GET_ENV_atoi(root_mgr_htsize, value);
+    HVFS_ROOT_GET_ENV_atoi(addr_mgr_htsize, value);
     HVFS_ROOT_GET_ENV_atoi(service_threads, value);
     HVFS_ROOT_GET_ENV_atoi(ring_push_interval, value);
     HVFS_ROOT_GET_ENV_atoi(hb_interval, value);
@@ -77,6 +85,78 @@ int root_config(void)
     HVFS_ROOT_GET_ENV_option(opt_memonly, MEMONLY, value);
 
     /* default configs */
+    if (!hro.conf.root_home) {
+        hro.conf.root_home = HVFS_ROOT_HOME;
+    }
+
+    if (!hro.conf.root_store) {
+        hro.conf.root_store = HVFS_ROOT_STORE;
+    }
+    {
+        __path = xzalloc(256);
+
+        if (!__path) {
+            hvfs_err(root, "get path storage failed.\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        
+        snprintf(__path, 255, "%s/%s", hro.conf.root_home,
+                 hro.conf.root_store);
+        hro.conf.root_store = __path;
+    }
+
+    if (!hro.conf.bitmap_store) {
+        hro.conf.bitmap_store = HVFS_BITMAP_STORE;
+    }
+    {
+        __path = xzalloc(256);
+
+        if (!__path) {
+            hvfs_err(root, "get path storage failed.\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        
+        snprintf(__path, 255, "%s/%s", hro.conf.root_home,
+                 hro.conf.bitmap_store);
+        hro.conf.bitmap_store = __path;
+    }
+
+    if (!hro.conf.site_store) {
+        hro.conf.site_store = HVFS_SITE_STORE;
+    }
+    {
+        __path = xzalloc(256);
+
+        if (!__path) {
+            hvfs_err(root, "get path storage failed.\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        
+        snprintf(__path, 255, "%s/%s", hro.conf.root_home,
+                 hro.conf.site_store);
+        hro.conf.site_store = __path;
+    }
+
+    if (!hro.conf.addr_store) {
+        hro.conf.addr_store = HVFS_ADDR_STORE;
+    }
+    {
+        __path = xzalloc(256);
+
+        if (!__path) {
+            hvfs_err(root, "get path storage failed.\n");
+            err = -ENOMEM;
+            goto out;
+        }
+
+        snprintf(__path, 255, "%s/%s", hro.conf.root_home,
+                 hro.conf.addr_store);
+        hro.conf.addr_store = __path;
+    }
+
     if (!hro.conf.ring_push_interval) {
         hro.conf.ring_push_interval = 600;
     }
@@ -87,7 +167,8 @@ int root_config(void)
         hro.conf.sync_interval = 0; /* do not do sync actually */
     }
 
-    return 0;
+out:
+    return err;
 }
 
 void root_itimer_default(int signo, siginfo_t *info, void *arg)
@@ -224,7 +305,9 @@ int root_init(void)
     hro.conf.ring_push_interval = 600; /* 600 seconds */
 
     /* get configs from env */
-    root_config();
+    err = root_config();
+    if (err)
+        goto out_config;
 
     /* init hro */
     err = site_mgr_init(&hro.site);
@@ -262,6 +345,7 @@ out_addr_mgr:
 out_root_mgr:
 out_ring_mgr:
 out_site_mgr:
+out_config:
     
     return err;
 }

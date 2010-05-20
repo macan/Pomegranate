@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-18 18:54:24 macan>
+ * Time-stamp: <2010-05-20 20:20:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,7 +45,22 @@ int site_mgr_init(struct site_mgr *sm)
         INIT_HLIST_HEAD(&(sm->sht + i)->h);
         xlock_init(&(sm->sht + i)->lock);
     }
-    
+
+    /* at last, we just open the site entry file */
+    ASSERT(hro.conf.site_store, root);
+    err = open(hro.conf.site_store, O_CREAT | O_RDWR | O_SYNC,
+               S_IRUSR | S_IWUSR);
+    if (err < 0) {
+        hvfs_err(root, "open site store %s failed w/ %s\n",
+                 hro.conf.site_store, strerror(errno));
+        err = -errno;
+        goto out;
+    }
+    hvfs_info(root, "Open site store %s success.\n",
+              hro.conf.site_store);
+    hro.conf.site_store_fd = err;
+    err = 0;
+
 out:
     return err;
 }
@@ -55,6 +70,8 @@ void site_mgr_destroy(struct site_mgr *sm)
     if (sm->sht) {
         xfree(sm->sht);
     }
+    if (hro.conf.site_store_fd)
+        close(hro.conf.site_store_fd);
 }
 
 struct site_entry *site_mgr_alloc_se()
@@ -191,30 +208,230 @@ out:
 
 int addr_mgr_init(struct addr_mgr *am)
 {
-    xrwlock_init(&am->rwlock);
-    am->used_addr = 0;
-    am->active_site = 0;
+    int err = 0, i;
 
-    return 0;
+    if (!hro.conf.addr_mgr_htsize) {
+        /* default to ...ADDR_MGR_HTSIZE */
+        hro.conf.addr_mgr_htsize = HVFS_ROOT_ADDR_MGR_HTSIZE;
+    }
+
+    am->rht = xzalloc(hro.conf.addr_mgr_htsize * sizeof(struct regular_hash));
+    if (!am->rht) {
+        hvfs_err(root, "xzalloc() addr mgr hash table failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    
+    xrwlock_init(&am->rwlock);
+
+    /* init the hash table */
+    for (i = 0; i < hro.conf.addr_mgr_htsize; i++) {
+        INIT_HLIST_HEAD(&(am->rht + i)->h);
+        xlock_init(&(am->rht + i)->lock);
+    }
+
+    /* at last, we just open the root entry file */
+    ASSERT(hro.conf.addr_store, root);
+    err = open(hro.conf.addr_store, O_CREAT | O_RDWR | O_SYNC,
+               S_IRUSR | S_IWUSR);
+    if (err < 0) {
+        hvfs_err(root, "open addr store %s failed w/ %s\n",
+                 hro.conf.addr_store, strerror(errno));
+        err = -errno;
+        goto out;
+    }
+    hvfs_info(root, "Open addr store %s success.\n",
+              hro.conf.addr_store);
+    hro.conf.addr_store_fd = err;
+    err = 0;
+
+out:
+    return err;
 }
 
 void addr_mgr_destroy(struct addr_mgr *am)
 {
     /* should we do something */
+    xfree(am->rht);
     xrwlock_destroy(&am->rwlock);
+    if (hro.conf.addr_store_fd)
+        close(hro.conf.addr_store_fd);
+}
+
+struct addr_entry *addr_mgr_alloc_ae()
+{
+    struct addr_entry *ae;
+
+    ae = xzalloc(sizeof(*ae));
+    if (ae) {
+        INIT_HLIST_NODE(&ae->hlist);
+        xrwlock_init(&ae->rwlock);
+        ae->used_addr = 0;
+        ae->active_site = 0;
+    }
+
+    return ae;
+}
+
+void addr_mgr_free_ae(struct addr_entry *ae)
+{
+    xfree(ae);
+}
+
+/* addr_mgr_lookup() */
+struct addr_entry *addr_mgr_lookup(struct addr_mgr *am, u64 fsid)
+{
+    struct addr_entry *pos;
+    struct hlist_node *n;
+    struct regular_hash *rh;
+    int idx, found = 0;
+
+    idx = hvfs_hash_root_mgr(fsid, HVFS_ROOT_ADDR_MGR_SALT) %
+        hro.conf.addr_mgr_htsize;
+    rh = am->rht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry(pos, n, &rh->h, hlist) {
+        if (fsid == pos->fsid) {
+            /* ok, we find the entry */
+            found = 1;
+            break;
+        }
+    }
+    xlock_unlock(&rh->lock);
+
+    if (found) {
+        return pos;
+    } else {
+        return ERR_PTR(-ENOENT);
+    }
+}
+
+struct addr_entry *addr_mgr_insert(struct addr_mgr *am, struct addr_entry *ae)
+{
+    struct addr_entry *pos;
+    struct hlist_node *n;
+    struct regular_hash *rh;
+    int idx, found = 0;
+
+    idx = hvfs_hash_root_mgr(ae->fsid, HVFS_ROOT_ADDR_MGR_SALT) %
+        hro.conf.addr_mgr_htsize;
+    rh = am->rht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry(pos, n, &rh->h, hlist) {
+        if (ae->fsid == pos->fsid) {
+            /* ok, we find a conflict entry */
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        xrwlock_wlock(&am->rwlock);
+        hlist_add_head(&ae->hlist, &(am->rht + idx)->h);
+        xrwlock_wunlock(&am->rwlock);
+        pos = ae;
+    }
+    xlock_unlock(&rh->lock);
+
+    return pos;
+}
+
+void addr_mgr_remove(struct addr_mgr *am, u64 fsid)
+{
+    struct addr_entry *pos;
+    struct hlist_node *n;
+    struct regular_hash *rh;
+    int idx, found = 0;
+
+    idx = hvfs_hash_root_mgr(fsid, HVFS_ROOT_ADDR_MGR_SALT) %
+        hro.conf.addr_mgr_htsize;
+    rh = am->rht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry(pos, n, &rh->h, hlist) {
+        if (fsid == pos->fsid) {
+            /* ok, we find the entry here */
+            found = 1;
+            break;
+        }
+    }
+    if (found) {
+        /* remove it */
+        xrwlock_wlock(&am->rwlock);
+        hlist_del_init(&pos->hlist);
+        xrwlock_wunlock(&am->rwlock);
+    } else {
+        hvfs_err(root, "Try to remove fsid %ld failed, not found.\n",
+                 fsid);
+    }
+    xlock_unlock(&rh->lock);
+}
+
+int addr_mgr_lookup_create(struct addr_mgr *am, u64 fsid,
+                           struct addr_entry **oae)
+{
+    struct addr_entry *ae;
+    int err = 0;
+
+    if (!oae) {
+        err = -EINVAL;
+        goto out;
+    }
+
+    ae = addr_mgr_lookup(am, fsid);
+    if (IS_ERR(ae)) {
+        if (ae == ERR_PTR(-ENOENT)) {
+            /* we should create a new addr entry now */
+            ae = addr_mgr_alloc_ae();
+            if (!ae) {
+                hvfs_err(root, "addr_mgr_alloc_re() failed w/ ENOMEM.\n");
+                err = -ENOMEM;
+                goto out;
+            }
+            hvfs_err(root, "alloc ae %p\n", ae);
+            /* we just create an empty addr entry */
+            ae->fsid = fsid;
+            /* try to insert to the addr mgr */
+            *oae = addr_mgr_insert(am, ae);
+            if (IS_ERR(*oae)) {
+                hvfs_err(root, "addr_mgr_insert() failed w/ %ld\n",
+                         PTR_ERR(*oae));
+                err = PTR_ERR(*oae);
+                addr_mgr_free_ae(ae);
+            }
+            if (ae != *oae) {
+                hvfs_err(root, "Someone insert addr %ld prior us, self free\n",
+                         fsid);
+                addr_mgr_free_ae(ae);
+            }
+            err = 1;
+        } else {
+            /* error here */
+            err = PTR_ERR(ae);
+            hvfs_err(root, "addr_mgr_lookup() failed w/ %d\n", err);
+            goto out;
+        }
+    } else {
+        /* set oae to the lookuped entry */
+        *oae = ae;
+    }
+
+out:
+    return err;
 }
 
 /* addr_mgr_update_one()
  *
  * @flag: HVFS_SITE_REPLACE/ADD/DEL | HVFS_SITE_PROTOCOL_TCP
  */
-int addr_mgr_update_one(struct addr_mgr *am, u32 flag, u64 site_id, 
+int addr_mgr_update_one(struct addr_entry *ae, u32 flag, u64 site_id,
                         void *addr)
 {
     int err = 0;
     
     /* sanity checking */
-    if (!am || site_id < 0 || site_id >= (1 << 20))
+    if (!ae || site_id < 0 || site_id >= (1 << 20))
         return -EINVAL;
 
     if (flag & HVFS_SITE_PROTOCOL_TCP) {
@@ -233,17 +450,17 @@ int addr_mgr_update_one(struct addr_mgr *am, u32 flag, u64 site_id,
 
         /* next, we should do the OP on the site table */
         if (flag & HVFS_SITE_REPLACE) {
-            xrwlock_wlock(&am->rwlock);
-            if (am->xs[site_id]) {
+            xrwlock_wlock(&ae->rwlock);
+            if (ae->xs[site_id]) {
                 /* the hvfs_site exists, we just free the table list */
-                list_for_each_entry_safe(pos, n, &am->xs[site_id]->addr, 
+                list_for_each_entry_safe(pos, n, &ae->xs[site_id]->addr, 
                                          list) {
                     list_del(&pos->list);
-                    am->xs[site_id]->nr--;
-                    am->used_addr--;
+                    ae->xs[site_id]->nr--;
+                    ae->used_addr--;
                     xfree(pos);
                 }
-                INIT_LIST_HEAD(&am->xs[site_id]->addr);
+                INIT_LIST_HEAD(&ae->xs[site_id]->addr);
             } else {
                 /* add a new hvfs_site to the table */
                 struct hvfs_site *hs;
@@ -256,19 +473,19 @@ int addr_mgr_update_one(struct addr_mgr *am, u32 flag, u64 site_id,
                 }
                 INIT_LIST_HEAD(&hs->addr);
                 /* setup the hvfs_site to site table */
-                am->xs[site_id] = hs;
-                am->active_site++;
+                ae->xs[site_id] = hs;
+                ae->active_site++;
             }
             
             /* add the new addr to the list */
-            list_add_tail(&hta->list, &am->xs[site_id]->addr);
-            am->xs[site_id]->nr++;
-            am->used_addr++;
+            list_add_tail(&hta->list, &ae->xs[site_id]->addr);
+            ae->xs[site_id]->nr++;
+            ae->used_addr++;
         out_unlock_replace:
-            xrwlock_wunlock(&am->rwlock);
+            xrwlock_wunlock(&ae->rwlock);
         } else if (flag & HVFS_SITE_ADD) {
-            xrwlock_wlock(&am->rwlock);
-            if (!am->xs[site_id]) {
+            xrwlock_wlock(&ae->rwlock);
+            if (!ae->xs[site_id]) {
                 /* add a new hvfs_site to the table */
                 struct hvfs_site *hs;
 
@@ -280,21 +497,21 @@ int addr_mgr_update_one(struct addr_mgr *am, u32 flag, u64 site_id,
                 }
                 INIT_LIST_HEAD(&hs->addr);
                 /* setup the hvfs_site to site table */
-                am->xs[site_id] = hs;
-                am->active_site++;
+                ae->xs[site_id] = hs;
+                ae->active_site++;
             }
             /* add the new addr to the list */
-            list_add_tail(&hta->list, &am->xs[site_id]->addr);
-            am->xs[site_id]->nr++;
-            am->used_addr++;
+            list_add_tail(&hta->list, &ae->xs[site_id]->addr);
+            ae->xs[site_id]->nr++;
+            ae->used_addr++;
         out_unlock_add:
-            xrwlock_wunlock(&am->rwlock);
+            xrwlock_wunlock(&ae->rwlock);
         } else if (flag & HVFS_SITE_DEL) {
             err = -ENOTEXIST;
-            xrwlock_wlock(&am->rwlock);
-            if (am->xs[site_id]) {
+            xrwlock_wlock(&ae->rwlock);
+            if (ae->xs[site_id]) {
                 /* iterate on the table to find the entry */
-                list_for_each_entry_safe(pos, n, &am->xs[site_id]->addr, list) {
+                list_for_each_entry_safe(pos, n, &ae->xs[site_id]->addr, list) {
                     if ((si->sin_port == 
                          ((struct sockaddr_in *)&hta->sock.sa)->sin_port) ||
                         (si->sin_addr.s_addr ==
@@ -303,8 +520,8 @@ int addr_mgr_update_one(struct addr_mgr *am, u32 flag, u64 site_id,
                          ((struct sockaddr_in *)&hta->sock.sa)->sin_family)) {
                         list_del(&pos->list);
                         xfree(pos);
-                        am->xs[site_id]->nr--;
-                        am->used_addr--;
+                        ae->xs[site_id]->nr--;
+                        ae->used_addr--;
                         err = 0;
                         break;
                     }
@@ -313,7 +530,7 @@ int addr_mgr_update_one(struct addr_mgr *am, u32 flag, u64 site_id,
                 goto out_unlock_del;
             }
         out_unlock_del:
-            xrwlock_wunlock(&am->rwlock);
+            xrwlock_wunlock(&ae->rwlock);
         } else {
             /* no OP, we just free the allocated resouces */
             xfree(hta);
@@ -324,7 +541,7 @@ out:
 }
 
 /* compact to a replace buffer */
-int addr_mgr_compact(struct addr_mgr *am, void **data, int *len)
+int addr_mgr_compact(struct addr_entry *ae, void **data, int *len)
 {
     struct hvfs_addr *pos;
     struct hvfs_site_tx *hst;
@@ -333,13 +550,13 @@ int addr_mgr_compact(struct addr_mgr *am, void **data, int *len)
     if (!len || !data)
         return -EINVAL;
 
-    /* NOTE THAT: we lock the site table to protect the am->used_addr and
-     * am->active_site extends. */
-    xrwlock_rlock(&am->rwlock);
+    /* NOTE THAT: we lock the site table to protect the ae->used_addr and
+     * ae->active_site extends. */
+    xrwlock_rlock(&ae->rwlock);
 
     /* try to alloc the memory space */
-    *len = sizeof(struct hvfs_site_tx) * am->active_site +
-        sizeof(struct hvfs_addr_tx) * am->used_addr;
+    *len = sizeof(struct hvfs_site_tx) * ae->active_site +
+        sizeof(struct hvfs_addr_tx) * ae->used_addr;
     *data = xmalloc(*len);
     if (!*data) {
         hvfs_err(root, "xmalloc addr space failed.\n");
@@ -348,17 +565,17 @@ int addr_mgr_compact(struct addr_mgr *am, void **data, int *len)
     }
 
     hvfs_err(root, "active site nr %d used addr %d %p\n", 
-             am->active_site, am->used_addr, *data);
+             ae->active_site, ae->used_addr, *data);
     hst = *data;
     for (i = 0; i < (HVFS_SITE_MAX); i++) {
-        if (am->xs[i]) {
+        if (ae->xs[i]) {
             hst->site_id = i;
             hst->flag = HVFS_SITE_REPLACE;
-            hst->nr = am->xs[i]->nr;
+            hst->nr = ae->xs[i]->nr;
             if (hst->nr) {
                 k = 0;
                 /* add the addr to the hvfs_addr region */
-                list_for_each_entry(pos, &am->xs[i]->addr, list) {
+                list_for_each_entry(pos, &ae->xs[i]->addr, list) {
                     if (pos->flag & HVFS_SITE_PROTOCOL_TCP) {
                         hst->addr[k].flag = pos->flag;
                         hst->addr[k].sock.sa = pos->sock.sa;
@@ -394,17 +611,17 @@ int addr_mgr_compact(struct addr_mgr *am, void **data, int *len)
             j++;
         }
     }
-    if (j != am->active_site) {
+    if (j != ae->active_site) {
         hvfs_err(root, "We missed some active sites (%d vs %d).\n",
-                 am->active_site, j);
+                 ae->active_site, j);
     }
 
 out_unlock:
-    xrwlock_runlock(&am->rwlock);
+    xrwlock_runlock(&ae->rwlock);
 
     return err;
 out_free:
-    xrwlock_runlock(&am->rwlock);
+    xrwlock_runlock(&ae->rwlock);
     xfree(*data);
     return err;
 }
@@ -414,7 +631,7 @@ out_free:
  * This function compact one hvfs_site to a buffer, you can set the flag by
  * yourself.
  */
-int addr_mgr_compact_one(struct addr_mgr *am, u64 site_id, u32 flag,
+int addr_mgr_compact_one(struct addr_entry *ae, u64 site_id, u32 flag,
                          void **data, int *len)
 {
     struct hvfs_addr *pos;
@@ -424,11 +641,11 @@ int addr_mgr_compact_one(struct addr_mgr *am, u64 site_id, u32 flag,
     if (!len || !data)
         return -EINVAL;
 
-    /* Note that: we lock the site table to protect the am->xs[i]->nr */
-    xrwlock_rlock(&am->rwlock);
-    if (am->xs[site_id]) {
+    /* Note that: we lock the site table to protect the ae->xs[i]->nr */
+    xrwlock_rlock(&ae->rwlock);
+    if (ae->xs[site_id]) {
         *len = sizeof(struct hvfs_site_tx) +
-            sizeof(struct hvfs_addr_tx) * am->xs[site_id]->nr;
+            sizeof(struct hvfs_addr_tx) * ae->xs[site_id]->nr;
         *data = xmalloc(*len);
         if (!*data) {
             hvfs_err(root, "xmalloc addr space failed.\n");
@@ -438,10 +655,10 @@ int addr_mgr_compact_one(struct addr_mgr *am, u64 site_id, u32 flag,
         hst = *data;
         hst->site_id = site_id;
         hst->flag = flag;
-        hst->nr = am->xs[site_id]->nr;
+        hst->nr = ae->xs[site_id]->nr;
 
-        if (am->xs[site_id]->nr) {
-            list_for_each_entry(pos, &am->xs[site_id]->addr, list) {
+        if (ae->xs[site_id]->nr) {
+            list_for_each_entry(pos, &ae->xs[site_id]->addr, list) {
                 if (pos->flag & HVFS_SITE_PROTOCOL_TCP) {
                     hst->addr[i].flag = pos->flag;
                     hst->addr[i].sock.sa = pos->sock.sa;
@@ -465,11 +682,11 @@ int addr_mgr_compact_one(struct addr_mgr *am, u64 site_id, u32 flag,
     }
 
 out_unlock:
-    xrwlock_runlock(&am->rwlock);
+    xrwlock_runlock(&ae->rwlock);
 
     return err;
 out_free:
-    xrwlock_runlock(&am->rwlock);
+    xrwlock_runlock(&ae->rwlock);
     xfree(*data);
     return err;
 }
@@ -818,6 +1035,34 @@ int root_mgr_init(struct root_mgr *rm)
         xlock_init(&(rm->rht + i)->lock);
     }
 
+    /* at last, we just open the root entry file */
+    ASSERT(hro.conf.root_store, root);
+    err = open(hro.conf.root_store, O_CREAT | O_RDWR | O_SYNC,
+               S_IRUSR | S_IWUSR);
+    if (err < 0) {
+        hvfs_err(root, "open root store %s failed w/ %s\n",
+                 hro.conf.root_store, strerror(errno));
+        err = -errno;
+        goto out;
+    }
+    hvfs_info(root, "Open root store %s success.\n",
+              hro.conf.root_store);
+    hro.conf.root_store_fd = err;
+
+    ASSERT(hro.conf.bitmap_store, root);
+    err = open(hro.conf.bitmap_store, O_CREAT | O_RDWR | O_SYNC,
+               S_IRUSR | S_IWUSR);
+    if (err < 0) {
+        hvfs_err(root, "open bitmap store %s failed w/ %s\n",
+                 hro.conf.bitmap_store, strerror(errno));
+        err = -errno;
+        goto out;
+    }
+    hvfs_info(root, "Open bitmap store %s success.\n",
+              hro.conf.bitmap_store);
+    hro.conf.bitmap_store_fd = err;
+    err = 0;
+
 out:
     return err;
 }
@@ -828,6 +1073,10 @@ void root_mgr_destroy(struct root_mgr *rm)
         xfree(rm->rht);
     }
     xrwlock_destroy(&rm->rwlock);
+    if (hro.conf.root_store_fd)
+        close(hro.conf.root_store_fd);
+    if (hro.conf.bitmap_store_fd)
+        close(hro.conf.bitmap_store_fd);
 }
 
 struct root_entry *root_mgr_alloc_re()
@@ -1287,6 +1536,11 @@ int root_write_hxi(struct site_entry *se)
     return err;
 }
 
+/* root_read_re() reading the root entry from the file
+ *
+ * Note: the root file should be sorted by fsid, then we can get the root
+ * entry very fast!
+ */
 int root_read_re(struct root_entry *re)
 {
     int err = 0;
@@ -1294,6 +1548,10 @@ int root_read_re(struct root_entry *re)
     return err;
 }
 
+/* root_write_re() write the root entry to the file
+ *
+ * Note: we write to the fixed location by lseek
+ */
 int root_write_re(struct root_entry *re)
 {
     int err = 0;

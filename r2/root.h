@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-19 14:34:24 macan>
+ * Time-stamp: <2010-05-20 19:51:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,12 +39,24 @@ struct root_conf
     pthread_t dcpt;
 
     /* section for file name */
+    char *root_home;
     char *profiling_file;
     char *conf_file;
     char *log_file;
+#define HVFS_ROOT_HOME          "/tmp/hvfs"
+#define HVFS_ROOT_STORE         "root_store"
+#define HVFS_BITMAP_STORE       "bitmap_store"
+#define HVFS_SITE_STORE         "site_store"
+#define HVFS_ADDR_STORE         "addr_store"
+    char *root_store;
+    char *bitmap_store;
+    char *site_store;
+    char *addr_store;
 
     /* section for file fd */
     FILE *pf_file, *cf_file, *lf_file;
+    int root_store_fd, bitmap_store_fd;
+    int site_store_fd, addr_store_fd;
 
     /* # of threads */
     /* Note: # of profiling thread is always ONE */
@@ -55,6 +67,7 @@ struct root_conf
     u32 site_mgr_htsize;        /* site mgr hash table size */
     u32 ring_mgr_htsize;        /* ring mgr hash table size */
     u32 root_mgr_htsize;        /* root mgr hash table size */
+    u32 addr_mgr_htsize;        /* addr mgr hash table size */
     u32 ring_push_interval;     /* interval to push the CHRing to
                                  * subscribers */
     u32 hb_interval;            /* interval to check the site entry

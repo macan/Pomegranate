@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-19 20:30:01 macan>
+ * Time-stamp: <2010-05-20 20:11:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -154,7 +154,14 @@ out_nofree:
 int r2cli_do_unreg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
 {
     struct xnet_msg *msg;
+    union hvfs_x_info *hxi;
     int err = 0;
+
+    hxi = xzalloc(sizeof(*hxi));
+    if (!hxi) {
+        hvfs_err(xnet, "xmalloc hxi failed\n");
+        return -ENOMEM;
+    }
 
     /* alloc one msg and send it to the peer site */
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
@@ -164,15 +171,17 @@ int r2cli_do_unreg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
         goto out_nofree;
     }
 
-    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY |
+                     XNET_NEED_DATA_FREE,
                      hro.xc->site_id, root_site);
     xnet_msg_fill_cmd(msg, HVFS_R2_UNREG, request_site, fsid);
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
+    xnet_msg_add_sdata(msg, hxi, sizeof(*hxi));
 
     /* send te unreeg request to root_site w/ requested siteid = request_site */
-    msg->tx..reserved = gid;
+    msg->tx.reserved = gid;
 
     err = xnet_send(hro.xc, msg);
     if (err) {
@@ -185,8 +194,8 @@ int r2cli_do_unreg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
     if (msg->pair->tx.err) {
         hvfs_err(xnet, "Unreg site %lx failed w/ %d\n", request_site,
                  msg->pair->tx.err);
-        err = msg->pair.tx.err;
-        goot out;
+        err = msg->pair->tx.err;
+        goto out;
     }
 
 out:
@@ -233,7 +242,6 @@ int main(int argc, char *argv[])
     
     st_init();
     root_pre_init();
-    root_config();
 //    SET_TRACING_FLAG(root, HVFS_DEBUG | HVFS_VERBOSE);
     err = root_init();
     if (err) {
@@ -262,7 +270,19 @@ int main(int argc, char *argv[])
 
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
     /* do sent here */
-    r2cli_do_reg(self, HVFS_RING(0), 0, 0);
+    err = r2cli_do_reg(self, HVFS_RING(0), 0, 0);
+    if (err) {
+        hvfs_err(xnet, "reg self %x w/ r2 %x failed w/ %d\n",
+                 self, HVFS_RING(0), err);
+        goto out;
+    }
+    
+    err = r2cli_do_unreg(self, HVFS_RING(0), 0, 0);
+    if (err) {
+        hvfs_err(xnet, "unreg self %x w/ r2 %x failed w/ %d\n",
+                 self, HVFS_RING(0), err);
+        goto out;
+    }
 
     xnet_unregister_type(hro.xc);
     root_destroy();

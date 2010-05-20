@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-19 19:56:07 macan>
+ * Time-stamp: <2010-05-20 20:10:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -157,7 +157,6 @@ int main(int argc, char *argv[])
 
     st_init();
     root_pre_init();
-    root_config();
     err = root_init();
     if (err) {
         hvfs_err(xnet, "root_init() failed w/ %d\n", err);
@@ -192,40 +191,55 @@ int main(int argc, char *argv[])
     /* we should setup the global address table and then export it as the
      * st_table */
 
-    for (i = 0; i < 4; i++) {
-        for (j = 0; j < 4; j++) {
-            sin.sin_port = htons(port[i][j]);
-            inet_aton(ipaddr[i], &sin.sin_addr);
-            
-            err = addr_mgr_update_one(&hro.addr, 
-                                      HVFS_SITE_PROTOCOL_TCP | HVFS_SITE_ADD,
-                                      HVFS_TYPE(i, j),
-                                      &sin);
-            if (err) {
-                hvfs_err(xnet, "addr mgr update entry %lx failed w/"
-                         " %d\n", HVFS_TYPE(i, j), err);
-                goto out;
+    {
+        struct addr_entry *ae;
+        
+        /* setup a file system id 0 */
+        err = addr_mgr_lookup_create(&hro.addr, 0UL, &ae);
+        if (err > 0) {
+            hvfs_info(xnet, "Create addr table for fsid %ld\n", 0UL);
+        } else if (err < 0) {
+            hvfs_err(xnet, "addr_mgr_lookup_create fsid 0 failed w/ %d\n",
+                     err);
+            goto out;
+        }
+
+        for (i = 0; i < 4; i++) {
+            for (j = 0; j < 4; j++) {
+                sin.sin_port = htons(port[i][j]);
+                inet_aton(ipaddr[i], &sin.sin_addr);
+                
+                err = addr_mgr_update_one(ae, 
+                                          HVFS_SITE_PROTOCOL_TCP |
+                                          HVFS_SITE_ADD,
+                                          HVFS_TYPE(i, j),
+                                          &sin);
+                if (err) {
+                    hvfs_err(xnet, "addr mgr update entry %lx failed w/"
+                             " %d\n", HVFS_TYPE(i, j), err);
+                    goto out;
+                }
             }
         }
-    }
-
-    /* export the addr mgr to st_table */
-    {
-        void *data;
-        int len;
-
-        err = addr_mgr_compact(&hro.addr, &data, &len);
-        if (err) {
-            hvfs_err(xnet, "compact addr mgr faild w/ %d\n", err);
-            goto out;
+        
+        /* export the addr mgr to st_table */
+        {
+            void *data;
+            int len;
+            
+            err = addr_mgr_compact(ae, &data, &len);
+            if (err) {
+                hvfs_err(xnet, "compact addr mgr faild w/ %d\n", err);
+                goto out;
+            }
+            
+            err = hst_to_xsst(data, len);
+            if (err) {
+                hvfs_err(xnet, "hst to xsst failed w/ %d\n", err);
+                goto out;
+            }
+            xfree(data);
         }
-
-        err = hst_to_xsst(data, len);
-        if (err) {
-            hvfs_err(xnet, "hst to xsst failed w/ %d\n", err);
-            goto out;
-        }
-        xfree(data);
     }
 
     /* next, we setup the defalt ring mgr */

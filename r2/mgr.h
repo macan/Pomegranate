@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-19 19:57:28 macan>
+ * Time-stamp: <2010-05-20 20:05:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -110,10 +110,21 @@ struct root_entry
  * changes on this table */
 struct addr_mgr
 {
+#define HVFS_ROOT_ADDR_MGR_SALT         (0xdfea965786afde)
+#define HVFS_ROOT_ADDR_MGR_HTSIZE       16
+    struct regular_hash *rht;
+    xrwlock_t rwlock;
+};
+
+struct addr_entry
+{
+    struct hlist_node hlist;
+    
     struct hvfs_site *xs[HVFS_SITE_MAX];
     xrwlock_t rwlock;
     u32 used_addr;              /* # of used addr */
     u32 active_site;            /* # of active site */
+    u64 fsid;
 };
 
 /* APIs */
@@ -128,8 +139,10 @@ int ring_mgr_compact_one(struct ring_mgr *, u32, void **, int *);
 struct ring_entry *ring_mgr_lookup(struct ring_mgr *, u32);
 void ring_mgr_put(struct ring_entry *);
 struct root_entry *root_mgr_lookup(struct root_mgr *, u64);
-int addr_mgr_compact(struct addr_mgr *, void **, int *);
-int addr_mgr_update_one(struct addr_mgr *, u32, u64, void *);
+int addr_mgr_compact(struct addr_entry *, void **, int *);
+int addr_mgr_update_one(struct addr_entry *, u32, u64, void *);
+struct addr_entry *addr_mgr_lookup(struct addr_mgr *, u64);
+int addr_mgr_lookup_create(struct addr_mgr *, u64, struct addr_entry **);
 struct site_entry *site_mgr_lookup(struct site_mgr *, u64);
 struct ring_entry *ring_mgr_alloc_re();
 void ring_mgr_put(struct ring_entry *);

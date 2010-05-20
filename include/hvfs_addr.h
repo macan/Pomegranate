@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-16 10:07:50 macan>
+ * Time-stamp: <2010-05-20 16:34:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -66,6 +66,7 @@ struct hvfs_site
 #define HVFS_SITE_DEL           0x00002000
     u32 flag;
     u32 nr;
+    u64 fsid;
     struct list_head addr;      /* addr list */
 };
 
