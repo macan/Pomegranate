@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-20 19:51:13 macan>
+ * Time-stamp: <2010-05-21 14:40:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -122,6 +122,9 @@ struct hvfs_root_object
 
     sem_t timer_sem;
 
+    xlock_t bitmap_lock;
+    loff_t bitmap_tail;
+    
     /* the following region is used for threads */
     pthread_t *spool_thread;    /* array of service threads */
     pthread_t timer_thread;

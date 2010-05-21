@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-20 20:24:15 macan>
+ * Time-stamp: <2010-05-21 20:23:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -188,7 +188,7 @@ int root_do_reg(struct xnet_msg *msg)
     }
     ring_mgr_put(ring);
     /* Step 2: pack the MDSL ring of the group */
-    gid = msg->tx.reserved << 2 | 0x01;
+    gid = msg->tx.reserved << 2 | CH_RING_MDSL;
     ring = ring_mgr_lookup(&hro.ring, gid);
     if (IS_ERR(ring)) {
         hvfs_err(root, "ring_mgr_lookup() gid %d failed w/ %ld\n",
@@ -503,6 +503,99 @@ out_unlock:
 out:    
     __root_send_rpy(rpy, err);
 out_free:
+    xnet_free_msg(msg);
+    
+    return err;
+}
+
+int root_do_mkfs(struct xnet_msg *msg)
+{
+    struct root_entry *re;
+    struct ring_entry *ring;
+    struct xnet_msg *rpy;
+    u64 gid;
+    int err = 0;
+
+    err = __prepare_xnet_msg(msg, &rpy);
+    if (err) {
+        hvfs_err(root, "prepare rpy xnet_msg failed w/ %d\n", err);
+        goto out;
+    }
+
+    /* ABI:
+     * @tx.arg0: site_id (not user actually)
+     * @tx.arg1: fsid
+     * @tx.reserved: gid
+     */
+    /* Step 1: find the ch ring group */
+    gid = msg->tx.reserved << 2 | CH_RING_MDS;
+    ring = ring_mgr_lookup(&hro.ring, gid);
+    if (IS_ERR(ring)) {
+        hvfs_err(root, "ring_mgr_lookup gid %ld failed w/ %ld\n",
+                 gid, PTR_ERR(ring));
+        err = PTR_ERR(ring);
+        goto send_rpy;
+    }
+    
+    err = root_mgr_lookup_create(&hro.root, msg->tx.arg1, &re);
+    if (err < 0) {
+        hvfs_err(root, "root mgr lookup create %ld failed w/ %d\n",
+                 msg->tx.arg1, err);
+        goto send_rpy;
+    } else if (err > 0) {
+        hvfs_info(root, "We just create fsid %ld\n", msg->tx.arg1);
+        re->fsid = msg->tx.arg1;
+        re->gdt_uuid = 0;
+        re->gdt_salt = lib_random(0xffdefa7);
+        re->root_uuid = 1;
+        /* setup the bitmap region */
+        err = root_bitmap_default(re);
+        if (err) {
+            hvfs_err(root, "create fsid %ld default root bitmap "
+                     "failed w/ %d\n", re->fsid, err);
+            goto send_rpy;
+        }
+
+        /* we should create the root dir entry in the gdt w/ the selected
+         * ring */
+        err = root_mkfs(re, ring);
+        if (err) {
+            hvfs_err(root, "root_mkfs %ld failed w/ %d\n",
+                     re->fsid, err);
+        } else {
+            /* pack the root_tx in the reply message */
+            struct root_tx *rt;
+
+            rt = xmalloc(sizeof(*rt));
+            if (!rt) {
+                hvfs_err(root, "xmalloc root_tx failed\n");
+                err = -ENOMEM;
+                goto send_rpy;
+            }
+            rt->fsid = re->fsid;
+            rt->gdt_uuid = re->gdt_uuid;
+            rt->gdt_salt = re->gdt_salt;
+            rt->root_uuid = re->root_uuid;
+            rt->root_salt = re->root_salt;
+
+            xnet_msg_add_sdata(rpy, rt, sizeof(*rt));
+            xnet_set_auto_free(rpy);
+        }
+        /* write the new entry to disk now */
+        err = root_write_re(re);
+        if (err) {
+            hvfs_err(root, "write root entry %ld to disk failed w/ %d\n",
+                     re->fsid, err);
+        }
+    } else {
+        hvfs_info(root, "fsid %ld already exist\n", msg->tx.arg1);
+        err = -EEXIST;
+    }
+    
+send_rpy:
+    ring_mgr_put(re);
+
+out:
     xnet_free_msg(msg);
     
     return err;

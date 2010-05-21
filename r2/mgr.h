@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-20 20:05:19 macan>
+ * Time-stamp: <2010-05-21 20:06:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -106,6 +106,23 @@ struct root_entry
     u8 *gdt_bitmap;
 };
 
+struct root_disk
+{
+#define ROOT_DISK_INVALID       0x00
+#define ROOT_DISK_VALID         0x01
+    u8 state;
+    u8 pad0;
+    u16 pad1;
+    u32 reserved;
+    u64 fsid;
+    u64 gdt_uuid;
+    u64 gdt_salt;
+    u64 root_uuid;
+    u64 root_salt;
+    u64 gdt_flen;
+    u64 gdt_foffset;
+};
+
 /* address mgr to manage the global site address table, we do support dynamic
  * changes on this table */
 struct addr_mgr
@@ -158,5 +175,10 @@ void site_mgr_destroy(struct site_mgr *);
 void ring_mgr_destroy(struct ring_mgr *);
 void root_mgr_destroy(struct root_mgr *);
 void addr_mgr_destroy(struct addr_mgr *);
+
+int root_read_bitmap(u64, u64, void *);
+int root_write_bitmap(void *, u64, u64 *);
+void *root_bitmap_enlarge(void *, u64);
+int root_bitmap_default(struct root_entry *re);
 
 #endif

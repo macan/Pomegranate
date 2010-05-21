@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-20 20:20:15 macan>
+ * Time-stamp: <2010-05-21 20:24:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1058,9 +1058,19 @@ int root_mgr_init(struct root_mgr *rm)
         err = -errno;
         goto out;
     }
+    hro.conf.bitmap_store_fd = err;
+
+    xlock_init(&hro.bitmap_lock);
+    hro.bitmap_tail = lseek(hro.conf.bitmap_store_fd, 0, SEEK_END);
+    if (hro.bitmap_tail == -1UL) {
+        hvfs_err(root, "lseek bitmap tail failed w/ %s\n",
+                 strerror(errno));
+        err = -errno;
+        goto out;
+    }
+    
     hvfs_info(root, "Open bitmap store %s success.\n",
               hro.conf.bitmap_store);
-    hro.conf.bitmap_store_fd = err;
     err = 0;
 
 out:
@@ -1221,7 +1231,10 @@ int root_mgr_lookup_create(struct root_mgr *rm, u64 fsid,
             re->fsid = fsid;
             /* we should read in the content of the root entry */
             err = root_read_re(re);
-            if (err) {
+            if (err == -ENOTEXIST) {
+                hvfs_err(root, "fsid %ld not exist\n", fsid);
+                err = 0;
+            } else if (err) {
                 hvfs_err(root, "root_read_re() failed w/ %d\n", err);
                 goto out;
             }
@@ -1543,8 +1556,72 @@ int root_write_hxi(struct site_entry *se)
  */
 int root_read_re(struct root_entry *re)
 {
-    int err = 0;
+    loff_t offset;
+    struct root_disk rd;
+    int err = 0, bl, br;
 
+    /* we read the root entry based on the re->fsid */
+    if (!hro.conf.root_store_fd) {
+        return -EINVAL;
+    }
+
+    offset = re->fsid * sizeof(rd);
+
+    bl = 0;
+    do {
+        br = pread(hro.conf.root_store_fd, ((void *)&rd) + bl, 
+                   sizeof(rd) - bl, offset + bl);
+        if (br < 0) {
+            hvfs_err(root, "read root entry %ld failed w/ %s\n",
+                     re->fsid, strerror(errno));
+            err = -errno;
+            goto out;
+        } else if (br == 0) {
+            hvfs_err(root, "read root entry %ld failed w/ EOF\n",
+                     re->fsid);
+            if (bl == 0)
+                err = -ENOTEXIST;
+            else
+                err = -EINVAL;
+            goto out;
+        }
+        bl += br;
+    } while (bl < sizeof(rd));
+
+    if (rd.state == ROOT_DISK_INVALID) {
+        err = -ENOTEXIST;
+    } else {
+        void *bitmap;
+
+        if ((rd.gdt_flen % XTABLE_BITMAP_BYTES) != 0) {
+            hvfs_err(root, "Interval error, bitmap len is not aligned\n");
+            err = -EFAULT;
+            goto out;
+        }
+        
+        bitmap = xmalloc(rd.gdt_flen);
+        if (!bitmap) {
+            hvfs_err(root, "xmalloc gdt bitmap failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        err = root_read_bitmap(rd.gdt_foffset, rd.gdt_flen, bitmap);
+        if (err) {
+            hvfs_err(root, "read fsid %ld bitmap @ %ld len %ld failed w/ %d\n",
+                     re->fsid, rd.gdt_foffset, rd.gdt_flen, err);
+            xfree(bitmap);
+            goto out;
+        }
+        
+        re->gdt_uuid = rd.gdt_uuid;
+        re->gdt_salt = rd.gdt_salt;
+        re->root_uuid = rd.root_uuid;
+        re->root_salt = rd.root_salt;
+        re->gdt_flen = rd.gdt_flen;
+        re->gdt_bitmap = bitmap;
+    }
+
+out:
     return err;
 }
 
@@ -1554,7 +1631,150 @@ int root_read_re(struct root_entry *re)
  */
 int root_write_re(struct root_entry *re)
 {
+    loff_t offset;
+    struct root_disk rd;
+    int err = 0, bl, bw;
+
+    /* we read the root entry based on the re->fsid */
+    if (!hro.conf.root_store_fd) {
+        return -EINVAL;
+    }
+
+    offset = re->fsid * sizeof(rd);
+
+    /* write the bitmap first */
+    err = root_write_bitmap(re->gdt_bitmap, re->gdt_flen,
+                            &rd.gdt_foffset);
+    if (err) {
+        hvfs_err(root, "write fsid %ld bitmap failed w/ %d\n",
+                 re->fsid, err);
+        return err;
+    }
+
+    rd.state = ROOT_DISK_VALID;
+    rd.fsid = re->fsid;
+    rd.gdt_uuid = re->gdt_uuid;
+    rd.gdt_salt = re->gdt_salt;
+    rd.root_uuid = re->root_uuid;
+    rd.root_salt = re->root_salt;
+    rd.gdt_flen = re->gdt_flen;
+
+    bl = 0;
+    do {
+        bw = pwrite(hro.conf.root_store_fd, ((void *)&rd) + bl,
+                    sizeof(rd) - bl, offset + bl);
+        if (bw < 0) {
+            hvfs_err(root, "write root entry %ld failed w/ %s\n",
+                     re->fsid, strerror(errno));
+            err = -errno;
+            goto out;
+        } else if (bw == 0) {
+            /* we just retry write */
+        }
+        bl += bw;
+    } while (bl < sizeof(rd));
+
+out:
+    return err;
+}
+
+int root_read_bitmap(u64 offset, u64 len, void *data)
+{
+    int err = 0, bl, br;
+    
+    if (!data || !hro.conf.bitmap_store_fd) {
+        return -EINVAL;
+    }
+
+    bl = 0;
+    do {
+        br = pread(hro.conf.bitmap_store_fd, data + bl, len - bl,
+                   offset + bl);
+        if (br < 0) {
+            hvfs_err(root, "pread bitmap @ %ld len %ld failed w/ %s\n",
+                     offset, len, strerror(errno));
+            err = -errno;
+            break;
+        } else if (br == 0) {
+            hvfs_err(root, "pread bitmap @ %ld len %ld failed w/ EOF\n",
+                     offset, len);
+            err = -EINVAL;
+            break;
+        }
+        bl += br;
+    } while (bl < len);
+
+    return err;
+}
+
+int root_write_bitmap(void *data, u64 len, u64 *ooffset)
+{
+    loff_t offset;
+    int err = 0, bl, bw;
+
+    if (!data || !ooffset) {
+        return -EINVAL;
+    }
+
+    xlock_lock(&hro.bitmap_lock);
+    offset = hro.bitmap_tail;
+    bl = 0;
+    do {
+        bw = pwrite(hro.conf.bitmap_store_fd, data + bl, len - bl,
+                    offset + bl);
+        if (bw < 0) {
+            hvfs_err(root, "pwrite bitmap @ %ld len %ld failed w/ %s\n",
+                     offset, len, strerror(errno));
+            err = -errno;
+            break;
+        } else if (bw == 0) {
+            /* just retry to write */
+            break;
+        }
+        bl += bw;
+    } while (bl < len);
+
+    *ooffset = hro.bitmap_tail;
+    hro.bitmap_tail += len;
+    xlock_unlock(&hro.bitmap_lock);
+    
+    return err;
+}
+
+void *root_bitmap_enlarge(void *data, u64 len)
+{
+    void *new;
+    
+    len = BITMAP_ROUNDUP(len + XTABLE_BITMAP_BYTES);
+
+    new = xrealloc(data, len);
+    if (!new) {
+        hvfs_err(root, "xrealloc bitmap region failed\n");
+    }
+    return new;
+}
+
+int root_bitmap_default(struct root_entry *re)
+{
+    int err = 0;
+
+    re->gdt_bitmap = root_bitmap_enlarge(NULL, 0);
+    if (!re->gdt_bitmap) {
+        hvfs_err(root, "get bitmap region failed, no memory\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    re->gdt_flen = XTABLE_BITMAP_BYTES;
+
+    re->gdt_bitmap[0] = 0xff;
+out:    
+    return err;
+}
+
+int root_mkfs(struct root_entry *re, struct ring_entry *ring)
+{
     int err = 0;
 
     return err;
 }
+
