@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-21 20:06:54 macan>
+ * Time-stamp: <2010-05-22 15:50:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,6 +58,21 @@ struct site_entry
     xlock_t lock;
     u32 gid;                    /* group of the ring */
 };
+
+struct site_disk
+{
+#define SITE_DISK_INVALID       0x00
+#define SITE_DISK_VALID         0x01
+    u8 state;
+    u8 pad0;
+    u16 pad1;
+    u32 gid;
+    u64 fsid;
+    u64 site_id;
+    union hvfs_x_info hxi;
+};
+
+#define SITE_DISK_WHOLE_FS      (sizeof(struct site_disk) * HVFS_SITE_MAX)
 
 /* ring manager to manage the consistent hash ring, we can support dynamic
  * ring point add and delete. Notifications should be sent to the subscribed
@@ -147,6 +162,8 @@ struct addr_entry
 /* APIs */
 int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi);
 int root_write_hxi(struct site_entry *se);
+int root_create_hxi(struct site_entry *se);
+int root_clean_hxi(struct site_entry *);
 int root_read_re(struct root_entry *re);
 int root_write_re(struct root_entry *re);
 int site_mgr_lookup_create(struct site_mgr *, u64, struct site_entry **);

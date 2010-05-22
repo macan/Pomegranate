@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-20 20:11:16 macan>
+ * Time-stamp: <2010-05-22 16:03:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,6 +32,8 @@
 #define TYPE_CLIENT     1
 #define TYPE_MDSL       2
 #define TYPE_RING       3
+
+union hvfs_x_info g_hxi;
 
 char *ipaddr[] = {
     "10.10.111.9",              /* mds */
@@ -139,6 +141,65 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
 
     /* parse the register reply message */
     hvfs_err(xnet, "Begin parse the reply message\n");
+    if (msg->pair->xm_datacheck) {
+        void *data = msg->pair->xm_data;
+        void *bitmap;
+        union hvfs_x_info *hxi;
+        struct chring_tx *ct;
+        struct root_tx *rt;
+        struct hvfs_site_tx *hst;
+
+        /* parse hxi */
+        err = bparse_hxi(data, &hxi);
+        if (err < 0) {
+            hvfs_err(root, "bparse_hxi failed w/ %d\n", err);
+            goto out;
+        }
+        memcpy(&g_hxi, hxi, sizeof(*hxi));
+        data += err;
+        /* parse ring */
+        err = bparse_ring(data, &ct);
+        if (err < 0) {
+            hvfs_err(root, "bparse_ring failed w/ %d\n", err);
+            goto out;
+        }
+        data += err;
+        err = bparse_ring(data, &ct);
+        if (err < 0) {
+            hvfs_err(root, "bparse_ring failed w/ %d\n", err);
+            goto out;
+        }
+        data += err;
+        /* parse root_tx */
+        err = bparse_root(data, &rt);
+        if (err < 0) {
+            hvfs_err(root, "bparse root failed w/ %d\n", err);
+            goto out;
+        }
+        data += err;
+        hvfs_info(root, "fsid %ld gdt_uuid %ld gdt_salt %lx "
+                  "root_uuid %ld root_salt %lx\n",
+                  rt->fsid, rt->gdt_uuid, rt->gdt_salt, 
+                  rt->root_uuid, rt->root_salt);
+        /* parse bitmap */
+        err = bparse_bitmap(data, &bitmap);
+        if (err < 0) {
+            hvfs_err(root, "bparse bitmap failed w/ %d\n", err);
+            goto out;
+        }
+        data += err;
+        /* parse addr */
+        err = bparse_addr(data, &hst);
+        if (err < 0) {
+            hvfs_err(root, "bparse addr failed w/ %d\n", err);
+            goto out;
+        }
+        /* add the site table to the xnet */
+        err = hst_to_xsst(hst, err - sizeof(u32));
+        if (err) {
+            hvfs_err(root, "hst to xsst failed w/ %d\n", err);
+        }
+    }
     
 out:
     xnet_free_msg(msg);
@@ -157,12 +218,8 @@ int r2cli_do_unreg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
     union hvfs_x_info *hxi;
     int err = 0;
 
-    hxi = xzalloc(sizeof(*hxi));
-    if (!hxi) {
-        hvfs_err(xnet, "xmalloc hxi failed\n");
-        return -ENOMEM;
-    }
-
+    hxi = &g_hxi;
+    
     /* alloc one msg and send it to the peer site */
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!msg) {
@@ -171,8 +228,7 @@ int r2cli_do_unreg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
         goto out_nofree;
     }
 
-    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY |
-                     XNET_NEED_DATA_FREE,
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hro.xc->site_id, root_site);
     xnet_msg_fill_cmd(msg, HVFS_R2_UNREG, request_site, fsid);
 #ifdef XNET_EAGER_WRITEV

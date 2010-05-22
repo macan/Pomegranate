@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-21 20:23:20 macan>
+ * Time-stamp: <2010-05-22 15:41:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -126,6 +126,26 @@ int root_do_reg(struct xnet_msg *msg)
         /* it is a new create site entry, set the fsid now */
         se->fsid = msg->tx.arg1;
         se->gid = msg->tx.reserved;
+        err = root_read_hxi(se->site_id, se->fsid, &se->hxi);
+        if (err == -ENOTEXIST) {
+            err = root_create_hxi(se);
+            if (err) {
+                hvfs_err(root, "create hxi %ld %lx failed w/ %d\n",
+                         se->fsid, se->site_id, err);
+                goto send_rpy;
+            }
+            /* write the hxi to disk now */
+            err = root_write_hxi(se);
+            if (err) {
+                hvfs_err(root, "write hxi %ld %lx failed w/ %d\n",
+                         se->fsid, se->site_id, err);
+                goto send_rpy;
+            }
+        } else if (err) {
+            hvfs_err(root, "read %ld %lx hxi failed w/ %d\n",
+                     se->fsid, se->site_id, err);
+            goto send_rpy;
+        }
         hvfs_err(root, "Create site entry %lx\n", msg->tx.arg0);
     } else if (err < 0) {
         hvfs_err(root, "lookup create site entry %lx failed w/ %d\n",
@@ -593,7 +613,7 @@ int root_do_mkfs(struct xnet_msg *msg)
     }
     
 send_rpy:
-    ring_mgr_put(re);
+    ring_mgr_put(ring);
 
 out:
     xnet_free_msg(msg);

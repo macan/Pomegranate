@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-21 19:07:49 macan>
+ * Time-stamp: <2010-05-22 16:29:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -285,33 +285,45 @@ int main(int argc, char *argv[])
         ring_mgr_put(re);
     }
 
-    /* next, we setup the root entry for fsid == 1 */
+    /* next, we setup the root entry for fsid == 0 */
     {
         struct root_entry *re, *res;
 
-        re = root_mgr_alloc_re();
-        if (!re) {
-            hvfs_err(root, "root mgr alloc re failed\n");
-            err = -ENOMEM;
-            goto out;
-        }
-        re->fsid = 0;
-        re->root_uuid = 1;
-        re->gdt_flen = XTABLE_BITMAP_BYTES;
-        re->gdt_bitmap = xzalloc(re->gdt_flen);
-        if (!re->gdt_bitmap) {
-            hvfs_err(xnet, "xzalloc bitmap failed\n");
-            err = -ENOMEM;
-            goto out;
-        }
-        re->gdt_bitmap[0] = 0xff;
-        
-        res = root_mgr_insert(&hro.root, re);
-        if (IS_ERR(res)) {
-            hvfs_err(xnet, "insert root entry failed w/ %ld\n",
-                     PTR_ERR(res));
-            err = PTR_ERR(res);
-            goto out;
+        err = root_mgr_lookup_create(&hro.root, 0, &re);
+        if (err > 0) {
+            /* create a new root entry, and read in the content from the
+             * disk  */
+            hvfs_info(xnet, "Read in the fs %ld: gdt_salt %lx\n", 
+                      0UL, re->gdt_salt);
+        } else if (err == -ENOTEXIST) {
+            /* create a new root entry and insert it */
+            re = root_mgr_alloc_re();
+            if (!re) {
+                hvfs_err(xnet, "root mgr alloc re failed\n");
+                err = -ENOMEM;
+                goto out;
+            }
+            re->fsid = 0;
+            re->gdt_salt = lib_random(0xf135dae9);
+            re->root_uuid = 1;
+            re->gdt_flen = XTABLE_BITMAP_BYTES;
+            re->gdt_bitmap = xzalloc(re->gdt_flen);
+            if (!re->gdt_bitmap) {
+                hvfs_err(xnet, "xzalloc bitmap failed\n");
+                err = -ENOMEM;
+                goto out;
+            }
+            re->gdt_bitmap[0] = 0xff;
+
+            res = root_mgr_insert(&hro.root, re);
+            if (IS_ERR(res)) {
+                hvfs_err(xnet, "insert root entry faild w/ %ld\n",
+                         PTR_ERR(res));
+                err = PTR_ERR(res);
+                goto out;
+            }
+        } else if (err < 0) {
+            hvfs_err(xnet, "lookup create root 0 failed w/ %d\n", err);
         }
     }
 

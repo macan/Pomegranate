@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-21 20:24:35 macan>
+ * Time-stamp: <2010-05-22 16:29:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -959,7 +959,7 @@ int ring_mgr_compact_one(struct ring_mgr *rm, u32 gid, void **data,
     }
     /* lock the ring */
     xrwlock_rlock(&pos->ring.rwlock);
-    *len = pos->ring.used * sizeof(struct chp);
+    *len = pos->ring.used * sizeof(struct chp) + sizeof(*ct);
     *data = xmalloc(*len);
     if (!*data) {
         hvfs_err(root, "xmalloc addr space failed.\n");
@@ -1233,9 +1233,10 @@ int root_mgr_lookup_create(struct root_mgr *rm, u64 fsid,
             err = root_read_re(re);
             if (err == -ENOTEXIST) {
                 hvfs_err(root, "fsid %ld not exist\n", fsid);
-                err = 0;
+                root_mgr_free_re(re);
             } else if (err) {
                 hvfs_err(root, "root_read_re() failed w/ %d\n", err);
+                root_mgr_free_re(re);
                 goto out;
             }
             /* try to insert to the root mgr */
@@ -1532,20 +1533,193 @@ out:
 
 int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
 {
-    int err = 0;
+    struct root_entry *root;
+    struct site_disk sd;
+    u64 offset;
+    int err = 0, bl, br;
 
     /* Note: if the site_id is a new one, we should use fsid to find the root
      * entry. if the root entry does not exist, we just return an error. The
-     * fsck utility can create a new file system w/ a fsid. After reading the
+     * mkfs utility can create a new file system w/ a fsid. After reading the
      * root entry we can construct the site by ourself:) */
+
+    err = root_mgr_lookup_create(&hro.root, fsid, &root);
+    if (err) {
+        hvfs_err(root, "lookup create entry %ld failed w/ %d\n",
+                 fsid, err);
+        goto out;
+    }
+
+    /* read in the site hxi info from site store file */
+    /* Note that the site store file's layout is as follows:
+     *
+     * [fsid:0 [site table]] | [fsid:1 [site table]]
+     */
+    offset = fsid * SITE_DISK_WHOLE_FS + site_id * sizeof(struct site_disk);
+
+    bl = 0;
+    do {
+        br = pread(hro.conf.site_store_fd, ((void *)&sd) + bl, sizeof(sd) - bl,
+                   offset + bl);
+        if (br < 0) {
+            hvfs_err(root, "pread site disk %ld %lx failed w/ %s\n",
+                     fsid, site_id, strerror(errno));
+            err = -errno;
+            goto out;
+        } else if (br == 0) {
+            hvfs_err(root, "pread site disk %ld %lx faild w/ EOF\n",
+                     fsid, site_id);
+            if (bl == 0)
+                err = -ENOTEXIST;
+            else
+                err = -EINVAL;
+            goto out;
+        }
+        bl += br;
+    } while (bl < sizeof(sd));
+
+    if (sd.state != SITE_DISK_VALID) {
+        err = -ENOTEXIST;
+        goto out;
+    }
     
+    /* parse site_disk to site_entry->hxi */
+    if (sd.fsid != fsid || sd.site_id != site_id) {
+        hvfs_err(root, "Internal error, fsid/site_id mismatch!\n");
+        err = -EFAULT;
+        goto out;
+    }
+    if (HVFS_IS_CLIENT(site_id)) {
+    } else if (HVFS_IS_MDS(site_id)) {
+        struct hvfs_mds_info *hmi = (struct hvfs_mds_info *)hxi;
+
+        memcpy(hxi, &sd.hxi, sizeof(*hmi));
+        if (hmi->gdt_salt != root->gdt_salt ||
+            hmi->root_salt != root->root_salt) {
+            hvfs_err(root, "Internal error, salt mismatch in hmi and root\n");
+            hvfs_err(root, "hmi salt %lx root salt %lx\n",
+                     hmi->gdt_salt, root->gdt_salt);
+            err = -EFAULT;
+            goto out;
+        }
+    } else if (HVFS_IS_MDSL(site_id)) {
+        struct hvfs_mdsl_info *hmli = (struct hvfs_mdsl_info *)hxi;
+
+        memcpy(hxi, &sd.hxi, sizeof(*hmli));
+        if (hmli->gdt_salt != root->gdt_salt ||
+            hmli->root_salt != root->root_salt) {
+            hvfs_err(root, "Internal error, salt mismatch in hmli and root\n");
+            err = -EFAULT;
+            goto out;
+        }
+    } else if (HVFS_IS_AMC(site_id)) {
+    }
+    
+out:
     return err;
 }
 
 int root_write_hxi(struct site_entry *se)
 {
+    struct site_disk sd;
+    u64 offset;
+    int err = 0, bl, bw;
+
+    sd.state = SITE_DISK_VALID;
+    sd.gid = se->gid;
+    sd.fsid = se->fsid;
+    sd.site_id = se->site_id;
+    memcpy(&sd.hxi, &se->hxi, sizeof(se->hxi));
+
+    offset = se->fsid * SITE_DISK_WHOLE_FS + 
+        se->site_id * sizeof(struct site_disk);
+
+    bl = 0;
+    do {
+        bw = pwrite(hro.conf.site_store_fd, ((void *)&sd) + bl,
+                    sizeof(sd) - bl, offset + bl);
+        if (bw < 0) {
+            hvfs_err(root, "pwrite site disk %ld %lx failed w/ %s\n",
+                     se->fsid, se->site_id, strerror(errno));
+            err = -errno;
+            goto out;
+        } else if (bw == 0) {
+            /* just retry it */
+        }
+        bl += bw;
+    } while (bl < sizeof(sd));
+
+out:
+    return err;
+}
+
+int root_clean_hxi(struct site_entry *se)
+{
+    struct site_disk sd;
+    u64 offset;
+    int err = 0, bw;
+
+    sd.state = SITE_DISK_INVALID;
+    offset = se->fsid * SITE_DISK_WHOLE_FS +
+        se->site_id * sizeof(struct site_disk);
+    offset += offsetof(struct site_disk, state);
+
+    do {
+        bw = pwrite(hro.conf.site_store_fd, &sd.state, 1,
+                    offset);
+        if (bw < 0) {
+            hvfs_err(root, "clean site disk %ld %lx failed w/ %s\n",
+                     se->fsid, se->site_id, strerror(errno));
+            err = -errno;
+            goto out;
+        }
+    } while (bw > 0);
+
+out:
+    return err;
+}
+
+int root_create_hxi(struct site_entry *se)
+{
+    struct root_entry *root;
     int err = 0;
 
+    root = root_mgr_lookup(&hro.root, se->fsid);
+    if (IS_ERR(root)) {
+        hvfs_err(root, "lookup root %ld failed w/ %ld\n",
+                 se->fsid, PTR_ERR(root));
+        err = PTR_ERR(root);
+        goto out;
+    }
+    if (HVFS_IS_CLIENT(se->site_id)) {
+    } else if (HVFS_IS_MDS(se->site_id)) {
+        struct hvfs_mds_info *hmi = (struct hvfs_mds_info *)&se->hxi;
+
+        memset(hmi, 0, sizeof(*hmi));
+        hmi->state = HMI_STATE_CLEAN;
+        hmi->gdt_uuid = root->gdt_uuid;
+        hmi->gdt_salt = root->gdt_salt;
+        hmi->root_uuid = root->root_uuid;
+        hmi->root_salt = root->root_salt;
+        hmi->group = se->gid;
+        hmi->uuid_base = (se->site_id & HVFS_SITE_N_MASK) << 45;
+        atomic64_set(&hmi->mi_uuid, 2); /* skip gdt/root entry */
+    } else if (HVFS_IS_MDSL(se->site_id)) {
+        struct hvfs_mdsl_info *hmi = (struct hvfs_mdsl_info *)&se->hxi;
+
+        memset(hmi, 0, sizeof(*hmi));
+        hmi->state = HMI_STATE_CLEAN;
+        hmi->gdt_uuid = root->gdt_uuid;
+        hmi->gdt_salt = root->gdt_salt;
+        hmi->root_uuid = root->root_uuid;
+        hmi->root_salt = root->root_salt;
+        hmi->group = se->gid;
+        hmi->uuid_base = (se->site_id & HVFS_SITE_N_MASK) << 45;
+        atomic64_set(&hmi->mi_uuid, 2); /* skip gdt/root entry */
+    } else if (HVFS_IS_AMC(se->site_id)) {
+    }
+    
+out:
     return err;
 }
 
