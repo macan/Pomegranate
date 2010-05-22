@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-27 15:06:50 macan>
+ * Time-stamp: <2010-05-22 20:53:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -417,6 +417,8 @@ void mds_aubitmap(struct xnet_msg *msg)
     bd = mds_bc_delta_alloc();
     if (!bd) {
         hvfs_err(mds, "mds_bc_delta_alloc() failed.\n");
+        err = -ENOMEM;
+        goto send_rpy;
     }
     /* set site_id to ssite_id to send the reply message */
     bd->site_id = msg->tx.ssite_id;

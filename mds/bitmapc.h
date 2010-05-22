@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-11 20:33:19 macan>
+ * Time-stamp: <2010-05-22 19:02:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,8 +50,9 @@ struct bc_commit
 {
     struct list_head list;
     struct bc_commit_core core;
-    u64 dsite_id;
     struct bc_delta *delta;
+    u64 dsite_id;
+    u32 vid;
 };
 
 struct bc_entry

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 11:21:47 macan>
+ * Time-stamp: <2010-05-22 19:14:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -339,6 +339,7 @@ int txg_wb_itb_ll(struct commit_thread_arg *cta, struct itb *itb)
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0, 
                      hmo.site_id, p->site_id);
     xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_WBTXG, HVFS_WBTXG_ITB, cta->wbt->txg);
+    msg->tx.reserved = p->vid;
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif

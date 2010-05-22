@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 15:46:46 macan>
+ * Time-stamp: <2010-05-22 21:06:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -155,6 +155,9 @@ int root_dispatch(struct xnet_msg *msg);
 int root_do_reg(struct xnet_msg *);
 int root_do_unreg(struct xnet_msg *);
 int root_do_update(struct xnet_msg *);
+int root_do_mkfs(struct xnet_msg *);
+int root_do_hb(struct xnet_msg *);
+int root_do_bitmap(struct xnet_msg *);
 
 int bparse_hxi(void *, union hvfs_x_info **);
 int bparse_ring(void *, struct chring_tx **);

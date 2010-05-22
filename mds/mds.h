@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-15 13:17:03 macan>
+ * Time-stamp: <2010-05-22 21:14:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -134,6 +134,8 @@ struct hvfs_mds_object
 #define HMO_STATE_PAUSE         0x03
 #define HMO_STATE_RDONLY        0x04
     u64 state;
+
+    u64 ring_site;
 
     struct list_head async_unlink;
 
@@ -438,5 +440,8 @@ void mds_bitmap_cache_destroy(void);
 int txg_ddc_update_cbht(struct dir_delta_au *);
 int txg_ddc_send_request(struct dir_delta_au *);
 int txg_ddc_send_reply(struct hvfs_dir_delta *);
+
+u64 mds_select_ring(struct hvfs_mds_object *);
+void mds_set_ring(u64);
 
 #endif

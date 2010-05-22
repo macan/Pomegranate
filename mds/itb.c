@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 11:16:28 macan>
+ * Time-stamp: <2010-05-22 19:14:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,6 +68,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
                      hmo.xc->site_id, p->site_id);
     xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_ITB, puuid, itbid);
+    msg->tx.reserved = p->vid;
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif

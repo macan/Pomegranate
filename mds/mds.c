@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 19:49:00 macan>
+ * Time-stamp: <2010-05-22 21:15:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -530,5 +530,18 @@ void mds_destroy(void)
     /* close the files */
     if (hmo.conf.pf_file)
         fclose(hmo.conf.pf_file);
+}
+
+u64 mds_select_ring(struct hvfs_mds_object *hmo)
+{
+    if (hmo->ring_site)
+        return hmo->ring_site;
+    else
+        return HVFS_RING(0);
+}
+
+void mds_set_ring(u64 site_id)
+{
+    hmo.ring_site = site_id;
 }
 

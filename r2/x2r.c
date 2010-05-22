@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 15:41:16 macan>
+ * Time-stamp: <2010-05-22 21:07:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -615,6 +615,91 @@ int root_do_mkfs(struct xnet_msg *msg)
 send_rpy:
     ring_mgr_put(ring);
 
+out:
+    xnet_free_msg(msg);
+    
+    return err;
+}
+
+/* root_do_hb() handling the heartbeat from the r2 client
+ *
+ * The timeout checker always increase the site_entry->lost_hb, on receiving
+ * the client's hb, we just update the site_entry->lost_hb to ZERO.
+ */
+int root_do_hb(struct xnet_msg *msg)
+{
+    int err = 0;
+
+    return err;
+}
+
+int root_do_bitmap(struct xnet_msg *msg)
+{
+    struct site_entry *se;
+    struct root_entry *re;
+    int err = 0;
+
+    /* sanity checking */
+    if (msg->tx.len != 0) {
+        hvfs_err(root, "Invalid AUBITMAP request %d received from %lx\n",
+                 msg->tx.reqno, msg->tx.ssite_id);
+        err = -EINVAL;
+        goto out;
+    }
+
+    /* Step 1: we find the target bitmap, and flip the bit(in tx.arg1) */
+    /* get the fsid from the site entry */
+    se = site_mgr_lookup(&hro.site, msg->tx.ssite_id);
+    if (IS_ERR(se)) {
+        hvfs_err(root, "site mgr lookup %lx failed w/ %ld\n",
+                 msg->tx.ssite_id, PTR_ERR(se));
+        err = PTR_ERR(se);
+        goto out;
+    }
+    
+    /* find the root entry to get bitmap */
+    re = root_mgr_lookup(&hro.root, se->fsid);
+    if (IS_ERR(re)) {
+        hvfs_err(root, "root mgr lookup %ld failed w/ %ld\n",
+                 se->fsid, PTR_ERR(re));
+        err = PTR_ERR(re);
+        goto out;
+    }
+
+    /* check gdt uuid now */
+    if (re->gdt_uuid != msg->tx.arg0) {
+        hvfs_err(root, "Update uuid %ld to r2 server on fsid %ld?\n",
+                 msg->tx.arg0, se->fsid);
+        err = -EINVAL;
+        goto out;
+    }
+
+    /* flip the bit now */
+    __set_bit(msg->tx.arg1, (unsigned long *)re->gdt_bitmap);
+    
+    /* Step 2: we reply the caller w/ AUBITMAP_R */
+    {
+        struct xnet_msg *rpy;
+
+        rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
+        if (!rpy) {
+            hvfs_err(root, "xnet_alloc_msg() failed.\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        xnet_msg_fill_tx(rpy, XNET_MSG_REQ, 0,
+                         hro.site_id, msg->tx.ssite_id);
+        xnet_msg_fill_cmd(rpy, HVFS_MDS2MDS_AUBITMAP_R, msg->tx.arg0,
+                          msg->tx.arg1);
+#ifdef XNET_EAGER_WRITEV
+        xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
+        err = xnet_send(hro.xc, rpy);
+        if (err) {
+            hvfs_err(root, "xnet_send() failed w/ %d\n", err);
+        }
+        xnet_free_msg(rpy);
+    }
 out:
     xnet_free_msg(msg);
     

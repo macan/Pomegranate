@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 20:01:14 macan>
+ * Time-stamp: <2010-05-22 19:17:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -112,15 +112,16 @@ int msg_wait()
 }
 
 static inline
-u64 SELECT_SITE(u64 itbid, u64 psalt, int type)
+u64 SELECT_SITE(u64 itbid, u64 psalt, int type, u32 *vid)
 {
     struct chp *p;
 
     p = ring_get_point(itbid, psalt, hmo.chring[type]);
     if (IS_ERR(p)) {
         hvfs_err(xnet, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
-        return 0;
+        return -1UL;
     }
+    *vid = p->vid;
     return p->site_id;
 }
 
@@ -149,6 +150,7 @@ int get_send_msg_create(int nid, u64 puuid, u64 itbid,
     struct hvfs_md_reply *hmr;
     struct mdu_update *mu;
     u64 dsite;
+    u32 vid;
     int err = 0, recreate = 0;
 
     /* construct the hvfs_index */
@@ -169,7 +171,7 @@ int get_send_msg_create(int nid, u64 puuid, u64 itbid,
     err = SET_ITBID(hi);
     if (err)
         goto out;
-    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS);
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
     
     hi->flag = INDEX_CREATE | INDEX_BY_NAME;
     memcpy(hi->name, name, strlen(name));
@@ -287,6 +289,7 @@ int get_send_msg_create_dir(int nid, u64 puuid, u64 itbid,
     struct hvfs_md_reply *hmr;
     struct mdu_update *mu;
     u64 dsite;
+    u32 vid;
     int err = 0, recreate = 0;
 
     /* construct the hvfs_index */
@@ -307,7 +310,7 @@ int get_send_msg_create_dir(int nid, u64 puuid, u64 itbid,
     err = SET_ITBID(hi);
     if (err)
         goto out;
-    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS);
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
     
     hi->flag = INDEX_CREATE | INDEX_BY_NAME | INDEX_CREATE_DIR;
     memcpy(hi->name, name, strlen(name));
@@ -440,6 +443,7 @@ int get_send_msg_lookup(int nid, u64 puuid, u64 itbid)
     struct hvfs_index *hi;
     struct hvfs_md_reply *hmr;
     u64 dsite;
+    u32 vid;
     int err = 0;
 
     memset(name, 0, sizeof(name));
@@ -459,7 +463,7 @@ int get_send_msg_lookup(int nid, u64 puuid, u64 itbid)
     err = SET_ITBID(hi);
     if (err)
         goto out_free;
-    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS);
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
 
     hi->flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
     memcpy(hi->name, name, strlen(name));
@@ -564,6 +568,7 @@ int get_send_msg_unlink(int nid, u64 puuid, u64 itbid)
     struct hvfs_index *hi;
     struct hvfs_md_reply *hmr;
     u64 dsite;
+    u32 vid;
     int err = 0;
 
     memset(name, 0, sizeof(name));
@@ -582,7 +587,7 @@ int get_send_msg_unlink(int nid, u64 puuid, u64 itbid)
     err = SET_ITBID(hi);
     if (err)
         goto out_free;
-    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS);
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
 
     hi->flag = INDEX_UNLINK | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
     memcpy(hi->name, name, strlen(name));
@@ -684,6 +689,7 @@ void __data_read(struct hvfs_index *hi, struct column *c)
     struct storage_index *si;
     struct xnet_msg *msg;
     u64 dsite;
+    u32 vid = 0;
     int err = 0, i;
 
     hvfs_debug(xnet, "Read column itbid %ld len %ld offset %ld\n",
@@ -713,12 +719,13 @@ void __data_read(struct hvfs_index *hi, struct column *c)
     si->scd.cr[0].req_len = c->len;
 
     /* select the MDSL site by itbid */
-    dsite = SELECT_SITE(c->stored_itbid, hi->psalt, CH_RING_MDSL);
+    dsite = SELECT_SITE(c->stored_itbid, hi->psalt, CH_RING_MDSL, &vid);
 
     /* construct the request message */
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hmo.xc->site_id, dsite);
     xnet_msg_fill_cmd(msg, HVFS_CLT2MDSL_READ, 0, 0);
+    msg->tx.reserved = vid;
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -770,6 +777,7 @@ int get_send_msg_rdata(int nid, u64 puuid, u64 itbid)
     struct hvfs_index *hi;
     struct hvfs_md_reply *hmr;
     u64 dsite;
+    u32 vid;
     int err = 0;
 
     memset(name, 0, sizeof(name));
@@ -789,7 +797,7 @@ int get_send_msg_rdata(int nid, u64 puuid, u64 itbid)
     err = SET_ITBID(hi);
     if (err)
         goto out_free;
-    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS);
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
 
     hi->flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_COLUMN;
     memcpy(hi->name, name, strlen(name));
@@ -901,6 +909,7 @@ void __data_write(struct hvfs_index *hi, struct column *c)
     struct mu_column *mc;
     u64 dsite;
     u64 location;
+    u32 vid = 0;
     int len = lib_random(1023) + 1;
     int err = 0, i;
 
@@ -934,12 +943,13 @@ void __data_write(struct hvfs_index *hi, struct column *c)
     si->scd.cr[0].req_len = len;
 
     /* select the MDSL site by itbid */
-    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDSL);
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDSL, &vid);
 
     /* construct the request message */
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hmo.xc->site_id, dsite);
     xnet_msg_fill_cmd(msg, HVFS_CLT2MDSL_WRITE, 0, 0);
+    msg->tx.reserved = vid;
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -983,7 +993,7 @@ void __data_write(struct hvfs_index *hi, struct column *c)
     mc = (void *)mu + sizeof(*mu);
 
     /* select the MDSL site by itbid */
-    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS);
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
 
     hi->flag = INDEX_MDU_UPDATE | INDEX_BY_UUID;
     hi->dlen = sizeof(*mu) + sizeof(struct mu_column);
@@ -1031,6 +1041,7 @@ int get_send_msg_wdata(int nid, u64 puuid, u64 itbid)
     struct hvfs_index *hi;
     struct hvfs_md_reply *hmr;
     u64 dsite;
+    u32 vid;
     int err = 0;
 
     memset(name, 0, sizeof(name));
@@ -1050,7 +1061,7 @@ int get_send_msg_wdata(int nid, u64 puuid, u64 itbid)
     err = SET_ITBID(hi);
     if (err)
         goto out_free;
-    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS);
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
 
     hi->flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_COLUMN;
     memcpy(hi->name, name, strlen(name));
@@ -1485,6 +1496,7 @@ int lookup_root()
     struct hvfs_md_reply *hmr;
     struct dhe *gdte;
     u64 dsite;
+    u32 vid;
     int err = 0;
 
     gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
@@ -1503,7 +1515,7 @@ int lookup_root()
     hi.itbid = mds_get_itbid(gdte, hi.hash);
     hi.flag = INDEX_LOOKUP | INDEX_BY_UUID;
 
-    dsite = SELECT_SITE(hi.itbid, hi.psalt, CH_RING_MDS);
+    dsite = SELECT_SITE(hi.itbid, hi.psalt, CH_RING_MDS, &vid);
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!msg) {

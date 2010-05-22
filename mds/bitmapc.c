@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-30 16:25:48 macan>
+ * Time-stamp: <2010-05-22 19:06:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -464,6 +464,7 @@ int mds_bc_backend_load(struct bc_entry *be, u64 itbid, u64 location)
                      hmo.site_id, p->site_id);
     xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_BITMAP, be->uuid, 
                       location + be->offset);
+    msg->tx.reserved = p->vid;
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -522,6 +523,7 @@ int __customized_send_request(struct bc_commit *commit)
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hmo.site_id, commit->dsite_id);
     xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_BTCOMMIT, commit->core.uuid, 0);
+    msg->tx.reserved = commit->vid;
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -800,6 +802,7 @@ int mds_bc_backend_commit(void)
         bc->core.itbid = pos->itbid;
         bc->core.location = location;
         bc->dsite_id = p->site_id;
+        bc->vid = p->vid;
         bc->delta = pos;
         list_del_init(&pos->list);
 

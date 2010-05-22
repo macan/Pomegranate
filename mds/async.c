@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-27 17:22:40 macan>
+ * Time-stamp: <2010-05-22 20:22:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -257,7 +257,7 @@ int __aur_itb_bitmap(struct async_update_request *aur)
     struct chp *p;
     struct hvfs_txg *txg = (struct hvfs_txg *)aur->arg;
     u64 hash, itbid;
-    int err = 0, i, local = 0, remote = 0;
+    int err = 0, i, local = 0, remote = 0, r2 = 0;
 
     /* we should iterate on the wbt->bdb list and transform each entry to
      * bc_delta and adding to the g_bitmap_deltas list and sending each entry
@@ -295,6 +295,17 @@ int __aur_itb_bitmap(struct async_update_request *aur)
     /* Iterate on the g_bitmap_deltas list to send the request now. */
     xlock_lock(&g_bitmap_deltas_lock);
     list_for_each_entry(bd, &g_bitmap_deltas, list) {
+        /* Step 0: we check if the uuid is the gdt_uuid */
+        if (unlikely(bd->uuid == hmi.gdt_uuid)) {
+            bd->site_id = mds_select_ring(&hmo);
+            err = __customized_send_request(bd);
+            if (err) {
+                hvfs_err(mds, "send AU bitmap flip request failed w/ %d\n",
+                         err);
+            }
+            r2++;
+            continue;
+        }
         /* Step 1: recalculate the dest site_id */
         hash = hvfs_hash_gdt(bd->uuid, hmi.gdt_salt);
         itbid = mds_get_itbid(gdte, hash);
@@ -331,7 +342,7 @@ int __aur_itb_bitmap(struct async_update_request *aur)
         }
     }
     xlock_unlock(&g_bitmap_deltas_lock);
-    hvfs_err(mds, "local %d remote %d\n", local, remote);
+    hvfs_err(mds, "local %d remote %d r2 %d\n", local, remote, r2);
 
 out:
     return err;
