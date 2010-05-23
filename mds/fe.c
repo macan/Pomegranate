@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-06 10:15:54 macan>
+ * Time-stamp: <2010-05-23 16:56:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -158,11 +158,12 @@ int mds_fe_dispatch(struct xnet_msg *msg)
 #endif
 
     if (HVFS_IS_CLIENT(msg->tx.ssite_id)) {
-        struct hvfs_index *hi = NULL;
+        struct hvfs_index *hi;
         struct hvfs_tx *tx;
         struct chp *p;
         struct dhe *e;
 
+    client_proxy:
         /* fast path for proxy load bitmap */
         if (unlikely(((msg->tx.cmd & ~HVFS_CLT2MDS_BASE) & HVFS_CLT2MDS_LB) 
                      || (msg->tx.cmd == HVFS_CLT2MDS_LB_PROXY))) {
@@ -272,6 +273,12 @@ int mds_fe_dispatch(struct xnet_msg *msg)
     } else if (HVFS_IS_MDSL(msg->tx.ssite_id)) {
         return mds_mdsl_dispatch(msg);
     } else if (HVFS_IS_RING(msg->tx.ssite_id)) {
+        if (msg->tx.cmd & HVFS_CLT2MDS_BASE ||
+            msg->tx.cmd == HVFS_CLT2MDS_LB_PROXY) {
+            hvfs_info(mds, "Request %lx from %lx proxy to client "
+                      "processing.\n", msg->tx.cmd, msg->tx.ssite_id);
+            goto client_proxy;
+        }
         return mds_ring_dispatch(msg);
     } else if (HVFS_IS_ROOT(msg->tx.ssite_id)) {
         return mds_root_dispatch(msg);

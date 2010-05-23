@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 15:50:11 macan>
+ * Time-stamp: <2010-05-23 12:00:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -168,6 +168,7 @@ int root_read_re(struct root_entry *re);
 int root_write_re(struct root_entry *re);
 int site_mgr_lookup_create(struct site_mgr *, u64, struct site_entry **);
 int root_mgr_lookup_create(struct root_mgr *, u64, struct root_entry **);
+int root_mgr_lookup_create2(struct root_mgr *, u64, struct root_entry **);
 int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *);
 int ring_mgr_compact_one(struct ring_mgr *, u32, void **, int *);
 struct ring_entry *ring_mgr_lookup(struct ring_mgr *, u32);

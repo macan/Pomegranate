@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 16:03:22 macan>
+ * Time-stamp: <2010-05-23 20:38:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -91,6 +91,70 @@ u64 HVFS_TYPE_SEL(int type, int id)
     return site_id;
 }
 
+void __dump_hxi(u64 site_id)
+{
+    if (HVFS_IS_CLIENT(site_id)) {
+        struct hvfs_client_info *hci = (struct hvfs_client_info *)&g_hxi;
+        hvfs_info(xnet, "HCI: gdt_uuid %ld gdt_salt %lx root_uuid %ld"
+                  " root_salt %lx group %ld\n",
+                  hci->gdt_uuid, hci->gdt_salt, hci->root_uuid,
+                  hci->root_salt, hci->group);
+    } else if (HVFS_IS_MDS(site_id)) {
+        struct hvfs_mds_info *hmi = (struct hvfs_mds_info *)&g_hxi;
+
+        hvfs_info(xnet, "HMI: gdt_uuid %ld gdt_salt %lx root_uuid %ld"
+                  " root_salt %lx group %ld\n",
+                  hmi->gdt_uuid, hmi->gdt_salt, hmi->root_uuid,
+                  hmi->root_salt, hmi->group);
+    } else if (HVFS_IS_MDSL(site_id)) {
+        struct hvfs_mdsl_info *hmi = (struct hvfs_mdsl_info *)&g_hxi;
+
+        hvfs_info(xnet, "HMI: gdt_uuid %ld gdt_salt %lx root_uuid %ld"
+                  " root_salt %lx group %ld\n",
+                  hmi->gdt_uuid, hmi->gdt_salt, hmi->root_uuid,
+                  hmi->root_salt, hmi->group);
+    } else if (HVFS_IS_AMC(site_id)) {
+        struct hvfs_amc_info *ami = (struct hvfs_amc_info *)&g_hxi;
+
+        hvfs_info(xnet, "AMI: gdt_uuid %ld gdt_salt %lx root_uuid %ld"
+                  " root_salt %lx group %ld\n",
+                  ami->gdt_uuid, ami->gdt_salt, ami->root_uuid,
+                  ami->root_salt, ami->group);
+    }
+}
+
+void __update_hxi(u64 site_id, struct root_tx *rt)
+{
+    if (HVFS_IS_CLIENT(site_id)) {
+        struct hvfs_client_info *hci = (struct hvfs_client_info *)&g_hxi;
+        hci->gdt_uuid = rt->gdt_uuid;
+        hci->gdt_salt = rt->gdt_salt;
+        hci->root_uuid = rt->root_uuid;
+        hci->root_salt = rt->root_salt;
+    } else if (HVFS_IS_MDS(site_id)) {
+        struct hvfs_mds_info *hmi = (struct hvfs_mds_info *)&g_hxi;
+
+        hmi->gdt_uuid = rt->gdt_uuid;
+        hmi->gdt_salt = rt->gdt_salt;
+        hmi->root_uuid = rt->root_uuid;
+        hmi->root_salt = rt->root_salt;
+    } else if (HVFS_IS_MDSL(site_id)) {
+        struct hvfs_mdsl_info *hmi = (struct hvfs_mdsl_info *)&g_hxi;
+
+        hmi->gdt_uuid = rt->gdt_uuid;
+        hmi->gdt_salt = rt->gdt_salt;
+        hmi->root_uuid = rt->root_uuid;
+        hmi->root_salt = rt->root_salt;
+    } else if (HVFS_IS_AMC(site_id)) {
+        struct hvfs_amc_info *ami = (struct hvfs_amc_info *)&g_hxi;
+
+        ami->gdt_uuid = rt->gdt_uuid;
+        ami->gdt_salt = rt->gdt_salt;
+        ami->root_uuid = rt->root_uuid;
+        ami->root_salt = rt->root_salt;
+    }
+}
+
 /* r2cli_do_reg()
  *
  * @gid: already right shift 2 bits
@@ -140,7 +204,7 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
     }
 
     /* parse the register reply message */
-    hvfs_err(xnet, "Begin parse the reply message\n");
+    hvfs_err(xnet, "Begin parse the reg reply message\n");
     if (msg->pair->xm_datacheck) {
         void *data = msg->pair->xm_data;
         void *bitmap;
@@ -156,6 +220,7 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
             goto out;
         }
         memcpy(&g_hxi, hxi, sizeof(*hxi));
+        __dump_hxi(request_site);
         data += err;
         /* parse ring */
         err = bparse_ring(data, &ct);
@@ -260,6 +325,81 @@ out_nofree:
     return err;
 }
 
+/* r2cli_do_mkfs()
+ *
+ * @gid: already right shift 2 bits
+ */
+int r2cli_do_mkfs(u64 request_site, u64 root_site, u64 fsid, u32 gid)
+{
+    struct xnet_msg *msg;
+    int err = 0;
+
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_nofree;
+    }
+
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hro.xc->site_id, root_site);
+    xnet_msg_fill_cmd(msg, HVFS_R2_MKFS, request_site, fsid);
+    msg->tx.reserved = gid;
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    /* send the mkfs request to root_site w/ requested siteid = request_site */
+    err = xnet_send(hro.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out;
+    }
+
+    /* this means we have got the reply, parse it! */
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ERECOVER) {
+        hvfs_err(xnet, "R2 notify a client recover process on site "
+                 "%lx, do it.\n", request_site);
+    } else if (msg->pair->tx.err == -EHWAIT) {
+        hvfs_err(xnet, "R2 reply that another instance is still alive, "
+                 "wait a moment and retry.\n");
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "mkfs site %lx failed w/ %d\n", request_site,
+                 msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out;
+    }
+
+    /* parse the mkfs reply message */
+    hvfs_err(xnet, "Begin parse the mkfs reply message\n");
+    if (msg->pair->xm_datacheck) {
+        void *data = msg->pair->xm_data;
+        struct root_tx *rt;
+
+        /* parse root tx */
+        err = bparse_root(data, &rt);
+        if (err < 0) {
+            hvfs_err(root, "bparse root failed w/ %d\n", err);
+            goto out;
+        }
+        hvfs_info(root, "MKFS root_salt %lx\n", rt->root_salt);
+        /* update to g_hxi */
+        __update_hxi(request_site, rt);
+        err = 0;
+    } else {
+        hvfs_err(xnet, "Internal error, data lossing\n");
+        err = -EFAULT;
+    }
+
+out:
+    xnet_free_msg(msg);
+out_nofree:
+
+    return err;
+}
+
 int main(int argc, char *argv[])
 {
     struct xnet_type_ops ops = {
@@ -333,6 +473,13 @@ int main(int argc, char *argv[])
         goto out;
     }
     
+    err = r2cli_do_mkfs(self, HVFS_RING(0), 0, 0);
+    if (err) {
+        hvfs_err(xnet, "mkfs self %x w/ r2 %x failed w/ %d\n",
+                 self, HVFS_RING(0), err);
+        goto out;
+    }
+
     err = r2cli_do_unreg(self, HVFS_RING(0), 0, 0);
     if (err) {
         hvfs_err(xnet, "unreg self %x w/ r2 %x failed w/ %d\n",

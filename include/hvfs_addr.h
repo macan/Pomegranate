@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-20 16:34:38 macan>
+ * Time-stamp: <2010-05-23 11:13:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -89,6 +89,26 @@ struct hvfs_site_tx
 #define HMI_STATE_LASTMIG       0x03
 #define HMI_STATE_LASTPAUSE     0x04
 
+struct hvfs_client_info
+{
+    u32 state;
+    u64 gdt_salt;
+    u64 gdt_uuid;
+    u64 root_uuid;
+    u64 root_salt;
+    u64 group;
+};
+
+struct hvfs_amc_info
+{
+    u32 state;
+    u64 gdt_salt;
+    u64 gdt_uuid;
+    u64 root_uuid;
+    u64 root_salt;
+    u64 group;
+};
+
 struct hvfs_mds_info 
 {
     u32 state;
@@ -132,6 +152,8 @@ union hvfs_x_info
     u8 array[HVFS_X_INFO_LEN];
     struct hvfs_mds_info hmi;
     struct hvfs_mdsl_info hmli;
+    struct hvfs_client_info hci;
+    struct hvfs_amc_info ami;
 };
 
 /* please refer to r2/mgr.h struct root, this is a mirror of that structure */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 16:29:45 macan>
+ * Time-stamp: <2010-05-23 14:35:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -295,7 +295,7 @@ int main(int argc, char *argv[])
              * disk  */
             hvfs_info(xnet, "Read in the fs %ld: gdt_salt %lx\n", 
                       0UL, re->gdt_salt);
-        } else if (err == -ENOTEXIST) {
+        } else if (err == -ENOENT) {
             /* create a new root entry and insert it */
             re = root_mgr_alloc_re();
             if (!re) {
@@ -315,7 +315,7 @@ int main(int argc, char *argv[])
             }
             re->gdt_bitmap[0] = 0xff;
 
-            res = root_mgr_insert(&hro.root, re);
+//            res = root_mgr_insert(&hro.root, re);
             if (IS_ERR(res)) {
                 hvfs_err(xnet, "insert root entry faild w/ %ld\n",
                          PTR_ERR(res));

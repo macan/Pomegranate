@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 21:07:16 macan>
+ * Time-stamp: <2010-05-23 20:39:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -557,17 +557,15 @@ int root_do_mkfs(struct xnet_msg *msg)
         goto send_rpy;
     }
     
-    err = root_mgr_lookup_create(&hro.root, msg->tx.arg1, &re);
+    err = root_mgr_lookup_create2(&hro.root, msg->tx.arg1, &re);
     if (err < 0) {
         hvfs_err(root, "root mgr lookup create %ld failed w/ %d\n",
                  msg->tx.arg1, err);
         goto send_rpy;
     } else if (err > 0) {
-        hvfs_info(root, "We just create fsid %ld\n", msg->tx.arg1);
-        re->fsid = msg->tx.arg1;
-        re->gdt_uuid = 0;
-        re->gdt_salt = lib_random(0xffdefa7);
-        re->root_uuid = 1;
+    create_it:
+        hvfs_err(root, "We just create fsid %ld\n", msg->tx.arg1);
+
         /* setup the bitmap region */
         err = root_bitmap_default(re);
         if (err) {
@@ -578,10 +576,11 @@ int root_do_mkfs(struct xnet_msg *msg)
 
         /* we should create the root dir entry in the gdt w/ the selected
          * ring */
-        err = root_mkfs(re, ring);
+        err = root_mkfs(re, ring, (u32)msg->tx.reserved);
         if (err) {
             hvfs_err(root, "root_mkfs %ld failed w/ %d\n",
                      re->fsid, err);
+            goto send_rpy;
         } else {
             /* pack the root_tx in the reply message */
             struct root_tx *rt;
@@ -598,7 +597,7 @@ int root_do_mkfs(struct xnet_msg *msg)
             rt->root_uuid = re->root_uuid;
             rt->root_salt = re->root_salt;
 
-            xnet_msg_add_sdata(rpy, rt, sizeof(*rt));
+            __pack_msg(rpy, rt, sizeof(*rt));
             xnet_set_auto_free(rpy);
         }
         /* write the new entry to disk now */
@@ -608,13 +607,17 @@ int root_do_mkfs(struct xnet_msg *msg)
                      re->fsid, err);
         }
     } else {
+        if (re->root_salt == -1UL) {
+            goto create_it;
+        }
         hvfs_info(root, "fsid %ld already exist\n", msg->tx.arg1);
         err = -EEXIST;
     }
     
 send_rpy:
     ring_mgr_put(ring);
-
+    __root_send_rpy(rpy, err);
+    
 out:
     xnet_free_msg(msg);
     
@@ -633,6 +636,10 @@ int root_do_hb(struct xnet_msg *msg)
     return err;
 }
 
+/* root_do_bitmap() interact with MDS server
+ *
+ * DO NOT follow pack protocol!
+ */
 int root_do_bitmap(struct xnet_msg *msg)
 {
     struct site_entry *se;
@@ -652,7 +659,8 @@ int root_do_bitmap(struct xnet_msg *msg)
     se = site_mgr_lookup(&hro.site, msg->tx.ssite_id);
     if (IS_ERR(se)) {
         hvfs_err(root, "site mgr lookup %lx failed w/ %ld\n",
-                 msg->tx.ssite_id, PTR_ERR(se));
+                 msg->tx.ssite_id, PTR_ERR(se));        
+
         err = PTR_ERR(se);
         goto out;
     }

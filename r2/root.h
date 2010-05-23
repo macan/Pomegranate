@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 21:06:10 macan>
+ * Time-stamp: <2010-05-23 14:47:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -165,6 +165,6 @@ int bparse_root(void *, struct root_tx **);
 int bparse_bitmap(void *, void **);
 int bparse_addr(void *, struct hvfs_site_tx **);
 
-int root_mkfs(struct root_entry *, struct ring_entry *);
+int root_mkfs(struct root_entry *, struct ring_entry *, u32);
 
 #endif

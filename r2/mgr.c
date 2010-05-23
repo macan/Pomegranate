@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 16:29:16 macan>
+ * Time-stamp: <2010-05-23 19:49:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,9 @@
 
 #include "mgr.h"
 #include "root.h"
+#include "mds_api.h"
+#include "ite.h"
+#include "xtable.h"
 
 int site_mgr_init(struct site_mgr *sm)
 {
@@ -1203,7 +1206,8 @@ void root_mgr_remove(struct root_mgr *rm, u64 fsid)
 
 /* root_mgr_lookup_create()
  *
- * This function lookup or create a root enty
+ * This function lookup or create a root enty and load it. if it does not
+ * exist, we just return -ENOENT
  *
  * Return value: <0 error; ==0 ok(found); >0 new
  */
@@ -1231,9 +1235,84 @@ int root_mgr_lookup_create(struct root_mgr *rm, u64 fsid,
             re->fsid = fsid;
             /* we should read in the content of the root entry */
             err = root_read_re(re);
-            if (err == -ENOTEXIST) {
+            if (err == -ENOENT) {
                 hvfs_err(root, "fsid %ld not exist\n", fsid);
                 root_mgr_free_re(re);
+                goto out;
+            } else if (err) {
+                hvfs_err(root, "root_read_re() failed w/ %d\n", err);
+                root_mgr_free_re(re);
+                goto out;
+            }
+            /* try to insert to the root mgr */
+            *ore = root_mgr_insert(rm, re);
+            if (IS_ERR(*ore)) {
+                hvfs_err(root, "root_mgr_insert() failed w/ %ld\n",
+                         PTR_ERR(*ore));
+                err = PTR_ERR(*ore);
+                root_mgr_free_re(re);
+            }
+            if (re != *ore) {
+                hvfs_err(root, "Someone insert root %ld prior us, self free\n",
+                         fsid);
+                root_mgr_free_re(re);
+            }
+            err = 1;
+        } else {
+            /* error here */
+            err = PTR_ERR(re);
+            hvfs_err(root, "root_mgr_lookup() failed w/ %d\n", err);
+            goto out;
+        }
+    } else {
+        /* set ore to the lookuped entry */
+        *ore = re;
+    }
+        
+out:
+    return err;
+}
+
+/* root_mgr_lookup_create2()
+ *
+ * This function lookup or create a root enty. if the root entry does not
+ * exist, we just create a new one!
+ *
+ * Return value: <0 error; ==0 ok(found); >0 new
+ */
+int root_mgr_lookup_create2(struct root_mgr *rm, u64 fsid,
+                           struct root_entry **ore)
+{
+    struct root_entry *re;
+    int err = 0;
+
+    if (!ore) {
+        err = -EINVAL;
+        goto out;
+    }
+
+    re = root_mgr_lookup(rm, fsid);
+    if (IS_ERR(re)) {
+        if (re == ERR_PTR(-ENOENT)) {
+            /* we should create a new site entry now */
+            re = root_mgr_alloc_re();
+            if (!re) {
+                hvfs_err(root, "root_mgr_alloc_re() failed w/ ENOEM.\n");
+                err = -ENOMEM;
+                goto out;
+            }
+            re->fsid = fsid;
+            /* we should read in the content of the root entry */
+            err = root_read_re(re);
+            if (err == -ENOENT) {
+                hvfs_err(root, "fsid %ld not exist, however we just "
+                         "create it\n", fsid);
+                re->gdt_uuid = 0;
+                re->gdt_salt = lib_random(0xffdefa7);
+                re->root_uuid = 1;
+                re->root_salt = -1UL;      /* this means that the clients
+                                            * should not get a successful
+                                            * reg */
             } else if (err) {
                 hvfs_err(root, "root_read_re() failed w/ %d\n", err);
                 root_mgr_free_re(re);
@@ -1288,6 +1367,137 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *hxi)
         return -EINVAL;
 
     if (HVFS_IS_CLIENT(site_id)) {
+        /* we should reject if root->root_salt is -1UL */
+        /* Step 1: find site state in the site_mgr */
+        se = site_mgr_lookup(&hro.site, site_id);
+        if (se == ERR_PTR(-ENOENT)) {
+            hvfs_err(root, "site_mgr_lookup() site %lx failed, "
+                     "no such site.\n", site_id);
+            err = -ENOENT;
+            goto out;
+        }
+        xlock_lock(&se->lock);
+        /* check whether the group id is correct */
+        if (gid != se->gid) {
+            hvfs_err(root, "CHRING group mismatch: "
+                     "request %d conflict w/ %d\n", 
+                     gid, se->gid);
+            err = -EINVAL;
+            goto out_client_unlock;
+        }
+        switch (se->state) {
+        case SE_STATE_INIT:
+            /* we should init the se->hxi by read or create the hxi */
+            err = root_read_hxi(site_id, fsid, hxi);
+            if (err == -ENOTEXIST) {
+                err = root_create_hxi(se);
+                if (err) {
+                    hvfs_err(root, "create hxi %ld %lx failed w/ %d\n",
+                             se->fsid, se->site_id, err);
+                    goto out_client_unlock;
+                }
+                /* write the hxi to disk now */
+                err = root_write_hxi(se);
+                if (err) {
+                    hvfs_err(root, "write hxi %ld %lx failed w/ %d\n",
+                             se->fsid, se->site_id, err);
+                    goto out_client_unlock;
+                }
+            } else if (err) {
+                hvfs_err(root, "root_read_hxi() failed w/ %d\n", err);
+                goto out_client_unlock;
+            }
+            se->hxi.hci = hxi->hci;
+            se->state = SE_STATE_NORMAL;
+            break;
+        case SE_STATE_SHUTDOWN:
+            /* we should check whether the fsid is the same as in the se->hxi,
+             * if not, we must reload the new view from storage. */
+
+            /* fall through */
+        case SE_STATE_NORMAL:
+            /* we should check whether the fsid is the same as in the
+             * se->hxi. if not, we must reject the new request. */
+            err = root_mgr_lookup_create(&hro.root, fsid, &root);
+            if (err < 0) {
+                hvfs_err(root, "root_mgr_lookup() fsid %ld failed w/"
+                         "%d\n", fsid, err);
+                goto out_client_unlock;
+            }
+
+            if (root->gdt_salt != hxi->hci.gdt_salt ||
+                root->root_salt != hxi->hci.root_salt) {
+                /* hoo, the site requested another fsid, we should change the
+                 * current site entry to the new view. But, we must check
+                 * whether there is another instance that is running. */
+                /* check if the root_salt is -1UL, if it is, we update it */
+                ASSERT(fsid != se->fsid, root);
+
+                if (se->state != SE_STATE_SHUTDOWN) {
+                    /* ok, we reject the fs change */
+                    err = -EEXIST;
+                    goto out_client_unlock;
+                }
+                /* ok, we can change the fs now */
+                err = root_read_hxi(site_id, fsid, hxi);
+                if (err) {
+                    hvfs_err(root, "root_read_hxi() failed w/ %d\n",
+                             err);
+                    goto out_client_unlock;
+                }
+                se->hxi.hci = hxi->hci;
+                se->state = SE_STATE_NORMAL;
+            } else {
+                /* ok, do not need fs change */
+                if (se->state != SE_STATE_SHUTDOWN) {
+                    /* hoo, there is another server instanc running, we should
+                     * reject this request. */
+                    err = -EEXIST;
+                    goto out_client_unlock;
+                }
+
+                /* fs not change, we just modify the state */
+                hxi->hci = se->hxi.hci;
+                se->state = SE_STATE_NORMAL;
+            }
+            break;
+        case SE_STATE_TRANSIENT:
+            /* we should just wait for the system come back to normal or error
+             * state */
+            err = -EHWAIT;
+            break;
+        case SE_STATE_ERROR:
+            /* in the error state means, we can safely reload/unload the se
+             * state */
+            prev_site_id = se->site_id;
+
+            err = root_write_hxi(se);
+            if (err) {
+                hvfs_err(root, "root_write_hxi() failed w/ %d\n", err);
+            }
+            se->state = SE_STATE_INIT;
+            /* check if we should init a recover process */
+            if (prev_site_id == site_id) {
+                hvfs_err(root, "The previous %lx failed to unreg itself, "
+                         "we should init a recover process.\n",
+                         site_id);
+            }
+
+            /* reload the requested fsid */
+            err = root_read_hxi(site_id, fsid, hxi);
+            if (err) {
+                hvfs_err(root, "root_read_hxi() failed w/ %d\n", err);
+                goto out_client_unlock;
+            }
+            se->hxi.hci = hxi->hci;
+            se->state = SE_STATE_NORMAL;
+            (prev_site_id == site_id) ? (err = -ERECOVER) : (err = 0);
+            break;
+        default:;
+        }
+        /* Step final: release all the resources */
+    out_client_unlock:
+        xlock_unlock(&se->lock);
     } else if (HVFS_IS_MDS(site_id)) {
         /* Step 1: find state in the site_mgr */
         se = site_mgr_lookup(&hro.site, site_id);
@@ -1312,7 +1522,21 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *hxi)
         case SE_STATE_INIT:
             /* we should init the se->hxi by read the hxi in from MDSL */
             err = root_read_hxi(site_id, fsid, hxi);
-            if (err) {
+            if (err == -ENOTEXIST) {
+                err = root_create_hxi(se);
+                if (err) {
+                    hvfs_err(root, "create hxi %ld %lx failed w/ %d\n",
+                             se->fsid, se->site_id, err);
+                    goto out_mds_unlock;
+                }
+                /* write the hxi to disk now */
+                err = root_write_hxi(se);
+                if (err) {
+                    hvfs_err(root, "write hxi %ld %lx failed w/ %d\n",
+                             se->fsid, se->site_id, err);
+                    goto out_mds_unlock;
+                }
+            } else if (err) {
                 hvfs_err(root, "root_read_hxi() failed w/ %d\n", err);
                 goto out_mds_unlock;
             }
@@ -1340,7 +1564,13 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *hxi)
                  * current site entry to the new view. but, we must check
                  * whether there is another instance that is running. */
 
-                ASSERT(fsid != se->fsid, root);
+                /* check if the root_salt is -1UL, if it is, we update it */
+                if (hxi->hmi.root_salt == -1UL) {
+                    hxi->hmi.root_salt = root->root_salt;
+                } else {
+                    ASSERT(fsid != se->fsid, root);
+                }
+                
                 if (se->state != SE_STATE_SHUTDOWN) {
                     /* ok, we reject the fs change */
                     err = -EEXIST;
@@ -1430,7 +1660,21 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *hxi)
         case SE_STATE_INIT:
             /* we should init the se->hxi by read the hxi in from MDSL */
             err = root_read_hxi(site_id, fsid, hxi);
-            if (err) {
+            if (err == -ENOTEXIST) {
+                err = root_create_hxi(se);
+                if (err) {
+                    hvfs_err(root, "create hxi %ld %lx failed /w %d\n",
+                             se->fsid, se->site_id, err);
+                    goto out_mdsl_unlock;
+                }
+                /* write the hxi to disk now */
+                err = root_write_hxi(se);
+                if (err) {
+                    hvfs_err(root, "write hxi %ld %lx failed w/ %d\n",
+                             se->fsid, se->site_id, err);
+                    goto out_mdsl_unlock;
+                }
+            } else if (err) {
                 hvfs_err(root, "root_read_hxi() failed w/ %d\n", err);
                 goto out_mdsl_unlock;
             }
@@ -1457,6 +1701,12 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *hxi)
                 /* hoo, the site requested another fsid, we should change the
                  * current site entry to the new view. but, we must check
                  * whether there is another instance that is running. */
+                if (hxi->hmi.root_salt == -1UL) {
+                    hxi->hmi.root_salt = root->root_salt;
+                } else {
+                    ASSERT(fsid != se->fsid, root);
+                }
+                
                 if (se->state != SE_STATE_SHUTDOWN) {
                     /* ok, we reject the fs change */
                     err = -EEXIST;
@@ -1521,6 +1771,137 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *hxi)
         xlock_unlock(&se->lock);
     } else if (HVFS_IS_ROOT(site_id)) {
     } else if (HVFS_IS_AMC(site_id)) {
+        /* we should reject if root->root_salt is -1UL */
+        /* Step 1: find site state in the site_mgr */
+        se = site_mgr_lookup(&hro.site, site_id);
+        if (se == ERR_PTR(-ENOENT)) {
+            hvfs_err(root, "site_mgr_lookup() site %lx failed, "
+                     "no such site.\n", site_id);
+            err = -ENOENT;
+            goto out;
+        }
+        xlock_lock(&se->lock);
+        /* check whether the group id is correct */
+        if (gid != se->gid) {
+            hvfs_err(root, "CHRING group mismatch: "
+                     "request %d conflict w/ %d\n", 
+                     gid, se->gid);
+            err = -EINVAL;
+            goto out_amc_unlock;
+        }
+        switch (se->state) {
+        case SE_STATE_INIT:
+            /* we should init the se->hxi by read or create the hxi */
+            err = root_read_hxi(site_id, fsid, hxi);
+            if (err == -ENOTEXIST) {
+                err = root_create_hxi(se);
+                if (err) {
+                    hvfs_err(root, "create hxi %ld %lx failed w/ %d\n",
+                             se->fsid, se->site_id, err);
+                    goto out_amc_unlock;
+                }
+                /* write the hxi to disk now */
+                err = root_write_hxi(se);
+                if (err) {
+                    hvfs_err(root, "write hxi %ld %lx failed w/ %d\n",
+                             se->fsid, se->site_id, err);
+                    goto out_amc_unlock;
+                }
+            } else if (err) {
+                hvfs_err(root, "root_read_hxi() failed w/ %d\n", err);
+                goto out_amc_unlock;
+            }
+            se->hxi.ami = hxi->ami;
+            se->state = SE_STATE_NORMAL;
+            break;
+        case SE_STATE_SHUTDOWN:
+            /* we should check whether the fsid is the same as in the se->hxi,
+             * if not, we must reload the new view from storage. */
+
+            /* fall through */
+        case SE_STATE_NORMAL:
+            /* we should check whether the fsid is the same as in the
+             * se->hxi. if not, we must reject the new request. */
+            err = root_mgr_lookup_create(&hro.root, fsid, &root);
+            if (err < 0) {
+                hvfs_err(root, "root_mgr_lookup() fsid %ld failed w/"
+                         "%d\n", fsid, err);
+                goto out_amc_unlock;
+            }
+
+            if (root->gdt_salt != hxi->ami.gdt_salt ||
+                root->root_salt != hxi->ami.root_salt) {
+                /* hoo, the site requested another fsid, we should change the
+                 * current site entry to the new view. But, we must check
+                 * whether there is another instance that is running. */
+                /* check if the root_salt is -1UL, if it is, we update it */
+                ASSERT(fsid != se->fsid, root);
+
+                if (se->state != SE_STATE_SHUTDOWN) {
+                    /* ok, we reject the fs change */
+                    err = -EEXIST;
+                    goto out_amc_unlock;
+                }
+                /* ok, we can change the fs now */
+                err = root_read_hxi(site_id, fsid, hxi);
+                if (err) {
+                    hvfs_err(root, "root_read_hxi() failed w/ %d\n",
+                             err);
+                    goto out_amc_unlock;
+                }
+                se->hxi.ami = hxi->ami;
+                se->state = SE_STATE_NORMAL;
+            } else {
+                /* ok, do not need fs change */
+                if (se->state != SE_STATE_SHUTDOWN) {
+                    /* hoo, there is another server instanc running, we should
+                     * reject this request. */
+                    err = -EEXIST;
+                    goto out_amc_unlock;
+                }
+
+                /* fs not change, we just modify the state */
+                hxi->ami = se->hxi.ami;
+                se->state = SE_STATE_NORMAL;
+            }
+            break;
+        case SE_STATE_TRANSIENT:
+            /* we should just wait for the system come back to normal or error
+             * state */
+            err = -EHWAIT;
+            break;
+        case SE_STATE_ERROR:
+            /* in the error state means, we can safely reload/unload the se
+             * state */
+            prev_site_id = se->site_id;
+
+            err = root_write_hxi(se);
+            if (err) {
+                hvfs_err(root, "root_write_hxi() failed w/ %d\n", err);
+            }
+            se->state = SE_STATE_INIT;
+            /* check if we should init a recover process */
+            if (prev_site_id == site_id) {
+                hvfs_err(root, "The previous %lx failed to unreg itself, "
+                         "we should init a recover process.\n",
+                         site_id);
+            }
+
+            /* reload the requested fsid */
+            err = root_read_hxi(site_id, fsid, hxi);
+            if (err) {
+                hvfs_err(root, "root_read_hxi() failed w/ %d\n", err);
+                goto out_amc_unlock;
+            }
+            se->hxi.ami = hxi->ami;
+            se->state = SE_STATE_NORMAL;
+            (prev_site_id == site_id) ? (err = -ERECOVER) : (err = 0);
+            break;
+        default:;
+        }
+        /* Step final: release all the resources */
+    out_amc_unlock:
+        xlock_unlock(&se->lock);
     } else {
         hvfs_err(root, "Unknown site type: %lx\n", site_id);
         err = -EINVAL;
@@ -1543,11 +1924,27 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
      * mkfs utility can create a new file system w/ a fsid. After reading the
      * root entry we can construct the site by ourself:) */
 
-    err = root_mgr_lookup_create(&hro.root, fsid, &root);
-    if (err) {
-        hvfs_err(root, "lookup create entry %ld failed w/ %d\n",
-                 fsid, err);
-        goto out;
+    if (HVFS_IS_MDS(site_id) || HVFS_IS_MDSL(site_id)) {
+        err = root_mgr_lookup_create2(&hro.root, fsid, &root);
+        if (err < 0) {
+            hvfs_err(root, "lookup create entry %ld failed w/ %d\n",
+                     fsid, err);
+            goto out;
+        } else if (err > 0) {
+            hvfs_err(root, "create fs %ld on-the-fly\n", fsid);
+            err = 0;
+        }
+    } else if (HVFS_IS_CLIENT(site_id) || HVFS_IS_AMC(site_id)) {
+        err = root_mgr_lookup_create(&hro.root, fsid, &root);
+        if (err < 0) {
+            hvfs_err(root, "lookup create entry %ld failed w/ %d\n",
+                     fsid, err);
+            goto out;
+        }
+        if (root->root_salt == -1UL) {
+            hvfs_err(root, "reject %lx w/o mkfs called\n", site_id);
+            return -EAGAIN;
+        }
     }
 
     /* read in the site hxi info from site store file */
@@ -1590,6 +1987,22 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
         goto out;
     }
     if (HVFS_IS_CLIENT(site_id)) {
+        struct hvfs_client_info *hci = (struct hvfs_client_info *)hxi;
+
+        memcpy(hxi, &sd.hxi, sizeof(*hci));
+        if (hci->gdt_salt != root->gdt_salt ||
+            hci->root_salt != root->root_salt) {
+            hvfs_err(root, "Internal error, salt mismatch in hci and root\n");
+            hvfs_err(root, "hci salt %lx root salt %lx\n",
+                     hci->gdt_salt, root->gdt_salt);
+            if (hci->root_salt == -1UL) {
+                hci->gdt_salt = root->gdt_salt;
+                hci->root_salt = root->root_salt;
+            } else {
+                err = -EFAULT;
+                goto out;
+            }
+        }
     } else if (HVFS_IS_MDS(site_id)) {
         struct hvfs_mds_info *hmi = (struct hvfs_mds_info *)hxi;
 
@@ -1599,8 +2012,13 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
             hvfs_err(root, "Internal error, salt mismatch in hmi and root\n");
             hvfs_err(root, "hmi salt %lx root salt %lx\n",
                      hmi->gdt_salt, root->gdt_salt);
-            err = -EFAULT;
-            goto out;
+            if (hmi->root_salt == -1UL) {
+                hmi->gdt_salt = root->gdt_salt;
+                hmi->root_salt = root->root_salt;
+            } else {
+                err = -EFAULT;
+                goto out;
+            }
         }
     } else if (HVFS_IS_MDSL(site_id)) {
         struct hvfs_mdsl_info *hmli = (struct hvfs_mdsl_info *)hxi;
@@ -1609,10 +2027,29 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
         if (hmli->gdt_salt != root->gdt_salt ||
             hmli->root_salt != root->root_salt) {
             hvfs_err(root, "Internal error, salt mismatch in hmli and root\n");
-            err = -EFAULT;
-            goto out;
+            if (hmli->root_salt == -1UL) {
+                hmli->gdt_salt = root->gdt_salt;
+                hmli->root_salt = root->root_salt;
+            } else {
+                err = -EFAULT;
+                goto out;
+            }
         }
     } else if (HVFS_IS_AMC(site_id)) {
+        struct hvfs_amc_info *ami = (struct hvfs_amc_info *)hxi;
+
+        memcpy(hxi, &sd.hxi, sizeof(*ami));
+        if (ami->gdt_salt != root->gdt_salt||
+            ami->root_salt != root->root_salt) {
+            hvfs_err(root, "Internal error, salt mismatc in ami and root\n");
+            if (ami->root_salt == -1UL) {
+                ami->gdt_salt = root->gdt_salt;
+                ami->root_salt = root->root_salt;
+            } else {
+                err = -EFAULT;
+                goto out;
+            }
+        }
     }
     
 out:
@@ -1692,6 +2129,15 @@ int root_create_hxi(struct site_entry *se)
         goto out;
     }
     if (HVFS_IS_CLIENT(se->site_id)) {
+        struct hvfs_client_info *hci = (struct hvfs_client_info *)&se->hxi;
+
+        memset(hci, 0, sizeof(*hci));
+        hci->state = HMI_STATE_CLEAN;
+        hci->gdt_uuid = root->gdt_uuid;
+        hci->gdt_salt = root->gdt_salt;
+        hci->root_uuid = root->root_uuid;
+        hci->root_salt = root->root_salt;
+        hci->group = se->gid;
     } else if (HVFS_IS_MDS(se->site_id)) {
         struct hvfs_mds_info *hmi = (struct hvfs_mds_info *)&se->hxi;
 
@@ -1717,6 +2163,15 @@ int root_create_hxi(struct site_entry *se)
         hmi->uuid_base = (se->site_id & HVFS_SITE_N_MASK) << 45;
         atomic64_set(&hmi->mi_uuid, 2); /* skip gdt/root entry */
     } else if (HVFS_IS_AMC(se->site_id)) {
+        struct hvfs_amc_info *ami = (struct hvfs_amc_info *)&se->hxi;
+
+        memset(ami, 0, sizeof(*ami));
+        ami->state = HMI_STATE_CLEAN;
+        ami->gdt_uuid = root->gdt_uuid;
+        ami->gdt_salt = root->gdt_salt;
+        ami->root_uuid = root->root_uuid;
+        ami->root_salt = root->root_salt;
+        ami->group = se->gid;
     }
     
 out:
@@ -1754,7 +2209,7 @@ int root_read_re(struct root_entry *re)
             hvfs_err(root, "read root entry %ld failed w/ EOF\n",
                      re->fsid);
             if (bl == 0)
-                err = -ENOTEXIST;
+                err = -ENOENT;
             else
                 err = -EINVAL;
             goto out;
@@ -1763,7 +2218,7 @@ int root_read_re(struct root_entry *re)
     } while (bl < sizeof(rd));
 
     if (rd.state == ROOT_DISK_INVALID) {
-        err = -ENOTEXIST;
+        err = -ENOENT;
     } else {
         void *bitmap;
 
@@ -1945,10 +2400,206 @@ out:
     return err;
 }
 
-int root_mkfs(struct root_entry *re, struct ring_entry *ring)
+int __send_msg_create_gdt(int dsite, struct hvfs_index *oi, void *data)
 {
+    size_t dpayload;
+    struct xnet_msg *msg;
+    struct hvfs_index *hi;
+    struct hvfs_md_reply *hmr;
+    struct gdt_md *mdu;
+    int err = 0, recreate = 0, nr = 0;
+
+    /* construct the hvfs_index */
+    dpayload = sizeof(struct hvfs_index) + HVFS_MDU_SIZE;
+    hi = (struct hvfs_index *)xzalloc(dpayload);
+    if (!hi) {
+        hvfs_err(root, "xzalloc() hvfs_index failed\n");
+        return -ENOMEM;
+    }
+    memcpy(hi, oi, sizeof(*hi));
+    /* itbid should be lookup and calculated by the caller! */
+    hi->itbid = oi->itbid;
+    hi->namelen = 0;
+    hi->flag = INDEX_CREATE | INDEX_CREATE_COPY | INDEX_BY_UUID |
+        INDEX_CREATE_GDT;
+
+    memcpy((void *)hi + sizeof(struct hvfs_index),
+           data, HVFS_MDU_SIZE);
+    /* The following line is very IMPORTANT! */
+    hi->dlen = HVFS_MDU_SIZE;
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(root, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE |
+                     XNET_NEED_REPLY, hro.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_CREATE, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(struct xnet_msg_tx));
+#endif
+    xnet_msg_add_sdata(msg, hi, dpayload);
+
+    hvfs_debug(root, "MDS dpayload %d (namelen %d, dlen %ld)\n", 
+               msg->tx.len, hi->namelen, hi->dlen);
+resend:
+    err = xnet_send(hro.xc, msg);
+    if (err) {
+        hvfs_err(root, "xnet_send() failed\n");
+        goto out_msg;
+    }
+    /* this means we have got the reply, parse it! */
+    ASSERT(msg->pair, root);
+    if (msg->pair->tx.err == -ESPLIT && !recreate) {
+        /* the ITB is under spliting, we need retry */
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        recreate = 1;
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(root, "CREATE failed @ MDS site %ld w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out_msg;
+    }
+    if (msg->pair->xm_datacheck)
+        hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
+    else {
+        hvfs_err(root, "Invalid CREATE reply from site %ld.\n",
+                 msg->pair->tx.ssite_id);
+        err = -EFAULT;
+        goto out_msg;
+    }
+    /* now, checking the hmr err */
+    if (hmr->err) {
+        /* hoo, sth wrong on the MDS. IMPOSSIBLE code path! */
+        hvfs_err(root, "MDS Site %ld reply w/ %d\n",
+                 msg->pair->tx.ssite_id, hmr->err);
+        xnet_set_auto_free(msg->pair);
+        goto out_msg;
+    } else if (hmr->len) {
+        hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+    }
+    /* ok, we got the correct respond, insert it to the DH */
+    hi = hmr_extract(hmr, EXTRACT_HI, &nr);
+    if (!hi) {
+        hvfs_err(root, "Invalid reply w/o hvfs_index as expected.\n");
+        goto skip;
+    }
+    mdu = hmr_extract(hmr, EXTRACT_MDU, &nr);
+    if (!mdu) {
+        hvfs_err(root, "Invalid reply w/o MDU as expacted.\n");
+        goto skip;
+    }
+    hvfs_err(root, "Got suuid 0x%lx ssalt %lx puuid %lx psalt %lx.\n", 
+               hi->uuid, mdu->salt, mdu->puuid, mdu->psalt);
+    /* we should export the self salt to the caller */
+    oi->ssalt = mdu->salt;
+    
+    /* finally, we wait for the commit respond */
+skip:
+    xnet_set_auto_free(msg->pair);
+
+out_msg:
+    xnet_free_msg(msg);
+    return err;
+out:
+    xfree(hi);
+    return err;
+}
+
+static inline
+u64 root_bitmap_cut(u64 offset, u64 end_offset)
+{
+    u64 mask;
+    int nr = fls64(end_offset);
+
+    if (nr < 0)
+        return 0;
+    mask = (1 << nr) - 1;
+    return offset & mask;
+}
+
+static inline
+u64 root_bitmap_fallback(u64 offset)
+{
+    int nr = fls64(offset);
+
+    if (nr < 0)
+        return 0;
+    __clear_bit(nr, &offset);
+    return offset;
+}
+
+/* convert the hash to itbid by lookup the bitmap */
+static inline
+u64 root_get_itbid(struct root_entry *re, u64 hash)
+{
+    u64 offset = hash >> ITB_DEPTH;
+
+    offset = root_bitmap_cut(offset, re->gdt_flen << 3);
+
+    do {
+        if (test_bit(offset, (u64 *)(re->gdt_bitmap))) {
+            break;
+        }
+        offset = root_bitmap_fallback(offset);
+    } while (offset != 0);
+
+    return offset;
+}
+
+int root_mkfs(struct root_entry *re, struct ring_entry *ring, u32 gid)
+{
+    char data[HVFS_MDU_SIZE];
+    struct mdu *mdu = (struct mdu *)data;
+    struct hvfs_index hi;
+    struct chp *p;
+    u64 *i = (u64 *)(data + sizeof(struct mdu));
     int err = 0;
 
+    /* Step 1: calculate the target MDS and send the request */
+    /* get the itbid by using re->gdt_bitmap */
+    memset(&hi, 0, sizeof(hi));
+    hi.puuid = re->gdt_uuid;
+    hi.psalt = re->gdt_salt;
+    hi.uuid = re->root_uuid;
+    hi.hash = hvfs_hash(hi.uuid, re->gdt_salt, 0, HASH_SEL_GDT);
+    hi.itbid = root_get_itbid(re, hi.hash);
+
+    p = ring_get_point(hi.itbid, re->gdt_salt, &ring->ring);
+    if (IS_ERR(p)) {
+        hvfs_err(root, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
+        err = -EFAULT;
+        goto out;
+    }
+
+    memset(data, 0, HVFS_MDU_SIZE);
+    mdu->mode = 0040744;
+    mdu->nlink = 2;
+    mdu->flags = HVFS_MDU_IF_NORMAL;
+
+    *i = re->root_uuid;
+    *(i + 1) = re->root_salt;
+    *(i + 2) = re->root_salt;
+
+    hvfs_err(root, "send create root request to %lx\n", p->site_id);
+    err = __send_msg_create_gdt(p->site_id, &hi, data);
+    if (err) {
+        hvfs_err(xnet, "create root GDT entry failed w/ %d\n", err);
+        goto out;
+    }
+    
+    /* Step 2: get the root_salt */
+    re->root_salt = hi.ssalt;
+    hvfs_info(root, "Change root salt to %lx\n", re->root_salt);
+    
+out:
     return err;
 }
 
