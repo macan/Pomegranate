@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-08 10:32:00 macan>
+ * Time-stamp: <2010-05-23 21:03:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -101,8 +101,10 @@ u64 HVFS_TYPE_SEL(int type, int id)
         break;
     case TYPE_MDSL:
         site_id = HVFS_MDSL(id);
+        break;
     case TYPE_RING:
         site_id = HVFS_RING(id);
+        break;
     default:;
     }
 
