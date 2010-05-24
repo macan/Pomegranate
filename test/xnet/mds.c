@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-23 21:02:10 macan>
+ * Time-stamp: <2010-05-24 20:48:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -621,6 +621,14 @@ out_free:
     return err;
 }
 
+int bitmap_insert2(u64 uuid, u64 offset, void *bitmap)
+{
+    int err = 0;
+
+    /* FIXME */
+    return err;
+}
+
 void *__mds_buf_alloc(size_t size, int aflag)
 {
     if (unlikely(aflag == HVFS_MDS2MDS_SPITB) ||
@@ -630,6 +638,137 @@ void *__mds_buf_alloc(size_t size, int aflag)
     } else {
         return xzalloc(size);
     }
+}
+
+/* r2cli_do_reg()
+ *
+ * @gid: already right shift 2 bits
+ */
+int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
+{
+    struct xnet_msg *msg;
+    int err = 0;
+
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_nofree;
+    }
+
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hro.xc->site_id, root_site);
+    xnet_msg_fill_cmd(msg, HVFS_R2_REG, request_site, fsid);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    /* send the reg request to root_site w/ requested siteid = request_site */
+    msg->tx.reserved = gid;
+
+    err = xnet_send(hro.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out;
+    }
+
+    /* this means we have got the reply, parse it! */
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ERECOVER) {
+        hvfs_err(xnet, "R2 notify a client recover process on site "
+                 "%lx, do it.\n", request_site);
+    } else if (msg->pair->tx.err == -EHWAIT) {
+        hvfs_err(xnet, "R2 reply that another instance is still alive, "
+                 "wait a moment and retry.\n");
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "Reg site %lx failed w/ %d\n", request_site,
+                 msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out;
+    }
+
+    /* parse the register reply message */
+    hvfs_err(xnet, "Begin parse the reg reply message\n");
+    if (msg->pair->xm_datacheck) {
+        void *data = msg->pair->xm_data;
+        void *bitmap;
+        union hvfs_x_info *hxi;
+        struct chring_tx *ct;
+        struct root_tx *rt;
+        struct hvfs_site_tx *hst;
+
+        /* parse hxi */
+        err = bparse_hxi(data, &hxi);
+        if (err < 0) {
+            hvfs_err(root, "bparse_hxi failed w/ %d\n", err);
+            goto out;
+        }
+        memcpy(&hmi, hxi, sizeof(hmi));
+        data += err;
+        /* parse ring */
+        err = bparse_ring(data, &ct);
+        if (err < 0) {
+            hvfs_err(root, "bparse_ring failed w/ %d\n", err);
+            goto out;
+        }
+        hmo.chring[CH_RING_MDS] = chring_tx_to_chring(ct);
+        if (!hmo.chring[CH_RING_MDS]) {
+            hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
+            goto out;
+        }
+        data += err;
+        err = bparse_ring(data, &ct);
+        if (err < 0) {
+            hvfs_err(root, "bparse_ring failed w/ %d\n", err);
+            goto out;
+        }
+        hmo.chring[CH_RING_MDSL] = chring_tx_to_chring(ct);
+        if (!hmo.chring[CH_RING_MDS]) {
+            hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
+            goto out;
+        }
+        data += err;
+        /* parse root_tx */
+        err = bparse_root(data, &rt);
+        if (err < 0) {
+            hvfs_err(root, "bparse root failed w/ %d\n", err);
+            goto out;
+        }
+        data += err;
+        hvfs_info(root, "fsid %ld gdt_uuid %ld gdt_salt %lx "
+                  "root_uuid %ld root_salt %lx\n",
+                  rt->fsid, rt->gdt_uuid, rt->gdt_salt, 
+                  rt->root_uuid, rt->root_salt);
+        dh_insert(hmi.gdt_uuid, hmi.gdt_uuid, hmi.gdt_salt);
+
+        /* parse bitmap */
+        err = bparse_bitmap(data, &bitmap);
+        if (err < 0) {
+            hvfs_err(root, "bparse bitmap failed w/ %d\n", err);
+            goto out;
+        }
+        data += err;
+        bitmap_insert2(hmi.gdt_uuid, 0, bitmap);
+        
+        /* parse addr */
+        err = bparse_addr(data, &hst);
+        if (err < 0) {
+            hvfs_err(root, "bparse addr failed w/ %d\n", err);
+            goto out;
+        }
+        /* add the site table to the xnet */
+        err = hst_to_xsst(hst, err - sizeof(u32));
+        if (err) {
+            hvfs_err(root, "hst to xsst failed w/ %d\n", err);
+        }
+    }
+    
+out:
+    xnet_free_msg(msg);
+out_nofree:
+
+    return err;
 }
 
 int main(int argc, char *argv[])
@@ -642,11 +781,12 @@ int main(int argc, char *argv[])
     };
     int err = 0;
     int self, sport, i, j;
-    int memonly, memlimit;
+    int memonly, memlimit, mode;
     char *value;
     char profiling_fname[256];
     
     hvfs_info(xnet, "MDS Unit Testing...\n");
+    hvfs_info(xnet, "Mode is 0/1 (no ring/with ring)\n");
 
     if (argc < 2) {
         hvfs_err(xnet, "Self ID is not provided.\n");
@@ -669,6 +809,12 @@ int main(int argc, char *argv[])
     } else
         memlimit = 0;
 
+    value = getenv("mode");
+    if (value) {
+        mode = atoi(value);
+    } else 
+        mode = 0;
+
     st_init();
     mds_pre_init();
     hmo.prof.xnet = &g_xnet_prof;
@@ -688,6 +834,10 @@ int main(int argc, char *argv[])
     xnet_update_ipaddr(HVFS_CLIENT(12), 1, &ipaddr[4], (short *)(&port[4][0]));
     xnet_update_ipaddr(HVFS_MDS(4), 1, &ipaddr[0], (short *)(&port[4][1]));
 
+    /* prepare the ring address */
+    xnet_update_ipaddr(HVFS_RING(0), 1, ipaddr[3],
+                       (short *)(&port[3][0]));
+    
     /* setup the profiling file */
     memset(profiling_fname, 0, sizeof(profiling_fname));
     sprintf(profiling_fname, "./CP-BACK-mds.%d", self);
@@ -708,28 +858,40 @@ int main(int argc, char *argv[])
     }
     hmo.site_id = self;
     mds_verify();
-    hmi.gdt_salt = 0;
-    hvfs_info(xnet, "Select GDT salt to %lx\n", hmi.gdt_salt);
-    hmi.root_uuid = 1;
-    hmi.root_salt = 0xdfeadb0;
-    hvfs_info(xnet, "Select root salt to %lx\n", hmi.root_salt);
 
+    if (mode == 0) {
+        hmi.gdt_salt = 0;
+        hvfs_info(xnet, "Select GDT salt to %lx\n", hmi.gdt_salt);
+        hmi.root_uuid = 1;
+        hmi.root_salt = 0xdfeadb0;
+        hvfs_info(xnet, "Select root salt to %lx\n", hmi.root_salt);
+        
 #if 1
-    ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
-    ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(1));
+        ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
+        ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(1));
 #else
-    ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(4));
+        ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(4));
 #endif
-    ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(0));
-    ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(1));
+        ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(0));
+        ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(1));
 
-    ring_dump(hmo.chring[CH_RING_MDS]);
-    ring_dump(hmo.chring[CH_RING_MDSL]);
-
-    /* insert the GDT DH */
-    dh_insert(hmi.gdt_uuid, hmi.gdt_uuid, hmi.gdt_salt);
-    bitmap_insert(0, 0);
-
+        ring_dump(hmo.chring[CH_RING_MDS]);
+        ring_dump(hmo.chring[CH_RING_MDSL]);
+        
+        /* insert the GDT DH */
+        dh_insert(hmi.gdt_uuid, hmi.gdt_uuid, hmi.gdt_salt);
+        bitmap_insert(0, 0);
+    } else {
+        /* use ring info to init the mds */
+        err = r2cli_do_reg(self, HVFS_RING(0), 0, 0);
+        if (err) {
+            hvfs_err(xnet, "reg self %x w/ r2 %x failed w/ %d\n",
+                     self, HVFS_RING(0), err);
+            goto out;
+        }
+        /* FIXME */
+    }
+    
     err = mds_verify();
     if (err) {
         hvfs_err(xnet, "Verify MDS configration failed!\n");
