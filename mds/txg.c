@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 19:14:49 macan>
+ * Time-stamp: <2010-06-02 15:39:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -482,11 +482,16 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
         xrwlock_wlock(&ih->lock);
         hvfs_debug(mds, "T %ld ITB %ld %p state %x, ref %d.\n",
                    t->txg, ih->itbid, i, ih->state, atomic_read(&ih->ref));
-        if (ih->state == ITB_STATE_COWED) {
+        if (unlikely(ih->state == ITB_STATE_COWED)) {
             xrwlock_wunlock(&ih->lock);
-            if (atomic_read(&ih->ref) != 1) {
+            if (unlikely(atomic_read(&ih->ref) != 1)) {
                 hvfs_err(mds, "REF %d\n", atomic_read(&ih->ref));
-                HVFS_BUGON(atomic_read(&ih->ref) != 1);
+                /* Note that: ref == 2 means this entry is under splitting,
+                 * the async thread will free it! */
+                if (unlikely(!(atomic_read(&ih->ref) == 1 &&
+                               atomic_read(&ih->ref) == 2))) {
+                    HVFS_BUGON("ITB COWED with invalid REF");
+                }
             }
             /* can write w/o lock */
             err = txg_wb_itb_ll(cta, i);

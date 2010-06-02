@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-01 19:09:23 macan>
+ * Time-stamp: <2010-06-02 14:33:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -147,6 +147,8 @@ int main(int argc, char *argv[])
     struct sockaddr_in sin = {
         .sin_family = AF_INET,
     };
+    int nr = 100;
+    struct conf_site cs[nr];
 
     hvfs_info(xnet, "R2 Unit Testing ...\n");
 
@@ -234,9 +236,6 @@ int main(int argc, char *argv[])
                 }
             }
         } else {
-            int nr = 100;
-            struct conf_site cs[nr];
-
             err = conf_parse(conf_file, cs, &nr);
             if (err) {
                 hvfs_err(xnet, "conf_parse failed w/ %d\n", err);
@@ -280,7 +279,7 @@ int main(int argc, char *argv[])
     }
 
     /* next, we setup the defalt ring mgr */
-    {
+    if (mode == 0) {
         struct ring_entry *re, *res;
 
         re = ring_mgr_alloc_re();
@@ -315,6 +314,56 @@ int main(int argc, char *argv[])
         re->ring.group = CH_RING_MDSL;
         ring_add(&re->ring, HVFS_MDSL(0));
         ring_add(&re->ring, HVFS_MDSL(1));
+        res = ring_mgr_insert(&hro.ring, re);
+        if (IS_ERR(res)) {
+            hvfs_err(xnet, "ring_mgr_insert %d failed w/ %ld\n",
+                     re->ring.group, PTR_ERR(res));
+            err = PTR_ERR(res);
+            goto out;
+        }
+        ASSERT(res == re, xnet);
+        ring_mgr_put(re);
+    } else {
+        struct ring_entry *re, *res;
+
+        re = ring_mgr_alloc_re();
+        if (!re) {
+            hvfs_err(xnet, "alloc ring entry failed\n");
+            err = ENOMEM;
+            goto out;
+        }
+        re->ring.group = CH_RING_MDS;
+
+        for (i = 0; i < nr; i++) {
+            if (strcmp(cs[i].type, "mdsl") == 0) {
+                continue;
+            } else if (strcmp(cs[i].type, "mds") == 0) {
+                ring_add(&re->ring, HVFS_MDS(cs[i].id));
+            }
+        }
+        res = ring_mgr_insert(&hro.ring, re);
+        if (IS_ERR(res)) {
+            hvfs_err(xnet, "ring_mgr_insert %d failed w/ %ld\n",
+                     re->ring.group, PTR_ERR(res));
+            err = PTR_ERR(res);
+            goto out;
+        }
+        ASSERT(res == re, xnet);
+        ring_mgr_put(re);
+
+        re = ring_mgr_alloc_re();
+        if (!re) {
+            hvfs_err(xnet, "alloc ring entry failed\n");
+            err = ENOMEM;
+            goto out;
+        }
+        re->ring.group = CH_RING_MDSL;
+
+        for (i = 0; i < nr; i++) {
+            if (strcmp(cs[i].type, "mdsl") == 0) {
+                ring_add(&re->ring, HVFS_MDSL(cs[i].id));
+            }
+        }
         res = ring_mgr_insert(&hro.ring, re);
         if (IS_ERR(res)) {
             hvfs_err(xnet, "ring_mgr_insert %d failed w/ %ld\n",
