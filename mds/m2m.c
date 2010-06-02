@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-01 14:16:12 macan>
+ * Time-stamp: <2010-06-02 20:32:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -182,7 +182,7 @@ void mds_ldh(struct xnet_msg *msg)
     txg_put(txg);
 
     /* Note that we should set the salt manually */
-    {
+    if (!err) {
         struct hvfs_index *_hi;
         struct gdt_md *m;
         int nr = 0;
@@ -201,6 +201,9 @@ void mds_ldh(struct xnet_msg *msg)
             goto send_rpy;
         }
         _hi->ssalt = m->salt;
+    } else {
+        hvfs_err(mds, "do_ldh() cbht search failed w/ %d\n",
+                 err);
     }
 
 actually_send:
@@ -261,8 +264,6 @@ void mds_ausplit(struct xnet_msg *msg)
         /* someone has already create the new ITB, we just ignore ourself? */
         hvfs_err(mds, "Someone create ITB %ld, maybe data lossing ...\n",
                  i->h.itbid);
-        xrwlock_runlock(&nbe->lock);
-        xrwlock_runlock(&nb->lock);
     } else if (err) {
         hvfs_err(mds, "Internal error %d, data lossing.\n", err);
     }
@@ -538,7 +539,11 @@ void mds_m2m_lb(struct xnet_msg *msg)
             if (size == 0) {
                 /* this means that we should just return a new default bitmap
                  * slice */
-                be->array[0] = 0xff;
+                int i;
+
+                for (i = 0; i < 1; i++) {
+                    be->array[i] = 0xff;
+                }
             } else {
                 /* load the bitmap slice from MDSL */
                 err = mds_bc_backend_load(be, hi.itbid, location);

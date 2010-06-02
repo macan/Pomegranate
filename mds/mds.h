@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-02 09:02:27 macan>
+ * Time-stamp: <2010-06-02 19:33:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -204,7 +204,7 @@ void mds_destroy(void);
 void mds_reset_itimer(void);
 
 /* for fe.c */
-#define MAX_LOOP_FWD    (0x1000)
+#define MAX_RELAY_FWD    (0x1000)
 int mds_do_forward(struct xnet_msg *msg, u64 site_id);
 int mds_fe_dispatch(struct xnet_msg *msg);
 

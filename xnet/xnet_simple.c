@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-19 18:27:58 macan>
+ * Time-stamp: <2010-06-02 19:25:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -974,6 +974,7 @@ int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
         return -EINVAL;
     }
 retry:
+    err = 0;
     list_for_each_entry(xa, &xs->addr, list) {
         if (!IS_CONNECTED(xa, xc)) {
             /* not connected, dynamic connect */

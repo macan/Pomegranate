@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-31 15:10:20 macan>
+ * Time-stamp: <2010-06-02 20:33:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2391,7 +2391,7 @@ void *root_bitmap_enlarge(void *data, u64 len)
 
 int root_bitmap_default(struct root_entry *re)
 {
-    int err = 0;
+    int err = 0, i;
 
     re->gdt_bitmap = root_bitmap_enlarge(NULL, 0);
     if (!re->gdt_bitmap) {
@@ -2401,7 +2401,9 @@ int root_bitmap_default(struct root_entry *re)
     }
     re->gdt_flen = XTABLE_BITMAP_BYTES;
 
-    re->gdt_bitmap[0] = 0xff;
+    for (i = 0; i < 1; i++) {
+        re->gdt_bitmap[i] = 0xff;
+    }
 out:    
     return err;
 }

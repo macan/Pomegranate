@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-15 13:17:40 macan>
+ * Time-stamp: <2010-06-02 17:48:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -276,6 +276,9 @@ struct hvfs_mdsl_object
     u8 timer_thread_stop;       /* running flag for timer thread */
     u8 spool_thread_stop;       /* running flag for service thread */
     u8 aio_thread_stop;         /* running flag for aio thread */
+
+    /* callback functions */
+    void (*cb_exit)(void *);
 };
 
 extern struct hvfs_mdsl_info hmi;

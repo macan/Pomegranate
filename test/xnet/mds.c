@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-01 19:51:50 macan>
+ * Time-stamp: <2010-06-02 16:19:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -902,7 +902,7 @@ int main(int argc, char *argv[])
         .dispatcher = mds_fe_dispatch,
     };
     int err = 0;
-    int self, sport, i, j;
+    int self, sport = -1, i, j;
     int memonly, memlimit, mode;
     char *value;
     char *ring_ip = NULL;
@@ -918,7 +918,10 @@ int main(int argc, char *argv[])
     } else {
         self = atoi(argv[1]);
         hvfs_info(xnet, "Self type+ID is mds:%d.\n", self);
-        if (argc == 3)
+        if (argc == 4) {
+            ring_ip = argv[2];
+            sport = atoi(argv[3]);
+        } else if (argc == 3)
             ring_ip = argv[2];
     }
 
@@ -963,11 +966,13 @@ int main(int argc, char *argv[])
     if (!ring_ip) {
         xnet_update_ipaddr(HVFS_RING(0), 1, &ipaddr[3],
                            (short *)(&port[3][0]));
-        sport = port[TYPE_MDS][self];
+        if (sport == -1)
+            sport = port[TYPE_MDS][self];
     } else {
         xnet_update_ipaddr(HVFS_RING(0), 1, &ring_ip,
                            (short *)(&port[3][0]));
-        sport = port[TYPE_MDS][0];
+        if (sport == -1)
+            sport = port[TYPE_MDS][0];
     }
     
     /* setup the profiling file */

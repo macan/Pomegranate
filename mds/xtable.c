@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-01 15:07:26 macan>
+ * Time-stamp: <2010-06-02 20:32:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -418,7 +418,11 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
                 if (size == 0) {
                     /* this means that we should just return a new default
                      * btimap slice */
-                    be->array[0] = 0xff;
+                    int i;
+
+                    for (i = 0; i < 1; i++) {
+                        be->array[i] = 0xff;
+                    }
                 } else {
                     /* load the btimap slice from MDSL */
                     err = mds_bc_backend_load(be, hi.itbid, location);
