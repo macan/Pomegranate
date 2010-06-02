@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-05-22 10:06:53 macan>
+# Time-stamp: <2010-06-01 19:02:21 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -19,6 +19,7 @@ MDSL = $(HOME_PATH)/mdsl
 R2 = $(HOME_PATH)/r2
 XNET = $(HOME_PATH)/xnet
 TEST = $(HOME_PATH)/test
+CONF = $(HOME_PATH)/conf
 
 COMPILE_DATE = `date`
 COMPILE_HOST = `hostname`
@@ -56,7 +57,7 @@ MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \
                 ddc.c
 MDSL_AR_SOURCE = mdsl.c spool.c tcc.c dispatch.c m2ml.c prof.c storage.c \
 				 aio.c c2ml.c
-LIB_AR_SOURCE = lib.c ring.c time.c bitmap.c xlock.c segv.c
+LIB_AR_SOURCE = lib.c ring.c time.c bitmap.c xlock.c segv.c conf.c
 XNET_AR_SOURCE = xnet.c xnet_simple.c
 R2_AR_SOURCE = mgr.c root.c spool.c x2r.c dispatch.c bparser.c
 

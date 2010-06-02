@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-23 11:13:04 macan>
+ * Time-stamp: <2010-06-01 17:57:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -92,26 +92,29 @@ struct hvfs_site_tx
 struct hvfs_client_info
 {
     u32 state;
+    u32 pad;
     u64 gdt_salt;
     u64 gdt_uuid;
-    u64 root_uuid;
     u64 root_salt;
+    u64 root_uuid;
     u64 group;
 };
 
 struct hvfs_amc_info
 {
     u32 state;
+    u32 pad;
     u64 gdt_salt;
     u64 gdt_uuid;
-    u64 root_uuid;
     u64 root_salt;
+    u64 root_uuid;
     u64 group;
 };
 
 struct hvfs_mds_info 
 {
     u32 state;
+    u32 pad;
     u64 gdt_salt;
     u64 gdt_uuid;               /* special UUID for GDT */
     u64 root_salt;
@@ -164,6 +167,15 @@ struct root_tx
     u64 gdt_salt;
     u64 root_uuid;
     u64 root_salt;
+};
+
+/* this is just a proxy array of config file line */
+struct conf_site
+{
+    char *type;
+    char *node;
+    int port;
+    int id;
 };
 
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-23 20:39:09 macan>
+ * Time-stamp: <2010-05-31 16:08:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -108,7 +108,7 @@ int root_do_reg(struct xnet_msg *msg)
     void *addr_data = NULL, *ring_data = NULL, *ring_data2 = NULL;
     u32 gid;
     int addr_len, ring_len, ring_len2;
-    int err = 0;
+    int err = 0, saved_err = 0;
 
     err = __prepare_xnet_msg(msg, &rpy);
     if (err) {
@@ -157,6 +157,10 @@ int root_do_reg(struct xnet_msg *msg)
      * act on the diffierent state */
     err = root_compact_hxi(msg->tx.arg0, msg->tx.arg1, msg->tx.reserved,
                            &se->hxi);
+    if (err == -ERECOVER) {
+        saved_err = err;
+        err = 0;
+    }
     if (err) {
         hvfs_err(root, "compact %lx hxi failed w/ %d\n", msg->tx.arg0,
                  err);
@@ -282,7 +286,10 @@ int root_do_reg(struct xnet_msg *msg)
         }
     }
 send_rpy:
-    __root_send_rpy(rpy, err);
+    if (!err)
+        __root_send_rpy(rpy, saved_err);
+    else
+        __root_send_rpy(rpy, err);
     /* free the allocated resources */
     xfree(ring_data);
     xfree(ring_data2);
@@ -406,6 +413,10 @@ out_unlock:
         err = PTR_ERR(re);
         goto out;
     }
+#if 1
+    /* update the root entry */
+    re->root_salt = ((struct hvfs_client_info *)hxi)->root_salt;
+#endif
     err = root_write_re(re);
     if (err) {
         hvfs_err(root, "Flush fs root %ld to storage failed w/ %d.\n",
@@ -631,8 +642,10 @@ out:
  */
 int root_do_hb(struct xnet_msg *msg)
 {
+    struct site_entry *se;
     int err = 0;
 
+    /* sanity checking */
     return err;
 }
 

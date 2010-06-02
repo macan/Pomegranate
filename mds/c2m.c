@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 14:11:43 macan>
+ * Time-stamp: <2010-06-01 13:38:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -554,7 +554,7 @@ void mds_lb(struct hvfs_tx *tx)
     ASSERT(hi->uuid == tx->req->tx.arg0, mds);
     /* the offset should be aligned */
     offset = tx->req->tx.arg1;
-    offset = BITMAP_ROUNDUP(offset);
+    offset = BITMAP_ROUNDDOWN(offset);
 
     /* cut the bitmap to valid range */
     err = mds_bc_dir_lookup(hi, &location, &size);
@@ -570,7 +570,7 @@ void mds_lb(struct hvfs_tx *tx)
         /* Caution: we should cut the offset to the valid bitmap range
          * by size! */
         offset = mds_bitmap_cut(offset, size << 3);
-        offset = BITMAP_ROUNDUP(offset);
+        offset = BITMAP_ROUNDDOWN(offset);
     }
     
     /* next, we should get the bc_entry */

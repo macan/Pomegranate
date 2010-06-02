@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-20 19:51:40 macan>
+ * Time-stamp: <2010-05-31 14:24:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -228,6 +228,7 @@ static void *root_timer_thread_main(void *arg)
         cur = time(NULL);
         if (hro.state > HRO_STATE_LAUNCH) {
             /* ok, check the site entry state now */
+            site_mgr_check(cur);
         }
     }
 

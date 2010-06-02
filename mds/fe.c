@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-23 16:56:26 macan>
+ * Time-stamp: <2010-06-01 14:46:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -71,6 +71,10 @@ int mds_do_forward(struct xnet_msg *msg, u64 dsite)
 
     if (unlikely(msg->tx.flag & XNET_FWD)) {
         atomic64_inc(&hmo.prof.mds.loop_fwd);
+        if (unlikely(atomic64_read(&hmo.prof.mds.loop_fwd) % MAX_LOOP_FWD == 0)) {
+            /* we should trigger the bitmap reload now */
+            mds_bitmap_refresh(msg->xm_data);
+        }
         relaied = 1;
     }
 

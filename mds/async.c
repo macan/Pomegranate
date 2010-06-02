@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 20:22:31 macan>
+ * Time-stamp: <2010-06-02 09:07:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -257,7 +257,7 @@ int __aur_itb_bitmap(struct async_update_request *aur)
     struct chp *p;
     struct hvfs_txg *txg = (struct hvfs_txg *)aur->arg;
     u64 hash, itbid;
-    int err = 0, i, local = 0, remote = 0, r2 = 0;
+    int err = 0, i, local = 0, remote = 0, r2 = 0, skip = 0;
 
     /* we should iterate on the wbt->bdb list and transform each entry to
      * bc_delta and adding to the g_bitmap_deltas list and sending each entry
@@ -284,6 +284,10 @@ int __aur_itb_bitmap(struct async_update_request *aur)
 
     txg_free(txg);
 
+    if (unlikely(hmo.conf.option & HVFS_MDS_LIMITED)) {
+        return 0;
+    }
+    
     gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
     if (IS_ERR(gdte)) {
         /* fatal error */
@@ -312,6 +316,7 @@ int __aur_itb_bitmap(struct async_update_request *aur)
         p = ring_get_point(itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
         if (IS_ERR(p)) {
             hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
+            skip++;
             continue;
         }
         bd->site_id = p->site_id;
@@ -319,6 +324,8 @@ int __aur_itb_bitmap(struct async_update_request *aur)
         if (bd->site_id == hmo.site_id) {
             /* self shortcut */
             struct bc_delta *nbd;
+            struct bc_entry *be;
+            u64 offset;
 
             nbd = mds_bc_delta_alloc();
             if (!nbd) {
@@ -331,6 +338,21 @@ int __aur_itb_bitmap(struct async_update_request *aur)
             xlock_lock(&hmo.bc.delta_lock);
             list_add(&nbd->list, &hmo.bc.deltas);
             xlock_unlock(&hmo.bc.delta_lock);
+            /* finally, we should update the bc_entry if it exists */
+            offset = BITMAP_ROUNDDOWN(nbd->itbid);
+            be = mds_bc_get(nbd->uuid, offset);
+            if (IS_ERR(be)) {
+                if (be == ERR_PTR(-ENOENT)) {
+                    hvfs_err(mds, "Warning: bc_entry %ld offset %ld does not "
+                             "exist.\n", nbd->uuid, offset);
+                } else {
+                    hvfs_err(mds, "bc_get() %ld failed w/ %d\n", nbd->uuid, err);
+                }
+            } else {
+                /* update the bits in bitmap */
+                __set_bit(nbd->itbid - offset, (unsigned long *)be->array);
+                mds_bc_put(be);
+            }
             local++;
         } else {
             err = __customized_send_request(bd);
@@ -342,7 +364,7 @@ int __aur_itb_bitmap(struct async_update_request *aur)
         }
     }
     xlock_unlock(&g_bitmap_deltas_lock);
-    hvfs_err(mds, "local %d remote %d r2 %d\n", local, remote, r2);
+    hvfs_err(mds, "local %d remote %d r2 %d skip %d\n", local, remote, r2, skip);
 
 out:
     return err;

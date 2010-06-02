@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-04 14:17:20 macan>
+ * Time-stamp: <2010-06-01 18:58:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -183,5 +183,22 @@ __attribute__((unused)) = {"",
 void lock_table_init(void);
 void lock_table_print(void);
 #endif
+
+/* conf.c to provide config file parsing */
+typedef enum {
+    PARSER_INIT,
+    PARSER_EXPECT_SITE,
+    PARSER_EXPECT_FS
+} parser_state_t;
+
+enum {
+    PARSER_OK = 0,
+    PARSER_NEED_RETRY,
+    PARSER_CONTINUE,
+    PARSER_FAILED = 1000
+};
+
+int conf_parse(char *, struct conf_site *, int *);
+u64 conf_site_id(char *, int);
 
 #endif

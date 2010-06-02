@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-05-07 16:57:33 macan>
+# Time-stamp: <2010-06-01 19:02:03 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -71,6 +71,7 @@ unit_test : $(ut_depend_files) $(HVFS_LIB) $(MDS_LIB) $(XNET_LIB) \
 
 install: unit_test
 	@rsync -r $(TEST)/*.sh root@glnode09:~/hvfs/test/
+	@rsync -r $(CONF) root@glnode09:~/hvfs/
 	@rsync -r $(TEST)/mds/*.ut root@glnode09:~/hvfs/test/mds/
 	@rsync -r $(TEST)/xnet/*.ut root@glnode09:~/hvfs/test/xnet/
 	@rsync -r $(TEST)/mdsl/*.ut root@glnode09:~/hvfs/test/mdsl/

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-23 21:00:51 macan>
+ * Time-stamp: <2010-06-01 19:09:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -140,22 +140,31 @@ int main(int argc, char *argv[])
         .dispatcher = root_dispatch,
     };
     int err = 0, i, j;
-    int self, sport;
+    int self, sport, mode;
     char profiling_fname[256];
+    char *value;
+    char *conf_file;
     struct sockaddr_in sin = {
         .sin_family = AF_INET,
     };
 
     hvfs_info(xnet, "R2 Unit Testing ...\n");
 
-    if (argc < 2) {
-        hvfs_err(xnet, "Self ID is not provided.\n");
+    if (argc < 3) {
+        hvfs_err(xnet, "Self ID or config file is not provided.\n");
         err = EINVAL;
         goto out;
     } else {
         self = atoi(argv[1]);
         hvfs_info(xnet, "Self type+ID is R2:%d.\n", self);
+        conf_file = argv[2];
     }
+
+    value = getenv("mode");
+    if (value) {
+        mode = atoi(value);
+    } else 
+        mode = 0;
 
     st_init();
     root_pre_init();
@@ -206,19 +215,45 @@ int main(int argc, char *argv[])
             goto out;
         }
 
-        for (i = 0; i < 4; i++) {
-            for (j = 0; j < 4; j++) {
-                sin.sin_port = htons(port[i][j]);
-                inet_aton(ipaddr[i], &sin.sin_addr);
-                
-                err = addr_mgr_update_one(ae, 
+        if (mode == 0) {
+            for (i = 0; i < 4; i++) {
+                for (j = 0; j < 4; j++) {
+                    sin.sin_port = htons(port[i][j]);
+                    inet_aton(ipaddr[i], &sin.sin_addr);
+                    
+                    err = addr_mgr_update_one(ae, 
+                                              HVFS_SITE_PROTOCOL_TCP |
+                                              HVFS_SITE_ADD,
+                                              HVFS_TYPE(i, j),
+                                              &sin);
+                    if (err) {
+                        hvfs_err(xnet, "addr mgr update entry %lx failed w/"
+                                 " %d\n", HVFS_TYPE(i, j), err);
+                        goto out;
+                    }
+                }
+            }
+        } else {
+            int nr = 100;
+            struct conf_site cs[nr];
+
+            err = conf_parse(conf_file, cs, &nr);
+            if (err) {
+                hvfs_err(xnet, "conf_parse failed w/ %d\n", err);
+                goto out;
+            }
+            for (i = 0; i < nr; i++) {
+                sin.sin_port = htons(cs[i].port);
+                inet_aton(cs[i].node, &sin.sin_addr);
+
+                err = addr_mgr_update_one(ae,
                                           HVFS_SITE_PROTOCOL_TCP |
                                           HVFS_SITE_ADD,
-                                          HVFS_TYPE(i, j),
+                                          conf_site_id(cs[i].type, cs[i].id),
                                           &sin);
                 if (err) {
-                    hvfs_err(xnet, "addr mgr update entry %lx failed w/"
-                             " %d\n", HVFS_TYPE(i, j), err);
+                    hvfs_err(xnet, "addr_mgr_update entry %lx failed w/ "
+                             " %d\n", conf_site_id(cs[i].type, cs[i].id), err);
                     goto out;
                 }
             }
@@ -257,6 +292,10 @@ int main(int argc, char *argv[])
         re->ring.group = CH_RING_MDS;
         ring_add(&re->ring, HVFS_MDS(0));
         ring_add(&re->ring, HVFS_MDS(1));
+#if 1
+        ring_add(&re->ring, HVFS_MDS(2));
+        ring_add(&re->ring, HVFS_MDS(3));
+#endif
         res = ring_mgr_insert(&hro.ring, re);
         if (IS_ERR(res)) {
             hvfs_err(xnet, "ring_mgr_insert %d failed w/ %ld\n",
@@ -333,8 +372,8 @@ int main(int argc, char *argv[])
 //    SET_TRACING_FLAG(root, HVFS_DEBUG);
     msg_wait();
 
-    xnet_unregister_type(hro.xc);
     root_destroy();
+    xnet_unregister_type(hro.xc);
 out:
     return err;
 }

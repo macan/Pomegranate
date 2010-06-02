@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 21:14:34 macan>
+ * Time-stamp: <2010-06-02 09:02:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -99,10 +99,14 @@ struct mds_conf
 
     /* conf */
 #define HVFS_MDS_CHRECHK        0x01 /* recheck CH ring in fe dispatch */
+
 #define HVFS_MDS_ITB_RWLOCK     0x02 /* use pthread rwlock as index lock */
 #define HVFS_MDS_ITB_MUTEX      0x04 /* use pthread mutex as index lock */
+
 #define HVFS_MDS_MEMONLY        0x08 /* memory only service */
 #define HVFS_MDS_MEMLIMIT       0x10 /* limit the ITB memory usage */
+
+#define HVFS_MDS_LIMITED        0x20 /* for test/mds/itbsplit use only */
     u64 option;
 };
 
@@ -164,6 +168,9 @@ struct hvfs_mds_object
     u8 spool_thread_stop;       /* running flag for service thread */
 
     u8 spool_modify_pause;      /* pause the modification */
+
+    /* callback functions */
+    void (*cb_exit)(void *);
 };
 
 extern struct hvfs_mds_info hmi;
@@ -197,6 +204,7 @@ void mds_destroy(void);
 void mds_reset_itimer(void);
 
 /* for fe.c */
+#define MAX_LOOP_FWD    (0x1000)
 int mds_do_forward(struct xnet_msg *msg, u64 site_id);
 int mds_fe_dispatch(struct xnet_msg *msg);
 

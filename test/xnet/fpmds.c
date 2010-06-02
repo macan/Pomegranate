@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-27 16:09:29 macan>
+ * Time-stamp: <2010-05-31 12:58:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -681,10 +681,16 @@ int main(int argc, char *argv[])
         msg_wait(dsite);
 
     xnet_unregister_type(hmo.xc);
+    dh_remove(hmi.gdt_uuid);
+    st_destroy();
+    mds_destroy();
+
+    return 0;
 out:
     dh_remove(hmi.gdt_uuid);
     st_destroy();
     mds_destroy();
-    return 0;
+
+    return err;
 }
 #endif

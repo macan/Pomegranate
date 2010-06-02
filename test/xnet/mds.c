@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-24 20:48:05 macan>
+ * Time-stamp: <2010-06-01 19:51:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 #include "ring.h"
 #include "lib.h"
 #include "mds.h"
+#include "root.h"
 
 #ifdef UNIT_TEST
 #define TYPE_MDS        0
@@ -621,11 +622,41 @@ out_free:
     return err;
 }
 
-int bitmap_insert2(u64 uuid, u64 offset, void *bitmap)
+int bitmap_insert2(u64 uuid, u64 offset, void *bitmap, int len)
 {
+    struct dhe *e;
+    struct itbitmap *b;
     int err = 0;
 
-    /* FIXME */
+    b = xzalloc(sizeof(*b));
+    if (!b) {
+        hvfs_err(xnet, "xzalloc() struct itbitmap failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    INIT_LIST_HEAD(&b->list);
+    b->offset = (offset / XTABLE_BITMAP_SIZE) * XTABLE_BITMAP_SIZE;
+    b->flag = BITMAP_END;
+    /* copy the bitmap */
+    memcpy(b->array, bitmap, len);
+    memset(b->array + len, 0, XTABLE_BITMAP_BYTES - len);
+
+    e = mds_dh_search(&hmo.dh, uuid);
+    if (IS_ERR(e)) {
+        hvfs_err(xnet, "mds_dh_search() failed %ld\n", PTR_ERR(e));
+        err = PTR_ERR(e);
+        goto out_free;
+    }
+    err = __mds_bitmap_insert(e, b);
+    if (err) {
+        hvfs_err(xnet, "__mds_bitmap_insert() failed %d\n", err);
+        goto out_free;
+    }
+
+out:
+    return err;
+out_free:
+    xfree(b);
     return err;
 }
 
@@ -638,6 +669,33 @@ void *__mds_buf_alloc(size_t size, int aflag)
     } else {
         return xzalloc(size);
     }
+}
+
+struct chring *chring_tx_to_chring(struct chring_tx *ct)
+{
+    struct chring *ring;
+    int err = 0, i;
+
+    ring = ring_alloc(ct->nr, ct->group);
+    if (IS_ERR(ring)) {
+        hvfs_err(xnet, "ring_alloc failed w/ %ld\n",
+                 PTR_ERR(ring));
+        return ring;
+    }
+
+    /* ok, let's copy the array to chring */
+    for (i = 0; i < ct->nr; i++) {
+        err = ring_add_point(&ct->array[i], ring);
+        if (err) {
+            hvfs_err(xnet, "ring add point failed w/ %d\n", err);
+            goto out;
+        }
+    }
+
+    return ring;
+out:
+    ring_free(ring);
+    return ERR_PTR(err);
 }
 
 /* r2cli_do_reg()
@@ -658,7 +716,7 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
     }
 
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
-                     hro.xc->site_id, root_site);
+                     hmo.xc->site_id, root_site);
     xnet_msg_fill_cmd(msg, HVFS_R2_REG, request_site, fsid);
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
@@ -667,7 +725,7 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
     /* send the reg request to root_site w/ requested siteid = request_site */
     msg->tx.reserved = gid;
 
-    err = xnet_send(hro.xc, msg);
+    err = xnet_send(hmo.xc, msg);
     if (err) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out;
@@ -749,7 +807,7 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
             goto out;
         }
         data += err;
-        bitmap_insert2(hmi.gdt_uuid, 0, bitmap);
+        bitmap_insert2(hmi.gdt_uuid, 0, bitmap, err - sizeof(u32));
         
         /* parse addr */
         err = bparse_addr(data, &hst);
@@ -771,6 +829,70 @@ out_nofree:
     return err;
 }
 
+/* r2cli_do_unreg()
+ *
+ * @gid: already right shift 2 bits
+ */
+int r2cli_do_unreg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
+{
+    struct xnet_msg *msg;
+    union hvfs_x_info *hxi;
+    int err = 0;
+
+    hxi = (union hvfs_x_info *)&hmi;
+
+    /* alloc one msg and send it to the perr site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_nofree;
+    }
+
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, root_site);
+    xnet_msg_fill_cmd(msg, HVFS_R2_UNREG, request_site, fsid);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, hxi, sizeof(*hxi));
+
+    /* send te unreeg request to root_site w/ requested siteid = request_site */
+    msg->tx.reserved = gid;
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out;
+    }
+
+    /* this means we have got the reply, parse it! */
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err) {
+        hvfs_err(xnet, "Unreg site %lx failed w/ %d\n", request_site,
+                 msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out;
+    }
+
+out:
+    xnet_free_msg(msg);
+out_nofree:
+    return err;
+}
+
+void mds_cb_exit(void *arg)
+{
+    int err = 0;
+
+    err = r2cli_do_unreg(hmo.xc->site_id, HVFS_RING(0), 0, 0);
+    if (err) {
+        hvfs_err(xnet, "unreg self %lx w/ r2 %x failed w/ %d\n",
+                 hmo.xc->site_id, HVFS_RING(0), err);
+        return;
+    }
+}
+
 int main(int argc, char *argv[])
 {
     struct xnet_type_ops ops = {
@@ -783,6 +905,7 @@ int main(int argc, char *argv[])
     int self, sport, i, j;
     int memonly, memlimit, mode;
     char *value;
+    char *ring_ip = NULL;
     char profiling_fname[256];
     
     hvfs_info(xnet, "MDS Unit Testing...\n");
@@ -795,6 +918,8 @@ int main(int argc, char *argv[])
     } else {
         self = atoi(argv[1]);
         hvfs_info(xnet, "Self type+ID is mds:%d.\n", self);
+        if (argc == 3)
+            ring_ip = argv[2];
     }
 
     value = getenv("memonly");
@@ -835,8 +960,15 @@ int main(int argc, char *argv[])
     xnet_update_ipaddr(HVFS_MDS(4), 1, &ipaddr[0], (short *)(&port[4][1]));
 
     /* prepare the ring address */
-    xnet_update_ipaddr(HVFS_RING(0), 1, ipaddr[3],
-                       (short *)(&port[3][0]));
+    if (!ring_ip) {
+        xnet_update_ipaddr(HVFS_RING(0), 1, &ipaddr[3],
+                           (short *)(&port[3][0]));
+        sport = port[TYPE_MDS][self];
+    } else {
+        xnet_update_ipaddr(HVFS_RING(0), 1, &ring_ip,
+                           (short *)(&port[3][0]));
+        sport = port[TYPE_MDS][0];
+    }
     
     /* setup the profiling file */
     memset(profiling_fname, 0, sizeof(profiling_fname));
@@ -848,7 +980,6 @@ int main(int argc, char *argv[])
         return EINVAL;
     }
 
-    sport = port[TYPE_MDS][self];
     self = HVFS_MDS(self);
 
     hmo.xc = xnet_register_type(0, sport, self, &ops);
@@ -869,6 +1000,8 @@ int main(int argc, char *argv[])
 #if 1
         ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
         ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(1));
+        ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(2));
+        ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(3));
 #else
         ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(4));
 #endif
@@ -882,6 +1015,7 @@ int main(int argc, char *argv[])
         dh_insert(hmi.gdt_uuid, hmi.gdt_uuid, hmi.gdt_salt);
         bitmap_insert(0, 0);
     } else {
+        hmo.cb_exit = mds_cb_exit;
         /* use ring info to init the mds */
         err = r2cli_do_reg(self, HVFS_RING(0), 0, 0);
         if (err) {
@@ -889,7 +1023,6 @@ int main(int argc, char *argv[])
                      self, HVFS_RING(0), err);
             goto out;
         }
-        /* FIXME */
     }
     
     err = mds_verify();
@@ -904,9 +1037,14 @@ int main(int argc, char *argv[])
     msg_wait();
 
     xnet_unregister_type(hmo.xc);
+    st_destroy();
+    mds_destroy();
+
+    return 0;
 out:
     st_destroy();
     mds_destroy();
-    return 0;
+
+    return err;
 }
 #endif

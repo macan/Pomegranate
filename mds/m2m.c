@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 20:53:19 macan>
+ * Time-stamp: <2010-06-01 14:16:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -365,8 +365,15 @@ void mds_aubitmap(struct xnet_msg *msg)
     struct bc_delta *bd;
     struct dhe *e;
     struct chp *p;
-    u64 hash, itbid;
+    struct bc_entry *be;
+    u64 hash, itbid, offset;
     int err = 0;
+
+    /* ABI:
+     *
+     * tx.arg0: uuid to update
+     * tx.arg1: itbid to flip
+     */
 
     /* sanity checking */
     if (msg->tx.len != 0) {
@@ -429,7 +436,23 @@ void mds_aubitmap(struct xnet_msg *msg)
     xlock_lock(&hmo.bc.delta_lock);
     list_add(&bd->list, &hmo.bc.deltas);
     xlock_unlock(&hmo.bc.delta_lock);
-    
+
+    /* Finally, we should update the bc_entry if it exists */
+    offset = BITMAP_ROUNDDOWN(msg->tx.arg1);
+    be = mds_bc_get(msg->tx.arg0, offset);
+    if (IS_ERR(be)) {
+        if (be == ERR_PTR(-ENOENT)) {
+            hvfs_err(mds, "Warning: bc_entry %ld offset %ld does not "
+                     "exist.\n", msg->tx.arg0, offset);
+        } else {
+            hvfs_err(mds, "bc_get() %ld failed w/ %d\n", msg->tx.arg0, err);
+        }
+    } else {
+        /* update the bits in bitmap */
+        __set_bit(msg->tx.arg1 - offset, (unsigned long *)be->array);
+        mds_bc_put(be);
+    }
+        
 out:
     return;
 send_rpy:
@@ -487,7 +510,7 @@ void mds_m2m_lb(struct xnet_msg *msg)
         /* Caution: we should cut the offset to the valid bitmap range
          * by size! */
         offset = mds_bitmap_cut(offset, size << 3);
-        offset = BITMAP_ROUNDUP(offset);
+        offset = BITMAP_ROUNDDOWN(offset);
     }
 
     be = mds_bc_get(msg->tx.arg0, offset);

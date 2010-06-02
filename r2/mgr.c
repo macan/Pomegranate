@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-23 19:49:46 macan>
+ * Time-stamp: <2010-05-31 15:10:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1313,6 +1313,12 @@ int root_mgr_lookup_create2(struct root_mgr *rm, u64 fsid,
                 re->root_salt = -1UL;      /* this means that the clients
                                             * should not get a successful
                                             * reg */
+                err = root_bitmap_default(re);
+                if (err) {
+                    hvfs_err(root, "set default bitmap failed w/ %d\n",
+                             err);
+                    goto out;
+                }
             } else if (err) {
                 hvfs_err(root, "root_read_re() failed w/ %d\n", err);
                 root_mgr_free_re(re);
@@ -2603,3 +2609,45 @@ out:
     return err;
 }
 
+void site_mgr_check(time_t ctime)
+{
+    struct site_entry *pos;
+    struct hlist_node *n;
+    static time_t ts = 0;
+    int i;
+
+    if (ctime - ts < hro.conf.hb_interval) {
+        return;
+    } else
+        ts = ctime;
+    
+    for (i = 0; i < hro.conf.site_mgr_htsize; i++) {
+        hlist_for_each_entry(pos, n, &hro.site.sht[i].h, hlist) {
+            xlock_lock(&pos->lock);
+            switch (pos->state) {
+            case SE_STATE_NORMAL:
+                pos->hb_lost++;
+                if (pos->hb_lost > TRANSIENT_HB_LOST) {
+                    hvfs_err(root, "Site %lx lost %d, transfer to TRANSIENT.\n",
+                             pos->site_id, pos->hb_lost);
+                    pos->state = SE_STATE_TRANSIENT;
+                } else if (pos->hb_lost > MAX_HB_LOST) {
+                    hvfs_err(root, "Site %lx lost %d, transfer to ERROR.\n",
+                         pos->site_id, pos->hb_lost);
+                    pos->state = SE_STATE_ERROR;
+                }
+                break;
+            case SE_STATE_TRANSIENT:
+                pos->hb_lost++;
+                if (pos->hb_lost > MAX_HB_LOST) {
+                    hvfs_err(root, "Site %lx lost %d, transfer to ERROR.\n",
+                         pos->site_id, pos->hb_lost);
+                    pos->state = SE_STATE_ERROR;
+                }
+                break;
+            default:;
+            }
+            xlock_unlock(&pos->lock);
+        }
+    }
+}

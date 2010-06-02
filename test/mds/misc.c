@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 08:58:21 macan>
+ * Time-stamp: <2010-06-01 18:50:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -109,6 +109,36 @@ int main(int argc, char *argv[])
 
         mask = (1 << nr) - 1;
         hvfs_info(mds, "result %ld \n", 2096896 & mask);
+    }
+
+    {
+        u64 offset = 1000;
+        hvfs_info(mds, "offset %ld roundup %ld\n", offset,
+                  BITMAP_ROUNDUP(offset));
+        hvfs_info(mds, "offset %ld rounddown %ld\n", offset,
+                  BITMAP_ROUNDDOWN(offset));
+        offset = XTABLE_BITMAP_SIZE;
+
+        hvfs_info(mds, "offset %ld roundup %ld\n", offset,
+                  BITMAP_ROUNDUP(offset));
+        hvfs_info(mds, "offset %ld rounddown %ld\n", offset,
+                  BITMAP_ROUNDDOWN(offset));
+
+        offset = XTABLE_BITMAP_SIZE + 100;
+        hvfs_info(mds, "offset %ld roundup %ld\n", offset,
+                  BITMAP_ROUNDUP(offset));
+        hvfs_info(mds, "offset %ld rounddown %ld\n", offset,
+                  BITMAP_ROUNDDOWN(offset));
+    }
+
+    {
+        int nr = 100;
+        struct conf_site cs[nr];
+
+        err = conf_parse(NULL, cs, &nr);
+        if (err) {
+            hvfs_err(mds, "conf_parse failed w/ %d\n", err);
+        }
     }
 
     return err;

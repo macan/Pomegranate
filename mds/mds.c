@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 21:15:08 macan>
+ * Time-stamp: <2010-06-02 09:12:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,6 +40,7 @@ void mds_sigaction_default(int signo, siginfo_t *info, void *arg)
 #ifdef HVFS_DEBUG_LOCK
     if (signo == SIGINT) {
         lock_table_print();
+        return;
     }
 #endif
     if (signo == SIGSEGV) {
@@ -51,7 +52,10 @@ void mds_sigaction_default(int signo, siginfo_t *info, void *arg)
     }
     if (signo == SIGHUP) {
         hvfs_info(lib, "Exit MDS Server ...\n");
+        mds_destroy();
+        exit(0);
     }
+    
     return;
 }
 
@@ -352,6 +356,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_option(opt_itb_mutex, ITB_MUTEX, value);
     HVFS_MDS_GET_ENV_option(opt_memonly, MEMONLY, value);
     HVFS_MDS_GET_ENV_option(opt_memlimit, MEMLIMIT, value);
+    HVFS_MDS_GET_ENV_option(opt_limited, LIMITED, value);
 
     /* default configurations */
     if (!hmo.conf.txg_buf_len) {
@@ -489,6 +494,11 @@ out_signal:
 void mds_destroy(void)
 {
     hvfs_verbose(mds, "OK, stop it now...\n");
+
+    /* unreg w/ the r2 server */
+    if (hmo.cb_exit) {
+        hmo.cb_exit(&hmo);
+    }
 
     /* stop the timer thread */
     hmo.timer_thread_stop = 1;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-23 21:00:26 macan>
+ * Time-stamp: <2010-05-31 12:59:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -489,9 +489,11 @@ int main(int argc, char *argv[])
         goto out;
     }
 
-    xnet_unregister_type(hro.xc);
     root_destroy();
+    xnet_unregister_type(hro.xc);
+    return 0;
 out:
+    root_destroy();
     return err;
 }
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-27 17:16:13 macan>
+ * Time-stamp: <2010-06-01 15:07:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -273,6 +273,38 @@ void mds_bitmap_update_bit(struct itbitmap *b, u64 offset, u8 op)
     __set_bit(pos, (unsigned long *)(b->array));
 }
 
+/* mds_bitmap_refresh()
+ *
+ * refresh the bitmap entry
+ */
+void mds_bitmap_refresh(struct hvfs_index *hi)
+{
+    struct dhe *e;
+    u64 offset;
+    int err = 0;
+    
+    e = mds_dh_search(&hmo.dh, hi->puuid);
+    if (IS_ERR(e)) {
+        err = PTR_ERR(e);
+        goto out;
+    }
+    hvfs_err(mds, "refresh uuid %ld bitmap slice offset %ld.\n",
+             hi->puuid, hi->itbid);
+    /* try to load the bitmap slice @ hi->itbid */
+    offset = BITMAP_ROUNDDOWN(hi->itbid);
+    err = mds_bitmap_load(e, offset);
+    if (err == -ENOTEXIST) {
+        hvfs_err(mds, "uiud %ld Bitmap slice %ld do not exist\n",
+                 hi->puuid, offset);
+    } else if (err) {
+        hvfs_err(mds, "uuid %ld bitmap slice %ld load err w/ %d\n",
+                 hi->puuid, offset, err);
+    }
+    
+out:
+    return;
+}
+
 /* mds_bitmap_load()
  *
  * Return Value: -ENOEXIST means the slice is not exist!
@@ -287,7 +319,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
     int err = 0;
     
     /* round up offset */
-    offset = BITMAP_ROUNDUP(offset);
+    offset = BITMAP_ROUNDDOWN(offset);
 
     msg = xnet_alloc_msg(XNET_MSG_CACHE);
     if (!msg) {
@@ -359,7 +391,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
             /* Caution: we should cut the offset to the valid bitmap range by
              * size! */
             offset = mds_bitmap_cut(offset, size << 3);
-            offset = BITMAP_ROUNDUP(offset);
+            offset = BITMAP_ROUNDDOWN(offset);
         }
 
         be = mds_bc_get(e->uuid, offset);
@@ -483,6 +515,8 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
             xlock_unlock(&e->lock);
         }
     } else {
+        hvfs_err(mds, "Remote bitmap load uuid %ld offset %ld\n",
+                 e->uuid, offset);
         /* prepare the msg */
         xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
                          hmo.site_id, p->site_id);
@@ -545,9 +579,16 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
                 }
             }
         } else {
+            char line[1024] = {0,};
+            int i;
+            
             /* ok, this is an empty list */
             list_add_tail(&bitmap->list, &e->bitmap);
             /* FIXME: XNET clear the auto free flag */
+            for (i = 0; i < 100; i++) {
+                sprintf(line + i, "%x", bitmap->array[i]);
+            }
+            hvfs_debug(mds, "bitmap %s\n", line);
             xnet_clear_auto_free(msg->pair);
         }
         xlock_unlock(&e->lock);
@@ -610,7 +651,7 @@ int mds_bitmap_create(struct dhe *e, u64 itbid)
         hvfs_err(mds, "xzalloc() itbitmap failed\n");
         return -ENOMEM;
     }
-    itbid = (itbid + XTABLE_BITMAP_SIZE - 1) & (~(XTABLE_BITMAP_SIZE - 1));
+    itbid = BITMAP_ROUNDDOWN(itbid);
     INIT_LIST_HEAD(&b->list);
     b->offset = itbid;
     b->ts = 0;                  /* FIXME: set the ts here! */

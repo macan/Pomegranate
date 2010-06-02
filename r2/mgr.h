@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-23 12:00:34 macan>
+ * Time-stamp: <2010-05-31 14:24:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -53,6 +53,8 @@ struct site_entry
 #define SE_STATE_TRANSIENT      0x20
 #define SE_STATE_ERROR          0x30 /* innormal, need recover */
     u32 state;
+#define TRANSIENT_HB_LOST       0x01
+#define MAX_HB_LOST             0x02
     u32 hb_lost;                /* # of lost heart beat messages */
     union hvfs_x_info hxi;
     xlock_t lock;
@@ -198,5 +200,7 @@ int root_read_bitmap(u64, u64, void *);
 int root_write_bitmap(void *, u64, u64 *);
 void *root_bitmap_enlarge(void *, u64);
 int root_bitmap_default(struct root_entry *re);
+
+void site_mgr_check(time_t);
 
 #endif

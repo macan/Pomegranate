@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 19:06:47 macan>
+ * Time-stamp: <2010-05-31 17:08:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -735,6 +735,7 @@ int mds_bc_backend_commit(void)
     }
 
     list_for_each_entry_safe(pos, n, &deltas, list) {
+        deal++;
         hi.uuid = pos->uuid;
         hi.hash = hvfs_hash_gdt(pos->uuid, hmi.gdt_salt);
         
