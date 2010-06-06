@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-02 19:33:24 macan>
+ * Time-stamp: <2010-06-03 15:31:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -171,6 +171,7 @@ struct hvfs_mds_object
 
     /* callback functions */
     void (*cb_exit)(void *);
+    u64 fsid;
 };
 
 extern struct hvfs_mds_info hmi;
@@ -192,7 +193,8 @@ struct dconf_req
 struct mds_fwd
 {
     int len;
-    u64 route[0];
+#define MDS_FWD_MAX     32
+    u32 route[0];
 };
 
 /* APIs */
@@ -451,5 +453,11 @@ int txg_ddc_send_reply(struct hvfs_dir_delta *);
 
 u64 mds_select_ring(struct hvfs_mds_object *);
 void mds_set_ring(u64);
+
+static inline
+void mds_set_fsid(struct hvfs_mds_object *hmo, u64 fsid)
+{
+    hmo->fsid = fsid;
+}
 
 #endif

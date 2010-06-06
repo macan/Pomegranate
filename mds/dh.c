@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-20 15:04:32 macan>
+ * Time-stamp: <2010-06-03 10:02:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -155,6 +155,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     struct xnet_msg *msg;
     struct chp *p;
     struct dhe *e = ERR_PTR(-ENOTEXIST);
+    u64 tsid;                   /* target site id */
     int err = 0, no;
 
     msg = xnet_alloc_msg(XNET_MSG_CACHE);
@@ -170,7 +171,15 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     /* check if we are loading the GDT DH */
     if (unlikely(duuid == hmi.gdt_uuid)) {
         /* ok, we should send the request to the ROOT server */
-        
+        tsid = HVFS_RING(0);
+
+        /* prepare the msg */
+        xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.xc->site_id,
+                         tsid);
+        xnet_msg_fill_cmd(msg, HVFS_R2_LGDT, hmo.xc->site_id, hmo.fsid);
+#ifdef XNET_EAGER_WRITEV
+        xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
         goto send_msg;
     }
 
@@ -256,7 +265,8 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
         xnet_msg_add_sdata(msg, &thi, sizeof(thi));
-        
+
+        tsid = p->site_id;
     send_msg:
         err = xnet_send(hmo.xc, msg);
         if (err) {
@@ -264,30 +274,38 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
             e = ERR_PTR(err);
             goto out_free;
         }
+
         /* ok, we get the reply: have the mdu in the reply msg */
         ASSERT(msg->pair, mds);
-        hmr = (struct hvfs_md_reply *)(msg->pair->xm_data);
-        if (!hmr || hmr->err) {
-            hvfs_err(mds, "dh_load request failed %d\n", !hmr ? -ENOTEXIST : 
-                     hmr->err);
-            e = !hmr ? ERR_PTR(-ENOTEXIST) : ERR_PTR(hmr->err);
-            goto out_free;
-        }
-        rhi = hmr_extract(hmr, EXTRACT_HI, &no);
-        if (!rhi) {
-            hvfs_err(mds, "hmr_extract MDU failed, do not found this "
-                     "subregion.\n");
-            goto out_free;
-        }
 
-        /* Note that, we know that the LDH will return the HI with ssalt
-         * set. */
-
-        /* key, we got the mdu, let us insert it to the dh table */
-        e = mds_dh_insert(dh, rhi);
-        if (IS_ERR(e) && e != ERR_PTR(-EEXIST)) {
-            hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
-            goto out_free;
+        if (msg->pair->tx.err) {
+            hvfs_err(mds, "mds_dh_load() from site %lx failed w/ %d\n",
+                     tsid, msg->pair->tx.err);
+            e = ERR_PTR(msg->pair->tx.err);
+        } else {
+            hmr = (struct hvfs_md_reply *)(msg->pair->xm_data);
+            if (!hmr || hmr->err) {
+                hvfs_err(mds, "dh_load request failed %d\n", 
+                         !hmr ? -ENOTEXIST : hmr->err);
+                e = !hmr ? ERR_PTR(-ENOTEXIST) : ERR_PTR(hmr->err);
+                goto out_free;
+            }
+            rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+            if (!rhi) {
+                hvfs_err(mds, "hmr_extract MDU failed, do not found this "
+                         "subregion.\n");
+                goto out_free;
+            }
+            
+            /* Note that, we know that the LDH will return the HI with ssalt
+             * set. */
+            
+            /* key, we got the mdu, let us insert it to the dh table */
+            e = mds_dh_insert(dh, rhi);
+            if (IS_ERR(e) && e != ERR_PTR(-EEXIST)) {
+                hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
+                goto out_free;
+            }
         }
     }
     

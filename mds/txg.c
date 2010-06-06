@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-02 15:39:12 macan>
+ * Time-stamp: <2010-06-03 09:37:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -488,7 +488,7 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
                 hvfs_err(mds, "REF %d\n", atomic_read(&ih->ref));
                 /* Note that: ref == 2 means this entry is under splitting,
                  * the async thread will free it! */
-                if (unlikely(!(atomic_read(&ih->ref) == 1 &&
+                if (unlikely(!(atomic_read(&ih->ref) == 1 ||
                                atomic_read(&ih->ref) == 2))) {
                     HVFS_BUGON("ITB COWED with invalid REF");
                 }

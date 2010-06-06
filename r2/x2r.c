@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-31 16:08:15 macan>
+ * Time-stamp: <2010-06-03 10:26:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -726,3 +726,39 @@ out:
     
     return err;
 }
+
+/* root_do_lgdt() try to load and construct the gdt entry
+ *
+ * following the HMR protocol
+ */
+int root_do_lgdt(struct xnet_msg *msg)
+{
+    int err = 0;
+
+    /* ABI:
+     * tx.arg0: site_id
+     * tx.arg1: fsid
+     */
+    xnet_free_msg(msg);
+
+    return err;
+}
+
+/* root_do_lbgdt() try to load and construct the gdt bitmap
+ *
+ * following the itbitmap protocol
+ */
+int root_do_lbgdt(struct xnet_msg *msg)
+{
+    int err = 0;
+
+    /* ABI:
+     * tx.arg0: site_id
+     * tx.arg1: fsid
+     * tx.reserved: offset
+     */
+    xnet_free_msg(msg);
+
+    return err;
+}
+

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-02 20:32:52 macan>
+ * Time-stamp: <2010-06-06 09:37:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -279,7 +279,7 @@ void mds_ausplit(struct xnet_msg *msg)
     atomic64_inc(&hmo.prof.mds.ausplit);
     atomic64_add(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
 
-    hvfs_debug(mds, "We update the bit of ITB %ld\n", i->h.itbid);
+    hvfs_err(mds, "We update the bit of ITB %ld\n", i->h.itbid);
 
 send_rpy:
     {
@@ -336,7 +336,7 @@ void mds_forward(struct xnet_msg *msg)
 
         memset(line, 0, sizeof(line));
         pos += snprintf(line, 256, "FW request from %lx route ", tx->ssite_id);
-        for (i = 0; i < ((mf->len - sizeof(*mf)) / sizeof(u64)); i++) {
+        for (i = 0; i < ((mf->len - sizeof(*mf)) / sizeof(u32)); i++) {
             pos += snprintf(line + pos, 256 - pos, "%lx->", mf->route[i]);
         }
         pos += snprintf(line + pos, 256 - pos, "%lx(E).\n", hmo.site_id);

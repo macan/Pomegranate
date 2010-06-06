@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-02 17:45:44 macan>
+ * Time-stamp: <2010-06-05 15:34:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,6 +44,27 @@ void mds_update_recent_reqno(u64 site, u64 reqno)
     return;
 }
 
+/* loop_detect the route info
+ *
+ * Return value: 0:no loop; 1: first loop; 2: second or greater loop;
+ */
+int __mds_fwd_loop_detect(struct mds_fwd *mf)
+{
+    int i, looped = 0;
+    
+    for (i = 0; i < MDS_FWD_MAX; i++) {
+        if (mf->route[i] != 0) {
+            if (mf->route[i] == hmo.site_id) {
+                if (looped < 2)
+                    looped++;
+            }
+        } else
+            break;
+    }
+
+    return looped = 0;
+}
+
 /* mds_fe_handle_err()
  *
  * NOTE: how to handle the err from the dispatcher? We just print the err
@@ -62,15 +83,22 @@ void mds_fe_handle_err(struct xnet_msg *msg, int err)
 
 int mds_do_forward(struct xnet_msg *msg, u64 dsite)
 {
-    int err = 0, i, relaied = 0;
+    int err = 0, i, relaied = 0, looped = 0;
     
     /* Note that lots of forward request may incur the system performance, we
      * should do fast forwarding and fast bitmap changing. */
-    struct mds_fwd *mf = NULL;
+    struct mds_fwd *mf = NULL, *rmf = NULL;
     struct xnet_msg *fmsg;
 
     if (unlikely(msg->tx.flag & XNET_FWD)) {
         atomic64_inc(&hmo.prof.mds.loop_fwd);
+        /* check if this message is looped. if it is looped, we should refresh
+         * the bitmap and just forward the message as normal. until receive
+         * the second looped request, we stop or slow down the request */
+        rmf = (struct mds_fwd *)((void *)(msg->tx.reserved) + 
+                                 msg->tx.len + sizeof(msg->tx));
+        looped = __mds_fwd_loop_detect(rmf);
+        
         if (unlikely((atomic64_read(&hmo.prof.mds.loop_fwd) + 1) % 
                      MAX_RELAY_FWD == 0)) {
             /* we should trigger the bitmap reload now */
@@ -79,14 +107,43 @@ int mds_do_forward(struct xnet_msg *msg, u64 dsite)
         relaied = 1;
     }
 
-    mf = xzalloc(sizeof(*mf) + sizeof(u64));
+    mf = xzalloc(sizeof(*mf) + MDS_FWD_MAX * sizeof(u32));
     if (!mf) {
         hvfs_err(mds, "alloc mds_fwd failed.\n");
         err = -ENOMEM;
         goto out;
     }
-    mf->len = sizeof(u64) + sizeof(*mf);
-    mf->route[0] = hmo.site_id;
+    mf->len = MDS_FWD_MAX * sizeof(u32) + sizeof(*mf);
+    switch (looped) {
+    case 0:
+        /* not looped request */
+        mf->route[0] = hmo.site_id;
+        break;
+    case 1:        
+        /* first loop, copy the entries */
+        for (i = 0; i < MDS_FWD_MAX; i++) {
+            if (rmf->route[i] != 0)
+                mf->route[i] = rmf->route[i];
+            else
+                break;
+        }
+        if (i < MDS_FWD_MAX)
+            mf->route[i] = hmo.site_id;
+        break;
+    case 2:
+        /* second loop, slow down the forwarding */
+        xsleep(10);
+        for (i = 0; i < MDS_FWD_MAX; i++) {
+            if (rmf->route[i] != 0)
+                mf->route[i] = rmf->route[i];
+            else
+                break;
+        }
+        if (i < MDS_FWD_MAX)
+            mf->route[i] = hmo.site_id;
+        break;
+    default:;
+    }
 
     fmsg = xnet_alloc_msg(XNET_MSG_CACHE);
     if (!fmsg) {

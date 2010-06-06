@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-01 20:07:56 macan>
+ * Time-stamp: <2010-06-06 09:11:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -388,6 +388,7 @@ void mds_tx_done(struct hvfs_tx *tx)
     /* NOTE: the following function is need to release the alloc
      * reference */
     mds_put_tx(tx);
+    txg_put(tx->txg);
 
     if (tx->op == HVFS_TX_FORGET) {
         /* free the resources */
@@ -404,7 +405,6 @@ void mds_tx_done(struct hvfs_tx *tx)
         atomic_inc(&hmo.txc.ftx);
         xlock_unlock(&hmo.txc.lock);
     }
-    txg_put(tx->txg);
 }
 
 /*

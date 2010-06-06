@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-02 16:19:03 macan>
+ * Time-stamp: <2010-06-06 08:39:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -914,7 +914,7 @@ int main(int argc, char *argv[])
     if (argc < 2) {
         hvfs_err(xnet, "Self ID is not provided.\n");
         err = EINVAL;
-        goto out;
+        return err;
     } else {
         self = atoi(argv[1]);
         hvfs_info(xnet, "Self type+ID is mds:%d.\n", self);

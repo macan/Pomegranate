@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-01 13:32:47 macan>
+ * Time-stamp: <2010-06-03 10:15:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -117,6 +117,8 @@
 #define HVFS_R2_UPDATE          0x0000000040000003
 #define HVFS_R2_MKFS            0x0000000040000004
 #define HVFS_R2_HB              0x0000000040000008 /* heart beat */
+#define HVFS_R2_LGDT            0x0000000040000010 /* load gdt dh */
+#define HVFS_R2_LBGDT           0x0000000040000011 /* load gdt bitmap */
 
 /* APIs */
 #define HASH_SEL_EH     0x00

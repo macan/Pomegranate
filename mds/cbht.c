@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-18 22:19:47 macan>
+ * Time-stamp: <2010-06-06 10:42:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -971,8 +971,21 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
                 goto out;
             }
             i->h.depth = fls64(hi->itbid) + 1;
-            if (i->h.depth < hmo.conf.itb_depth_default)
+            if (i->h.depth < hmo.conf.itb_depth_default + 1)
                 i->h.depth = hmo.conf.itb_depth_default;
+            else {
+                /* Note: i->h.depth >= itb_depth_default means that the
+                 * splited ITB will be finally routed to this server, we just
+                 * wait and retry */
+                if (unlikely(!(hmo.conf.option & HVFS_MDS_LIMITED))) {
+                    hvfs_err(mds, "want to create itbid %ld depth %d\n", 
+                             hi->itbid, i->h.depth);
+                    itb_free(i);
+                    /* FIXME: we should return EHWAIT actually! */
+                    err = -ERESTART;
+                    goto out;
+                }
+            }
 
             i->h.itbid = hi->itbid;
             i->h.puuid = hi->puuid;

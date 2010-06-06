@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-02 20:32:57 macan>
+ * Time-stamp: <2010-06-03 10:21:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -315,7 +315,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
     struct chp *p;
     struct dhe *gdte;
     struct itbitmap *bitmap, *b;
-    u64 hash, itbid;
+    u64 hash, itbid, tsid;      /* save the target site id */
     int err = 0;
     
     /* round up offset */
@@ -337,6 +337,17 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
         /* FIXME: set the dsite_id!!! */
         hvfs_err(mds, "Auto load GDT bitmap from ROOT server is not "
                  "supported yet.\n");
+        tsid = HVFS_RING(0);
+
+        /* prepare the msg */
+        xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.xc->site_id,
+                         tsid);
+        xnet_msg_fill_cmd(msg, HVFS_R2_LBGDT, hmo.xc->site_id, hmo.fsid);
+#ifdef XNET_EAGER_WRITEV
+        xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+        msg->tx.reserved = offset;
+        
         goto send_msg;
     }
 
