@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-02 14:33:50 macan>
+ * Time-stamp: <2010-06-07 14:12:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -122,7 +122,7 @@ int ring_add(struct chring *r, u64 site)
         (p + i)->vid = i;
         (p + i)->type = CHP_AUTO;
         (p + i)->site_id = site;
-        err = ring_add_point(p + i, r);
+        err = ring_add_point_nosort(p + i, r);
         if (err) {
             hvfs_err(xnet, "ring_add_point() failed.\n");
             return err;
@@ -147,7 +147,7 @@ int main(int argc, char *argv[])
     struct sockaddr_in sin = {
         .sin_family = AF_INET,
     };
-    int nr = 100;
+    int nr = 1000;
     struct conf_site cs[nr];
 
     hvfs_info(xnet, "R2 Unit Testing ...\n");
@@ -303,6 +303,7 @@ int main(int argc, char *argv[])
             goto out;
         }
         ASSERT(res == re, xnet);
+        ring_resort_nolock(&re->ring);
         ring_mgr_put(re);
 
         re = ring_mgr_alloc_re();
@@ -322,6 +323,7 @@ int main(int argc, char *argv[])
             goto out;
         }
         ASSERT(res == re, xnet);
+        ring_resort_nolock(&re->ring);
         ring_mgr_put(re);
     } else {
         struct ring_entry *re, *res;
@@ -349,6 +351,7 @@ int main(int argc, char *argv[])
             goto out;
         }
         ASSERT(res == re, xnet);
+        ring_resort_nolock(&re->ring);
         ring_mgr_put(re);
 
         re = ring_mgr_alloc_re();
@@ -372,12 +375,13 @@ int main(int argc, char *argv[])
             goto out;
         }
         ASSERT(res == re, xnet);
+        ring_resort_nolock(&re->ring);
         ring_mgr_put(re);
     }
 
     /* next, we setup the root entry for fsid == 0 */
     {
-        struct root_entry *re, *res;
+        struct root_entry *re, __attribute__((unused))*res;
 
         err = root_mgr_lookup_create(&hro.root, 0, &re);
         if (err > 0) {
@@ -405,13 +409,16 @@ int main(int argc, char *argv[])
             }
             re->gdt_bitmap[0] = 0xff;
 
-//            res = root_mgr_insert(&hro.root, re);
+#if 0                           /* do not create a root entry, we just read
+                                 * from the disk now */
+            res = root_mgr_insert(&hro.root, re);
             if (IS_ERR(res)) {
                 hvfs_err(xnet, "insert root entry faild w/ %ld\n",
                          PTR_ERR(res));
                 err = PTR_ERR(res);
                 goto out;
             }
+#endif
         } else if (err < 0) {
             hvfs_err(xnet, "lookup create root 0 failed w/ %d\n", err);
         }

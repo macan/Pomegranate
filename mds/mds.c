@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-02 20:33:10 macan>
+ * Time-stamp: <2010-06-07 09:03:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,7 +43,7 @@ void mds_sigaction_default(int signo, siginfo_t *info, void *arg)
         return;
     }
 #endif
-    if (signo == SIGSEGV) {
+    if (signo == SIGSEGV || signo == SIGBUS) {
         hvfs_info(lib, "Recv %sSIGSEGV%s %s\n",
                   HVFS_COLOR_RED,
                   HVFS_COLOR_END,
@@ -93,6 +93,11 @@ static int mds_init_signal(void)
     }
 #endif
     err = sigaction(SIGSEGV, &ac, NULL);
+    if (err) {
+        err = errno;
+        goto out;
+    }
+    err = sigaction(SIGBUS, &ac, NULL);
     if (err) {
         err = errno;
         goto out;

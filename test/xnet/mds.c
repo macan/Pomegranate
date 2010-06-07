@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-06 08:39:57 macan>
+ * Time-stamp: <2010-06-07 11:36:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -132,7 +132,7 @@ int ring_add(struct chring **r, u64 site)
         (p + i)->vid = i;
         (p + i)->type = CHP_AUTO;
         (p + i)->site_id = site;
-        err = ring_add_point(p + i, *r);
+        err = ring_add_point_nosort(p + i, *r);
         if (err) {
             hvfs_err(xnet, "ring_add_point() failed.\n");
             return err;
@@ -685,12 +685,14 @@ struct chring *chring_tx_to_chring(struct chring_tx *ct)
 
     /* ok, let's copy the array to chring */
     for (i = 0; i < ct->nr; i++) {
-        err = ring_add_point(&ct->array[i], ring);
+        err = ring_add_point_nosort(&ct->array[i], ring);
         if (err) {
             hvfs_err(xnet, "ring add point failed w/ %d\n", err);
             goto out;
         }
     }
+    /* sort it */
+    ring_resort_nolock(ring);
 
     return ring;
 out:
@@ -1012,6 +1014,9 @@ int main(int argc, char *argv[])
 #endif
         ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(0));
         ring_add(&hmo.chring[CH_RING_MDSL], HVFS_MDSL(1));
+
+        ring_resort_nolock(hmo.chring[CH_RING_MDS]);
+        ring_resort_nolock(hmo.chring[CH_RING_MDSL]);
 
         ring_dump(hmo.chring[CH_RING_MDS]);
         ring_dump(hmo.chring[CH_RING_MDSL]);

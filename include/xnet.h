@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-18 18:13:23 macan>
+ * Time-stamp: <2010-06-07 14:12:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,6 +95,7 @@ struct xnet_msg
 
 #ifdef USE_XNET_SIMPLE
     sem_t event;
+    time_t ts;
 #endif
 };
 
@@ -117,6 +118,8 @@ struct xnet_context
 #ifdef USE_XNET_SIMPLE
     sem_t wait;
     struct list_head list;
+    struct list_head resend_q;
+    xlock_t resend_lock;
 #endif
 };
 
@@ -124,6 +127,7 @@ struct xnet_context
 #ifdef USE_XNET_SIMPLE
 struct xnet_context *xnet_register_type(u8, u16, u64, struct xnet_type_ops *);
 struct xnet_context *xnet_register_lw(u8, u16, u64, struct xnet_type_ops *);
+int xnet_resend(struct xnet_context *xc, struct xnet_msg *m);
 #else
 struct xnet_context *xnet_register_type(u8, struct xnet_type_ops *);
 #endif

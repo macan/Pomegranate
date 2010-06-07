@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-04 13:48:05 macan>
+ * Time-stamp: <2010-06-07 11:14:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -108,6 +108,31 @@ int ring_add_point(struct chp *p, struct chring *r)
     ASSERT(r->alloc > r->used, lib);
     r->array[r->used++] = *p;
     ring_resort(r);
+
+    xrwlock_wunlock(&r->rwlock);
+    return 0;
+}
+
+int ring_add_point_nosort(struct chp *p, struct chring *r)
+{
+    if (!p || !r)
+        return -EINVAL;
+
+    xrwlock_wlock(&r->rwlock);
+    /* realloc the array */
+    if (r->alloc <= r->used) {
+        r->array = xrealloc(r->array, (r->alloc + RING_ALLOC_FACTOR) * 
+                            sizeof(struct chp));
+        if (!r->array) {
+            xrwlock_wunlock(&r->rwlock);
+            hvfs_debug(lib, "xrealloc failed\n");
+            return -ENOMEM;
+        }
+        r->alloc += RING_ALLOC_FACTOR;
+    }
+
+    ASSERT(r->alloc > r->used, lib);
+    r->array[r->used++] = *p;
 
     xrwlock_wunlock(&r->rwlock);
     return 0;

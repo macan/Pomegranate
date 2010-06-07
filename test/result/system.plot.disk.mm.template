@@ -8,7 +8,7 @@ set terminal png transparent size 1200 900
 set size 1,1
 set origin 0.0, 0.0
 set grid
-set output "system_detail.png"
+set output "system_detail.NODE.png"
 set auto x
 set xtics out
 set auto y
@@ -23,13 +23,13 @@ set y2label "Disk IOPs (#)"
 set y2tics
 set key right box
 
-plot "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($54/1024); ts++;}'" \
+plot "< grep -v \"^#\" CP-BACK-NODE.tab | awk 'BEGIN{ts=0;}{print ts\" \"($54/1024); ts++;}'" \
      using 1:2 t "[DSK]ReadBW%" w linesp ls 1 axes x1y1, \
-     "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($55/1024); ts++;}'" \
+     "< grep -v \"^#\" CP-BACK-NODE.tab | awk 'BEGIN{ts=0;}{print ts\" \"($55/1024); ts++;}'" \
      using 1:2 t "[DSK]WriteBW%" w linesp ls 2 axes x1y1, \
-     "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($51); ts++;}'" \
+     "< grep -v \"^#\" CP-BACK-NODE.tab | awk 'BEGIN{ts=0;}{print ts\" \"($51); ts++;}'" \
      using 1:2 t "[DSK]Reads%" w linesp ls 3 axes x1y2, \
-     "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($52); ts++;}'" \
+     "< grep -v \"^#\" CP-BACK-NODE.tab | awk 'BEGIN{ts=0;}{print ts\" \"($52); ts++;}'" \
      using 1:2 t "[DSK]Writes%" w linesp ls 4 axes x1y2
 
 set size 1.0, .5
@@ -43,13 +43,13 @@ set y2tics
 set y2tics nomirror
 set key right box
 
-plot "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($39); ts++;}'" \
+plot "< grep -v \"^#\" CP-BACK-NODE.tab | awk 'BEGIN{ts=0;}{print ts\" \"($39); ts++;}'" \
      using 1:2 t "[MEM]PageOut%" w linesp ls 8 axes x1y2, \
-     "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($40); ts++;}'" \
+     "< grep -v \"^#\" CP-BACK-NODE.tab | awk 'BEGIN{ts=0;}{print ts\" \"($40); ts++;}'" \
      using 1:2 t "[MEM]PageFaults%" w linesp ls 9 axes x1y2, \
-     "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($44/1024); ts++;}'" \
+     "< grep -v \"^#\" CP-BACK-NODE.tab | awk 'BEGIN{ts=0;}{print ts\" \"($44/1024); ts++;}'" \
      using 1:2 t "[NET]outBW%" w linesp ls 1 axes x1y1, \
-     "< grep -v \"^#\" CP-BACK-glnode09.tab | awk 'BEGIN{ts=0;}{print ts\" \"($45/1024); ts++;}'" \
+     "< grep -v \"^#\" CP-BACK-NODE.tab | awk 'BEGIN{ts=0;}{print ts\" \"($45/1024); ts++;}'" \
      using 1:2 t "[NET]inBW%" w linesp ls 2 axes x1y1
      
 

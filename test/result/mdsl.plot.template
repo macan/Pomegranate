@@ -8,7 +8,7 @@ set terminal png transparent size 1200 900
 set size 1,1
 set origin 0.0, 0.0
 set grid
-set output "mdsl.png"
+set output "mdsl.gXXX.png"
 set auto x
 set xtics out
 set auto y
@@ -25,27 +25,27 @@ set key right box
 
 plot "< awk '{if (ts == 0) {ts = $2; A = $12;} \
              {print ($2 - ts)\" \"($12 - A);} \
-             A = $12;}' xnet/CP-BACK-mdsl.0" \
+             A = $12;}' xnet/CP-BACK-mdsl.FIRST" \
      using 1:2 t "reqin_total" w linesp ls 1 axes x2y2, \
      "< awk '{if (ts == 0) {ts = $2; A = $13;} \
              {print ($2 - ts)\" \"($13 - A)} \
-             A = $13;}' xnet/CP-BACK-mdsl.0" \
+             A = $13;}' xnet/CP-BACK-mdsl.FIRST" \
      using 1:2 t "reqin_hand" w linesp ls 2 axes x2y2, \
      "< awk '{if (ts == 0) {ts = $2; A = $21;} \
              {print ($2 - ts)\" \"($21 - A);} \
-             A = $21;}' xnet/CP-BACK-mdsl.0" \
+             A = $21;}' xnet/CP-BACK-mdsl.FIRST" \
      using 1:2 t "writes"  w linesp ls 3 axes x1y1, \
      "< awk '{if (ts == 0) {ts = $2; A = $22;} \
              {print ($2 - ts)\" \"($22 - A);} \
-             A = $22;}' xnet/CP-BACK-mdsl.0" \
+             A = $22;}' xnet/CP-BACK-mdsl.FIRST" \
      using 1:2 t "reads"  w linesp ls 4 axes x1y1, \
      "< awk '{if (ts == 0) {ts = $2; A = $24;} \
              {print ($2 - ts)\" \"($24 - A);} \
-             A = $24;}' xnet/CP-BACK-mdsl.0" \
+             A = $24;}' xnet/CP-BACK-mdsl.FIRST" \
      using 1:2 t "submit"  w linesp ls 5 axes x1y1, \
      "< awk '{if (ts == 0) {ts = $2; A = $25;} \
              {print ($2 - ts)\" \"($25 - A);} \
-             A = $25;}' xnet/CP-BACK-mdsl.0" \
+             A = $25;}' xnet/CP-BACK-mdsl.FIRST" \
      using 1:2 t "handle"  w linesp ls 6 axes x1y1
 
 set size .5, .5
@@ -59,23 +59,23 @@ set key right box
 
 plot "< awk '{if (ts == 0) {ts = $2; A = $16;} \
              {print ($2 - ts)\" \"(($16 - A)/5/1024/1024);} \
-             A = $16;}' xnet/CP-BACK-mdsl.0" \
+             A = $16;}' xnet/CP-BACK-mdsl.FIRST" \
      using 1:2 t "inBW" w linesp ls 1 axes x1y1, \
      "< awk '{if (ts == 0) {ts = $2; A = $17;} \
              {print ($2 - ts)\" \"(($17 - A)/5/1024/1024);} \
-             A = $17;}' xnet/CP-BACK-mdsl.0" \
+             A = $17;}' xnet/CP-BACK-mdsl.FIRST" \
      using 1:2 t "outBW" w linesp ls 2 axes x1y1, \
      "< awk '{if (ts == 0) {ts = $2; A = $19;} \
              {print ($2 - ts)\" \"(($19 - A)/5/1024/1024);} \
-             A = $19;}' xnet/CP-BACK-mdsl.0" \
+             A = $19;}' xnet/CP-BACK-mdsl.FIRST" \
      using 1:2 t "write" w linesp ls 3 axes x2y2, \
      "< awk '{if (ts == 0) {ts = $2; A = $20;} \
              {print ($2 - ts)\" \"(($20 - A)/5/1024/1024);} \
-             A = $20;}' xnet/CP-BACK-mdsl.0" \
+             A = $20;}' xnet/CP-BACK-mdsl.FIRST" \
      using 1:2 t "read" w linesp ls 4 axes x2y2, \
      "< awk '{if (ts == 0) {ts = $2; A = $23;} \
              {print ($2 - ts)\" \"(($23 - A)/5/1024/1024);} \
-             A = $23;}' xnet/CP-BACK-mdsl.0" \
+             A = $23;}' xnet/CP-BACK-mdsl.FIRST" \
      using 1:2 t "copy" w linesp ls 5 axes x2y2
 
 # section for MDSL1
@@ -90,27 +90,27 @@ set key right box
 
 plot "< awk '{if (ts == 0) {ts = $2; A = $12;} \
              {print ($2 - ts)\" \"($12 - A);} \
-             A = $12;}' xnet/CP-BACK-mdsl.1" \
+             A = $12;}' xnet/CP-BACK-mdsl.SECOND" \
      using 1:2 t "reqin_total" w linesp ls 1 axes x2y2, \
      "< awk '{if (ts == 0) {ts = $2; A = $13;} \
              {print ($2 - ts)\" \"($13 - A)} \
-             A = $13;}' xnet/CP-BACK-mdsl.1" \
+             A = $13;}' xnet/CP-BACK-mdsl.SECOND" \
      using 1:2 t "reqin_hand" w linesp ls 2 axes x2y2, \
      "< awk '{if (ts == 0) {ts = $2; A = $21;} \
              {print ($2 - ts)\" \"($21 - A);} \
-             A = $21;}' xnet/CP-BACK-mdsl.1" \
+             A = $21;}' xnet/CP-BACK-mdsl.SECOND" \
      using 1:2 t "writes"  w linesp ls 3 axes x1y1, \
      "< awk '{if (ts == 0) {ts = $2; A = $22;} \
              {print ($2 - ts)\" \"($22 - A);} \
-             A = $22;}' xnet/CP-BACK-mdsl.1" \
+             A = $22;}' xnet/CP-BACK-mdsl.SECOND" \
      using 1:2 t "reads"  w linesp ls 4 axes x1y1, \
      "< awk '{if (ts == 0) {ts = $2; A = $24;} \
              {print ($2 - ts)\" \"($24 - A);} \
-             A = $24;}' xnet/CP-BACK-mdsl.1" \
+             A = $24;}' xnet/CP-BACK-mdsl.SECOND" \
      using 1:2 t "submit"  w linesp ls 5 axes x1y1, \
      "< awk '{if (ts == 0) {ts = $2; A = $25;} \
              {print ($2 - ts)\" \"($25 - A);} \
-             A = $25;}' xnet/CP-BACK-mdsl.1" \
+             A = $25;}' xnet/CP-BACK-mdsl.SECOND" \
      using 1:2 t "handle"  w linesp ls 6 axes x1y1
 
 set size .5, .5
@@ -124,23 +124,23 @@ set key right box
 
 plot "< awk '{if (ts == 0) {ts = $2; A = $16;} \
              {print ($2 - ts)\" \"(($16 - A)/5/1024/1024);} \
-             A = $16;}' xnet/CP-BACK-mdsl.1" \
+             A = $16;}' xnet/CP-BACK-mdsl.SECOND" \
      using 1:2 t "inBW" w linesp ls 1 axes x1y1, \
      "< awk '{if (ts == 0) {ts = $2; A = $17;} \
              {print ($2 - ts)\" \"(($17 - A)/5/1024/1024);} \
-             A = $17;}' xnet/CP-BACK-mdsl.1" \
+             A = $17;}' xnet/CP-BACK-mdsl.SECOND" \
      using 1:2 t "outBW" w linesp ls 2 axes x1y1, \
      "< awk '{if (ts == 0) {ts = $2; A = $19;} \
              {print ($2 - ts)\" \"(($19 - A)/5/1024/1024);} \
-             A = $19;}' xnet/CP-BACK-mdsl.1" \
+             A = $19;}' xnet/CP-BACK-mdsl.SECOND" \
      using 1:2 t "write" w linesp ls 3 axes x2y2, \
      "< awk '{if (ts == 0) {ts = $2; A = $20;} \
              {print ($2 - ts)\" \"(($20 - A)/5/1024/1024);} \
-             A = $20;}' xnet/CP-BACK-mdsl.1" \
+             A = $20;}' xnet/CP-BACK-mdsl.SECOND" \
      using 1:2 t "read" w linesp ls 4 axes x2y2, \
      "< awk '{if (ts == 0) {ts = $2; A = $23;} \
              {print ($2 - ts)\" \"(($23 - A)/5/1024/1024);} \
-             A = $23;}' xnet/CP-BACK-mdsl.1" \
+             A = $23;}' xnet/CP-BACK-mdsl.SECOND" \
      using 1:2 t "copy" w linesp ls 5 axes x2y2
 
 unset multiplot

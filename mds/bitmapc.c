@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-31 17:08:48 macan>
+ * Time-stamp: <2010-06-06 17:48:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -706,6 +706,11 @@ int mds_bc_backend_commit(void)
 
         list_for_each_entry_safe(pos, n, &deltas, list) {
             list_del(&pos->list);
+            if (pos->site_id == hmo.site_id) {
+                async_aubitmap_cleanup(pos->uuid, pos->itbid);
+            } else {
+                __customized_send_reply(pos);
+            }
             xfree(pos);
         }
         return 0;

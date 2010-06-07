@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-15 13:05:34 macan>
+ * Time-stamp: <2010-06-07 11:35:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,6 +65,7 @@ void ring_free(struct chring *r);
 void ring_resort_nolock(struct chring *r);
 void ring_resort_locked(struct chring *r);
 int ring_add_point(struct chp *p, struct chring *r);
+int ring_add_point_nosort(struct chp *p, struct chring *r);
 
 /* Get the point in the ring */
 struct chp *ring_get_point(u64 key, u64 salt, struct chring *r);
