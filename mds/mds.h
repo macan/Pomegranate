@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-03 15:31:06 macan>
+ * Time-stamp: <2010-06-07 20:16:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -84,6 +84,7 @@ struct mds_conf
     int txg_buf_len;            /* length of the txg buffer */
     int bc_roof;                /* upper limmit of bitmap cache entries */
     int txg_ddht_size;          /* TXG dir delta hash table size */
+    int xnet_resend_to;         /* xnet resend timeout */
     s8 itbid_check;             /* should we do ITBID check? */
     u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
                                  * conflicts */

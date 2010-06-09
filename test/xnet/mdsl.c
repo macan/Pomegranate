@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-07 11:36:25 macan>
+ * Time-stamp: <2010-06-09 12:59:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -428,12 +428,12 @@ int main(int argc, char *argv[])
         xnet_update_ipaddr(HVFS_RING(0), 1, &ipaddr[3],
                            (short *)(&port[3][0]));
         if (sport == -1)
-            sport = port[TYPE_MDS][self];
+            sport = port[TYPE_MDSL][self];
     } else {
         xnet_update_ipaddr(HVFS_RING(0), 1, &ring_ip,
                            (short *)(&port[3][0]));
         if (sport == -1)
-            sport = port[TYPE_MDS][0];
+            sport = port[TYPE_MDSL][0];
     }
 
     /* setup the profiling file */

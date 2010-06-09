@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-07 11:36:17 macan>
+ * Time-stamp: <2010-06-09 11:54:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -172,8 +172,10 @@ int get_send_msg_create(int nid, u64 puuid, u64 itbid,
     hi->psalt = hmi.root_salt;
     /* calculate the itbid now */
     err = SET_ITBID(hi);
-    if (err)
+    if (err) {
+        create_failed++;
         goto out;
+    }
     dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
     
     hi->flag = INDEX_CREATE | INDEX_BY_NAME;
@@ -221,6 +223,9 @@ resend:
         split_retry++;
         goto resend;
     } else if (msg->pair->tx.err == -ERESTART) {
+        goto resend;
+    } else if (msg->pair->tx.err == -EHWAIT) {
+        xsleep(10);
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "CREATE failed @ MDS site %lx w/ %d\n",
@@ -2080,6 +2085,8 @@ int main(int argc, char *argv[])
     hmo.prof.xnet = &g_xnet_prof;
     hmo.conf.prof_plot = 1;
     mds_init(10);
+    if (hmo.conf.xnet_resend_to)
+        g_xnet_conf.resend_timeout = hmo.conf.xnet_resend_to;
     
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
 
@@ -2177,6 +2184,7 @@ int main(int argc, char *argv[])
               "%ld %ld %ld\n",
               split_retry, create_failed, lookup_failed, unlink_failed);
 
+    sleep(1);
     pthread_barrier_destroy(&barrier);
     mds_destroy();
     xnet_unregister_type(hmo.xc);

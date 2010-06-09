@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-06 09:37:17 macan>
+ * Time-stamp: <2010-06-08 15:53:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -246,6 +246,12 @@ void mds_ausplit(struct xnet_msg *msg)
     }
 
     /* checking the ITB */
+#if 1
+    if (msg->tx.len != atomic_read(&i->h.len)) {
+        hvfs_err(mds, "msg %d vs itb %d from %lx\n",
+                 msg->tx.len, atomic_read(&i->h.len), msg->tx.ssite_id);
+    }
+#endif
     ASSERT(msg->tx.len == atomic_read(&i->h.len), mds);
     
     /* pre-dirty the itb */
@@ -264,8 +270,14 @@ void mds_ausplit(struct xnet_msg *msg)
         /* someone has already create the new ITB, we just ignore ourself? */
         hvfs_err(mds, "Someone create ITB %ld, maybe data lossing ...\n",
                  i->h.itbid);
+        /* it is ok, we need to free the locks */
+        xrwlock_runlock(&nbe->lock);
+        xrwlock_runlock(&nb->lock);
+        /* this maybe a resend message, we just send the reply now */
+        goto send_rpy;
     } else if (err) {
         hvfs_err(mds, "Internal error %d, data lossing.\n", err);
+        goto send_rpy;
     }
 
     /* it is ok, we need to free the locks */

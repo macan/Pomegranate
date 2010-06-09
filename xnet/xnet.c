@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-07 14:22:29 macan>
+ * Time-stamp: <2010-06-08 14:37:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,6 +52,7 @@ struct xnet_msg *xnet_alloc_msg(u8 alloc_flag)
     sem_init(&msg->event, 0, 0);
     if (msg)
         atomic64_inc(&g_xnet_prof.msg_alloc);
+    atomic_set(&msg->ref, 1);
 #endif
 
     return msg;
@@ -59,11 +60,13 @@ struct xnet_msg *xnet_alloc_msg(u8 alloc_flag)
 
 void xnet_raw_free_msg(struct xnet_msg *msg)
 {
-    /* FIXME: check whether this msg is in the cache */
-    xfree(msg);
+    if (atomic_dec_return(&msg->ref) == 0) {
+        /* FIXME: check whether this msg is in the cache */
+        xfree(msg);
 #ifdef USE_XNET_SIMPLE
-    atomic64_inc(&g_xnet_prof.msg_free);
+        atomic64_inc(&g_xnet_prof.msg_free);
 #endif
+    }
 }
 
 void xnet_free_msg(struct xnet_msg *msg)
@@ -71,6 +74,10 @@ void xnet_free_msg(struct xnet_msg *msg)
     if (!msg)
         return;
     
+    if (atomic_dec_return(&msg->ref) > 0) {
+        return;
+    }
+
     /* FIXME: we should check the alloc_flag and auto free flag */
     if (msg->pair)
         xnet_free_msg(msg->pair);

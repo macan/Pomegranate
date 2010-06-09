@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-06 10:42:41 macan>
+ * Time-stamp: <2010-06-09 11:50:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -982,7 +982,7 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
                              hi->itbid, i->h.depth);
                     itb_free(i);
                     /* FIXME: we should return EHWAIT actually! */
-                    err = -ERESTART;
+                    err = -EHWAIT;
                     goto out;
                 }
             }
@@ -1018,6 +1018,7 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
         err = mds_cbht_insert_bbrlocked(&hmo.cbht, i, &b, &e, &oi);
         if (err == -EEXIST) {
             /* it already exists, free this one */
+            atomic64_sub(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
             itb_free(i);
             i = oi;
         } else if (unlikely(err)) {

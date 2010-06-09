@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 19:14:13 macan>
+ * Time-stamp: <2010-06-08 15:50:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -451,9 +451,10 @@ static inline void __ite_unlink(struct itb *i, u64 offset)
     if (atomic_read(&i->h.entries) == 0) {
         atomic_set(&i->h.max_offset, 0);
         atomic_set(&i->h.len, sizeof(struct itb));
-    } else 
+    } else {
         atomic_set(&i->h.len, sizeof(struct itb) + 
                    (atomic_read(&i->h.max_offset) + 1) * sizeof(struct ite));
+    }
     /* clear the bitmap */
     if (unlikely(!lib_bitmap_tac(i->bitmap, ii->entry))) {
         hvfs_err(mds, "Test-and-Clear a zero bit?\n");

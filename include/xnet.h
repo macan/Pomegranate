@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-07 14:12:50 macan>
+ * Time-stamp: <2010-06-08 21:15:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -93,6 +93,7 @@ struct xnet_msg
     struct list_head list;
     void *private;
 
+    atomic_t ref;
 #ifdef USE_XNET_SIMPLE
     sem_t event;
     time_t ts;
@@ -128,8 +129,17 @@ struct xnet_context
 struct xnet_context *xnet_register_type(u8, u16, u64, struct xnet_type_ops *);
 struct xnet_context *xnet_register_lw(u8, u16, u64, struct xnet_type_ops *);
 int xnet_resend(struct xnet_context *xc, struct xnet_msg *m);
+int xnet_resend_remove(struct xnet_msg *msg);
+struct xnet_conf 
+{
+    int resend_timeout;
+};
 #else
 struct xnet_context *xnet_register_type(u8, struct xnet_type_ops *);
+static inline
+void xnet_resend_remove(struct xnet_msg *msg)
+{
+}
 #endif
 int xnet_unregister_type(struct xnet_context *);
 
@@ -207,6 +217,7 @@ void xnet_wait_any(struct xnet_context *xc);
 
 /* Profiling Section */
 extern struct xnet_prof g_xnet_prof;
+extern struct xnet_conf g_xnet_conf;
 
 /* This section for XNET reply msg */
 #define XNET_RPY_ACK            0x01

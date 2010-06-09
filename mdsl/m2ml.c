@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 15:52:47 macan>
+ * Time-stamp: <2010-06-09 14:09:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -332,7 +332,7 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
     else
         goto out;
 
-    hvfs_debug(mdsl, "Recv bitmap commit request on %ld %ld %ld\n", 
+    hvfs_err(mdsl, "Recv bitmap commit request on %ld %ld %ld\n", 
                bcc->uuid, bcc->itbid, bcc->location);
 
     /* the uuid/itbid/location is in the bcc */
