@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-09 11:54:07 macan>
+ * Time-stamp: <2010-06-10 16:42:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -223,9 +223,16 @@ resend:
         split_retry++;
         goto resend;
     } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err == -EHWAIT) {
-        xsleep(10);
+        ASSERT(hi->psalt != 0, xnet);
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        sleep(1);
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "CREATE failed @ MDS site %lx w/ %d\n",
@@ -365,6 +372,9 @@ resend:
         split_retry++;
         goto resend;
     } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "CREATE failed @ MDS site %lx w/ %d\n",
@@ -504,8 +514,14 @@ resend:
     /* this means we have got the reply, parse it! */
     ASSERT(msg->pair, xnet);
     if (msg->pair->tx.err == -ESPLIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
@@ -628,8 +644,14 @@ resend:
     /* this means we have got the reply, parse it! */
     ASSERT(msg->pair, xnet);
     if (msg->pair->tx.err == -ESPLIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "UNLINK failed @ MDS site %lx w/ %d\n",
@@ -838,8 +860,14 @@ resend:
     /* this means we have got the reply, parse it! */
     ASSERT(msg->pair, xnet);
     if (msg->pair->tx.err == -ESPLIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
@@ -1102,8 +1130,14 @@ resend:
     /* this means we have got the reply, parse it! */
     ASSERT(msg->pair, xnet);
     if (msg->pair->tx.err == -ESPLIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
@@ -1433,6 +1467,9 @@ resend:
         split_retry++;
         goto resend;
     } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "CREATE failed @ MDS site %ld w/ %d\n",
@@ -1614,6 +1651,7 @@ int create_root()
 
     /* ok, step 1, we lookup the root entry, if failed we will create a new
      * root entry */
+relookup:
     if (lookup_root() == 0) {
         hvfs_info(xnet, "Lookup root entry successfully.\n");
         return 0;
@@ -1631,6 +1669,8 @@ int create_root()
     err = get_send_msg_create_gdt(p->site_id, &hi, data);
     if (err) {
         hvfs_err(xnet, "create root GDT entry failed w/ %d\n", err);
+        if (err == -EEXIST)
+            goto relookup;
     }
 
     /* update the root salt now */
@@ -1821,6 +1861,9 @@ struct chring *chring_tx_to_chring(struct chring_tx *ct)
     }
     /* sort it */
     ring_resort_nolock(ring);
+
+    /* calculate the checksum of the CH ring */
+    lib_md5_print(ring->array, ring->alloc * sizeof(struct chp), "CHRING");
 
     return ring;
 out:
@@ -2167,6 +2210,8 @@ int main(int argc, char *argv[])
                      self, HVFS_RING(0), err);
             goto out;
         }
+        hvfs_info(xnet, "HMI gdt uuid %ld salt %lx\n", 
+                  hmi.gdt_uuid, hmi.gdt_salt);
     }
     
     err = mds_verify();

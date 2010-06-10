@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-03 10:21:23 macan>
+ * Time-stamp: <2010-06-10 14:00:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -603,7 +603,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
             for (i = 0; i < 100; i++) {
                 sprintf(line + i, "%x", bitmap->array[i]);
             }
-            hvfs_debug(mds, "bitmap %s\n", line);
+            hvfs_err(mds, "bitmap %s\n", line);
             xnet_clear_auto_free(msg->pair);
         }
         xlock_unlock(&e->lock);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-08 15:50:22 macan>
+ * Time-stamp: <2010-06-09 16:36:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -636,16 +636,18 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.flags |= HVFS_MDU_IF_SMALL;
         else if (e->flag == ITE_FLAG_LARGE)
             e->s.mdu.flags |= HVFS_MDU_IF_LARGE;
-        e->s.mdu.nlink = 1;
 
         /* we should not change this region, otherwise the name is changing
          * :(  The caller now must set the puuid and psalt themself. */
-        if (hi->flag & INDEX_CREATE_DIR) {
+        if (unlikely(hi->flag & INDEX_CREATE_DIR)) {
+            e->s.mdu.nlink = 2;
             e->s.mdu.mode |= S_IFDIR;
 #if 0
             e->g.puuid = hi->puuid;
             e->g.psalt = hi->psalt;
 #endif
+        } else {
+            e->s.mdu.nlink = 1;
         }
 
         if (!mu || !mu->valid)

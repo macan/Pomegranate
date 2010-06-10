@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-07 11:36:00 macan>
+ * Time-stamp: <2010-06-10 13:19:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -694,6 +694,9 @@ struct chring *chring_tx_to_chring(struct chring_tx *ct)
     /* sort it */
     ring_resort_nolock(ring);
 
+    /* calculate the checksum of the CH ring */
+    lib_md5_print(ring->array, ring->alloc * sizeof(struct chp), "CHRING");
+
     return ring;
 out:
     ring_free(ring);
@@ -1033,6 +1036,8 @@ int main(int argc, char *argv[])
                      self, HVFS_RING(0), err);
             goto out;
         }
+        hvfs_info(xnet, "HMI gdt uuid %ld salt %lx\n", 
+                  hmi.gdt_uuid, hmi.gdt_salt);
     }
     
     err = mds_verify();

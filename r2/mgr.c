@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-02 20:33:38 macan>
+ * Time-stamp: <2010-06-09 15:30:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2161,6 +2161,7 @@ int root_create_hxi(struct site_entry *se)
 
         memset(hmi, 0, sizeof(*hmi));
         hmi->state = HMI_STATE_CLEAN;
+        hmi->itb_depth = 3;
         hmi->gdt_uuid = root->gdt_uuid;
         hmi->gdt_salt = root->gdt_salt;
         hmi->root_uuid = root->root_uuid;

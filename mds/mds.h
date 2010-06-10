@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-07 20:16:39 macan>
+ * Time-stamp: <2010-06-10 15:55:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,6 +35,7 @@
 #include "async.h"
 #include "mds_config.h"
 #include "bitmapc.h"
+#include "ring.h"
 
 /* FIXME: we should implement a ARC/DULO cache */
 struct itb_cache 

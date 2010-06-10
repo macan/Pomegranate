@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-09 11:50:17 macan>
+ * Time-stamp: <2010-06-10 16:11:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -978,8 +978,9 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
                  * splited ITB will be finally routed to this server, we just
                  * wait and retry */
                 if (unlikely(!(hmo.conf.option & HVFS_MDS_LIMITED))) {
-                    hvfs_err(mds, "want to create itbid %ld depth %d\n", 
-                             hi->itbid, i->h.depth);
+                    hvfs_err(mds, "want to create itbid %ld depth %d, "
+                             "hi psalt %lx\n", 
+                             hi->itbid, i->h.depth, hi->psalt);
                     itb_free(i);
                     /* FIXME: we should return EHWAIT actually! */
                     err = -EHWAIT;

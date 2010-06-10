@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-02 09:07:31 macan>
+ * Time-stamp: <2010-06-10 16:04:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -127,6 +127,8 @@ int __aur_itb_split(struct async_update_request *aur)
 #ifdef XNET_EAGER_WRITEV
         xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
+        hvfs_err(mds, "Send the AU split %ld request to %lx. self salt %lx\n", 
+                 i->h.itbid, msg->tx.dsite_id, e->salt);
         /* FIXME: for now we just send the whole ITB */
         ASSERT(list_empty(&i->h.list), mds);
         xnet_msg_add_sdata(msg, i, atomic_read(&i->h.len));
@@ -145,7 +147,8 @@ int __aur_itb_split(struct async_update_request *aur)
         /* Step 3.inf we should free the ITB */
         itb_put((struct itb *)i->h.twin);
         itb_free(i);
-        hvfs_debug(mds, "Receive the AU split %ld reply.\n", i->h.itbid);
+        hvfs_err(mds, "Receive the AU split %ld reply from %lx.\n", 
+                 i->h.itbid, msg->pair->tx.ssite_id);
         atomic64_inc(&hmo.prof.mds.split);
     msg_free:
         xnet_free_msg(msg);

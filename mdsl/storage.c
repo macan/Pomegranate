@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 15:05:01 macan>
+ * Time-stamp: <2010-06-09 15:30:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1200,8 +1200,8 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
             err = -errno;
             goto out;
         }
-        hvfs_debug(mdsl, "map offset %ld and update bit %ld snr %ld\n",
-                   msa->offset + snr * fde->bmmap.len, offset, snr);
+        hvfs_debug(mdsl, "map fd %d offset %ld and update bit %ld snr %ld\n",
+                   fde->fd, msa->offset + snr * fde->bmmap.len, offset, snr);
     }
 out:
     return err;
@@ -1232,7 +1232,10 @@ int __bitmap_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
                 err = -errno;
                 goto out;
             } else if (br == 0) {
-                hvfs_err(mdsl, "reach EOF.\n");
+                if (bl == (msa->iov + i)->iov_len)
+                    break;
+                hvfs_err(mdsl, "reach EOF left %ld.\n",
+                         (msa->iov + i)->iov_len - bl);
                 err = -EINVAL;
                 goto out;
             }

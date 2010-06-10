@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-09 12:59:49 macan>
+ * Time-stamp: <2010-06-10 09:35:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -161,6 +161,9 @@ struct chring *chring_tx_to_chring(struct chring_tx *ct)
     }
     /* sort it */
     ring_resort_nolock(ring);
+
+    /* calculate the checksum of the CH ring */
+    lib_md5_print(ring->array, ring->alloc * sizeof(struct chp), "CHRING");
 
     return ring;
 out:

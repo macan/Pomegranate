@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-12 19:47:41 macan>
+ * Time-stamp: <2010-06-10 13:25:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,8 +61,10 @@
                        __FILE__, __LINE__, __func__,            \
                        pthread_self(), ## a);                   \
                 FFLUSH(stdout);                                 \
-            } else                                              \
+            } else {                                            \
                 PRINTK(lvl f, ## a);                            \
+                FFLUSH(stdout);                                 \
+            }                                                   \
         }                                                       \
     } while (0)
 #else
