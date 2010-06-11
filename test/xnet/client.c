@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-10 16:42:49 macan>
+ * Time-stamp: <2010-06-11 10:14:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -210,6 +210,7 @@ resend:
     err = xnet_send(hmo.xc, msg);
     if (err) {
         hvfs_err(xnet, "xnet_send() failed\n");
+        create_failed++;
         goto out_msg;
     }
     /* this means we have got the reply, parse it! */

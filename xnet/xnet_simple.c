@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-09 11:28:34 macan>
+ * Time-stamp: <2010-06-11 10:16:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,8 +36,10 @@ void *mds_gwg;
 struct xnet_prof g_xnet_prof;
 
 #define RESEND_TIMEOUT          (0x10)
+#define SEND_TIMEOUT            (60)
 struct xnet_conf g_xnet_conf = {
     .resend_timeout = RESEND_TIMEOUT,
+    .send_timeout = SEND_TIMEOUT,
 };
 
 /* First, how do we handle the site_id to ip address translation?
@@ -1292,13 +1294,8 @@ retry:
                 /* ok, it is ok to update this socket to the site table */
                 err = st_update_sockfd(&gst, csock, msg->tx.dsite_id);
                 if (err) {
-                    /* remove from the epoll set */
-                    err = epoll_ctl(epfd, EPOLL_CTL_DEL, csock, &ev);
-                    if (err < 0) {
-                        hvfs_err(xnet, "epoll_ctl del fd %d from SET(%d) "
-                                 "failed %d\n",
-                                 csock, epfd, errno);
-                    }
+                    /* do NOT remove from the epoll set, for pollin thread to
+                     * tear down the connection */
                     st_clean_sockfd(&gst, csock);
                     csock = 0;
                     sleep(1);
@@ -1311,10 +1308,12 @@ retry:
                            csock);
 
                 nr_conn++;
+#if 0
                 if (nr_conn < XNET_CONNS_DEF) {
                     csock = 0;
                     goto retry;
                 }
+#endif
             }
             found = 1;
             break;
@@ -1589,8 +1588,9 @@ retry:
                              "failed %d\n", 
                              csock, epfd, errno);
                     close(csock);
-                    err = -errno;
-                    goto out;
+                    csock = 0;
+                    sleep(1);
+                    goto retry;
                 }
                 
                 /* ok, it is ok to update this socket to the site table */
@@ -1752,12 +1752,17 @@ reselect_conn:
 
     /* finally, we wait for the reply msg */
     if (msg->tx.flag & XNET_NEED_REPLY) {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += g_xnet_conf.send_timeout;
     rewait:
-        err = sem_wait(&msg->event);
+        err = sem_timedwait(&msg->event, &ts);
         if (err < 0) {
             if (errno == EINTR)
                 goto rewait;
-            else
+            else if (errno == ETIMEDOUT) {
+                err = -ETIMEDOUT;
+            } else
                 hvfs_err(xnet, "sem_wait() failed %d\n", errno);
         }
 
