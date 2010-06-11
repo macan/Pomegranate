@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-10 09:35:18 macan>
+ * Time-stamp: <2010-06-11 12:52:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -201,6 +201,6 @@ enum {
 int conf_parse(char *, struct conf_site *, int *);
 u64 conf_site_id(char *, int);
 
-void lib_md5_print(void *addr, size_t len, char *str);
+void lib_md5_print(void *addr, int len, char *str);
 
 #endif

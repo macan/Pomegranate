@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 21:10:35 macan>
+ * Time-stamp: <2010-06-11 13:04:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -71,6 +71,9 @@ int mds_client_dispatch(struct xnet_msg *msg)
         break;
     case HVFS_CLT2MDS_SYMLINK:
         mds_symlink(tx);
+        break;
+    case HVFS_CLT2MDS_LINKADD:
+        mds_linkadd(tx);
         break;
     case HVFS_CLT2MDS_LB:
         mds_lb(tx);

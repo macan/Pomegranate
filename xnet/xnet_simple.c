@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-11 10:16:01 macan>
+ * Time-stamp: <2010-06-11 17:41:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -441,6 +441,8 @@ int __xnet_handle_tx(int fd)
             
             err = xnet_resend_remove(req);
             if (!err) {
+                /* FIXME: we should release the reference here, however,
+                 * release it will lead to SIGSEGV, ugly:( */
                 hvfs_err(xnet, "try to remove req %p %u from resend Q, "
                          "not found\n", req, req->tx.reqno);
             }
@@ -515,7 +517,6 @@ void *resend_thread_main(void *arg)
         list_for_each_entry_safe(pos, n, &xc->resend_q, list) {
             if (time(NULL) - pos->ts >= g_xnet_conf.resend_timeout) {
                 msg = pos;
-                list_del_init(&pos->list);
                 break;
             }
         }
@@ -1149,14 +1150,32 @@ void __iov_recal(struct iovec *in, struct iovec **out, int inlen, size_t *outlen
 int xnet_resend(struct xnet_context *xc, struct xnet_msg *msg)
 {
     struct epoll_event ev;
+    struct xnet_msg *pos, *n;
     struct xnet_site *xs;
     struct xnet_addr *xa;
     int err = 0, csock = 0, found = 0, reconn = 0;
     int ssock = 0;              /* selected socket */
     int nr_conn = 0;
     int lock_idx = 0;
-    int __attribute__((unused))bw, bt;
-    
+    int __attribute__((unused))bw, bt, msg_found = 0;
+
+    xlock_lock(&xc->resend_lock);
+    list_for_each_entry_safe(pos, n, &xc->resend_q, list) {
+        if (msg == pos) {
+            list_del_init(&pos->list);
+            msg_found = 1;
+        }
+        break;
+    }
+    if (msg_found) {
+        /* add to the resend queue */
+        msg->ts = time(NULL);
+        list_add_tail(&pos->list, &xc->resend_q);
+    }
+    xlock_unlock(&xc->resend_lock);
+    if (!msg_found)
+        return 0;
+
     if (msg->tx.ssite_id == msg->tx.dsite_id) {
         hvfs_err(xnet, "Warning: target site is the original site, BYPASS?\n");
     }
@@ -1164,19 +1183,14 @@ int xnet_resend(struct xnet_context *xc, struct xnet_msg *msg)
     if (msg->state == XNET_MSG_ACKED || 
         msg->state == XNET_MSG_COMMITED ||
         atomic_read(&msg->ref) == 1) {
+        /* remove from the resend Q */
+        xlock_lock(&xc->resend_lock);
+        list_del_init(&msg->list);
+        xlock_unlock(&xc->resend_lock);
         if (atomic_dec_return(&msg->ref) == 0) {
             xnet_free_msg(msg);
         }
         return 0;
-    }
-
-    if (msg->tx.flag & XNET_NEED_RESEND ||
-        msg->tx.flag & XNET_NEED_REPLY) {
-        /* add to the resend queue */
-        msg->ts = time(NULL);
-        xlock_lock(&xc->resend_lock);
-        list_add_tail(&msg->list, &xc->resend_q);
-        xlock_unlock(&xc->resend_lock);
     }
 
     err = st_lookup(&gst, &xs, msg->tx.dsite_id);

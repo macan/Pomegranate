@@ -378,6 +378,8 @@ MD5_CTX *mdContext;
     printf ("%02x", mdContext->digest[i]);
 }
 
+#ifdef UNIT_TEST
+
 /* size of test block */
 #define TEST_BLOCK_SIZE 1000
 
@@ -502,19 +504,6 @@ static void MDTestSuite ()
   MDFile ("foo");
 }
 
-void lib_md5_print(void *addr, size_t len, char *str)
-{
-    MD5_CTX mdContext;
-    unsigned char *data = (unsigned char *)addr;
-
-    MD5Init(&mdContext);
-    MD5Update(&mdContext, data, len);
-    MD5Final(&mdContext);
-    MDPrint(&mdContext);
-    printf(" %s\n", str);
-}
-
-#ifdef UNIT_TEST
 void main (argc, argv)
 int argc;
 char *argv[];
@@ -547,3 +536,15 @@ char *argv[];
  ** End of md5driver.c                                               **
  ******************************* (cut) ********************************
  */
+
+void lib_md5_print(void *addr, int len, char *str)
+{
+    MD5_CTX mdContext;
+    unsigned char *data = (unsigned char *)addr;
+
+    MD5Init(&mdContext);
+    MD5Update(&mdContext, data, len);
+    MD5Final(&mdContext);
+    MDPrint(&mdContext);
+    printf(" %s\n", str);
+}

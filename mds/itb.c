@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-09 16:36:26 macan>
+ * Time-stamp: <2010-06-11 15:18:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -283,9 +283,11 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
             memset(ite, 0, sizeof(struct ite));
             ite->hash = hi->hash;
             /* setting up the ITE fields */
-            if (unlikely(hi->flag & INDEX_CREATE_LINK))
+            if (unlikely(hi->flag & INDEX_CREATE_LINK)) {
                 ite->flag |= ITE_FLAG_LS;
-            else
+            } else if (unlikely(hi->flag & INDEX_SYMLINK)) {
+                ite->flag |= ITE_FLAG_SYM;
+            } else
                 ite->flag |= ITE_FLAG_NORMAL;
             
             if (unlikely(hi->flag &INDEX_CREATE_COPY)) {
@@ -316,6 +318,7 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
             } else if (hi->flag & INDEX_CREATE_LARGE) {
                 ite->flag |= ITE_FLAG_LARGE;
             }
+            
             /* next step: we try to get a free index entry */
             __itb_add_index(i, offset, nr, hi->name);
             /* set up the mdu base on hi->data */
@@ -609,22 +612,63 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
     } else if (unlikely(hi->flag & INDEX_CREATE_LINK)) {
         /* hi->data is LS */
         memcpy(&e->s.ls, hi->data, sizeof(struct link_source));
-    } else if (hi->flag & INDEX_SYMLINK) {
-        /* hi->data is symname */
+    } else if (unlikely(hi->flag & INDEX_SYMLINK)) {
+        /* hi->data is mdu_update w/ symname */
+        struct mdu_update *mu = (struct mdu_update *)hi->data;
+        struct timeval tv;
+
         e->s.mdu.flags |= (HVFS_MDU_IF_NORMAL | HVFS_MDU_IF_SYMLINK);
         if (e->flag == ITE_FLAG_SMALL)
             e->s.mdu.flags |= HVFS_MDU_IF_SMALL;
         else if (e->flag == ITE_FLAG_LARGE)
             e->s.mdu.flags |= HVFS_MDU_IF_LARGE;
         e->s.mdu.nlink = 1;
-        /* FIXME: we should set the *time here! */
-        
-        if (hi->dlen > sizeof(e->s.mdu.symname)) {
-            /* FIXME: we do not support long symlink :( */
-            hvfs_warning(mds, "Long SYMLINK not supported yet, and "
-                         "we do not fail at this:(\n");
-        } else 
-            memcpy(e->s.mdu.symname, hi->data, hi->dlen);
+
+        if (!mu || !mu->valid)
+            return;
+        gettimeofday(&tv, NULL);
+
+        if (mu->valid & MU_MODE)
+            e->s.mdu.mode = mu->mode;
+        else
+            e->s.mdu.mode = HVFS_DEFAULT_UMASK | S_IFREG;
+        if (mu->valid & MU_UID)
+            e->s.mdu.uid = mu->uid;
+        if (mu->valid & MU_GID)
+            e->s.mdu.gid = mu->gid;
+        if (mu->valid & MU_FLAG_ADD)
+            e->s.mdu.flags |= mu->flags;
+        if (mu->valid & MU_FLAG_CLR)
+            e->s.mdu.flags &= ~(mu->flags);
+        if (mu->valid & MU_ATIME)
+            e->s.mdu.atime = mu->atime;
+        else
+            e->s.mdu.atime = tv.tv_sec;
+        if (mu->valid & MU_CTIME)
+            e->s.mdu.ctime = mu->ctime;
+        else
+            e->s.mdu.ctime = tv.tv_sec;
+        if (mu->valid & MU_MTIME)
+            e->s.mdu.mtime = mu->mtime;
+        else
+            e->s.mdu.mtime = tv.tv_sec;
+        if (mu->valid & MU_VERSION)
+            e->s.mdu.version = mu->version;
+        if (mu->valid & MU_SIZE)
+            e->s.mdu.size = mu->size;
+
+        if (mu->valid & MU_SYMNAME) {
+            if (mu->namelen > sizeof(e->s.mdu.symname)) {
+                /* FIXME: we do not support long symlink :( */
+                hvfs_warning(mds, "Long SYMLINK not supported yet, and "
+                             "we do not fail at this:(\n");
+            } else 
+                memcpy(e->s.mdu.symname, (void *)mu + sizeof(*mu),
+                       mu->namelen);
+        } else {
+            /* loop to the default symlink file */
+            memcpy(e->s.mdu.symname, "/tmp/not_exist", 14);
+        }
     } else {
         /* INDEX_CREATE_DIR and non-flag, mdu_update */
         struct mdu_update *mu = (struct mdu_update *)hi->data;
@@ -1333,6 +1377,7 @@ retry:
             /* read MDU to buffer */
             hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
+            /* FIXME: we should add symlink handling here! */
             __data_column_hook(hi, itb, ii, data);
         } else if (unlikely(hi->flag & INDEX_CREATE)) {
             /* already exist, so... */
