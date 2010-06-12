@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-11 15:18:37 macan>
+ * Time-stamp: <2010-06-12 14:27:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -768,6 +768,8 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.version = mu->version;
         if (mu->valid & MU_SIZE)
             e->s.mdu.size = mu->size;
+        if (mu->valid & MU_NLINK)
+            e->s.mdu.nlink = mu->nlink;
         if (mu->valid & MU_COLUMN) {
             struct mu_column *mc = (struct mu_column *)(
                 hi->data + sizeof(struct mdu_update));
@@ -784,6 +786,7 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
     } else if (hi->flag & INDEX_CREATE_LINK) {
         /* hi->data is LS */
         memcpy(&e->s.ls, hi->data, sizeof(struct link_source));
+        e->s.ls.flags |= HVFS_MDU_IF_LINKT;
     }
 }
 
@@ -1421,7 +1424,8 @@ retry:
                 }
                 ite_update(hi, &itb->ite[ii->entry]);
                 hi->uuid = itb->ite[ii->entry].uuid;
-                memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
+                memcpy(data, &(itb->ite[ii->entry].g), 
+                       sizeof(struct link_source));
             }
         } else if (hi->flag & INDEX_MDU_UPDATE) {
             /* setattr, no failure */

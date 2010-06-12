@@ -56,3 +56,9 @@ plot_mds
 plot_mdsl
 plot_sys
 plot_sys_disk_mm
+
+for x in `ls *.png`; do
+    y=`echo $x | sed -e 's/png/gif/g'`
+    echo "Transform $x to $y ..."
+    convert $x $y
+done

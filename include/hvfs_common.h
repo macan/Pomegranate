@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 08:36:45 macan>
+ * Time-stamp: <2010-06-12 14:58:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -41,13 +41,6 @@ struct llfs_ref
 struct mdu 
 {
     /* section for general info: 32B */
-    u64 size;
-    u64 dev;
-    u16 mode;                   /* the same as VFS */
-    u16 nlink;
-    u32 uid;
-    u32 gid;
-
 #define HVFS_MDU_IF_DIRSYNC     0x00000010 /* dissync */
 #define HVFS_MDU_IF_IMMUTABLE   0x00000020 /* immutable file */
 #define HVFS_MDU_IF_APPEND      0x00000040 /* append only */
@@ -64,6 +57,13 @@ struct mdu
 
 #define HVFS_MDU_IF_LINKT       0x00800000 /* hard link target */
     u32 flags;
+
+    u32 uid;
+    u32 gid;
+    u16 mode;                   /* the same as VFS */
+    u16 nlink;
+    u64 size;
+    u64 dev;
 
     /* section for time: 32B */
     u64 atime;                  /* access time */
@@ -83,6 +83,8 @@ struct mdu
 /* the HVFS link_source */
 struct link_source
 {
+    u32 flags;                  /* the same as mdu flags */
+    u32 padding;
     u64 s_hash;
     u64 s_puuid;
     u64 s_uuid;

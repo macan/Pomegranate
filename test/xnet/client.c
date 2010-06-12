@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-11 10:14:34 macan>
+ * Time-stamp: <2010-06-12 09:40:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2182,7 +2182,7 @@ int main(int argc, char *argv[])
         hmi.root_salt = 0xdfeadb0;
         hvfs_info(xnet, "Select root salt to %lx\n", hmi.root_salt);
         
-#if 1
+#if 0
         ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
         ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(1));
         ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(2));
