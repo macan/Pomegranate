@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-11 13:27:26 macan>
+ * Time-stamp: <2010-06-12 15:12:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -89,6 +89,7 @@ struct ite
     {
         struct sdt_md s;
         struct gdt_md g;
+        u8 value[XTABLE_VALUE_SIZE];
     };
 
     /* section for columns: 144B */

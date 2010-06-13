@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-12 14:27:59 macan>
+ * Time-stamp: <2010-06-12 16:00:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -611,7 +611,14 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             memcpy(&e->s.mdu, hi->data, sizeof(struct mdu));
     } else if (unlikely(hi->flag & INDEX_CREATE_LINK)) {
         /* hi->data is LS */
+        struct timeval tv;
+
         memcpy(&e->s.ls, hi->data, sizeof(struct link_source));
+        gettimeofday(&tv, NULL);
+        e->s.ls.atime = tv.tv_sec;
+        e->s.ls.ctime = tv.tv_sec;
+        e->s.ls.mtime = tv.tv_sec;
+        e->s.ls.dtime = 0;
     } else if (unlikely(hi->flag & INDEX_SYMLINK)) {
         /* hi->data is mdu_update w/ symname */
         struct mdu_update *mu = (struct mdu_update *)hi->data;

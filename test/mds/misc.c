@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-09 13:58:14 macan>
+ * Time-stamp: <2010-06-12 15:26:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,6 +46,8 @@ int main(int argc, char *argv[])
     hvfs_info(mds, "TXG Size: %ld B\n", sizeof(struct hvfs_tx));
     hvfs_info(mds, "HI  Size: %ld B\n", sizeof(struct hvfs_index));
     hvfs_info(mds, "HMR Size: %ld B\n", sizeof(struct hvfs_md_reply));
+    hvfs_info(mds, "MDU Size: %ld B\n", sizeof(struct mdu));
+    hvfs_info(mds, "LS  Size: %ld B\n", sizeof(struct link_source));
     hvfs_info(mds, "MD+ Size: %ld B\n", HVFS_MDU_SIZE);
 
     offset = fls64(a);

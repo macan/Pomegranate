@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-12 14:58:10 macan>
+ * Time-stamp: <2010-06-12 15:28:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -84,7 +84,21 @@ struct mdu
 struct link_source
 {
     u32 flags;                  /* the same as mdu flags */
-    u32 padding;
+
+    u32 uid;
+    u32 gid;
+    u16 mode;
+    u16 nlink;
+    
+    /* section for time: 32B */
+    u64 atime;                  /* access time */
+    u64 ctime;                  /* change time */
+    u64 mtime;                  /* modify time */
+    u64 dtime;                  /* delete time */
+    
+    /* section for advance function: 20B */
+    u32 version;
+
     u64 s_hash;
     u64 s_puuid;
     u64 s_uuid;
