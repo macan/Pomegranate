@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-12 09:40:47 macan>
+ * Time-stamp: <2010-06-17 11:31:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -141,6 +141,42 @@ int SET_ITBID(struct hvfs_index *hi)
     hi->itbid = mds_get_itbid(e, hi->hash);
 
     return 0;
+}
+
+void hmr_print(struct hvfs_md_reply *hmr)
+{
+    struct hvfs_index *hi;
+    struct mdu *m;
+    struct link_source *ls;
+    void *p = hmr->data;
+
+    hvfs_info(xnet, "hmr-> err %d, mdu_no %d, len %d, flag 0x%x.\n",
+              hmr->err, hmr->mdu_no, hmr->len, hmr->flag);
+    if (!p)
+        return;
+    hi = (struct hvfs_index *)p;
+    hvfs_info(xnet, "hmr-> HI: namelen %d, flag 0x%x, uuid %ld, hash %ld, itbid %ld, "
+              "puuid %ld, psalt %ld\n", hi->namelen, hi->flag, hi->uuid, hi->hash,
+              hi->itbid, hi->puuid, hi->psalt);
+    p += sizeof(struct hvfs_index);
+    if (hmr->flag & MD_REPLY_WITH_MDU) {
+        m = (struct mdu *)p;
+        hvfs_info(xnet, "hmr->MDU: size %ld, dev %ld, mode 0x%x, nlink %d, uid %d, "
+                  "gid %d, flags 0x%x, atime %lx, ctime %lx, mtime %lx, dtime %lx, "
+                  "version %d\n", m->size, m->dev, m->mode, m->nlink, m->uid,
+                  m->gid, m->flags, m->atime, m->ctime, m->mtime, m->dtime,
+                  m->version);
+        p += sizeof(struct mdu);
+    }
+    if (hmr->flag & MD_REPLY_WITH_LS) {
+        ls = (struct link_source *)p;
+        hvfs_info(xnet, "hmr-> LS: hash %ld, puuid %ld, uuid %ld\n",
+                  ls->s_hash, ls->s_puuid, ls->s_uuid);
+        p += sizeof(struct link_source);
+    }
+    if (hmr->flag & MD_REPLY_WITH_BITMAP) {
+        hvfs_info(xnet, "hmr-> BM: ...\n");
+    }
 }
 
 int get_send_msg_create(int nid, u64 puuid, u64 itbid,
@@ -1512,6 +1548,7 @@ resend:
                hi->uuid, mdu->salt, mdu->puuid, mdu->psalt);
     /* we should export the self salt to the caller */
     oi->ssalt = mdu->salt;
+    hmr_print(hmr);
     
     /* finally, we wait for the commit respond */
 skip:

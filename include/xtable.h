@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-12 15:14:29 macan>
+ * Time-stamp: <2010-06-15 19:39:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,7 +24,6 @@
 #ifndef __XTABLE_H__
 #define __XTABLE_H__
 
-#define XTABLE_VALUE_SIZE       (320)
 /* the indirect column for xtable expanding */
 #define XTABLE_INDIRECT_COLUMN  (5)
 

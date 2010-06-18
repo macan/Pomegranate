@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-11 17:41:57 macan>
+ * Time-stamp: <2010-06-15 19:26:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,9 +37,11 @@ struct xnet_prof g_xnet_prof;
 
 #define RESEND_TIMEOUT          (0x10)
 #define SEND_TIMEOUT            (60)
+#define SIOV_NR                 (50)
 struct xnet_conf g_xnet_conf = {
     .resend_timeout = RESEND_TIMEOUT,
     .send_timeout = SEND_TIMEOUT,
+    .siov_nr = SIOV_NR,
 };
 
 /* First, how do we handle the site_id to ip address translation?
@@ -1808,12 +1810,12 @@ int xnet_msg_add_sdata(struct xnet_msg *msg, void *buf, int len)
     
     if (!msg->siov_alen) {
         /* first access, alloc some entries */
-        msg->siov = xzalloc(sizeof(struct iovec) * 20);
+        msg->siov = xzalloc(sizeof(struct iovec) * g_xnet_conf.siov_nr);
         if (!msg->siov) {
             err = -ENOMEM;
             goto out;
         }
-        msg->siov_alen = 20;
+        msg->siov_alen = g_xnet_conf.siov_nr;
     }
     if (unlikely(msg->siov_alen == msg->siov_ulen)) {
         hvfs_err(xnet, "For now, we do not support iovec expanding!\n");
