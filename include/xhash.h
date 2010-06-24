@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-10 11:13:38 macan>
+ * Time-stamp: <2010-06-22 11:08:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,6 +33,12 @@ struct regular_hash
 {
     struct hlist_head h;        /* use hlist */
     xlock_t lock;
+};
+
+struct regular_hash_rw
+{
+    struct hlist_head h;        /* use hlist */
+    xrwlock_t lock;
 };
 
 struct regular_hash2

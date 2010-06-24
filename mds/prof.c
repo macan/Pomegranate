@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-27 17:49:23 macan>
+ * Time-stamp: <2010-06-21 14:45:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -146,4 +146,5 @@ void dump_profiling(time_t t)
     } else {
         dump_profiling_human(t);
     }
+    /* always send the current delta copy to HVFS_RING(0)? */
 }

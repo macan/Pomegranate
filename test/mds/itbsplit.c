@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-08 10:30:35 macan>
+ * Time-stamp: <2010-06-22 17:28:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,8 @@
 #ifndef UNIT_TEST
 #error "Sorry, you must compile this file with UNIT_TEST defined!"
 #endif
+
+#define ENTRY_IN_CACHE  1
 
 #include "hvfs.h"
 #include "xtable.h"
@@ -477,6 +479,7 @@ void __ut_random(u64 entry, int thread)
     pthread_barrier_t pb;
     struct pthread_args *pa;
     double acc[4];
+    double th[4];
     int entry_per_thread;
     int err = 0, i, i1;
 
@@ -522,13 +525,23 @@ void __ut_random(u64 entry, int thread)
     /* get the test result */
     hvfs_info(mds, "TEST result:\n");
     for (i1 = 0; i1 < 4; i1++) {
+        th[i1] = 0.0;
+        for (i = 0; i < thread; i++) {
+            th[i1] += pa[i].acc[i1];
+        }
+        th[i1] /= thread;
+        th[i1] = entry / th[i1];
+    }
+    hvfs_info(mds, "IOPS [insert lookup unlink shadow] %lf %lf %lf %lf\n", 
+              th[0], th[1], th[2], th[3]);
+    for (i1 = 0; i1 < 4; i1++) {
         acc[i1] = 0.0;
         for (i = 0; i < thread; i++) {
             acc[i1] += pa[i].acc[i1];
         }
         acc[i1] /= entry;
     }
-    hvfs_info(mds, "[insert lookup unlink shadow] %lf %lf %lf %lf\n", 
+    hvfs_info(mds, "Lat  [insert lookup unlink shadow] %lf %lf %lf %lf\n", 
               acc[0], acc[1], acc[2], acc[3]);
 
     hvfs_info(mds, "CBHT dir depth %d\n", hmo.cbht.dir_depth);
@@ -548,10 +561,183 @@ out_free:
     xfree(t);
 }
 
+void *cache_main(void *arg)
+{
+    struct pthread_args *pa = (struct pthread_args *)arg;
+    lib_timer_def();
+    struct mdu_update mu;
+    struct hvfs_md_reply hmr;
+    sigset_t set;
+    u64 flag;
+    int i, j;
+    char name[HVFS_MAX_NAME_LEN];
+
+    /* block the SIGALRM */
+    sigemptyset(&set);
+    sigaddset(&set, SIGALRM);
+    pthread_sigmask(SIG_BLOCK, &set, NULL); /* oh, we do not care about the
+                                             * errs */
+
+    /* wait for other threads */
+    pthread_barrier_wait(pa->pb);
+
+    /* parallel insert the ite w/ random destinations */
+    lib_timer_B();
+    for (j = 0; j < ENTRY_IN_CACHE; j++) {
+        sprintf(name, "UT-itbsplit-%d-%d", pa->tid, j);
+        insert_ite(0, 0, name, &mu, &hmr);
+    }
+    lib_timer_E();
+    lib_timer_A(&pa->acc[0]);
+
+    /* wait for other threads */
+    pthread_barrier_wait(pa->pb);
+
+    /* parallel lookup the ite w/ random destinations */
+    lib_timer_B();
+    for (i = 0; i < pa->entry; i++) {
+        for (j = 0; j < ENTRY_IN_CACHE; j++) {
+            sprintf(name, "UT-itbsplit-%d-%d", pa->tid, j);
+            flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
+            lookup_ite(0, 0, name, flag, &hmr);
+        }
+    }
+    lib_timer_E();
+    lib_timer_A(&pa->acc[1]);
+
+    /* wait for other threads */
+    pthread_barrier_wait(pa->pb);
+
+    /* parallel unlink the ite w/ random destinations */
+    lib_timer_B();
+    for (j = 0; j < ENTRY_IN_CACHE; j++) {
+        sprintf(name, "UT-itbsplit-%d-%d", pa->tid, j);
+        remove_ite(0, 0, name, &hmr);
+    }
+    lib_timer_E();
+    lib_timer_A(&pa->acc[2]);
+
+    /* wait for other threads */
+    pthread_barrier_wait(pa->pb);
+
+    /* paralle shadow lookup the ite w/ random destinations */
+    lib_timer_B();
+    for (i = 0; i < pa->entry; i++) {
+        for (j = 0; j < ENTRY_IN_CACHE; j++) {
+            sprintf(name, "UT-itbsplit-%d-%d", pa->tid, j);
+            flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_SHADOW;
+            lookup_ite(0, 0, name, flag, &hmr);
+        }
+    }
+    lib_timer_E();
+    lib_timer_A(&pa->acc[3]);
+
+    /* wait for other threads */
+    pthread_barrier_wait(pa->pb);
+
+    pthread_exit(0);
+}
+
+void __ut_cache(u64 loops, int thread)
+{
+    pthread_t *t;
+    pthread_barrier_t pb;
+    struct pthread_args *pa;
+    double acc[4];
+    double th[4];
+    int entry_per_thread;
+    int err = 0, i, i1;
+
+    /* setup multi-threads */
+    t = xzalloc(thread * sizeof(pthread_t));
+    if (!t) {
+        hvfs_err(mds, "xzalloc() pthread_t failed.\n");
+        return;
+    }
+    pa = xzalloc(thread * sizeof(struct pthread_args));
+    if (!pa) {
+        hvfs_err(mds, "xzalloc() pthread_args failed.\n");
+        goto out_free;
+    }
+    pthread_barrier_init(&pb, NULL, thread + 1);
+
+    /* determine the arguments */
+    loops /= ENTRY_IN_CACHE;
+    entry_per_thread = loops / thread;
+    loops = entry_per_thread * thread; /* re-generate the total entries */
+    for (i = 0; i < thread; i++) {
+        pa[i].tid = i;
+        pa[i].threads = thread;
+        pa[i].pb = &pb;
+        pa[i].entry = entry_per_thread;
+        err = pthread_create(&t[i], NULL, cache_main, (void *)&pa[i]);
+        if (err) {
+            hvfs_err(mds, "pthread_create() err %d\n", err);
+            goto out_free2;
+        }
+    }
+
+    /* barrier 4 times */
+    for (i = 0; i < 5; i++) {
+        pthread_barrier_wait(&pb);
+        hvfs_info(mds, "[%s] done.\n", idx2str(i));
+    }
+
+    /* waiting for all the threads */
+    for (i = 0; i < thread; i++) {
+        pthread_join(t[i], NULL);
+    }
+
+    /* get the test result */
+    hvfs_info(mds, "TEST result:\n");
+    for (i1 = 0; i1 < 4; i1++) {
+        th[i1] = 0.0;
+        for (i = 0; i < thread; i++) {
+            th[i1] += pa[i].acc[i1];
+        }
+        if (i1 == 0 || i1 == 2) {
+            th[i1] /= thread;
+            th[i1] = ENTRY_IN_CACHE;
+        } else {
+            th[i1] = loops * ENTRY_IN_CACHE * thread * 1000000 / th[i1];
+        }
+    }
+    hvfs_info(mds, "IOPS [insert lookup unlink shadow] %lf %lf %lf %lf\n", 
+              th[0], th[1], th[2], th[3]);
+    for (i1 = 0; i1 < 4; i1++) {
+        acc[i1] = 0.0;
+        for (i = 0; i < thread; i++) {
+            acc[i1] += pa[i].acc[i1];
+        }
+        if (i1 == 0 || i1 == 2)
+            acc[i1] /= ENTRY_IN_CACHE;
+        else
+            acc[i1] /= loops * ENTRY_IN_CACHE;
+    }
+    hvfs_info(mds, "Lat  [insert lookup unlink shadow] %lf %lf %lf %lf\n", 
+              acc[0], acc[1], acc[2], acc[3]);
+
+    hvfs_info(mds, "CBHT dir depth %d\n", hmo.cbht.dir_depth);
+    hvfs_info(mds, "Average ITB read  search depth %lf\n", 
+              atomic64_read(&hmo.prof.itb.rsearch_depth) / 2.0 / (loops));
+    hvfs_info(mds, "Average ITB write search depth %lf\n", 
+              atomic64_read(&hmo.prof.itb.wsearch_depth) / 2.0 / (loops));
+    hvfs_info(mds, "Total shadow lookup miss %ld.\n",
+              atomic64_read(&miss));
+    hvfs_info(xnet, "Split_retry %ld, FAILED:[create,lookup,unlink] "
+              "%ld %ld %ld\n",
+              split_retry, create_failed, lookup_failed, unlink_failed);
+out_free2:
+    xfree(pa);
+out_free:
+    xfree(t);
+}
+
 #define MODEL_DEFAULT   0
 #define MODEL_RANDOM    0       /* NN */
 #define MODEL_II        1
 #define MODEL_NI        2
+#define MODEL_CACHE     3
 
 static inline
 char *model2str(int model)
@@ -565,6 +751,9 @@ char *model2str(int model)
         break;
     case MODEL_NI:
         return "N-to-1";
+        break;
+    case MODEL_CACHE:
+        return "cache";
         break;
     default:
         return NULL;
@@ -602,6 +791,8 @@ int main(int argc, char *argv[])
             model = MODEL_II;
         } else if (strncmp(value, "ni", 2) == 0) {
             model = MODEL_NI;
+        } else if (strncmp(value, "cache", 5) == 0) {
+            model = MODEL_CACHE;
         } else {
             model = MODEL_DEFAULT;
         }
@@ -650,6 +841,9 @@ int main(int argc, char *argv[])
     case MODEL_II:
         break;
     case MODEL_NI:
+        break;
+    case MODEL_CACHE:
+        __ut_cache(entry, thread);
         break;
     default:
         hvfs_err(mds, "Invalid test model %d\n", model);

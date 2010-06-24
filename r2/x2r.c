@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-03 10:26:11 macan>
+ * Time-stamp: <2010-06-21 14:35:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -762,3 +762,18 @@ int root_do_lbgdt(struct xnet_msg *msg)
     return err;
 }
 
+/* root_do_prof() merge the per-MDS stats together
+ */
+int root_do_prof(struct xnet_msg *msg)
+{
+    int err = 0;
+
+    /* ABI:
+     * xm_data: transfer plot entry
+     */
+
+    
+    xnet_free_msg(msg);
+
+    return err;
+}

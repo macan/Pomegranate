@@ -30,6 +30,11 @@ set key right box
 #      'xnet/ausplit.mds.0' using 3:6 t "Modify" w line 3, \
 #      'xnet/ausplit.mds.0' using 3:7 t "Split" w line 4 
 
+#      "< awk '{if (ts == 0) {ts = $2; aentry = $26;} \
+#               {print ($2 - ts)\" \"(($5 - aentry)/5.0);} \
+#               aentry = $5;}' xnet/CP-BACK-mds.FIRST" \
+#      using 1:2 t "aentry" w linesp ls 3 axes x1y1, \
+
 plot "< awk '{if (ts == 0) {ts = $2; lookup = $4;} \
               {print ($2 - ts)\" \"(($4 - lookup)/5.0);} \
               lookup = $4;}' xnet/CP-BACK-mds.FIRST" \

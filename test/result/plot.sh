@@ -14,6 +14,10 @@ function plot_mds() {
     done
 }
 
+function plot_mds_aggr() {
+    sed "s/mds.gXXX.png/mds.aggr.png/g; s/CP-BACK-mds.FIRST/CP-BACK-mds.aggr/g; s/CP-BACK-mds.SECOND/CP-BACK-mds.aggr/g" mds.plot.aggr.template | gnuplot
+}
+
 function plot_mdsl() {
     total=`ls xnet/CP-BACK-mdsl.* | wc -l`
     let nr=total/2;
@@ -29,9 +33,9 @@ function plot_mdsl() {
 }
 
 function plot_sys() {
-    total=`ls CP-BACK-*node* | wc -l`
+    total=`ls xnet/CP-BACK-*node* | wc -l`
     step=0
-    echo "Begin plotting the node pngs, total $total, output $nr..."
+    echo "Begin plotting the node pngs, total $total, output $total..."
 
     while [ $step -lt $total ]; do
         let first=$step
@@ -41,9 +45,9 @@ function plot_sys() {
 }
 
 function plot_sys_disk_mm() {
-    total=`ls CP-BACK-*node* | wc -l`
+    total=`ls xnet/CP-BACK-*node* | wc -l`
     step=0
-    echo "Begin plotting the node pngs, total $total, output $nr..."
+    echo "Begin plotting the node pngs, total $total, output $total..."
 
     while [ $step -lt $total ]; do
         let first=$step
@@ -53,7 +57,12 @@ function plot_sys_disk_mm() {
 }
 
 plot_mds
+plot_mds_aggr
 plot_mdsl
+
+# transform the log names
+./rename.sh collect.log CP-BACK
+
 plot_sys
 plot_sys_disk_mm
 
