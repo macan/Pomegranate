@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-07 20:18:00 macan>
+ * Time-stamp: <2010-06-28 08:50:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,11 @@
 #ifdef HVFS_TRACING
 //u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL | HVFS_DEBUG;
 u32 hvfs_mds_tracing_flags = HVFS_DEFAULT_LEVEL;
+
+void mds_reset_tracing_flags(u64 flag)
+{
+    hvfs_mds_tracing_flags = flag;
+}
 #endif
 
 /* Global variable */
@@ -146,6 +151,36 @@ static int __gcd(int m, int n)
     return m;
 }
 
+void mds_hb_wrapper(time_t t)
+{
+    static time_t prev = 0;
+
+    if (!hmo.cb_hb)
+        return;
+    
+    if (t < prev + hmo.conf.hb_interval) {
+        return;
+    }
+    prev = t;
+    hmo.cb_hb(&hmo);
+}
+
+/* scrub the CBHT
+ */
+void mds_scrub(time_t t)
+{
+    if (hmo.conf.option & HVFS_MDS_NOSCRUB)
+        return;
+    
+    if (hmo.scrub_running)
+        return;
+    if (t < hmo.scrub_ts + hmo.conf.scrub_interval)
+        return;
+
+    hmo.scrub_ts = t;
+    mds_scrub_trigger();
+}
+
 static void *mds_timer_thread_main(void *arg)
 {
     sigset_t set;
@@ -182,6 +217,10 @@ static void *mds_timer_thread_main(void *arg)
         async_update_checking(cur);
         /* next, checking the bitmap cache. */
         mds_bc_checking(cur);
+        /* next, checking the heart beat beep */
+        mds_hb_wrapper(cur);
+        /* next, checking the scrub progress */
+        mds_scrub(cur);
         /* FIXME: */
     }
 
@@ -223,6 +262,8 @@ int mds_setup_timers(void)
                      hmo.conf.txg_interval);
     interval = __gcd(hmo.conf.unlink_interval, interval);
     interval = __gcd(hmo.conf.bitmap_cache_interval, interval);
+    interval = __gcd(hmo.conf.hb_interval, interval);
+    interval = __gcd(hmo.conf.scrub_interval, interval);
     if (interval) {
         value.it_interval.tv_sec = interval;
         value.it_interval.tv_usec = 1;
@@ -258,6 +299,9 @@ void mds_reset_itimer(void)
     interval = __gcd(hmo.conf.profiling_thread_interval,
                      hmo.conf.txg_interval);
     interval = __gcd(hmo.conf.unlink_interval, interval);
+    interval = __gcd(hmo.conf.bitmap_cache_interval, interval);
+    interval = __gcd(hmo.conf.hb_interval, interval);
+    interval = __gcd(hmo.conf.scrub_interval, interval);
     if (interval) {
         value.it_interval.tv_sec = interval;
         value.it_interval.tv_usec = 0;
@@ -274,6 +318,72 @@ out:
     return;
 }
 
+/* mds_cbht_evict_default()
+ *
+ * Hold the bucket.rlock and be.rlock
+ *
+ * we should update to the be.wlock and check if we can free the ITB
+ */
+
+int mds_cbht_evict_default(struct eh *eh, void *arg0, void *arg1)
+{
+    struct bucket_entry *be = (struct bucket_entry *)arg0;
+    struct bucket_entry *obe;
+    struct itbh *ih = (struct itbh *)arg1;
+    int err = 0;
+
+    if (ih->state == ITB_STATE_CLEAN) {
+        /* ok, this is the target to operate on */
+        obe = ih->be;
+        if (ih->be) {
+            xrwlock_runlock(&be->lock);
+            xrwlock_wlock(&obe->lock);
+            if (be != obe ||
+                ih->state != ITB_STATE_CLEAN) {
+                /* we just failed to update the wlock, exit... */
+                xrwlock_wunlock(&obe->lock);
+                xrwlock_rlock(&be->lock);
+                goto out;
+            }
+            /* try to release the ITB now */
+            xrwlock_wlock(&ih->lock);
+            if (ih->be == obe) {
+                /* not moved, unhash it */
+                hlist_del_init(&ih->cbht);
+                ih->be = NULL;
+            } else {
+                /* moved, not unhash */
+                xrwlock_wunlock(&ih->lock);
+                xrwlock_wunlock(&obe->lock);
+                xrwlock_rlock(&be->lock);
+                goto out;
+            }
+            xrwlock_wunlock(&ih->lock);
+
+            xrwlock_wunlock(&obe->lock);
+            xrwlock_rlock(&be->lock);
+            itb_free((struct itb *)ih);
+        }
+        hvfs_debug(mds, "DO evict on clean ITB %ld\n", ih->itbid);
+    } else if (ih->state == ITB_STATE_DIRTY) {
+        hvfs_debug(mds, "DO not evict dirty ITB %ld\n", ih->itbid);
+    }
+
+out:
+    return err;
+}
+
+int mds_cbht_clean_default(struct eh *eh, void *arg0, void *arg1)
+{
+    int err = 0;
+
+    return err;
+}
+
+struct eh_operations ehops_default = {
+    .evict = mds_cbht_evict_default,
+    .clean = mds_cbht_clean_default,
+};
 
 /* mds_pre_init()
  *
@@ -354,6 +464,8 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(bc_roof, value);
     HVFS_MDS_GET_ENV_atoi(txg_ddht_size, value);
     HVFS_MDS_GET_ENV_atoi(xnet_resend_to, value);
+    HVFS_MDS_GET_ENV_atoi(hb_interval, value);
+    HVFS_MDS_GET_ENV_atoi(scrub_interval, value);
 
     HVFS_MDS_GET_ENV_atol(memlimit, value);
 
@@ -408,6 +520,8 @@ int mds_init(int bdepth)
     hmo.conf.async_update_N = 4;
     hmo.conf.spool_threads = 8;
     hmo.conf.mp_to = 60;
+    hmo.conf.hb_interval = 60;
+    hmo.conf.scrub_interval = 3600;
 
     /* get configs from env */
     mds_config();
@@ -460,6 +574,7 @@ int mds_init(int bdepth)
     err = mds_cbht_init(&hmo.cbht, hmo.conf.cbht_bucket_depth);
     if (err)
         goto out_cbht;
+    hmo.cbht.ops = &ehops_default;
 
     /* FIXME: init the ITB cache */
     err = itb_cache_init(&hmo.ic, hmo.conf.itb_cache);
@@ -476,6 +591,11 @@ int mds_init(int bdepth)
     if (err)
         goto out_spool;
 
+    /* FIXME: init the scrub thread */
+    err = mds_scrub_create();
+    if (err)
+        goto out_scrub;
+
     /* FIXME: waiting for the notification from R2 */
 
     /* FIXME: waiting for the requests from client/mds/mdsl/r2 */
@@ -483,6 +603,7 @@ int mds_init(int bdepth)
     /* ok to run */
     hmo.state = HMO_STATE_RUNNING;
 
+out_scrub:
 out_spool:
 out_unlink:
 out_itb:
@@ -512,6 +633,9 @@ void mds_destroy(void)
         pthread_join(hmo.timer_thread, NULL);
 
     sem_destroy(&hmo.timer_sem);
+
+    /* stop the scrub thread */
+    mds_scrub_destroy();
 
     /* stop the unlink thread */
     unlink_thread_destroy();
@@ -560,4 +684,3 @@ void mds_set_ring(u64 site_id)
 {
     hmo.ring_site = site_id;
 }
-

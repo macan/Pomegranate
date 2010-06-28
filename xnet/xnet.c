@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-08 14:37:25 macan>
+ * Time-stamp: <2010-06-28 09:07:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +25,10 @@
 #include "xnet.h"
 
 TRACING_FLAG(xnet, HVFS_DEFAULT_LEVEL);
+void xnet_reset_tracing_flags(u64 flag)
+{
+    hvfs_xnet_tracing_flags = flag;
+}
 
 struct xnet_msg *xnet_alloc_msg(u8 alloc_flag)
 {

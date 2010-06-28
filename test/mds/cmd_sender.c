@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-04 11:27:02 macan>
+ * Time-stamp: <2010-06-28 09:13:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,8 +43,8 @@ int main(int argc, char *argv[])
     }
     sprintf(addr.sun_path, "/tmp/.MDS.DCONF");
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-        hvfs_err(cs, "connect to unix socket %s failed %d\n", 
-                 addr.sun_path, errno);
+        hvfs_err(cs, "connect to unix socket %s failed '%s'\n", 
+                 addr.sun_path, strerror(errno));
         goto out;
     }
 
@@ -54,6 +54,8 @@ int main(int argc, char *argv[])
                 "    [1, set_txg_intv]\n"
                 "    [2, set_prof_intv]\n"
                 "    [3, set_unlk_intv]\n"
+                "    [4, set_mds_flag]\n"
+                "    [5, set_xnet_flag]\n"                
             );
         fprintf(stdout,
                 "INPUT CMD > ");

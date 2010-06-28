@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-04 11:27:43 macan>
+ * Time-stamp: <2010-06-28 09:10:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 
 #include "hvfs.h"
 #include "mds.h"
+#include "xnet.h"
 
 /* This file is intent to support dynamic configuration */
 
@@ -59,6 +60,12 @@ static void __dconf_cmd_action(struct dconf_req *dcr, int fd)
             hmo.conf.unlink_interval = dcr->arg0;
         }
         mds_reset_itimer();
+        break;
+    case DCONF_SET_MDS_FLAG:
+        mds_reset_tracing_flags(dcr->arg0);
+        break;
+    case DCONF_SET_XNET_FLAG:
+        xnet_reset_tracing_flags(dcr->arg0);
         break;
     default:
         ;

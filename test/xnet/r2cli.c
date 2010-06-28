@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-31 12:59:12 macan>
+ * Time-stamp: <2010-06-24 15:44:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -402,6 +402,42 @@ out_nofree:
     return err;
 }
 
+/* r2cli_do_hb()
+ *
+ * @gid: already right shift 2 bits
+ */
+int r2cli_do_hb(u64 request_site, u64 root_site, u64 fsid, u32 gid)
+{
+    struct xnet_msg *msg;
+    int err = 0;
+
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_nofree;
+    }
+
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0,
+                     hro.xc->site_id, root_site);
+    xnet_msg_fill_cmd(msg, HVFS_R2_HB, request_site, fsid);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    err = xnet_send(hro.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out;
+    }
+out:
+    xnet_free_msg(msg);
+out_nofree:
+    
+    return err;
+}
+
 int main(int argc, char *argv[])
 {
     struct xnet_type_ops ops = {
@@ -412,10 +448,11 @@ int main(int argc, char *argv[])
     char *value;
     int type = 0;
     int err = 0;
-    int self, sport;
+    int self, sport, op;
 
     hvfs_info(xnet, "R2 Unit Test Client running...\n");
     hvfs_info(xnet, "type 0/1/2/3 => MDS/CLIENT/MDSL/RING\n");
+    hvfs_info(xnet, "op 0/1 => hb/mkfs\n");
 
     value = getenv("type");
     if (value) {
@@ -423,6 +460,13 @@ int main(int argc, char *argv[])
     } else {
         hvfs_err(xnet, "Please set the type=?\n");
         return EINVAL;
+    }
+
+    value = getenv("op");
+    if (value) {
+        op = atoi(value);
+    } else {
+        op = 0;
     }
 
     if (argc < 2) {
@@ -474,12 +518,24 @@ int main(int argc, char *argv[])
                  self, HVFS_RING(0), err);
         goto out;
     }
-    
-    err = r2cli_do_mkfs(self, HVFS_RING(0), 0, 0);
-    if (err) {
-        hvfs_err(xnet, "mkfs self %x w/ r2 %x failed w/ %d\n",
-                 self, HVFS_RING(0), err);
-        goto out;
+
+    switch (op) {
+    case 0:
+        err = r2cli_do_hb(self, HVFS_RING(0), 0, 0);
+        if (err) {
+            hvfs_err(xnet, "hb %x w/ r2 %x failed w/ %d\n",
+                     self, HVFS_RING(0), err);
+            goto out;
+        }
+        break;
+    case 1:
+        err = r2cli_do_mkfs(self, HVFS_RING(0), 0, 0);
+        if (err) {
+            hvfs_err(xnet, "mkfs self %x w/ r2 %x failed w/ %d\n",
+                     self, HVFS_RING(0), err);
+            goto out;
+        }
+    default:;
     }
 
     err = r2cli_do_unreg(self, HVFS_RING(0), 0, 0);

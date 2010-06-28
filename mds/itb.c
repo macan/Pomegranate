@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-12 16:00:36 macan>
+ * Time-stamp: <2010-06-24 09:36:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -575,15 +575,32 @@ void ite_unlink(struct ite *e, struct itb *i, u64 offset, u64 pos)
         struct hvfs_txg *txg;
         int err = 0;
 
-        txg = mds_get_open_txg(&hmo);
-        err = txg_add_update_ddelta(txg, i->h.puuid, -1,
-                                    DIR_DELTA_NLINK | DIR_DELTA_CTIME
-                                    | DIR_DELTA_MTIME);
-        txg_put(txg);
-        if (err) {
-            hvfs_err(mds, "Update dir delta %ld on unlink failed w/ %d,"
-                     " data loss\n",
-                     i->h.puuid, err);
+        /* unlink the entry now */
+        if (likely(e->s.mdu.nlink == 1)) {
+            /* ok, we add this itb in the async_unlink list if the
+             * configration saied that :) */
+            if (hmo.conf.async_unlink) {
+                e->flag = ((e->flag & ~ITE_STATE_MASK) | ITE_UNLINKED);
+                if (unlikely(list_empty(&i->h.unlink)))
+                    list_add_tail(&i->h.unlink, &hmo.async_unlink);
+            } else {
+                /* delete the entry imediately */
+                itb_del_ite(i,e, offset, pos);
+            }
+            /* then, update the dir delta to remote site */
+            txg = mds_get_open_txg(&hmo);
+            err = txg_add_update_ddelta(txg, i->h.puuid, -1,
+                                        DIR_DELTA_NLINK | DIR_DELTA_CTIME
+                                        | DIR_DELTA_MTIME);
+            txg_put(txg);
+            if (err) {
+                hvfs_err(mds, "Update dir delta %ld on unlink failed w/ %d,"
+                         " data loss\n",
+                         i->h.puuid, err);
+            }
+        } else {
+            /* we have already dec the nlink, just return now */
+            ;
         }
     }
 }

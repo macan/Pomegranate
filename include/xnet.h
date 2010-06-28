@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-15 19:25:27 macan>
+ * Time-stamp: <2010-06-28 09:08:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -202,6 +202,7 @@ void xnet_msg_fill_reqno(struct xnet_msg *msg, u64 reqno)
 }
 
 TRACING_FLAG_DEF(xnet);
+void xnet_reset_tracing_flags(u64);
 
 extern void *mds_gwg;           /* simulate global wait group */
 int xnet_wait_group_add(void *, struct xnet_msg *);

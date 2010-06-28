@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-10 15:55:27 macan>
+ * Time-stamp: <2010-06-28 09:10:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -86,6 +86,8 @@ struct mds_conf
     int bc_roof;                /* upper limmit of bitmap cache entries */
     int txg_ddht_size;          /* TXG dir delta hash table size */
     int xnet_resend_to;         /* xnet resend timeout */
+    int hb_interval;            /* heart beat interval */
+    int scrub_interval;         /* scurb interval */
     s8 itbid_check;             /* should we do ITBID check? */
     u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
                                  * conflicts */
@@ -109,6 +111,7 @@ struct mds_conf
 #define HVFS_MDS_MEMLIMIT       0x10 /* limit the ITB memory usage */
 
 #define HVFS_MDS_LIMITED        0x20 /* for test/mds/itbsplit use only */
+#define HVFS_MDS_NOSCRUB        0x40 /* do not do scrub on cbht */
     u64 option;
 };
 
@@ -148,6 +151,7 @@ struct hvfs_mds_object
     /* the following region is used for threads */
     time_t unlink_ts;
     time_t mp_ts;               /* begin time of modify pause */
+    time_t scrub_ts;            /* last scrub time */
 
     sem_t timer_sem;            /* for timer thread wakeup */
     sem_t commit_sem;           /* for commit thread wakeup */
@@ -161,6 +165,7 @@ struct hvfs_mds_object
     pthread_t *async_thread;    /* array of async threads */
     pthread_t unlink_thread;
     pthread_t *spool_thread;    /* array of service threads */
+    pthread_t scrub_thread;
 
     u8 timer_thread_stop;       /* running flag for timer thread */
     u8 commit_thread_stop;      /* running flag for commit thread */
@@ -168,17 +173,21 @@ struct hvfs_mds_object
     u8 dconf_thread_stop;       /* running flag for dconf thread */
     u8 unlink_thread_stop;      /* running flag for unlink thread */
     u8 spool_thread_stop;       /* running flag for service thread */
+    u8 scrub_thread_stop;       /* running flag for scrub thread */
 
     u8 spool_modify_pause;      /* pause the modification */
+    u8 scrub_running;           /* is scrub thread running */
 
     /* callback functions */
     void (*cb_exit)(void *);
+    void (*cb_hb)(void *);
     u64 fsid;
 };
 
 extern struct hvfs_mds_info hmi;
 extern struct hvfs_mds_object hmo;
 extern u32 hvfs_mds_tracing_flags;
+void mds_reset_tracing_flags(u64);
 
 struct dconf_req
 {
@@ -186,6 +195,8 @@ struct dconf_req
 #define DCONF_SET_TXG_INTV      1
 #define DCONF_SET_PROF_INTV     2
 #define DCONF_SET_UNLINK_INTV   3
+#define DCONF_SET_MDS_FLAG      4
+#define DCONF_SET_XNET_FLAG     5
     u64 cmd;
     u64 arg0;
 };
@@ -461,5 +472,10 @@ void mds_set_fsid(struct hvfs_mds_object *hmo, u64 fsid)
 {
     hmo->fsid = fsid;
 }
+
+/* scrub.c */
+void mds_scrub_trigger(void);
+int mds_scrub_create(void);
+void mds_scrub_destroy(void);
 
 #endif

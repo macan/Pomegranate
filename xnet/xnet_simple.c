@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-15 19:26:37 macan>
+ * Time-stamp: <2010-06-24 09:01:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,6 +58,7 @@ struct xnet_addr
     int sockfd[XNET_CONNS];
     xlock_t socklock[XNET_CONNS];
     xlock_t lock;
+    xlock_t clock;
 };
 struct xnet_site
 {
@@ -839,6 +840,7 @@ int xnet_update_ipaddr(u64 site_id, int argc, char **ipaddr, short *port)
         xlock_init(&xa->socklock[i]);
     }
     xlock_init(&xa->lock);
+    xlock_init(&xa->clock);
     list_add_tail(&xa->list, &xs->addr);
     st_update(&gst, xs, site_id);
 
@@ -1205,6 +1207,8 @@ retry:
     list_for_each_entry(xa, &xs->addr, list) {
         if (!IS_CONNECTED(xa, xc)) {
             /* not connected, dynamic connect */
+            /* Note that: we should serialize the connecting threads here! */
+            xlock_lock(&xa->clock);
             if (!csock) {
                 csock = socket(AF_INET, SOCK_STREAM, 0);
                 if (csock < 0) {
@@ -1215,6 +1219,7 @@ retry:
             }
             err = connect(csock, &xa->sa, sizeof(xa->sa));
             if (err < 0) {
+                xlock_unlock(&xa->clock);
                 hvfs_err(xnet, "connect() %s %d failed '%s' %d times\n",
                          inet_ntoa(((struct sockaddr_in *)&xa->sa)->sin_addr),
                          ntohs(((struct sockaddr_in *)&xa->sa)->sin_port), 
@@ -1265,6 +1270,7 @@ retry:
 
                     bt = sendmsg(csock, &__msg, MSG_NOSIGNAL);
                     if (bt < 0 || bt < sizeof(htx)) {
+                        xlock_unlock(&xa->clock);
                         hvfs_err(xnet, "sendmsg do not support redo now(%s) "
                                  ":(\n", strerror(errno));
                         err = -errno;
@@ -1282,6 +1288,7 @@ retry:
                                 sched_yield();
                                 continue;
                             }
+                            xlock_unlock(&xa->clock);
                             hvfs_err(xnet, "recv error: %s\n", strerror(errno));
                             close(csock);
                             csock = 0;
@@ -1298,6 +1305,7 @@ retry:
                 ev.data.fd = csock;
                 err = epoll_ctl(epfd, EPOLL_CTL_ADD, csock, &ev);
                 if (err < 0) {
+                    xlock_unlock(&xa->clock);
                     hvfs_err(xnet, "epoll_ctl() add fd %d to SET(%d) "
                              "failed %d\n", 
                              csock, epfd, errno);
@@ -1310,6 +1318,7 @@ retry:
                 /* ok, it is ok to update this socket to the site table */
                 err = st_update_sockfd(&gst, csock, msg->tx.dsite_id);
                 if (err) {
+                    xlock_unlock(&xa->clock);
                     /* do NOT remove from the epoll set, for pollin thread to
                      * tear down the connection */
                     st_clean_sockfd(&gst, csock);
@@ -1327,11 +1336,13 @@ retry:
 #if 0
                 if (nr_conn < XNET_CONNS_DEF) {
                     csock = 0;
+                    xlock_unlock(&xa->clock);
                     goto retry;
                 }
 #endif
             }
             found = 1;
+            xlock_unlock(&xa->clock);
             break;
         } else {
             found = 1;

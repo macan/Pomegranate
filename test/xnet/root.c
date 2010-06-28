@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-07 14:12:00 macan>
+ * Time-stamp: <2010-06-24 15:12:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -140,7 +140,7 @@ int main(int argc, char *argv[])
         .dispatcher = root_dispatch,
     };
     int err = 0, i, j;
-    int self, sport, mode;
+    int self, sport, mode, do_create;
     char profiling_fname[256];
     char *value;
     char *conf_file;
@@ -167,6 +167,12 @@ int main(int argc, char *argv[])
         mode = atoi(value);
     } else 
         mode = 0;
+
+    value = getenv("create");
+    if (value) {
+        do_create = atoi(value);
+    } else 
+        do_create = 0;
 
     st_init();
     root_pre_init();
@@ -400,6 +406,8 @@ int main(int argc, char *argv[])
             re->fsid = 0;
             re->gdt_salt = lib_random(0xf135dae9);
             re->root_uuid = 1;
+            re->root_salt = -1UL;
+            
             re->gdt_flen = XTABLE_BITMAP_BYTES;
             re->gdt_bitmap = xzalloc(re->gdt_flen);
             if (!re->gdt_bitmap) {
@@ -409,16 +417,22 @@ int main(int argc, char *argv[])
             }
             re->gdt_bitmap[0] = 0xff;
 
-#if 0                           /* do not create a root entry, we just read
-                                 * from the disk now */
-            res = root_mgr_insert(&hro.root, re);
-            if (IS_ERR(res)) {
-                hvfs_err(xnet, "insert root entry faild w/ %ld\n",
-                         PTR_ERR(res));
-                err = PTR_ERR(res);
-                goto out;
+            if (do_create) {
+                /* change the root_salt to a random value */
+                re->root_salt = lib_random(0xfadffdf);
+                res = root_mgr_insert(&hro.root, re);
+                if (IS_ERR(res)) {
+                    hvfs_err(xnet, "insert root entry faild w/ %ld\n",
+                             PTR_ERR(res));
+                    err = PTR_ERR(res);
+                    goto out;
+                }
+                hvfs_info(root, "We just do create a new fs %ld\n", re->fsid);
+            } else {
+                /* do not create a root entry, we just read from the disk
+                 * now */
+                ;
             }
-#endif
         } else if (err < 0) {
             hvfs_err(xnet, "lookup create root 0 failed w/ %d\n", err);
         }

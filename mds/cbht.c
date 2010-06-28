@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-10 16:11:16 macan>
+ * Time-stamp: <2010-06-26 09:20:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -770,15 +770,18 @@ void __cbht mds_cbht_scan(struct eh *eh, int op)
             be = b->content + offset;
             xrwlock_rlock(&be->lock);
             hlist_for_each_entry(ih, pos, &be->h, cbht) {
-                if (ih->state == ITB_STATE_CLEAN) {
-                    /* ok, this is the target to operate on */
-                    hvfs_debug(mds, "DO op %d on ITB %ld, soff %ld "
-                               "boff %ld\n", 
-                               op, ih->itbid, seg_offsets[op], 
-                               bucket_offsets[op]);
-                    /* FIXME: add clean/evict operatons here! */
-                    xrwlock_runlock(&be->lock);
-                    goto bypass;
+                if (eh->ops) {
+                    switch (op) {
+                    case HVFS_MDS_OP_EVICT:
+                        if (eh->ops->evict)
+                            eh->ops->evict(eh, be, ih);
+                        break;
+                    case HVFS_MDS_OP_CLEAN:
+                        if (eh->ops->clean)
+                            eh->ops->clean(eh, be, ih);
+                        break;
+                    default:;
+                    }
                 }
             }
             xrwlock_runlock(&be->lock);

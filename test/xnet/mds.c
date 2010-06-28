@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-12 09:40:40 macan>
+ * Time-stamp: <2010-06-28 08:21:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -886,6 +886,42 @@ out_nofree:
     return err;
 }
 
+/* r2cli_do_hb()
+ *
+ * @gid: already right shift 2 bits
+ */
+int r2cli_do_hb(u64 request_site, u64 root_site, u64 fsid, u32 gid)
+{
+    struct xnet_msg *msg;
+    int err = 0;
+
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_nofree;
+    }
+
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0,
+                     hmo.xc->site_id, root_site);
+    xnet_msg_fill_cmd(msg, HVFS_R2_HB, request_site, fsid);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out;
+    }
+out:
+    xnet_free_msg(msg);
+out_nofree:
+    
+    return err;
+}
+
 void mds_cb_exit(void *arg)
 {
     int err = 0;
@@ -895,6 +931,19 @@ void mds_cb_exit(void *arg)
         hvfs_err(xnet, "unreg self %lx w/ r2 %x failed w/ %d\n",
                  hmo.xc->site_id, HVFS_RING(0), err);
         return;
+    }
+}
+
+void mds_cb_hb(void *arg)
+{
+    u64 ring_site;
+    int err = 0;
+
+    ring_site = mds_select_ring(&hmo);
+    err = r2cli_do_hb(hmo.xc->site_id, ring_site, 0, 0);
+    if (err) {
+        hvfs_err(xnet, "hb %lx w/ r2 %x failed w/ %d\n",
+                 hmo.xc->site_id, HVFS_RING(0), err);
     }
 }
 
@@ -953,7 +1002,9 @@ int main(int argc, char *argv[])
     hmo.prof.xnet = &g_xnet_prof;
     hmo.conf.itbid_check = 1;
     hmo.conf.prof_plot = 1;
+    hmo.conf.option |= HVFS_MDS_NOSCRUB;
     mds_init(10);
+
     /* set the uuid base! */
     hmi.uuid_base = (u64)self << 45;
 
@@ -1029,6 +1080,7 @@ int main(int argc, char *argv[])
         bitmap_insert(0, 0);
     } else {
         hmo.cb_exit = mds_cb_exit;
+        hmo.cb_hb = mds_cb_hb;
         /* use ring info to init the mds */
         err = r2cli_do_reg(self, HVFS_RING(0), 0, 0);
         if (err) {

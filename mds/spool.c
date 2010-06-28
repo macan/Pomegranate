@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-11 12:42:30 macan>
+ * Time-stamp: <2010-06-24 18:18:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -84,9 +84,13 @@ void mds_spool_mp_check(time_t t)
     /* check to see if we should resume the modify requests' handling */
     if (hmo.conf.memlimit > atomic64_read(&hmo.prof.cbht.aitb) * 
         (sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE)) {
+        hmo.conf.option |= HVFS_MDS_NOSCRUB;
         hmo.spool_modify_pause = 0;
         mds_spool_modify_resume();
     } else {
+        /* we trigger the scrubbing thread to evict the clean ITBs */
+        hmo.conf.option &= ~HVFS_MDS_NOSCRUB;
+
         if (t > hmo.mp_ts + hmo.conf.mp_to) {
             hvfs_err(mds, "MDS pausing modification for a long time: %lds\n",
                      (u64)(t - hmo.mp_ts));

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2009-12-14 16:16:07 macan>
+ * Time-stamp: <2010-06-26 10:10:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,6 +61,14 @@ struct bucket
     struct bucket_entry *content; /* store of bucket_entry */
 };
 
+struct eh;
+
+struct eh_operations
+{
+    int (*evict)(struct eh *, void *arg0, void *arg1);
+    int (*clean)(struct eh *, void *arg0, void *arg1);
+};
+
 struct eh
 {
     struct list_head dir;       /* EH directory */
@@ -70,6 +78,9 @@ struct eh
     xrwlock_t lock;             /* protect segment list */
     u32 dir_depth;              /* depth of the directory */
     u32 bucket_depth;           /* the size of each bucket */
+
+    /* operations */
+    struct eh_operations *ops;
 };
 
 #endif

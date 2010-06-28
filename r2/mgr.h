@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-31 14:24:44 macan>
+ * Time-stamp: <2010-06-24 15:02:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@
 #include "ring.h"
 #include "lib.h"
 #include "hvfs_addr.h"
+#include "ite.h"
 
 /* site manager to manage the registered site group, on chring changing mgr
  * should notify the registered sites. 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-21 14:35:22 macan>
+ * Time-stamp: <2010-06-24 17:18:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 #include "hvfs.h"
 #include "xnet.h"
 #include "root.h"
+#include "xtable.h"
 
 static inline
 int __prepare_xnet_msg(struct xnet_msg *msg, struct xnet_msg **orpy)
@@ -646,6 +647,33 @@ int root_do_hb(struct xnet_msg *msg)
     int err = 0;
 
     /* sanity checking */
+    if (msg->tx.len != 0) {
+        hvfs_err(root, "Invalid HB message %d received from %lx\n",
+                 msg->tx.reqno, msg->tx.ssite_id);
+    }
+
+    /* ABI:
+     * tx.arg0: site_id
+     */
+    if (msg->tx.arg0 != msg->tx.ssite_id) {
+        hvfs_warning(root, "Warning: site_id mismatch %lx vs %lx\n",
+                     msg->tx.ssite_id, msg->tx.arg0);
+    }
+    
+    se = site_mgr_lookup(&hro.site, msg->tx.arg0);
+    if (IS_ERR(se)) {
+        hvfs_err(root, "site mgr lookup %lx failed w/ %ld\n",
+                 msg->tx.ssite_id, PTR_ERR(se));
+        err = PTR_ERR(se);
+        goto out;
+    }
+    /* clear the lost_hb */
+    se->hb_lost = 0;
+    se->state = SE_STATE_NORMAL;
+
+out:
+    xnet_free_msg(msg);
+
     return err;
 }
 
@@ -695,6 +723,7 @@ int root_do_bitmap(struct xnet_msg *msg)
         goto out;
     }
 
+    /* FIXME!!!: should we enlarge the gdt bitmap? */
     /* flip the bit now */
     __set_bit(msg->tx.arg1, (unsigned long *)re->gdt_bitmap);
     
@@ -733,12 +762,72 @@ out:
  */
 int root_do_lgdt(struct xnet_msg *msg)
 {
+    struct hvfs_md_reply *hmr;
+    struct hvfs_index *hi;
+    struct root_entry *re;
+    struct xnet_msg *rpy;
     int err = 0;
 
+    err = __prepare_xnet_msg(msg, &rpy);
+    if (err) {
+        hvfs_err(root, "prepare reply msg failed w/ %d\n", err);
+        goto out_exit;
+    }
+    
     /* ABI:
      * tx.arg0: site_id
      * tx.arg1: fsid
      */
+    hmr = get_hmr();
+    if (!hmr) {
+        hvfs_err(root, "get_hmr() failed\n");
+        /* do not retry myself */
+        goto out;
+    }
+    hmr->flag |= MD_REPLY_WITH_HI;
+
+    hi = xzalloc(sizeof(*hi));
+    if (!hi) {
+        hvfs_err(root, "xzalloc() hmr data region failed\n");
+        xfree(hmr);
+        goto out;
+    }
+    
+    /* lookup the root entry to get the gdt entry */
+    re = root_mgr_lookup(&hro.root, msg->tx.arg1);
+    if (IS_ERR(re)) {
+        hvfs_err(root, "root mgr lookup %ld failed w/ %ld\n",
+                 msg->tx.arg1, PTR_ERR(re));
+        err = PTR_ERR(re);
+        goto send_rpy;
+    }
+
+    hi->puuid = re->gdt_uuid;
+    hi->psalt = re->gdt_salt;
+    hi->uuid = re->gdt_uuid;
+    hi->ssalt = re->gdt_salt;
+
+    /* send the reply now */
+send_rpy:
+    if (err) {
+        /* send the err rpy */
+        xnet_msg_set_err(rpy, err);
+        xfree(hmr);
+        xfree(hi);
+    } else {
+        /* send the correct rpy */
+        xnet_msg_add_sdata(rpy, hmr, sizeof(hmr));
+        xnet_msg_add_sdata(rpy, hi, sizeof(*hi));
+    }
+    err = xnet_send(hro.xc, rpy);
+    if (err) {
+        hvfs_err(root, "xnet_send() failed w/ %s.\n", 
+                 strerror(-err));
+    }
+        
+out:
+    xnet_free_msg(rpy);
+out_exit:
     xnet_free_msg(msg);
 
     return err;
@@ -750,13 +839,57 @@ int root_do_lgdt(struct xnet_msg *msg)
  */
 int root_do_lbgdt(struct xnet_msg *msg)
 {
+    struct ibmap ibmap;
+    struct root_entry *re;
+    struct xnet_msg *rpy;
+    u64 offset;
     int err = 0;
+
+    err = __prepare_xnet_msg(msg, &rpy);
+    if (err) {
+        hvfs_err(root, "prepare reply msg failed w/ %d\n", err);
+        goto out_exit;
+    }
 
     /* ABI:
      * tx.arg0: site_id
      * tx.arg1: fsid
      * tx.reserved: offset
      */
+
+    /* Step 1: find the root entry and get the gdt bitmap pointer */
+    re = root_mgr_lookup(&hro.root, msg->tx.arg1);
+    if (IS_ERR(re)) {
+        hvfs_err(root, "root mgr lookup %ld failed w/ %ld\n",
+                 msg->tx.arg1, PTR_ERR(re));
+        err = PTR_ERR(re);
+        goto out;
+    }
+
+    /* Step 2: round down the offset */
+    offset = mds_bitmap_cut(msg->tx.reserved, re->gdt_flen << 3);
+    offset = BITMAP_ROUNDDOWN(offset);
+    /* transform the bit offset to byte offset */
+    
+    /* Step 3: construct the itbitmap and reply to the source site */
+    ibmap.offset = offset;
+    offset >>= 3;
+    ibmap.flag = ((re->gdt_flen - offset > XTABLE_BITMAP_BYTES) ?
+                  0 : BITMAP_END);
+    ibmap.ts = time(NULL);
+
+    xnet_msg_add_sdata(rpy, &ibmap, sizeof(ibmap));
+    xnet_msg_add_sdata(rpy, (void *)re->gdt_bitmap + offset, 
+                       XTABLE_BITMAP_BYTES);
+    err = xnet_send(hro.xc, rpy);
+    if (err) {
+        hvfs_err(root, "xnet_send() failed w/ %s.\n",
+                 strerror(-err));
+    }
+
+out:
+    xnet_free_msg(rpy);
+out_exit:
     xnet_free_msg(msg);
 
     return err;
@@ -772,7 +905,8 @@ int root_do_prof(struct xnet_msg *msg)
      * xm_data: transfer plot entry
      */
 
-    
+    hvfs_info(root, "Notify: You can use test/result/aggr.sh to aggregate"
+              " the results now!");
     xnet_free_msg(msg);
 
     return err;
