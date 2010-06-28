@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-24 09:36:40 macan>
+ * Time-stamp: <2010-06-28 15:47:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -636,15 +636,16 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
         e->s.ls.ctime = tv.tv_sec;
         e->s.ls.mtime = tv.tv_sec;
         e->s.ls.dtime = 0;
+        e->s.ls.flags |= (HVFS_MDU_IF_LINKT | HVFS_MDU_IF_NORMAL);
     } else if (unlikely(hi->flag & INDEX_SYMLINK)) {
         /* hi->data is mdu_update w/ symname */
         struct mdu_update *mu = (struct mdu_update *)hi->data;
         struct timeval tv;
 
         e->s.mdu.flags |= (HVFS_MDU_IF_NORMAL | HVFS_MDU_IF_SYMLINK);
-        if (e->flag == ITE_FLAG_SMALL)
+        if (e->flag & ITE_FLAG_SMALL)
             e->s.mdu.flags |= HVFS_MDU_IF_SMALL;
-        else if (e->flag == ITE_FLAG_LARGE)
+        else if (e->flag & ITE_FLAG_LARGE)
             e->s.mdu.flags |= HVFS_MDU_IF_LARGE;
         e->s.mdu.nlink = 1;
 
@@ -700,9 +701,9 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
 
         /* default fields */
         e->s.mdu.flags |= HVFS_MDU_IF_NORMAL;
-        if (e->flag == ITE_FLAG_SMALL)
+        if (e->flag & ITE_FLAG_SMALL)
             e->s.mdu.flags |= HVFS_MDU_IF_SMALL;
-        else if (e->flag == ITE_FLAG_LARGE)
+        else if (e->flag & ITE_FLAG_LARGE)
             e->s.mdu.flags |= HVFS_MDU_IF_LARGE;
 
         /* we should not change this region, otherwise the name is changing
