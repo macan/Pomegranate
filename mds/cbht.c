@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-26 09:20:00 macan>
+ * Time-stamp: <2010-06-29 16:42:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -141,7 +141,8 @@ int __cbht cbht_bucket_init(struct eh *eh, struct segment *s)
     return 0;
 }
 
-inline int __cbht segment_update_dir(struct eh *eh, u64 len, struct bucket *b)
+static inline
+int __cbht segment_update_dir(struct eh *eh, u64 len, struct bucket *b)
 {
     /* follow the <b->id> to change all matched dir entries */
     struct segment *s;
