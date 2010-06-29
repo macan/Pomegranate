@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-23 21:02:54 macan>
+ * Time-stamp: <2010-06-29 10:27:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -134,6 +134,7 @@ int xnet_test_handler(struct xnet_msg *msg)
 #endif
         xnet_msg_add_sdata(rpy, data, sizeof(data));
         rpy->tx.handle = msg->tx.handle;
+        rpy->tx.reqno = msg->tx.reqno;
         
         xnet_send(xc, rpy);
     
