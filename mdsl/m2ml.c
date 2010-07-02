@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-09 15:30:18 macan>
+ * Time-stamp: <2010-07-02 15:35:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -677,11 +677,13 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                 /* Step 1: we should find the missing ITB in the tmp file */
                 /* Step 2: if we can find the missing ITBs in the tmp file, we
                  * should just waiting for the  */
-                hvfs_err(mdsl, "itb nr mismatch: recv %d vs say %d\n",
-                         atomic_read(&toe->itb_nr), te->itb_nr);
                 toe_wait(toe, te->itb_nr);
+                hvfs_err(mdsl, "itb <%lx,%lx> nr may mismatch: "
+                         "recv %d vs say %d\n", toe->begin.site_id,
+                         toe->begin.txg,
+                         atomic_read(&toe->itb_nr), te->itb_nr);
             }
-
+            
             /* it is ok to commit the TOE--TE to disk now */
             toe->begin.itb_nr = atomic_read(&toe->itb_nr);
             err = mdsl_storage_toe_commit(toe, te);

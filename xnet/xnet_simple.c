@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-24 09:01:39 macan>
+ * Time-stamp: <2010-07-02 12:57:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,9 +36,10 @@ void *mds_gwg;
 struct xnet_prof g_xnet_prof;
 
 #define RESEND_TIMEOUT          (0x10)
-#define SEND_TIMEOUT            (60)
+#define SEND_TIMEOUT            (300)
 #define SIOV_NR                 (50)
 struct xnet_conf g_xnet_conf = {
+    .enable_resend = 0,
     .resend_timeout = RESEND_TIMEOUT,
     .send_timeout = SEND_TIMEOUT,
     .siov_nr = SIOV_NR,
@@ -439,7 +440,7 @@ int __xnet_handle_tx(int fd)
         if (!req->xc) {
             req->xc = xc;
         }
-        {
+        if (unlikely(g_xnet_conf.enable_resend)) {
             int err;
             
             err = xnet_resend_remove(req);
@@ -1497,15 +1498,17 @@ int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
         hvfs_err(xnet, "Warning: target site is the original site, BYPASS?\n");
     }
 
-    if (msg->tx.flag & XNET_NEED_RESEND ||
-        msg->tx.flag & XNET_NEED_REPLY) {
-        /* add to the resend queue */
-        msg->ts = time(NULL);
-        msg->xc = xc;
-        xlock_lock(&xc->resend_lock);
-        list_add_tail(&msg->list, &xc->resend_q);
-        atomic_inc(&msg->ref);
-        xlock_unlock(&xc->resend_lock);
+    if (unlikely(g_xnet_conf.enable_resend)) {
+        if (msg->tx.flag & XNET_NEED_RESEND ||
+            msg->tx.flag & XNET_NEED_REPLY) {
+            /* add to the resend queue */
+            msg->ts = time(NULL);
+            msg->xc = xc;
+            xlock_lock(&xc->resend_lock);
+            list_add_tail(&msg->list, &xc->resend_q);
+            atomic_inc(&msg->ref);
+            xlock_unlock(&xc->resend_lock);
+        }
     }
 
     err = st_lookup(&gst, &xs, msg->tx.dsite_id);
@@ -1788,6 +1791,8 @@ reselect_conn:
             if (errno == EINTR)
                 goto rewait;
             else if (errno == ETIMEDOUT) {
+                hvfs_err(xnet, "time out for %d seconds.\n",
+                         g_xnet_conf.send_timeout);
                 err = -ETIMEDOUT;
             } else
                 hvfs_err(xnet, "sem_wait() failed %d\n", errno);

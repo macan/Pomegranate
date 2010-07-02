@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 14:49:10 macan>
+ * Time-stamp: <2010-07-02 15:15:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -161,18 +161,24 @@ struct txg_open_entry *toe_lookup(u64 site, u64 txg)
 void toe_wait(struct txg_open_entry *toe, int nr)
 {
     struct timespec ts, begin;
+    int cnt;
 
-    clock_gettime(CLOCK_REALTIME, &begin);
-    begin.tv_sec += 60;         /* total timeout time */
-    
-    for (; atomic_read(&toe->itb_nr) < nr; ) {
-        clock_gettime(CLOCK_REALTIME, &ts);
-        if (ts.tv_sec == begin.tv_sec) {
-            hvfs_err(mdsl, "TOE wait timeout for 60 seconds.\n");
-            break;
+    cnt = nr - atomic_read(&toe->itb_nr);
+    while (cnt-- > 0) {
+        clock_gettime(CLOCK_REALTIME, &begin);
+        begin.tv_sec += 60;         /* total timeout time */
+        
+        for (; atomic_read(&toe->itb_nr) < nr; ) {
+            clock_gettime(CLOCK_REALTIME, &ts);
+            if (ts.tv_sec >= begin.tv_sec) {
+                hvfs_err(mdsl, "TOE <%lx,%lx> wait timeout(%d) "
+                         "for 60 seconds.\n", toe->begin.site_id,
+                         toe->begin.txg, cnt);
+                break;
+            }
+            ts.tv_nsec += 8000;     /* ns */
+            mcond_timedwait(&toe->cond, &ts);
         }
-        ts.tv_nsec += 8000;     /* ns */
-        mcond_timedwait(&toe->cond, &ts);
     }
 }
 

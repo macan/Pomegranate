@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-27 09:34:23 macan>
+ * Time-stamp: <2010-07-02 14:36:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -187,16 +187,20 @@ struct txg_wb_slice *tws_lookup(struct commit_thread_arg *cta, u64 dsite)
 {
     struct txg_wb_slice *tws = NULL;
     struct hlist_node *pos;
-    u32 i;
+    u32 i, found = 0;
 
     i = hvfs_hash_tws(dsite) % HVFS_TXG_WB_SITE_HTSIZE;
     hlist_for_each_entry(tws, pos, &cta->siteht[i].h, hlist) {
         if (tws->site_id == dsite) {
+            found = 1;
             break;
         }
     }
 
-    return tws;
+    if (found)
+        return tws;
+    else
+        return NULL;
 }
 
 static inline
@@ -253,7 +257,7 @@ struct txg_wb_slice *tws_find_create(struct commit_thread_arg *cta, u64 dsite)
     if (!tws) {
         tws = tws_create(dsite);
         if (IS_ERR(tws)) {
-            tws = NULL;
+            return NULL;
         }
         /* insert in to the hash table */
         tws_insert(cta, tws);

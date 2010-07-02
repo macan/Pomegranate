@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-28 15:47:52 macan>
+ * Time-stamp: <2010-07-01 17:30:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1313,7 +1313,7 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
         txg_put(t);
         *otxg = nt;
         /* FIXME: itb accessed in the next TXG, so it must be dirty! */
-        ASSERT(itb->h.state == ITB_STATE_DIRTY, mds);
+        ASSERT((itb->h.state == ITB_STATE_DIRTY || itb->h.state == ITB_STATE_CLEAN), mds);
         ASSERT(nt->txg == itb->h.txg, mds);
     }
 

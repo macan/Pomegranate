@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-28 09:08:36 macan>
+ * Time-stamp: <2010-07-01 16:39:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -132,6 +132,7 @@ int xnet_resend(struct xnet_context *xc, struct xnet_msg *m);
 int xnet_resend_remove(struct xnet_msg *msg);
 struct xnet_conf 
 {
+    int enable_resend;
     int resend_timeout;
     int send_timeout;
     int siov_nr;
