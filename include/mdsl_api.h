@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 11:18:41 macan>
+ * Time-stamp: <2010-07-05 10:17:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -150,9 +150,12 @@ struct txg_open_entry
     struct list_head itb;
     struct txg_begin begin;
     void *other_region;
-    mcond_t cond;
-    int osize;
+    mcond_t cond;               /* for itb waiting */
+    xcond_t wcond;              /* for itb read */
     atomic_t itb_nr;
+    atomic_t ref;
+    int osize;
+    int state;
 };
 
 struct txg_end

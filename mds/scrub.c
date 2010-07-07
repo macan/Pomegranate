@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-26 10:56:55 macan>
+ * Time-stamp: <2010-07-04 17:31:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,6 +55,7 @@ void *scrub_main(void *arg)
         hvfs_debug(mds, "Scrub thread wakeup to evict the ITBs.\n");
         /* trying to evict the itbs */
         mds_cbht_scan(&hmo.cbht, HVFS_MDS_OP_EVICT);
+        hmo.scrub_running = 0;
     }
 
     pthread_exit(0);
@@ -94,5 +95,6 @@ void mds_scrub_trigger(void)
 {
     if (hmo.scrub_running)
         return;
+    hmo.scrub_running = 1;
     sem_post(&scrub_mgr.sem);
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-09 15:30:02 macan>
+ * Time-stamp: <2010-07-07 16:03:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1055,7 +1055,7 @@ int mdsl_storage_fd_mmap(struct fdhash_entry *fde, char *path,
             err = -errno;
             goto out_unlock;
         }
-        fde->mwin.offset = 0;
+        fde->mwin.offset = ma->range_begin;
         fde->mwin.file_offset = ma->foffset;
         fde->mwin.len = ma->win;
         fde->mwin.arg = ma->range_id;
@@ -1179,8 +1179,8 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         /* what a nice day! */
 
         /* find the byte offset */
-        snr = ((((offset >> 3) + (XTABLE_BITMAP_BYTES - 1)) & 
-                ~(XTABLE_BITMAP_BYTES - 1)) >> XTABLE_BITMAP_SHIFT) - 1;
+        snr = BITMAP_ROUNDDOWN(offset) >> XTABLE_BITMAP_SHIFT >> 3;
+    
         fde->bmmap.addr = mmap(NULL, fde->bmmap.len, PROT_READ | PROT_WRITE,
                                MAP_SHARED, fde->fd, 
                                msa->offset + snr * fde->bmmap.len);
@@ -1191,7 +1191,7 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
             goto out;
         }
         /* flip the bit now */
-        offset -= snr * fde->bmmap.len;
+        offset -= snr * (fde->bmmap.len << 3);
         __set_bit(offset, fde->bmmap.addr);
         /* unmap the region now */
         err = munmap(fde->bmmap.addr, fde->bmmap.len);

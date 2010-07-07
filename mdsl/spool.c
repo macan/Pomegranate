@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-02 11:57:52 macan>
+ * Time-stamp: <2010-07-06 16:37:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -67,6 +67,17 @@ int __serv_request(void)
 
     if (!msg)
         return -EHSTOP;
+
+    /* check if this request can be dealed right now */
+    if (mdsl_dispatch_check(msg)) {
+        /* reinsert the request to the queue */
+        xlock_lock(&spool_mgr.rin_lock);
+        list_add_tail(&msg->list, &spool_mgr.reqin);
+        xlock_unlock(&spool_mgr.rin_lock);
+        sem_post(&spool_mgr.rin_sem);
+
+        return 0;
+    }
 
     /* ok, deal with it, we just calling the secondary dispatcher */
     ASSERT(msg->xc, mdsl);

@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-06-26 10:46:43 macan>
+# Time-stamp: <2010-07-06 19:58:43 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -34,7 +34,7 @@ ifeq ($(CPU_CORE),)
 endif
 
 # Debuging the memory and locks
-XCFLAGS = -O2 -rdynamic -g -pg -std=gnu99
+XCFLAGS = -O2 -rdynamic -g -pg -std=gnu99 -fPIC
 
 CFLAGS += $(XCFLAGS)
 CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" \
@@ -93,6 +93,12 @@ xnet_depend_files = $(patsubst %.c, $(XNET)/%.c, $(XNET_AR_SOURCE)) \
 					$(header_depend_files)
 r2_depend_files = $(patsubst %.c, $(R2)/%.c, $(R2_AR_SOURCE)) \
 					$(header_depend_files)
+
+# shared libs
+XNET_SO = $(XNET)/libxnet.so.1.0
+MDS_SO = $(MDS)/libmds.so.1.0
+MDSL_SO = $(MDSL)/libmdsl.so.1.0
+R2_SO = $(R2)/libr2.so.1.0
 
 HVFS_LIB = $(LIB_PATH)/libhvfs.a
 MDS_LIB = $(MDS)/libmds.a

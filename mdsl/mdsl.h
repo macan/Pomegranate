@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-02 17:48:03 macan>
+ * Time-stamp: <2010-07-06 16:59:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -301,6 +301,22 @@ void mdsl_tcc_destroy(void);
 
 /* dispatch.c */
 int mdsl_dispatch(struct xnet_msg *);
+/*
+ * Return value: 1: pause the handling; 0: running
+ */
+extern atomic_t itb_loads;
+static inline
+int mdsl_dispatch_check(struct xnet_msg *msg)
+{
+    if (msg->tx.cmd == HVFS_MDS2MDSL_ITB) {
+        if (atomic_inc_return(&itb_loads) >= hmo.conf.spool_threads) {
+            atomic_dec(&itb_loads);
+            return 1;
+        }
+    }
+
+    return 0;
+}
 
 /* m2ml.c */
 void mdsl_itb(struct xnet_msg *);
@@ -322,6 +338,8 @@ void mdsl_tcc_destroy(void);
 struct txg_open_entry *get_txg_open_entry(struct txg_compact_cache *);
 void put_txg_open_entry(struct txg_open_entry *);
 struct txg_open_entry *toe_lookup(u64, u64);
+struct txg_open_entry *toe_lookup_recent(u64);
+void toe_put(struct txg_open_entry *);
 int itb_append(struct itb *, struct itb_info *, u64, u64);
 int toe_to_tmpfile(int, u64, u64, void *);
 int toe_to_tmpfile_N(int, u64, u64, void *, int);

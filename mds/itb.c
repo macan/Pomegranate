@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-01 17:30:49 macan>
+ * Time-stamp: <2010-07-03 16:51:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -964,6 +964,7 @@ struct itb *get_free_itb(struct hvfs_txg *txg)
                           (sizeof(struct itb) + ITB_SIZE * sizeof(struct ite))))) {
                 hmo.spool_modify_pause = 1;
                 hmo.mp_ts = time(NULL);
+                hvfs_err(mds, "Pause modify operations @ %s", ctime(&hmo.mp_ts));
                 return NULL;
             }
         }

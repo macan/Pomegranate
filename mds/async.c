@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-10 16:04:37 macan>
+ * Time-stamp: <2010-07-04 20:03:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -177,12 +177,13 @@ int __aur_itb_split(struct async_update_request *aur)
         err = mds_cbht_insert_bbrlocked(&hmo.cbht, i, &nb, &nbe, &ti);
         if (err == -EEXIST) {
             /* someone create the new ITB, we have data losing */
-            hvfs_err(mds, "Someone create ITB %ld, data losing ...\n",
-                     i->h.itbid);
-            xrwlock_runlock(&nbe->lock);
-            xrwlock_runlock(&nb->lock);
+            hvfs_err(mds, "Someone create ITB %ld(%ld), data losing ...\n",
+                     i->h.itbid, saved_oi->h.itbid);
         } else if (err) {
             hvfs_err(mds, "Internal error %d, data losing.\n", err);
+            /* FIXME: do not need to unlock */
+            itb_put(saved_oi);
+            goto out;
         }
 
         /* it is ok, we need free the locks */

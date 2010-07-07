@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-02 15:15:52 macan>
+ * Time-stamp: <2010-07-05 12:13:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -109,9 +109,17 @@ struct txg_open_entry *get_txg_open_entry(struct txg_compact_cache *tcc)
     INIT_LIST_HEAD(&toe->itb);
     toe->other_region = NULL;
     mcond_init(&toe->cond);
+    xcond_init(&toe->wcond);
     atomic_set(&toe->itb_nr, 0);
-    
+    atomic_set(&toe->ref, 1);
+
     return toe;
+}
+
+void toe_put(struct txg_open_entry *toe)
+{
+    if (atomic_dec_return(&toe->ref) == 0 && toe->state)
+        put_txg_open_entry(toe);
 }
 
 void put_txg_open_entry(struct txg_open_entry *toe)
@@ -121,6 +129,8 @@ void put_txg_open_entry(struct txg_open_entry *toe)
         xfree(toe->other_region);
     list_add_tail(&toe->list, &hmo.tcc.free_list);
     mcond_destroy(&toe->cond);
+    xcond_broadcast(&toe->wcond);
+    xcond_destroy(&toe->wcond);
     atomic_dec(&hmo.tcc.used);
     atomic_dec(&hmo.prof.misc.tcc_used);
 }
@@ -154,6 +164,26 @@ struct txg_open_entry *toe_lookup(u64 site, u64 txg)
     xlock_unlock(&hmo.tcc.active_lock);
     if (!found)
         toe = NULL;
+
+    return toe;
+}
+
+struct txg_open_entry *toe_lookup_recent(u64 site)
+{
+    struct txg_open_entry *toe = NULL, *pos;
+    u64 txg = 0;
+
+    xlock_lock(&hmo.tcc.active_lock);
+    list_for_each_entry(pos, &hmo.tcc.active_list, list) {
+        if (site == pos->begin.site_id && txg <= pos->begin.txg) {
+            txg = pos->begin.txg;
+            toe = pos;
+        }
+    }
+    /* FIXME: this toe may be already freed @.@ */
+    if (toe)
+        atomic_inc(&toe->ref);
+    xlock_unlock(&hmo.tcc.active_lock);
 
     return toe;
 }

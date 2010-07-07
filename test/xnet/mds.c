@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-28 08:21:25 macan>
+ * Time-stamp: <2010-07-04 15:17:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1003,7 +1003,7 @@ int main(int argc, char *argv[])
     hmo.conf.itbid_check = 1;
     hmo.conf.prof_plot = 1;
     hmo.conf.option |= HVFS_MDS_NOSCRUB;
-    mds_init(10);
+    mds_init(11);
 
     /* set the uuid base! */
     hmi.uuid_base = (u64)self << 45;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-02 15:35:07 macan>
+ * Time-stamp: <2010-07-07 16:02:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -119,6 +119,7 @@ void mdsl_itb(struct xnet_msg *msg)
     };
     struct mmap_args ma;
     struct fdhash_entry *fde;
+    struct txg_open_entry *toe;
     range_t *range;
     struct itb *itb;
     void *data = NULL;
@@ -126,7 +127,11 @@ void mdsl_itb(struct xnet_msg *msg)
     int master;
     int data_len = 0;
     int err = 0;
-    
+
+    /* API:
+     * tx.arg0: puuid
+     * tx.arg1: itbid
+     */
     hvfs_info(mdsl, "Recv ITB load requst <%ld,%ld> from site %lx\n",
               msg->tx.arg0, msg->tx.arg1, msg->tx.ssite_id);
 
@@ -137,6 +142,23 @@ void mdsl_itb(struct xnet_msg *msg)
         goto out;
     }
 
+    /* first, we should check if there is a opening toe, if there is, we just
+     * wait until it is committed to disk */
+    toe = toe_lookup_recent(msg->tx.ssite_id);
+    if (toe) {
+        struct timespec ts;
+        
+        /* we should wait here */
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 60;
+        xcond_lock(&toe->wcond);
+        if (!toe->state)
+            xcond_timedwait(&toe->wcond, &ts);
+        xcond_unlock(&toe->wcond);
+        toe_put(toe);
+    }
+    
+    /* then, we can safely access the storage file */
     fde = mdsl_storage_fd_lookup_create(msg->tx.arg0, MDSL_STORAGE_MD, 0);
     if (IS_ERR(fde)) {
         hvfs_err(mdsl, "lookup create MD file failed w/ %ld\n", PTR_ERR(fde));
@@ -707,7 +729,11 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                 hvfs_err(mdsl, "TXG %ld wb aborted by %d from site %lx\n",
                          te->txg, abort, te->site_id);
             }
-            put_txg_open_entry(toe);
+            xcond_lock(&toe->wcond);
+            toe->state = 1;
+            xcond_unlock(&toe->wcond);
+            xcond_broadcast(&toe->wcond);
+            toe_put(toe);
         }
     }
 

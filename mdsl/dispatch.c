@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-29 17:49:35 macan>
+ * Time-stamp: <2010-07-06 16:59:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,12 +25,16 @@
 #include "xnet.h"
 #include "mdsl.h"
 
+/* control the itb_loads to N - 1 spool threads */
+atomic_t itb_loads = {.counter = 0,};
+
 static
 int mdsl_mds_dispatch(struct xnet_msg *msg)
 {
     switch (msg->tx.cmd) {
     case HVFS_MDS2MDSL_ITB:
         mdsl_itb(msg);
+        atomic_dec(&itb_loads);
         break;
     case HVFS_MDS2MDSL_BITMAP:
         mdsl_bitmap(msg);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-26 10:10:07 macan>
+ * Time-stamp: <2010-07-04 14:00:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,8 +65,8 @@ struct eh;
 
 struct eh_operations
 {
-    int (*evict)(struct eh *, void *arg0, void *arg1);
-    int (*clean)(struct eh *, void *arg0, void *arg1);
+    int (*evict)(struct bucket *, void *arg0, void *arg1);
+    int (*clean)(struct bucket *, void *arg0, void *arg1);
 };
 
 struct eh

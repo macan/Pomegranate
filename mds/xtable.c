@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-10 14:00:39 macan>
+ * Time-stamp: <2010-07-04 20:04:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -76,6 +76,10 @@ int itb_split_local(struct itb *oi, int odepth, struct itb_lock *l,
         hvfs_debug(mds, "COW -> SPLIT?\n");
         goto out_relock;
     }
+    if (unlikely(oi->h.state == ITB_STATE_CLEAN)) {
+        /* FIXME: we should redirty the ITB! */
+        goto out_relock;
+    }
     if (unlikely(odepth < oi->h.depth)) {
         goto out_relock;
     }
@@ -84,6 +88,8 @@ int itb_split_local(struct itb *oi, int odepth, struct itb_lock *l,
         goto out_relock;
     }
 
+    /* make sure this itb will be writen back */
+    txg_add_itb(txg, oi);
 retry:
     oi->h.depth++;
     (ni)->h.depth = oi->h.depth;
@@ -212,7 +218,8 @@ out:
      * NOTE: we add one sleep(0) to avoid the corner case clustering, can
      * anyone help me describe what actually should i do here?
      */
-    if (oi->h.state == ITB_STATE_COWED) {
+    if (oi->h.state == ITB_STATE_COWED ||
+        oi->h.state == ITB_STATE_CLEAN) {
         hvfs_debug(mds, "HIT Corner case ITB %p %ld, entries %d, flag %d\n",
                  oi, oi->h.itbid, atomic_read(&oi->h.entries),
                  oi->h.flag);

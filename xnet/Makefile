@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2009-12-29 15:27:00 macan>
+# Time-stamp: <2010-07-06 19:51:50 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -19,6 +19,8 @@ all : xnet_lib
 xnet_lib : $(XNET_AR_SOURCE:.c=.o)
 	@echo -e " " AR"\t" $@
 	@$(AR) rcs libxnet.a $(^:.c=.o)
+	@echo -e " " SL"\t" $(XNET_SO)
+	@$(CC) -shared -Wl,-soname,libxnet.so.1 -o libxnet.so.1.0 $(^:.c=.o) -lc -lrt -lpthread
 
 clean : 
 	-@rm -rf $(XNET_AR_SOURCE:.c=.o)

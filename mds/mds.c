@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-28 08:50:10 macan>
+ * Time-stamp: <2010-07-05 18:27:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -325,55 +325,57 @@ out:
  * we should update to the be.wlock and check if we can free the ITB
  */
 
-int mds_cbht_evict_default(struct eh *eh, void *arg0, void *arg1)
+int mds_cbht_evict_default(struct bucket *b, void *arg0, void *arg1)
 {
     struct bucket_entry *be = (struct bucket_entry *)arg0;
     struct bucket_entry *obe;
     struct itbh *ih = (struct itbh *)arg1;
+    struct hvfs_txg *t;
     int err = 0;
 
+    xrwlock_wlock(&ih->lock);
     if (ih->state == ITB_STATE_CLEAN) {
         /* ok, this is the target to operate on */
         obe = ih->be;
-        if (ih->be) {
-            xrwlock_runlock(&be->lock);
-            xrwlock_wlock(&obe->lock);
-            if (be != obe ||
-                ih->state != ITB_STATE_CLEAN) {
+        t = mds_get_open_txg(&hmo);
+        if (be == obe) {
+            if (ih->be != be ||
+                ih->twin != 0 || 
+                atomic_read(&ih->ref) > 1 ||
+                !list_empty(&ih->list) ||
+                ih->txg >= t->txg - 1) {
                 /* we just failed to update the wlock, exit... */
-                xrwlock_wunlock(&obe->lock);
-                xrwlock_rlock(&be->lock);
-                goto out;
+                txg_put(t);
+                goto out_unlock;
             }
             /* try to release the ITB now */
-            xrwlock_wlock(&ih->lock);
             if (ih->be == obe) {
                 /* not moved, unhash it */
                 hlist_del_init(&ih->cbht);
                 ih->be = NULL;
+                atomic_dec(&b->active);
             } else {
                 /* moved, not unhash */
-                xrwlock_wunlock(&ih->lock);
-                xrwlock_wunlock(&obe->lock);
-                xrwlock_rlock(&be->lock);
-                goto out;
+                txg_put(t);
+                goto out_unlock;
             }
-            xrwlock_wunlock(&ih->lock);
 
-            xrwlock_wunlock(&obe->lock);
-            xrwlock_rlock(&be->lock);
-            itb_free((struct itb *)ih);
+            itb_put((struct itb *)ih);
         }
-        hvfs_debug(mds, "DO evict on clean ITB %ld\n", ih->itbid);
+        txg_put(t);
+        hvfs_err(mds, "DO evict on clean ITB %ld\n", ih->itbid);
+        goto out;
     } else if (ih->state == ITB_STATE_DIRTY) {
         hvfs_debug(mds, "DO not evict dirty ITB %ld\n", ih->itbid);
     }
 
+out_unlock:
+    xrwlock_wunlock(&ih->lock);
 out:
     return err;
 }
 
-int mds_cbht_clean_default(struct eh *eh, void *arg0, void *arg1)
+int mds_cbht_clean_default(struct bucket *b, void *arg0, void *arg1)
 {
     int err = 0;
 

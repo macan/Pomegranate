@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-29 16:42:26 macan>
+ * Time-stamp: <2010-07-07 16:00:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -725,14 +725,14 @@ void __cbht mds_cbht_scan(struct eh *eh, int op)
     struct bucket *b = NULL;
     struct bucket_entry *be;
     struct itbh *ih;
-    struct hlist_node *pos;
+    struct hlist_node *pos, *n;
     u64 offset;
     int found = 0, err = 0;
 
     if (op >= HVFS_MDS_MAX_OPS)
         return;
     
-    xrwlock_rlock(&eh->lock);
+    xrwlock_wlock(&eh->lock);
     list_for_each_entry(s, &eh->dir, list) {
         if (s->offset <= seg_offsets[op] && 
             seg_offsets[op] < (s->offset + s->len)) {
@@ -745,7 +745,9 @@ void __cbht mds_cbht_scan(struct eh *eh, int op)
             for (offset = bucket_offsets[op]; offset < s->len; offset++) {
                 b = *(((struct bucket **)s->seg) + offset);
                 /* ok, holding the bucket rlock */
-                err = xrwlock_tryrlock(&b->lock);
+                if (atomic_read(&b->active) == 0)
+                    continue;
+                err = xrwlock_trywlock(&b->lock);
                 if (err)
                     continue;
                 bucket_offsets[op] = offset + 1;
@@ -761,7 +763,6 @@ void __cbht mds_cbht_scan(struct eh *eh, int op)
         seg_offsets[op] = 0;
         bucket_offsets[op] = 0;
     }
-    xrwlock_runlock(&eh->lock);
 
     /* ok, we holding the bucket rlock now */
     if (b) {
@@ -769,27 +770,28 @@ void __cbht mds_cbht_scan(struct eh *eh, int op)
             goto bypass;
         for (offset = 0; offset < (1 << eh->bucket_depth); offset++) {
             be = b->content + offset;
-            xrwlock_rlock(&be->lock);
-            hlist_for_each_entry(ih, pos, &be->h, cbht) {
+            xrwlock_wlock(&be->lock);
+            hlist_for_each_entry_safe(ih, pos, n, &be->h, cbht) {
                 if (eh->ops) {
                     switch (op) {
                     case HVFS_MDS_OP_EVICT:
                         if (eh->ops->evict)
-                            eh->ops->evict(eh, be, ih);
+                            eh->ops->evict(b, be, ih);
                         break;
                     case HVFS_MDS_OP_CLEAN:
                         if (eh->ops->clean)
-                            eh->ops->clean(eh, be, ih);
+                            eh->ops->clean(b, be, ih);
                         break;
                     default:;
                     }
                 }
             }
-            xrwlock_runlock(&be->lock);
+            xrwlock_wunlock(&be->lock);
         }
     bypass:
-        xrwlock_runlock(&b->lock);
+        xrwlock_wunlock(&b->lock);
     }
+    xrwlock_wunlock(&eh->lock);
 }
 
 /* CBHT dir search

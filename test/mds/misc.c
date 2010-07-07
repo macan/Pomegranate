@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-12 15:26:39 macan>
+ * Time-stamp: <2010-07-07 15:10:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -144,6 +144,16 @@ int main(int argc, char *argv[])
         if (err) {
             hvfs_err(mds, "conf_parse failed w/ %d\n", err);
         }
+    }
+
+    {
+        u64 snr;
+        u64 offset = 128 * 1024 * 8 * 3 + 1509;
+
+        snr = BITMAP_ROUNDDOWN(offset) >> 17 >> 3;
+        
+        hvfs_info(mds, "offset %ld snr %ld refined %ld\n", 
+                  offset, snr, offset - XTABLE_BITMAP_SIZE * snr);
     }
 
     return err;

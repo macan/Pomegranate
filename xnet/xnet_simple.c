@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-02 12:57:59 macan>
+ * Time-stamp: <2010-07-06 09:57:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,7 +36,7 @@ void *mds_gwg;
 struct xnet_prof g_xnet_prof;
 
 #define RESEND_TIMEOUT          (0x10)
-#define SEND_TIMEOUT            (300)
+#define SEND_TIMEOUT            (120)
 #define SIOV_NR                 (50)
 struct xnet_conf g_xnet_conf = {
     .enable_resend = 0,
