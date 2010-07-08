@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-07-08 10:21:39 macan>
+# Time-stamp: <2010-07-08 23:49:33 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -24,4 +24,4 @@ r2_lib : $(R2_AR_SOURCE:.c=.o)
 
 clean : 
 	-@rm -rf $(R2_AR_SOURCE:.c=.o)
-	-@rm -rf libr2.a
+	-@rm -rf libr2.a libr2.so.1.0

@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-07-08 10:20:33 macan>
+# Time-stamp: <2010-07-08 23:49:17 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -24,4 +24,4 @@ mdsl_lib : $(MDSL_AR_SOURCE:.c=.o)
 
 clean : 
 	-@rm -rf $(MDSL_AR_SOURCE:.c=.o)
-	-@rm -rf libmdsl.a
+	-@rm -rf libmdsl.a libmdsl.so.1.0

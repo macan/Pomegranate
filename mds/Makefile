@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-07-07 11:17:00 macan>
+# Time-stamp: <2010-07-08 23:48:34 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -24,4 +24,4 @@ mds_lib : $(MDS_AR_SOURCE:.c=.o)
 
 clean : 
 	-@rm -rf $(MDS_AR_SOURCE:.c=.o)
-	-@rm -rf libmds.a
+	-@rm -rf libmds.a libmds.so.1.0

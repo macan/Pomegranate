@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-03 16:51:37 macan>
+ * Time-stamp: <2010-07-08 22:54:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -549,7 +549,7 @@ void itb_del_ite(struct itb *i, struct ite *e, u64 offset, u64 pos)
  */
 void ite_unlink(struct ite *e, struct itb *i, u64 offset, u64 pos)
 {
-    if (likely(e->flag & ITE_FLAG_NORMAL)) {
+    if (likely(e->flag & ITE_FLAG_NORMAL || e->flag & ITE_FLAG_SYM)) {
         /* normal file */
         e->s.mdu.nlink--;
         if (!e->s.mdu.nlink) {
