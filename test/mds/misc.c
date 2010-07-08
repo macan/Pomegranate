@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-07 15:10:57 macan>
+ * Time-stamp: <2010-07-08 19:50:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,6 +49,7 @@ int main(int argc, char *argv[])
     hvfs_info(mds, "MDU Size: %ld B\n", sizeof(struct mdu));
     hvfs_info(mds, "LS  Size: %ld B\n", sizeof(struct link_source));
     hvfs_info(mds, "MD+ Size: %ld B\n", HVFS_MDU_SIZE);
+    hvfs_info(mds, "KV+ Size: %d B\n", XTABLE_VALUE_SIZE);
 
     offset = fls64(a);
     hvfs_info(mds, "[FLS64]: First set bit in 0x%lx is %d.\n", a, offset);

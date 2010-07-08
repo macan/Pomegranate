@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-03 10:15:03 macan>
+ * Time-stamp: <2010-07-08 13:57:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -88,6 +88,9 @@
 
 /* MDSL to MDS */
 /* RING/ROOT to MDS */
+/* AMC to MDS */
+#define HVFS_AMC2MDS_REQ        0x0000000040000001 /* normal request */
+#define HVFS_AMC2MDS_EXT        0x0000000040000002 /* extend request */
 
 /* MDS to MDSL */
 #define HVFS_MDS2MDSL_ITB       0x0000000080010000

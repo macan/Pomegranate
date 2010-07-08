@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-04 20:04:00 macan>
+ * Time-stamp: <2010-07-08 14:22:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -680,6 +680,3 @@ int mds_bitmap_create(struct dhe *e, u64 itbid)
 
     return __mds_bitmap_insert(e, b);
 }
-
-/* 
- */

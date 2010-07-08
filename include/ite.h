@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-15 19:39:20 macan>
+ * Time-stamp: <2010-07-08 20:14:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,6 +57,15 @@ struct gdt_md
     
 };
 
+struct kv
+{
+    /* NOTE THAT: this flags share the id space with mdu.flags and ls.flags */
+#define HVFS_KV_NORMAL  0x0008000
+    u32 flags;
+    u32 len;
+    u8 value[XTABLE_VALUE_SIZE];
+};
+
 #define HVFS_MDU_SIZE   (sizeof(struct mdu) + 3 * sizeof(u64)) /* include
                                                                 * GDT.puuid
                                                                 * etc. */
@@ -91,7 +100,7 @@ struct ite
     {
         struct sdt_md s;
         struct gdt_md g;
-        u8 value[XTABLE_VALUE_SIZE];
+        struct kv v;
     };
 
     /* section for columns: 144B */

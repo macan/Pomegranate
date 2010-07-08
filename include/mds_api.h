@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-11 13:14:52 macan>
+ * Time-stamp: <2010-07-08 20:13:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,6 +63,7 @@ struct hvfs_index
 #define INDEX_ITB_LOAD          0x10000000 /* load ITB */
 #define INDEX_BIT_FLIP          0x80000000 /* need flip the bit of itbid @
                                             * client side*/
+#define INDEX_KV                0x40000000 /* K/V mode access */
     u32 flag;
     u64 uuid;                   /* self uuid */
     u64 hash;                   /* hash value of the name, or manual set */
@@ -104,6 +105,7 @@ struct hvfs_md_reply
 
     /* this region is not exist in lib.h */
 #define MD_REPLY_WITH_BFLIP     0x0100
+#define MD_REPLY_WITH_KV        0x0200
 
     u32 flag;
     void *data;                 /* how to alloc data region more faster? */

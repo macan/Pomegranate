@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-07 16:00:58 macan>
+ * Time-stamp: <2010-07-08 20:13:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -864,7 +864,8 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     struct itb *oi;
     struct mdu *m;
     int err, offset = 0;
-    char mdu_rpy[HVFS_MDU_SIZE + sizeof(struct column)];
+    /* char mdu_rpy[HVFS_MDU_SIZE + sizeof(struct column)]; */
+    char mdu_rpy[XTABLE_VALUE_SIZE];
 
     xrwlock_rlock(&i->h.lock);
     /* check the ITB state */
@@ -890,6 +891,35 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     /* FIXME: fill hmr with mdu_rpy */
     /* determine the flags */
     m = (struct mdu *)(mdu_rpy);
+    if (m->flags & HVFS_KV_NORMAL) {
+        if (hi->flag & INDEX_KV) {
+            if (hi->flag & INDEX_COLUMN) {
+            } else {
+                /* ok, the data is in mdu_rpy */
+                struct kv *v = (struct kv *)mdu_rpy;
+
+                hmr->len = v->len;
+                hmr->flag = MD_REPLY_WITH_KV;
+                if (hmr->len) {
+                    hmr->data = xmalloc(hmr->len);
+                    if (!hmr->data) {
+                        hvfs_err(mds, "xmalloc() hmr data failed\n");
+                        err = -ENOMEM;
+                        goto out;
+                    }
+                    memcpy(hmr->data, v->value, hmr->len);
+                } else {
+                    /* zero length value */
+                    ;
+                }
+            }
+        } else {
+            /* failed w/ non-kv access mode */
+            hmr->err = -EINVAL;
+        }
+        goto out;
+    }
+    
     if (hi->flag & INDEX_BY_ITB)
         hmr->flag |= MD_REPLY_READDIR;
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-11 13:04:34 macan>
+ * Time-stamp: <2010-07-08 19:49:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -86,6 +86,9 @@ int mds_client_dispatch(struct xnet_msg *msg)
         break;
     default:
         hvfs_err(mds, "Invalid client2MDS command: 0x%lx\n", msg->tx.cmd);
+        /* free tx and xnet_msg */
+        mds_free_tx(tx);
+        xnet_free_msg(msg);
     }
 #ifdef HVFS_DEBUG_LATENCY
     lib_timer_E();
@@ -153,6 +156,21 @@ int mds_root_dispatch(struct xnet_msg *msg)
         mds_aubitmap_r(msg);
     } else {
         xnet_free_msg(msg);
+    }
+
+    return 0;
+}
+
+int mds_amc_dispatch(struct xnet_msg *msg)
+{
+    switch (msg->tx.cmd) {
+    case HVFS_AMC2MDS_REQ:
+//        xtable_handle_req(msg);
+        break;
+    case HVFS_AMC2MDS_EXT:
+        break;
+    default:
+        hvfs_err(mds, "Invalid amc2MDS command: 0x%lx\n", msg->tx.cmd);
     }
 
     return 0;

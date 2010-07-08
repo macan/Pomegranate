@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-07-06 19:58:43 macan>
+# Time-stamp: <2010-07-08 10:21:00 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -95,6 +95,7 @@ r2_depend_files = $(patsubst %.c, $(R2)/%.c, $(R2_AR_SOURCE)) \
 					$(header_depend_files)
 
 # shared libs
+LIB_SO = $(LIB_PATH)/libhvfs.so.1.0
 XNET_SO = $(XNET)/libxnet.so.1.0
 MDS_SO = $(MDS)/libmds.so.1.0
 MDSL_SO = $(MDSL)/libmdsl.so.1.0
