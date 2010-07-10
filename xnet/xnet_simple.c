@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-06 09:57:26 macan>
+ * Time-stamp: <2010-07-09 23:04:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -338,13 +338,13 @@ int __xnet_handle_tx(int fd)
                                  fd, strerror(errno));
                     }
                     next = -1;
-                    goto out_free;
+                    goto out_raw_free;
 #endif
                 }
             } else {
                 hvfs_err(xnet, "hello msg w/o accept entry %d\n", fd);
             }
-            goto out_free;
+            goto out_raw_free;
         }
     }
 
@@ -355,7 +355,7 @@ int __xnet_handle_tx(int fd)
         hvfs_err(xnet, "find xc %lx failed in fd %d\n", msg->tx.dsite_id, fd);
         /* note that we should tear down the connection! */
         next = -1;
-        goto out_free;
+        goto out_raw_free;
     }
 
     /* receive the data if exists */
@@ -376,7 +376,7 @@ int __xnet_handle_tx(int fd)
         if (!buf) {
             hvfs_err(xnet, "xmalloc() buffer failed\n");
             ASSERT(0, xnet);
-            goto out_free;
+            goto out_raw_free;
         }
         br = 0;
         do {
@@ -390,10 +390,10 @@ int __xnet_handle_tx(int fd)
                 }
                 /* this means the connection is broken, let us failed */
                 next = -1;
-                goto out_free;
+                goto out_raw_free;
             } else if (bt == 0) {
                 next = -1;
-                goto out_free;
+                goto out_raw_free;
             }
             br += bt;
         } while (br < msg->tx.len);
@@ -405,7 +405,7 @@ int __xnet_handle_tx(int fd)
         hvfs_err(xnet, "Recv invalid xnet_msg len %d from %lx\n",
                  msg->tx.len, msg->tx.ssite_id);
         next = -1;
-        goto out_free;
+        goto out_raw_free;
     }
     
     /* find the related msg */
@@ -433,6 +433,8 @@ int __xnet_handle_tx(int fd)
             /* hoo, we just ignore this reply message */
             hvfs_err(xnet, "ignore the reply message, mismatch %u vs %u\n",
                      req->tx.reqno, msg->tx.reqno);
+            /* clean the PTRRESTORE flag */
+            msg->tx.flag &= ~XNET_PTRESTORE;
             goto out_free;
         }
         
@@ -1218,7 +1220,23 @@ retry:
                     goto out;
                 }
             }
+#ifdef XNET_CONN_EINTR
+            do {
+                err = connect(csock, &xa->sa, sizeof(xa->sa));
+                if (err < 0) {
+                    if (errno == EINTR)
+                        continue;
+                    if (errno == EISCONN) {
+                        err = 0;
+                        break;
+                    }
+                } else
+                    break;
+            } while (1);
+#else
             err = connect(csock, &xa->sa, sizeof(xa->sa));
+#endif
+            
             if (err < 0) {
                 xlock_unlock(&xa->clock);
                 hvfs_err(xnet, "connect() %s %d failed '%s' %d times\n",
@@ -1521,6 +1539,7 @@ retry:
     list_for_each_entry(xa, &xs->addr, list) {
         if (!IS_CONNECTED(xa, xc)) {
             /* not connected, dynamic connect */
+            xlock_lock(&xa->clock);
             if (!csock) {
                 csock = socket(AF_INET, SOCK_STREAM, 0);
                 if (csock < 0) {
@@ -1531,6 +1550,7 @@ retry:
             }
             err = connect(csock, &xa->sa, sizeof(xa->sa));
             if (err < 0) {
+                xlock_unlock(&xa->clock);
                 hvfs_err(xnet, "connect() %s %d failed '%s' %d times\n",
                          inet_ntoa(((struct sockaddr_in *)&xa->sa)->sin_addr),
                          ntohs(((struct sockaddr_in *)&xa->sa)->sin_port), 
@@ -1581,6 +1601,7 @@ retry:
 
                     bt = sendmsg(csock, &__msg, MSG_NOSIGNAL);
                     if (bt < 0 || bt < sizeof(htx)) {
+                        xlock_unlock(&xa->clock);
                         hvfs_err(xnet, "sendmsg do not support redo now(%s) "
                                  ":(\n", strerror(errno));
                         err = -errno;
@@ -1598,6 +1619,7 @@ retry:
                                 sched_yield();
                                 continue;
                             }
+                            xlock_unlock(&xa->clock);
                             hvfs_err(xnet, "recv error: %s\n", strerror(errno));
                             close(csock);
                             csock = 0;
@@ -1614,6 +1636,7 @@ retry:
                 ev.data.fd = csock;
                 err = epoll_ctl(epfd, EPOLL_CTL_ADD, csock, &ev);
                 if (err < 0) {
+                    xlock_unlock(&xa->clock);
                     hvfs_err(xnet, "epoll_ctl() add fd %d to SET(%d) "
                              "failed %d\n", 
                              csock, epfd, errno);
@@ -1626,6 +1649,7 @@ retry:
                 /* ok, it is ok to update this socket to the site table */
                 err = st_update_sockfd(&gst, csock, msg->tx.dsite_id);
                 if (err) {
+                    xlock_unlock(&xa->clock);
                     /* do NOT remove from the epoll set, for pollin thread to
                      * tear down the connection */
                     st_clean_sockfd(&gst, csock);
@@ -1644,11 +1668,13 @@ retry:
                                  * generate heavy connect load */
                 if (nr_conn < XNET_CONNS_DEF) {
                     csock = 0;
+                    xlock_unlock(&xa->clock);
                     goto retry;
                 }
 #endif
             }
             found = 1;
+            xlock_unlock(&xa->clock);
             break;
         } else {
             found = 1;

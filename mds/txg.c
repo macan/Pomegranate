@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-02 12:51:55 macan>
+ * Time-stamp: <2010-07-09 18:46:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -382,6 +382,7 @@ int txg_wb_itb_ll(struct commit_thread_arg *cta, struct itb *itb)
     tws->nr++;
     tws->len += atomic_read(&itb->h.len);
     xnet_free_msg(msg);
+    atomic64_inc(&hmo.prof.mdsl.itb_wb);
 
     return err;
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-09 14:33:28 macan>
+ * Time-stamp: <2010-07-09 19:29:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -495,6 +495,7 @@ int mds_bc_backend_load(struct bc_entry *be, u64 itbid, u64 location)
 
 out_free:
     xnet_free_msg(msg);
+    atomic64_inc(&hmo.prof.mdsl.bitmap);
     
     return err;
 
@@ -615,6 +616,8 @@ int __customized_send_request(struct bc_commit *commit)
         hvfs_debug(mds, "Got reply from MDSL and change bitmap to "
                    "location 0x%lx\n",
                    msg->pair->tx.arg0);
+        if (hmr->data)
+            xfree(hmr->data);
         xfree(hmr);
     }
 
@@ -787,6 +790,10 @@ int mds_bc_backend_commit(void)
             continue;
         }
         location = column->offset;
+        /* free the hmr resources */
+        if (hmr->data)
+            xfree(hmr->data);
+        memset(hmr, 0, sizeof(*hmr));
 
         p = ring_get_point(hi.itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDSL]);
         if (IS_ERR(p)) {

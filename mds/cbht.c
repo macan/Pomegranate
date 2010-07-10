@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-08 20:13:21 macan>
+ * Time-stamp: <2010-07-10 17:10:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -865,7 +865,7 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     struct mdu *m;
     int err, offset = 0;
     /* char mdu_rpy[HVFS_MDU_SIZE + sizeof(struct column)]; */
-    char mdu_rpy[XTABLE_VALUE_SIZE];
+    char mdu_rpy[sizeof(struct kv) + sizeof(struct column)];
 
     xrwlock_rlock(&i->h.lock);
     /* check the ITB state */
@@ -891,14 +891,14 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     /* FIXME: fill hmr with mdu_rpy */
     /* determine the flags */
     m = (struct mdu *)(mdu_rpy);
-    if (m->flags & HVFS_KV_NORMAL) {
+    if (unlikely(m->flags & HVFS_KV_NORMAL)) {
         if (hi->flag & INDEX_KV) {
             if (hi->flag & INDEX_COLUMN) {
             } else {
                 /* ok, the data is in mdu_rpy */
                 struct kv *v = (struct kv *)mdu_rpy;
 
-                hmr->len = v->len;
+                hmr->len = v->len + KV_HEADER_LEN;
                 hmr->flag = MD_REPLY_WITH_KV;
                 if (hmr->len) {
                     hmr->data = xmalloc(hmr->len);
@@ -907,17 +907,19 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
                         err = -ENOMEM;
                         goto out;
                     }
-                    memcpy(hmr->data, v->value, hmr->len);
-                } else {
-                    /* zero length value */
-                    ;
-                }
+                    memcpy(hmr->data, v, hmr->len);
+                } /* hmr->len is always bigger than ZERO. */
             }
         } else {
             /* failed w/ non-kv access mode */
-            hmr->err = -EINVAL;
+            err = hmr->err = -EINVAL;
         }
         goto out;
+    } else {
+        if (unlikely(hi->flag & INDEX_KV)) {
+            err = hmr->err = -EINVAL;
+            goto out;
+        }
     }
     
     if (hi->flag & INDEX_BY_ITB)

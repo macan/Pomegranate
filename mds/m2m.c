@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-11 17:54:27 macan>
+ * Time-stamp: <2010-07-09 18:47:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -610,6 +610,7 @@ void mds_m2m_lb(struct xnet_msg *msg)
 
 out_free:
     xnet_free_msg(msg);
+    atomic64_inc(&hmo.prof.mds.bitmap_in);
 
     return;
 send_err_rpy:

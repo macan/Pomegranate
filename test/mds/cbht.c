@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-08 10:29:45 macan>
+ * Time-stamp: <2010-07-09 13:38:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -201,23 +201,25 @@ void async_unlink_test(void)
     struct hvfs_index *hi = (struct hvfs_index *)buf;
     struct hvfs_md_reply hmr;
     struct hvfs_txg *txg;
-    struct link_source ls;
+    struct link_source ls = {.nlink = 2,};
     int a = 0, b = 0, err;
 
     memset(hi, 0, sizeof(struct hvfs_index));
     hi->flag = INDEX_CREATE_LINK | INDEX_CREATE;
-    hi->data = &ls;
 
-//    SET_TRACING_FLAG(mds, HVFS_DEBUG | HVFS_VERBOSE);
+    //SET_TRACING_FLAG(mds, HVFS_DEBUG | HVFS_VERBOSE);
 
     /* INSERT REGION */
     for (a = 0; a < 1024; a++) {
         sprintf(hi->name, "shit-%d", a);
         if (lib_random(2)) {
             hi->flag = INDEX_CREATE | INDEX_CREATE_LINK;
+            hi->data = &ls;
             b++;
-        } else
+        } else {
             hi->flag = INDEX_CREATE;
+            hi->data = NULL;
+        }
         hi->namelen = strlen(hi->name);
         memset(&hmr, 0, sizeof(hmr));
         txg = mds_get_open_txg(&hmo);
@@ -429,6 +431,7 @@ int st_main(int argc, char *argv[])
     }
     /* init misc configrations */
     hmo.site_id = HVFS_MDS(0);
+    hmo.conf.itbid_check = 1;
     hmi.gdt_salt = lib_random(0xfffffff);
     hvfs_info(mds, "Select GDT salt to %ld\n", hmi.gdt_salt);    
     ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
@@ -452,7 +455,7 @@ int st_main(int argc, char *argv[])
     hvfs_info(mds, "sizeof(struct ite) = %ld\n", sizeof(struct ite));
 
     /* pre-test the unlink function */
-/*     async_unlink_test(); */
+    async_unlink_test();
 
     /* insert the ite! */
     lib_timer_start(&begin);

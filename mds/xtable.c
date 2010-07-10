@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-08 14:22:40 macan>
+ * Time-stamp: <2010-07-09 18:47:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -481,6 +481,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
                             /* hoo, someone insert the bitmap prior us, we
                              * just update our bitmap to the previous one */
                             mds_bitmap_update(b, bitmap);
+                            xfree(bitmap);
                             break;
                         }
                         if (b->offset > offset) {
@@ -522,6 +523,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
                         /* hoo, someone insert the bitmap prior us, we just
                          * update our bitmap to the previous one */
                         mds_bitmap_update(b, bitmap);
+                        xfree(bitmap);
                         break;
                     }
                     if (b->offset > offset) {
@@ -618,6 +620,8 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
 
 out_free:
     xnet_free_msg(msg);
+    atomic64_inc(&hmo.prof.mds.bitmap_out);
+    
     return err;
 }
 

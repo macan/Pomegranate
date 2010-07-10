@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-08 22:54:58 macan>
+ * Time-stamp: <2010-07-10 16:40:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -131,6 +131,8 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
 
 out_free:
     xnet_free_msg(msg);
+    atomic64_inc(&hmo.prof.mdsl.itb_load);
+    
     return i;
 }
 
@@ -287,7 +289,9 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
                 ite->flag |= ITE_FLAG_LS;
             } else if (unlikely(hi->flag & INDEX_SYMLINK)) {
                 ite->flag |= ITE_FLAG_SYM;
-            } else
+            } else if (unlikely(hi->flag & INDEX_KV)) {
+                ite->flag |= ITE_FLAG_KV;
+            } else 
                 ite->flag |= ITE_FLAG_NORMAL;
             
             if (unlikely(hi->flag &INDEX_CREATE_COPY)) {
@@ -300,9 +304,9 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
                     if (hi->flag & INDEX_CREATE_DIR) {
                         ite->flag |= ITE_FLAG_SDT;
                         ite->uuid |= HVFS_UUID_HIGHEST_BIT;
-                        atomic64_inc(&hmi.mi_fnum);
-                    } else {
                         atomic64_inc(&hmi.mi_dnum);
+                    } else {
+                        atomic64_inc(&hmi.mi_fnum);
                     }
                 } else if (hi->flag & INDEX_BY_UUID) {
                     ite->uuid = hi->uuid;
@@ -325,7 +329,11 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
             ite_create(hi, ite);
             /* copy the mdu into the hmr buffer */
             hi->uuid = ite->uuid;
-            memcpy(data, &(ite->g), HVFS_MDU_SIZE);
+            /* FIXME: we can optimize the kv memcpy here! */
+            if (hi->flag & INDEX_KV)
+                memcpy(data, &(ite->v), sizeof(struct kv));
+            else
+                memcpy(data, &(ite->g), HVFS_MDU_SIZE);
         } else {
             /* NOTE: if there is no zero bit, it means that ourself is racing
              * with other threads, we should force the ITB split actually!
@@ -567,6 +575,9 @@ void ite_unlink(struct ite *e, struct itb *i, u64 offset, u64 pos)
             e->flag = ((e->flag & ~ITE_STATE_MASK) | ITE_SHADOW);
     } else if (e->flag & ITE_FLAG_LS) {
         /* FIXME: hard link file, nobody refer it, just delete it */
+        e->s.mdu.nlink = 0;
+        itb_del_ite(i, e, offset, pos);
+    } else if (e->flag & ITE_FLAG_KV) {
         itb_del_ite(i, e, offset, pos);
     }
 
@@ -612,6 +623,15 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
 {
     /* there is always a struct mdu_update with normal create request */
 
+    if (unlikely(hi->flag & INDEX_KV)) {
+        e->v.len = hi->namelen;
+        e->v.flags = HVFS_KV_NORMAL;
+        e->v.key = hi->hash;
+        memcpy(&e->v.value, hi->data, e->v.len);
+
+        return;
+    }
+    
     e->namelen = hi->namelen;
     if (likely(hi->namelen)) {
         memcpy(&e->s.name, hi->name, hi->namelen);
@@ -822,6 +842,14 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
  */
 inline int ite_match(struct ite *e, struct hvfs_index *hi)
 {
+    /* for kv store, we just compare the key with the hash value */
+    if (unlikely(hi->flag & INDEX_KV)) {
+        if (hi->hash == e->v.key)
+            return ITE_MATCH_HIT;
+        else
+            return ITE_MATCH_MISS;
+    }
+    
     /* compare the name or uuid */
     if (unlikely(hi->flag & INDEX_ITE_SHADOW)) { 
         if (((e->flag & ITE_STATE_MASK) != ITE_SHADOW) && 
@@ -1326,9 +1354,15 @@ void __data_column_hook(struct hvfs_index *hi, struct itb *itb,
                         struct itb_index *ii, void *data)
 {
     if (unlikely(hi->flag & INDEX_COLUMN)) {
-        memcpy(data + HVFS_MDU_SIZE, 
-               &(itb->ite[ii->entry].column[hi->column]), 
-               sizeof(struct column));
+        if (unlikely(hi->flag & INDEX_KV)) {
+            memcpy(data + sizeof(struct kv),
+                   &(itb->ite[ii->entry].column[hi->column]), 
+                   sizeof(struct column));
+        } else {
+            memcpy(data + HVFS_MDU_SIZE, 
+                   &(itb->ite[ii->entry].column[hi->column]), 
+                   sizeof(struct column));
+        }
     }
 }
 
@@ -1405,7 +1439,10 @@ retry:
         if (hi->flag & INDEX_LOOKUP) {
             /* read MDU to buffer */
             hi->uuid = itb->ite[ii->entry].uuid;
-            memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
+            if (hi->flag & INDEX_KV)
+                memcpy(data, &(itb->ite[ii->entry].v), sizeof(struct kv));
+            else
+                memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
             /* FIXME: we should add symlink handling here! */
             __data_column_hook(hi, itb, ii, data);
         } else if (unlikely(hi->flag & INDEX_CREATE)) {

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-08 20:14:22 macan>
+ * Time-stamp: <2010-07-10 17:12:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,6 +63,8 @@ struct kv
 #define HVFS_KV_NORMAL  0x0008000
     u32 flags;
     u32 len;
+    u64 key;
+#define KV_HEADER_LEN   (16)    /* 2 u64 */
     u8 value[XTABLE_VALUE_SIZE];
 };
 
@@ -92,6 +94,7 @@ struct ite
 #define ITE_FLAG_LARGE  0x08000000 /* large file */
 #define ITE_FLAG_SMALL  0x04000000 /* small file */
 #define ITE_FLAG_SYM    0x02000000 /* symlink file */
+#define ITE_FLAG_KV     0x01000000 /* kv entry */
     u32 flag;
     u32 namelen;
 
