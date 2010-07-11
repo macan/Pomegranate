@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-03 10:26:43 macan>
+ * Time-stamp: <2010-07-11 16:55:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -168,5 +168,8 @@ int bparse_bitmap(void *, void **);
 int bparse_addr(void *, struct hvfs_site_tx **);
 
 int root_mkfs(struct root_entry *, struct ring_entry *, u32);
+
+/* cli.c */
+int cli_scan_ring(struct ring_entry *, int, struct ring_range *);
 
 #endif

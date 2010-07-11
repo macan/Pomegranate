@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-07 11:14:13 macan>
+ * Time-stamp: <2010-07-11 22:57:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -210,6 +210,77 @@ struct chp *ring_get_point(u64 key, u64 salt, struct chring *r)
                                      HASH_SEL_RING), r);
 }
 
+/* ABI: we assume that the rr array has at least topn slots
+ */
+int ring_topn_range(int topn, struct chring *r, struct ring_range *rr)
+{
+    u64 cur_start, cur_end, cur_dist;
+    struct ring_range tmp;
+    int i, j;
+    
+    memset(rr, 0, topn * sizeof(struct ring_range));
+    /* setup the N-1 range */
+    rr[0].dist = r->array[0].point + 
+        (-1UL - r->array[r->used].point);
+    rr[0].start = r->array[r->used].point;
+    rr[0].end = r->array[0].point;
+    
+    for (i = 1; i < r->used; i++) {
+        cur_dist = r->array[i].point - r->array[i - 1].point;
+        cur_start = r->array[i - 1].point;
+        cur_end = r->array[i].point;
+        for (j = 0; j < topn; j++) {
+            if (cur_dist > rr[j].dist) {
+                tmp = rr[j];
+                rr[j].dist = cur_dist;
+                rr[j].start = cur_start;
+                rr[j].end = cur_end;
+                cur_dist = tmp.dist;
+                cur_start = tmp.start;
+                cur_end = tmp.end;
+            }
+        }
+    }
+
+    return 0;
+}
+
+/* ABI:
+ *
+ * Return Value: <0 means err; =0 means not found; >0 means found and return
+ * the # of found chps.
+ */
+int ring_find_site(struct chring *r, u64 site_id, struct chp **p)
+{
+    int nr = 0, i, j;
+
+    if (!p || !r)
+        return -EINVAL;
+    
+    /* first pass, check the # of the hit points */
+    for (i = 0; i < r->used; i++) {
+        if (r->array[i].site_id == site_id) {
+            nr++;
+        }
+    }
+    if (!nr)
+        return 0;
+    *p = xzalloc(nr * sizeof(struct chp *));
+    if (!*p) {
+        hvfs_err(lib, "xzalloc() chp failed\n");
+        return -ENOMEM;
+    }
+
+    for (i = 0, j = 0; i < r->used; i++) {
+        if (r->array[i].site_id == site_id) {
+            *(struct chp **)(*p + j) = &r->array[i];
+            j++;
+        }
+    }
+
+    return nr;
+}
+
 void ring_dump(struct chring *r)
 {
     int i;
@@ -224,13 +295,15 @@ void ring_dump(struct chring *r)
 }
 
 #ifdef UNIT_TEST
+TRACING_FLAG(lib, HVFS_DEFAULT_LEVEL | HVFS_DEBUG_ALL);
+
 int main(int argc, char *argv[])
 {
     struct chring *r;
     struct chp p, *x;
     int ret, i;
     u64 point;
-    
+
     hvfs_info(lib, "Begin ring unit test: case 1...\n");
     r = ring_alloc(20, 0);
     if (!r) {
@@ -287,6 +360,55 @@ int main(int argc, char *argv[])
     if (!IS_ERR(x))
     hvfs_info(lib, "%ld in R:  %50ld\n", point, x->point);
 
+    {
+        struct ring_range rr[100] = {0,};
+        struct chp p, *p2;
+        int nr = 10, err = 0;
+        
+        ring_topn_range(nr, r, rr);
+        for (i = 0; i < nr; i++) {
+            hvfs_info(lib, "TOP %d: pt %lu dist %lu\n",
+                      i, rr[i].start, rr[i].dist);
+        }
+        /* add a point into the largest range */
+        p.point = rr[0].start / 2 + rr[0].end / 2;
+        p.vid = 0;
+        p.type = CHP_MANUAL;
+        p.site_id = 0xffff;
+        ring_add_point(&p, r);
+
+        ring_dump(r);
+        nr = ring_find_site(r, 0xffff, &p2);
+        if (nr < 0) {
+            hvfs_err(lib, "ring_find_site() failed w/ %d\n", nr);
+        } else {
+            xfree(p2);
+            hvfs_info(lib, "nr = %d\n", nr);
+        }
+        nr = ring_find_site(r, 0, &p2);
+        if (nr < 0) {
+            hvfs_err(lib, "ring_find_site() failed w/ %d\n", nr);
+        } else {
+            xfree(p2);
+            hvfs_info(lib, "nr = %d\n", nr);
+        }
+        
+        hvfs_info(lib, "Del the point now ...\n");
+        p2 = ring_get_point2(rr[0].start + 1, r);
+        if (IS_ERR(p2)) {
+            hvfs_err(lib, "ring_get_point2() failed w/ %ld\n",
+                     PTR_ERR(p2));
+        } else {
+            err = ring_del_point(p2, r);
+            if (err) {
+                hvfs_err(lib, "ring_del_point() failed w/ %d\n",
+                         err);
+            }
+        }
+    }
+
+    ring_dump(r);
+    
     ring_free(r);
     return 0;
 }

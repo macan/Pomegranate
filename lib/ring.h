@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-07 11:35:22 macan>
+ * Time-stamp: <2010-07-11 16:38:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -51,6 +51,13 @@ struct chring_tx
     u32 group;
     u32 nr;                     /* # of points in the ring */
     struct chp array[0];
+};
+
+struct ring_range
+{
+    u64 start;                  /* range start */
+    u64 end;                    /* range end */
+    u64 dist;                   /* distance of the range */
 };
 
 #define RING_ALLOC_FACTOR       32

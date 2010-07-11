@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-28 09:07:59 macan>
+ * Time-stamp: <2010-07-10 22:03:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -81,6 +81,9 @@ void xnet_free_msg(struct xnet_msg *msg)
     if (atomic_dec_return(&msg->ref) > 0) {
         return;
     }
+    /* Note that, change reqno to zero to prohibit the current access to the
+     * xnet_msg by xnet_handle_tx() */
+    msg->tx.reqno = 0;
 
     /* FIXME: we should check the alloc_flag and auto free flag */
     if (msg->pair)

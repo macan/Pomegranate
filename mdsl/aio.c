@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 14:55:53 macan>
+ * Time-stamp: <2010-07-10 17:35:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -176,7 +176,8 @@ int __serv_sync_unmap_request(struct aio_request *ar)
                  ar->addr, ar->mlen, errno);
         err = -errno;
     }
-    hvfs_debug(mdsl, "ASYNC FLUSH addr %p, done.\n", ar->addr);
+    hvfs_info(mdsl, "ASYNC FLUSH foff %lx addr %p, done.\n", 
+              ar->foff, ar->addr);
     xfree(ar);
 
     return err;
