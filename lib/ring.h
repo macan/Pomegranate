@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-11 16:38:09 macan>
+ * Time-stamp: <2010-07-11 23:13:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -83,6 +83,10 @@ void ring_dump(struct chring *r);
 
 /* Ring Hash function, using what? */
 u64 ring_hash(u64 key, u64 salt);
+
+int ring_topn_range(int, struct chring *, struct ring_range *);
+int ring_find_site(struct chring *, u64, struct chp **);
+int ring_del_point(struct chp *, struct chring *);
 
 /* fast init ring, the caller should provide the lock */
 #define ring_mem_prepare(r, newsize, ret) do {                          \

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-10 16:40:41 macan>
+ * Time-stamp: <2010-07-12 11:56:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1541,7 +1541,10 @@ retry:
                 /* this means the itb is cowed, we should refresh ourself */
                 goto refresh;
             }
-            itb->ite[ii->entry].s.mdu.nlink++;
+            /* ok, this is an ugly API, the client put the nlink delta in the
+             * msg->tx.arg0, and mds_linkadd() copy it to hi->dlen, because in
+             * this function we cant access the msg :( */
+            itb->ite[ii->entry].s.mdu.nlink += (int)hi->dlen;
             hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
         } else if (hi->flag & INDEX_SYMLINK) {

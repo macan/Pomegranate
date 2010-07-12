@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-02 20:32:45 macan>
+ * Time-stamp: <2010-07-12 11:48:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -366,6 +366,12 @@ void mds_linkadd(struct hvfs_tx *tx)
     struct hvfs_md_reply *hmr;
     int err;
 
+    /* ABI (changed):
+     *
+     * if msg->tx.arg0 == 0, we just do nlink+1, else we add the delta value
+     * (cast to int firstly) to the nlink.
+     */
+
     /* sanity checking */
     if (tx->req->tx.len < sizeof(*hi)) {
         hvfs_err(mds, "Invalid LINKADD request %d received\n", 
@@ -395,6 +401,11 @@ void mds_linkadd(struct hvfs_tx *tx)
         return;
     }
 
+    /* ok, get the delta value */
+    hi->dlen = tx->req->tx.arg0;
+    if (!hi->dlen)
+        hi->dlen = 1UL;
+    
     /* search in the CBHT */
     hi->flag |= INDEX_LINK_ADD;
     err = mds_cbht_search(hi, hmr, tx->txg, &tx->txg);
