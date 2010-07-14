@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-12 11:56:20 macan>
+ * Time-stamp: <2010-07-14 11:17:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -569,7 +569,7 @@ void ite_unlink(struct ite *e, struct itb *i, u64 offset, u64 pos)
                     list_add_tail(&i->h.unlink, &hmo.async_unlink);
             } else {
                 /* delete the entry imediately */
-                itb_del_ite(i,e, offset, pos);
+                itb_del_ite(i, e, offset, pos);
             }
         } else
             e->flag = ((e->flag & ~ITE_STATE_MASK) | ITE_SHADOW);
@@ -1545,6 +1545,11 @@ retry:
              * msg->tx.arg0, and mds_linkadd() copy it to hi->dlen, because in
              * this function we cant access the msg :( */
             itb->ite[ii->entry].s.mdu.nlink += (int)hi->dlen;
+            if (itb->ite[ii->entry].s.mdu_nlink == 0) {
+                /* Hoo, we should unlink the entry now, make sure that you
+                 * must not unlink the directory entry */
+                itb_del_ite(itb, &itb->ite[ii->entry], offset, pos);
+            }
             hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
         } else if (hi->flag & INDEX_SYMLINK) {

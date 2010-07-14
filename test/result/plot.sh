@@ -18,6 +18,10 @@ function plot_mds_aggr() {
     sed "s/mds.gXXX.png/mds.aggr.png/g; s/CP-BACK-mds.FIRST/CP-BACK-mds.aggr/g; s/CP-BACK-mds.SECOND/CP-BACK-mds.aggr/g" mds.plot.aggr.template | gnuplot
 }
 
+function plot_mdsl_aggr() {
+    sed "s/mdsl.gXXX.png/mdsl.aggr.png/g; s/CP-BACK-mdsl.FIRST/CP-BACK-mdsl.aggr/g; s/CP-BACK-mdsl.SECOND/CP-BACK-mdsl.aggr/g" mdsl.plot.aggr.template | gnuplot
+}
+
 function plot_mdsl() {
     total=`ls xnet/CP-BACK-mdsl.* | wc -l`
     let nr=total/2;
@@ -56,10 +60,12 @@ function plot_sys_disk_mm() {
     done
 }
 
-plot_mds
+#plot_mds
 plot_mds_aggr
-plot_mdsl
+plot_mdsl_aggr
+#plot_mdsl
 
+exit
 # transform the log names
 ./rename.sh collect.log CP-BACK
 

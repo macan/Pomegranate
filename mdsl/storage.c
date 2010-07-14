@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-07 16:03:18 macan>
+ * Time-stamp: <2010-07-14 12:56:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,13 +46,12 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
     }
 
     xlock_lock(&fde->lock);
-    if (hmo.conf.itb_falloc) {
-        fde->abuf.falloc_size = hmo.conf.itb_falloc * buf_len;
-    } else {
+    if (!hmo.conf.itb_falloc) {
         hmo.conf.itb_falloc = CPU_CORE; /* should be the number of cores of this
                                          * machine? */
-        fde->abuf.falloc_size = buf_len;
+        ASSERT(CPU_CORE != 0, mdsl);
     }
+    fde->abuf.falloc_size = hmo.conf.itb_falloc * buf_len;
     
     if (fde->state == FDE_FREE) {
         /* ok, we should open it */
@@ -133,8 +132,8 @@ int append_buf_flush(struct fdhash_entry *fde, int flag)
                 err = 1;
                 goto fallback;
             }
-            hvfs_info(mdsl, "ASYNC FLUSH offset %lx %p, submitted.\n", 
-                      fde->abuf.file_offset, fde->abuf.addr);
+            hvfs_info(mdsl, "ASYNC FLUSH offset %lx %p fd %d, submitted.\n", 
+                      fde->abuf.file_offset, fde->abuf.addr, fde->fd);
         } else {
         fallback:
             err = msync(fde->abuf.addr, fde->abuf.offset, MS_SYNC);
@@ -207,14 +206,15 @@ int append_buf_flush_remap(struct fdhash_entry *fde)
         if (fde->abuf.file_offset + fde->abuf.len > fde->abuf.falloc_offset + 
             fde->abuf.falloc_size) {
             err = ftruncate(fde->fd, fde->abuf.falloc_offset + 
-                            (fde->abuf.falloc_size << 1));
+                            fde->abuf.falloc_size << 1);
             if (err) {
                 hvfs_err(mdsl, "fallocate fd %d failed w/ %d\n",
                          fde->fd, err);
                 goto out;
             }
             fde->abuf.falloc_offset += fde->abuf.falloc_size;
-            hvfs_debug(mdsl, "ftruncate offset %lx\n", fde->abuf.falloc_offset);
+            hvfs_err(mdsl, "ftruncate offset %lx len %ld\n", 
+                     fde->abuf.falloc_offset, fde->abuf.falloc_size);
         }
         mdsl_aio_start();
         fde->abuf.addr = mmap(NULL, fde->abuf.len, PROT_WRITE | PROT_READ,
