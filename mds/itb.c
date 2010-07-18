@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-14 11:17:50 macan>
+ * Time-stamp: <2010-07-17 23:30:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -294,8 +294,9 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
             } else 
                 ite->flag |= ITE_FLAG_NORMAL;
             
-            if (unlikely(hi->flag &INDEX_CREATE_COPY)) {
-                ite->flag |= ITE_FLAG_GDT;
+            if (unlikely(hi->flag & INDEX_CREATE_COPY)) {
+                if (hi->flag & INDEX_CREATE_GDT)
+                    ite->flag |= ITE_FLAG_GDT;
                 ite->uuid = hi->uuid;
             } else {
                 if (hi->flag & INDEX_BY_NAME) {
@@ -718,6 +719,7 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
         /* INDEX_CREATE_DIR and non-flag, mdu_update */
         struct mdu_update *mu = (struct mdu_update *)hi->data;
         struct timeval tv;
+        int coffset = 0;
 
         /* default fields */
         e->s.mdu.flags |= HVFS_MDU_IF_NORMAL;
@@ -771,9 +773,14 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.version = mu->version;
         if (mu->valid & MU_SIZE)
             e->s.mdu.size = mu->size;
+        if (mu->valid & MU_LLFS) {
+            e->s.mdu.lr = *((struct llfs_ref *)hi->data +
+                            sizeof(struct mdu_update));
+            coffset = sizeof(struct llfs_ref);
+        }
         if (unlikely(mu->valid & MU_COLUMN)) {
             struct mu_column *mc = (struct mu_column *)(
-                hi->data + sizeof(struct mdu_update));
+                hi->data + coffset + sizeof(struct mdu_update));
             int i;
 
             for (i = 0; i < mu->column_no; i++) {
@@ -1545,7 +1552,7 @@ retry:
              * msg->tx.arg0, and mds_linkadd() copy it to hi->dlen, because in
              * this function we cant access the msg :( */
             itb->ite[ii->entry].s.mdu.nlink += (int)hi->dlen;
-            if (itb->ite[ii->entry].s.mdu_nlink == 0) {
+            if (unlikely(itb->ite[ii->entry].s.mdu.nlink == 0)) {
                 /* Hoo, we should unlink the entry now, make sure that you
                  * must not unlink the directory entry */
                 itb_del_ite(itb, &itb->ite[ii->entry], offset, pos);

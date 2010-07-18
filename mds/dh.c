@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-03 10:02:08 macan>
+ * Time-stamp: <2010-07-17 16:35:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,6 +48,7 @@ int mds_dh_init(struct dh *dh, int hsize)
         xlock_init(&dh->ht[i].lock);
     }
     dh->hsize = hsize;
+    atomic_set(&dh->asize, 0);
 out:
     return err;
 }
@@ -106,6 +107,7 @@ struct dhe *mds_dh_insert(struct dh *dh, struct hvfs_index *hi)
         xfree(e);
         return ERR_PTR(-EEXIST);
     }
+    atomic_inc(&dh->asize);
     
     return e;
 }
@@ -135,11 +137,66 @@ int mds_dh_remove(struct dh *dh, u64 uuid)
             }
             xlock_destroy(&e->lock);
             xfree(e);
+            atomic_dec(&dh->asize);
         }
     }
     xlock_unlock(&rh->lock);
 
     return 0;
+}
+
+void __dh_gossip_bitmap(struct itbitmap *bitmap, u64 duuid)
+{
+    struct ibmap ibmap;
+    struct xnet_msg *msg;
+    struct chp *p;
+    u64 point;
+    int err = 0;
+
+    msg = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!msg) {
+        /* retry with slow method */
+        msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+        if (!msg) {
+            hvfs_err(mds, "xnet_alloc_msg() in low memory.\n");
+            return;
+        }
+    }
+
+    /* select a random site from the mds ring */
+    point = hvfs_hash(lib_random(0xfffffff),
+                      lib_random(0xfffffff), 0, HASH_SEL_GDT);
+    p = ring_get_point2(point, hmo.chring[CH_RING_MDS]);
+    if (!p) {
+        hvfs_err(mds, "ring_get_point2() failed w/ %ld\n",
+                 PTR_ERR(p));
+        goto out_free;
+    }
+
+    if (p->site_id == hmo.xc->site_id) {
+        /* self gossip? do not do it */
+        goto out_free;
+    }
+
+    /* send the request to the selected site */
+    memcpy(&ibmap, bitmap, sizeof(ibmap));
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0, hmo.xc->site_id,
+                     p->site_id);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_GB, duuid, bitmap->offset);
+    xnet_msg_add_sdata(msg, &ibmap, sizeof(ibmap));
+    xnet_msg_add_sdata(msg, bitmap->array, XTABLE_BITMAP_BYTES);
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(mds, "xnet_send() failed with %d\n", err);
+    }
+    
+out_free:
+    xnet_raw_free_msg(msg);
 }
 
 /* mds_dh_load()
@@ -361,6 +418,36 @@ retry:
     /* OK, we have get the dh entry, just return it */
 out:
     return e;
+}
+
+void mds_dh_gossip(struct dh *dh)
+{
+    struct dhe *e = ERR_PTR(-EINVAL);
+    struct itbitmap *b;
+    struct regular_hash *rh;
+    struct hlist_node *l;
+    int i, j, stop = lib_random(atomic_read(&dh->asize)) + 1;
+
+    for (i = 0, j = 0; i < dh->hsize; i++) {
+        rh = dh->ht + i;
+        xlock_lock(&rh->lock);
+        hlist_for_each_entry(e, l, &rh->h, hlist) {
+            j++;
+            if (j >= stop)
+                break;
+        }
+        xlock_unlock(&rh->lock);
+        if (j >= stop)
+            break;
+    }
+    if (j >= stop) {
+        /* ok, we find the dhe, we just send all the bitmap slices for now */
+        hvfs_err(mds, "selected the dhe %ld to gossip (%d/%d)\n", 
+                 e->uuid, stop, atomic_read(&dh->asize));
+        list_for_each_entry(b, &e->bitmap, list) {
+            __dh_gossip_bitmap(b, e->uuid);
+        }
+    }
 }
 
 /* mds_get_itbid() may block on bitmap load

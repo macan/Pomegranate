@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-08 19:49:53 macan>
+ * Time-stamp: <2010-07-17 15:08:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -126,6 +126,8 @@ int mds_mds_dispatch(struct xnet_msg *msg)
     } else if (msg->tx.cmd == HVFS_MDS2MDS_LD) {
         /* FIXME: load dir hash entry, just return the hvfs_index */
         mds_ldh(msg);
+    } else if (msg->tx.cmd == HVFS_MDS2MDS_GB) {
+        mds_gossip_bitmap(msg);
     } else {
         xnet_free_msg(msg);
     }

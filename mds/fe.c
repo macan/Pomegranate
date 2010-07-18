@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-10 13:07:20 macan>
+ * Time-stamp: <2010-07-16 11:41:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,7 +48,7 @@ void mds_update_recent_reqno(u64 site, u64 reqno)
  *
  * Return value: 0:no loop; 1: first loop; 2: second or greater loop;
  */
-int __mds_fwd_loop_detect(struct mds_fwd *mf)
+int __mds_fwd_loop_detect(struct mds_fwd *mf, u64 dsite)
 {
     int i, looped = 0;
     
@@ -61,8 +61,20 @@ int __mds_fwd_loop_detect(struct mds_fwd *mf)
         } else
             break;
     }
+    if (!looped) {
+        /* check if it will be looped */
+        for (i = 0; i < MDS_FWD_MAX; i++) {
+            if (mf->route[i] != 0) {
+                if (mf->route[i] == dsite) {
+                    if (looped < 2)
+                        looped++;
+                }
+            } else
+                break;
+        }
+    }
 
-    return looped = 0;
+    return looped;
 }
 
 /* mds_fe_handle_err()
@@ -97,7 +109,7 @@ int mds_do_forward(struct xnet_msg *msg, u64 dsite)
          * the second looped request, we stop or slow down the request */
         rmf = (struct mds_fwd *)((void *)(msg->tx.reserved) + 
                                  msg->tx.len + sizeof(msg->tx));
-        looped = __mds_fwd_loop_detect(rmf);
+        looped = __mds_fwd_loop_detect(rmf, dsite);
         
         if (unlikely((atomic64_read(&hmo.prof.mds.loop_fwd) + 1) % 
                      MAX_RELAY_FWD == 0)) {
@@ -121,6 +133,7 @@ int mds_do_forward(struct xnet_msg *msg, u64 dsite)
         break;
     case 1:        
         /* first loop, copy the entries */
+        au_handle_split_sync();
         for (i = 0; i < MDS_FWD_MAX; i++) {
             if (rmf->route[i] != 0)
                 mf->route[i] = rmf->route[i];
@@ -132,7 +145,8 @@ int mds_do_forward(struct xnet_msg *msg, u64 dsite)
         break;
     case 2:
         /* second loop, slow down the forwarding */
-        xsleep(10);
+        au_handle_split_sync();
+        sched_yield();
         for (i = 0; i < MDS_FWD_MAX; i++) {
             if (rmf->route[i] != 0)
                 mf->route[i] = rmf->route[i];

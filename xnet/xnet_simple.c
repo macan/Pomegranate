@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-09 23:04:43 macan>
+ * Time-stamp: <2010-07-16 15:09:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1545,6 +1545,7 @@ retry:
                 if (csock < 0) {
                     hvfs_err(xnet, "socket() failed %d\n", errno);
                     err = -errno;
+                    xlock_unlock(&xa->clock);
                     goto out;
                 }
             }

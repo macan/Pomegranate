@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-09 18:46:32 macan>
+ * Time-stamp: <2010-07-16 15:06:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -530,6 +530,7 @@ void *txg_commit(void *arg)
     struct commit_thread_arg *cta = (struct commit_thread_arg *)arg;
     struct hvfs_txg *t;
     struct timespec ts;
+    time_t begin, end;
     sigset_t set;
     int err, freed, clean, notknown;
     
@@ -571,6 +572,7 @@ void *txg_commit(void *arg)
 
         hvfs_debug(mds, "TXG %ld is write-backing.\n", t->txg);
         /* Step2: no reference to this TXG, we can write back now */
+        begin = time(NULL);
         CTA_INIT(cta, t);
         txg_prepare_begin(cta, t);
 
@@ -581,11 +583,12 @@ void *txg_commit(void *arg)
         }
 
         CTA_FINA(cta);
+        end = time(NULL);
         
         hmo.txg[TXG_WB] = NULL;
         /* free the TXG */
-        hvfs_info(mds, "TXG %ld is released (free:%d, clean:%d, ntkwn:%d).\n", 
-                  t->txg, freed, clean, notknown);
+        hvfs_info(mds, "TXG %ld is released (free:%d, clean:%d, ntkwn:%d) %ld s.\n", 
+                  t->txg, freed, clean, notknown, (end - begin));
         mcond_destroy(&t->cond);
         /* trigger the commit callback on the TXs */
         txg_trigger_ccb(t);

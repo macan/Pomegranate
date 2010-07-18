@@ -1,7 +1,7 @@
 Title: Client-MDS APIs ABIs
 
 Writter: Ma Can <macan@ncic.ac.cn>
-Time-stamp: <2010-04-27 22:07:37 macan>
+Time-stamp: <2010-07-17 22:25:58 macan>
 
 
 1. Structures for Interactive 
@@ -73,7 +73,7 @@ struct hvfs_md_reply
     short bitmap_no;            /* # of BITMAPs */
     int len;                    /* the data length */
 
-#define MD_REPLY_DIR_SDT        0x01 /* SDT result */
+#define MD_REPLY_DIR            0x01 /* result is a directory */
 #define MD_REPLY_READDIR        0x02 /* piggyback the ITB depth in h8 of flag */
 
     /* please do NOT change the following defines, they should be consistent

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-08 20:13:07 macan>
+ * Time-stamp: <2010-07-17 23:28:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -92,7 +92,8 @@ struct hvfs_md_reply
     int err;
     int len;                    /* the data length */
 
-#define MD_REPLY_DIR_SDT        0x01 /* SDT result */
+#define MD_REPLY_DIR            0x01 /* result is a directory, either SDT or
+                                      * GDT */
 #define MD_REPLY_READDIR        0x02 /* piggyback the ITB depth in h8 of flag */
 
     /* please do NOT change the following defines, they should be consistent
@@ -126,6 +127,11 @@ struct hvfs_md_reply
 
 /*
  * used for setattr and create
+ *
+ * Layout of mdu_update:
+ *
+ * |---mdu_update---|---symname---| or
+ * |---mdu_update---|--llfs_ref--|---mu_column---|
  */
 struct mdu_update 
 {
@@ -143,6 +149,7 @@ struct mdu_update
 #define MU_COLUMN       (1 << 10) /* update column infomation? */
 #define MU_NLINK        (1 << 11)
 #define MU_SYMNAME      (1 << 12) /* symbol name */
+#define MU_LLFS         (1 << 13) /* llfs_ref */
 
     u64 atime;
     u64 mtime;

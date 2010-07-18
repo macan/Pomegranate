@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-04 20:03:33 macan>
+ * Time-stamp: <2010-07-16 15:36:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -123,7 +123,8 @@ int __aur_itb_split(struct async_update_request *aur)
         /* Step 2: we begin to transfer the ITB to the dest site */
         xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
                          hmo.site_id, p->site_id);
-        xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_SPITB, 0, 0);
+        xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_SPITB, i->h.itbid, 
+                          ((struct itb *)i->h.twin)->h.itbid);
 #ifdef XNET_EAGER_WRITEV
         xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -647,7 +648,8 @@ void au_handle_split_sync(void)
     xlock_lock(&g_aum.lock);
     if (!list_empty(&g_aum.aurlist)) {
         list_for_each_entry_safe(aur, n, &g_aum.aurlist, list) {
-            if (aur->op == AU_ITB_SPLIT) {
+            if (aur->op == AU_ITB_SPLIT ||
+                aur->op == AU_ITB_BITMAP) {
                 list_del(&aur->list);
                 break;
             }
@@ -658,7 +660,17 @@ void au_handle_split_sync(void)
     if (!aur)
         return;
 
-    err = __aur_itb_split(aur);
+    switch (aur->op) {
+    case AU_ITB_SPLIT:
+        err = __aur_itb_split(aur);
+        break;
+    case AU_ITB_BITMAP:
+        err = __aur_itb_bitmap(aur);
+        break;
+    default:
+        err = -EINVAL;
+    }
+
     if (err) {
         hvfs_err(mds, "AU (split) handle error %d\n", err);
     }

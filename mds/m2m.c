@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-09 18:47:28 macan>
+ * Time-stamp: <2010-07-17 15:47:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -229,6 +229,11 @@ void mds_ausplit(struct xnet_msg *msg)
     struct hvfs_txg *t;
     int err = 0;
 
+    /* API:
+     * tx.arg0: new itbid
+     * tx.arg1: old itbid
+     */
+
     /* sanity checking */
     if (msg->tx.len < sizeof(struct itb)) {
         hvfs_err(mds, "Invalid SPITB request %d received from %lx\n",
@@ -285,6 +290,8 @@ void mds_ausplit(struct xnet_msg *msg)
     xrwlock_runlock(&nb->lock);
 
     mds_dh_bitmap_update(&hmo.dh, i->h.puuid, i->h.itbid,
+                         MDS_BITMAP_SET);
+    mds_dh_bitmap_update(&hmo.dh, i->h.puuid, msg->tx.arg1,
                          MDS_BITMAP_SET);
     /* FIXME: if we using malloc to alloc the ITB, then we need to inc the
      * csize counter */
@@ -752,4 +759,49 @@ out:
     xnet_free_msg(msg);
     
     return;
+}
+
+void mds_gossip_bitmap(struct xnet_msg *msg)
+{
+    struct itbitmap *b = NULL, *pos;
+    struct dhe *e;
+    
+    /* ABI:
+     *
+     * tx.arg0: duuid
+     * tx.arg1: offset
+     * xm_data: bitmap slice
+     */
+
+    /* sanity checking */
+    if (msg->tx.len < sizeof(*b)) {
+        hvfs_err(mds, "Invalid bitmap gossip message from %lx\n",
+                 msg->tx.ssite_id);
+        goto out;
+    }
+
+    b = msg->xm_data;
+    ASSERT(msg->tx.arg1 == b->offset, mds);
+
+    atomic64_inc(&hmo.prof.mds.gossip_bitmap);
+    /* find the dh firstly */
+    e = mds_dh_search(&hmo.dh, msg->tx.arg0);
+    if (IS_ERR(e)) {
+        hvfs_err(mds, "mds_dh_search() duuid %ld failed w/ %ld\n",
+                 msg->tx.arg0, PTR_ERR(e));
+        goto out;
+    }
+
+    /* find the bitmap slice now */
+    xlock_lock(&e->lock);
+    list_for_each_entry(pos, &e->bitmap, list) {
+        if (pos->offset == b->offset) {
+            mds_bitmap_update(pos, b);
+            break;
+        }
+    }
+    xlock_unlock(&e->lock);
+
+out:
+    xnet_free_msg(msg);
 }

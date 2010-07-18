@@ -16,7 +16,7 @@ def aggr_mds(argv):
     while True:
         ts += 5
         r = ['PLOT', ts, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
-             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
         try:
             for x in range(71):
@@ -25,7 +25,7 @@ def aggr_mds(argv):
                 a = l[0].split(' ')
 
                 # accumulate the stats
-                for y in range(2, 36):
+                for y in range(2, 37):
                     r[y] = int(r[y]) + int(a[y])
         except:
             break

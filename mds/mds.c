@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-07 23:25:16 macan>
+ * Time-stamp: <2010-07-17 15:28:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -118,9 +118,35 @@ out:
     return err;
 }
 
+static inline
+void dynamic_adjust_txg_interval(time_t cur)
+{
+    static u64 last_modify = 0;
+    static time_t last_ts = 0;
+    static int nr = 0;
+
+    if (hmo.conf.txg_interval && cur > last_ts) {
+        if ((atomic64_read(&hmo.prof.cbht.modify) - last_modify) / 
+            (cur - last_ts) > 1000) {
+            nr = 0;
+            hmo.conf.txg_interval = min(hmo.conf.txg_interval << 2, 15 * 60);
+        } else {
+            nr++;
+            if (nr > 30)
+                hmo.conf.txg_interval = max(hmo.conf.txg_interval >> 1, 30);
+        }
+        last_ts = cur;
+        last_modify = atomic64_read(&hmo.prof.cbht.modify);
+    }
+}
+
 void mds_itimer_default(int signo, siginfo_t *info, void *arg)
 {
     sem_post(&hmo.timer_sem);
+    /* Note that, we must check the profiling interval at here, otherwise
+     * checking the profiling interval at timer_thread will lost some
+     * statistics */
+    dump_profiling(time(NULL));
     hvfs_verbose(mds, "Did this signal handler called?\n");
 
     return;
@@ -205,6 +231,7 @@ static void *mds_timer_thread_main(void *arg)
         cur = time(NULL);
         if (hmo.state > HMO_STATE_LAUNCH) {
             /* ok, checking txg */
+            dynamic_adjust_txg_interval(cur);
             txg_changer(cur);
         }
         /* then, checking profiling */
@@ -599,6 +626,11 @@ int mds_init(int bdepth)
     if (err)
         goto out_scrub;
 
+    /* FIXME: init the gossip thread */
+    err = gossip_init();
+    if (err)
+        goto out_gossip;
+
     /* FIXME: waiting for the notification from R2 */
 
     /* FIXME: waiting for the requests from client/mds/mdsl/r2 */
@@ -606,6 +638,7 @@ int mds_init(int bdepth)
     /* ok to run */
     hmo.state = HMO_STATE_RUNNING;
 
+out_gossip:
 out_scrub:
 out_spool:
 out_unlink:
@@ -637,6 +670,9 @@ void mds_destroy(void)
 
     sem_destroy(&hmo.timer_sem);
 
+    /* stop the gossip thread */
+    gossip_destroy();
+    
     /* stop the scrub thread */
     mds_scrub_destroy();
 

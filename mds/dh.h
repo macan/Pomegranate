@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 14:24:49 macan>
+ * Time-stamp: <2010-07-16 18:31:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@ struct dh
 {
     struct regular_hash *ht;
     int hsize;                  /* hash table size */
+    atomic_t asize;
 };
 
 struct dhe

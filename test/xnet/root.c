@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-11 16:28:33 macan>
+ * Time-stamp: <2010-07-14 15:47:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -101,7 +101,7 @@ int msg_wait()
 
 /* ring_add() add one site to the CH ring
  */
-int ring_add(struct chring *r, u64 site)
+int ring_add(struct chring *r, u64 site, char *str)
 {
     struct chp *p;
     char buf[256];
@@ -117,7 +117,7 @@ int ring_add(struct chring *r, u64 site)
     }
 
     for (i = 0; i < vid_max; i++) {
-        snprintf(buf, 256, "%ld.%d", site, i);
+        snprintf(buf, 256, "%s.%ld.%d", str, site, i);
         (p + i)->point = hvfs_hash(site, (u64)buf, strlen(buf), HASH_SEL_VSITE);
         (p + i)->vid = i;
         (p + i)->type = CHP_AUTO;
@@ -295,11 +295,11 @@ int main(int argc, char *argv[])
             goto out;
         }
         re->ring.group = CH_RING_MDS;
-        ring_add(&re->ring, HVFS_MDS(0));
-        ring_add(&re->ring, HVFS_MDS(1));
+        ring_add(&re->ring, HVFS_MDS(0), "mds");
+        ring_add(&re->ring, HVFS_MDS(1), "mds");
 #if 1
-        ring_add(&re->ring, HVFS_MDS(2));
-        ring_add(&re->ring, HVFS_MDS(3));
+        ring_add(&re->ring, HVFS_MDS(2), "mds");
+        ring_add(&re->ring, HVFS_MDS(3), "mds");
 #endif
         res = ring_mgr_insert(&hro.ring, re);
         if (IS_ERR(res)) {
@@ -319,8 +319,8 @@ int main(int argc, char *argv[])
             goto out;
         }
         re->ring.group = CH_RING_MDSL;
-        ring_add(&re->ring, HVFS_MDSL(0));
-        ring_add(&re->ring, HVFS_MDSL(1));
+        ring_add(&re->ring, HVFS_MDSL(0), "mdsl");
+        ring_add(&re->ring, HVFS_MDSL(1), "mdsl");
         res = ring_mgr_insert(&hro.ring, re);
         if (IS_ERR(res)) {
             hvfs_err(xnet, "ring_mgr_insert %d failed w/ %ld\n",
@@ -346,7 +346,7 @@ int main(int argc, char *argv[])
             if (strcmp(cs[i].type, "mdsl") == 0) {
                 continue;
             } else if (strcmp(cs[i].type, "mds") == 0) {
-                ring_add(&re->ring, HVFS_MDS(cs[i].id));
+                ring_add(&re->ring, HVFS_MDS(cs[i].id), "mds");
             }
         }
         res = ring_mgr_insert(&hro.ring, re);
@@ -370,7 +370,7 @@ int main(int argc, char *argv[])
 
         for (i = 0; i < nr; i++) {
             if (strcmp(cs[i].type, "mdsl") == 0) {
-                ring_add(&re->ring, HVFS_MDSL(cs[i].id));
+                ring_add(&re->ring, HVFS_MDSL(cs[i].id), "mdsl");
             }
         }
         res = ring_mgr_insert(&hro.ring, re);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-14 12:56:23 macan>
+ * Time-stamp: <2010-07-14 15:46:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -206,7 +206,7 @@ int append_buf_flush_remap(struct fdhash_entry *fde)
         if (fde->abuf.file_offset + fde->abuf.len > fde->abuf.falloc_offset + 
             fde->abuf.falloc_size) {
             err = ftruncate(fde->fd, fde->abuf.falloc_offset + 
-                            fde->abuf.falloc_size << 1);
+                            (fde->abuf.falloc_size << 1));
             if (err) {
                 hvfs_err(mdsl, "fallocate fd %d failed w/ %d\n",
                          fde->fd, err);

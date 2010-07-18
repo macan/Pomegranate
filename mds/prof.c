@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-09 18:48:10 macan>
+ * Time-stamp: <2010-07-17 15:23:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,11 +42,12 @@ void dump_profiling_plot(time_t t)
      *  xnet.msg_alloc xnet.msg_free xnet.inbytes xnet.outbytes
      *  xnet.active_links mds.loop_fwd mds.paused_mreq cbht.aentry
      *  misc.au_submit misc.au_handle misc.au_bitmap misc.au_dd misc.au_ddr
-     *  mds.bitmap_in mds.bitmap_out mdsl.itb_load, mdsl.itb_wb, mdsl.bitmap"
+     *  mds.bitmap_in mds.bitmap_out mdsl.itb_load, mdsl.itb_wb, mdsl.bitmap
+     *  mds.gossip_bitmap"
      */
     hvfs_pf("PLOT %ld %d %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
             "%ld %ld %d %d %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
-            "%ld %ld %ld %ld %ld %ld %ld %ld\n",
+            "%ld %ld %ld %ld %ld %ld %ld %ld %ld\n",
             t, 
             atomic_read(&hmo.ic.csize),
             atomic64_read(&hmo.prof.cbht.lookup),
@@ -86,7 +87,8 @@ void dump_profiling_plot(time_t t)
             atomic64_read(&hmo.prof.mds.bitmap_out),
             atomic64_read(&hmo.prof.mdsl.itb_load),
             atomic64_read(&hmo.prof.mdsl.itb_wb),
-            atomic64_read(&hmo.prof.mdsl.bitmap)
+            atomic64_read(&hmo.prof.mdsl.bitmap),
+            atomic64_read(&hmo.prof.mds.gossip_bitmap)
         );
 }
 

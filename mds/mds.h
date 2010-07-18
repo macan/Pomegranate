@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-28 09:10:34 macan>
+ * Time-stamp: <2010-07-17 16:03:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -166,6 +166,7 @@ struct hvfs_mds_object
     pthread_t unlink_thread;
     pthread_t *spool_thread;    /* array of service threads */
     pthread_t scrub_thread;
+    pthread_t gossip_thread;
 
     u8 timer_thread_stop;       /* running flag for timer thread */
     u8 commit_thread_stop;      /* running flag for commit thread */
@@ -174,6 +175,7 @@ struct hvfs_mds_object
     u8 unlink_thread_stop;      /* running flag for unlink thread */
     u8 spool_thread_stop;       /* running flag for service thread */
     u8 scrub_thread_stop;       /* running flag for scrub thread */
+    u8 gossip_thread_stop;      /* running flag for gossip thread */
 
     u8 spool_modify_pause;      /* pause the modification */
     u8 scrub_running;           /* is scrub thread running */
@@ -206,7 +208,7 @@ struct dconf_req
 struct mds_fwd
 {
     int len;
-#define MDS_FWD_MAX     32
+#define MDS_FWD_MAX     31
     u32 route[0];
 };
 
@@ -357,6 +359,7 @@ int mds_dh_remove(struct dh *, u64);
 u64 mds_get_itbid(struct dhe *, u64);
 int mds_dh_bitmap_update(struct dh *, u64, u64, u8);
 void mds_dh_bitmap_dump(struct dh *, u64);
+void mds_dh_gossip(struct dh *);
 
 /* for c2m.c, client 2 mds APIs */
 void mds_statfs(struct hvfs_tx *);
@@ -380,6 +383,7 @@ void mds_aubitmap_r(struct xnet_msg *msg);
 void mds_m2m_lb(struct xnet_msg *msg);
 void mds_audirdelta(struct xnet_msg *msg);
 void mds_audirdelta_r(struct xnet_msg *msg);
+void mds_gossip_bitmap(struct xnet_msg *msg);
 
 /* for async.c */
 int async_tp_init(void);
@@ -477,5 +481,7 @@ void mds_set_fsid(struct hvfs_mds_object *hmo, u64 fsid)
 void mds_scrub_trigger(void);
 int mds_scrub_create(void);
 void mds_scrub_destroy(void);
+
+/* gossip.c */
 
 #endif
