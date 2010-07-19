@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-02 15:46:10 macan>
+ * Time-stamp: <2010-07-19 15:40:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,6 +48,10 @@ void mdsl_sigaction_default(int signo, siginfo_t *info, void *arg)
                   HVFS_COLOR_END,
                   SIGCODES(info->si_code));
         lib_segv(signo, info, arg);
+    } else if (signo == SIGHUP) {
+        hvfs_info(lib, "Exit MDSL Server ...\n");
+        mdsl_destroy();
+        exit(0);
     }
     
     return;
@@ -422,6 +426,11 @@ out_tcc:
 void mdsl_destroy(void)
 {
     hvfs_verbose(mdsl, "OK, stop it now...\n");
+
+    /* unreg w/ the r2 server */
+    if (hmo.cb_exit) {
+        hmo.cb_exit(&hmo);
+    }
 
     /* stop the timer thread */
     hmo.timer_thread_stop = 1;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-24 17:18:17 macan>
+ * Time-stamp: <2010-07-19 15:22:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -401,12 +401,6 @@ out_unlock:
         goto out;
 
     /* ok, then we should init a flush operation now */
-    err = root_write_hxi(se);
-    if (err) {
-        hvfs_err(root, "Flush site %lx hxi to storage failed w/ %d.\n", 
-                 se->site_id, err);
-        goto out;
-    }
     re = root_mgr_lookup(&hro.root, se->fsid);
     if (IS_ERR(re)) {
         hvfs_err(root, "root mgr lookup fsid %ld failed w/ %ld\n",
@@ -416,8 +410,20 @@ out_unlock:
     }
 #if 1
     /* update the root entry */
-    re->root_salt = ((struct hvfs_client_info *)hxi)->root_salt;
+    if (HVFS_IS_CLIENT(msg->tx.ssite_id))
+        re->root_salt = ((struct hvfs_client_info *)hxi)->root_salt;
+    else {
+        /* updateh the hxi info */
+        se->hxi.hmi.root_salt = re->root_salt;
+    }
 #endif
+    /* write the hxi */
+    err = root_write_hxi(se);
+    if (err) {
+        hvfs_err(root, "Flush site %lx hxi to storage failed w/ %d.\n", 
+                 se->site_id, err);
+        goto out;
+    }
     err = root_write_re(re);
     if (err) {
         hvfs_err(root, "Flush fs root %ld to storage failed w/ %d.\n",

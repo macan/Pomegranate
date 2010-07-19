@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-09 15:30:55 macan>
+ * Time-stamp: <2010-07-19 15:15:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1437,7 +1437,10 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *hxi)
                  * current site entry to the new view. But, we must check
                  * whether there is another instance that is running. */
                 /* check if the root_salt is -1UL, if it is, we update it */
-                ASSERT(fsid != se->fsid, root);
+                if (fsid == se->fsid) {
+                    hvfs_err(root, "This means that we have just update the "
+                             "root entry.\n");
+                }
 
                 if (se->state != SE_STATE_SHUTDOWN) {
                     /* ok, we reject the fs change */
@@ -1574,7 +1577,10 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *hxi)
                 if (hxi->hmi.root_salt == -1UL) {
                     hxi->hmi.root_salt = root->root_salt;
                 } else {
-                    ASSERT(fsid != se->fsid, root);
+                    if (fsid != se->fsid) {
+                        hvfs_err(root, "This means that we have just update "
+                                 "the root entry\n");
+                    }
                 }
                 
                 if (se->state != SE_STATE_SHUTDOWN) {
@@ -1710,7 +1716,10 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *hxi)
                 if (hxi->hmi.root_salt == -1UL) {
                     hxi->hmi.root_salt = root->root_salt;
                 } else {
-                    ASSERT(fsid != se->fsid, root);
+                    if (fsid == se->fsid) {
+                        hvfs_err(root, "This means that we have just update "
+                                 "the root entry.\n");
+                    }
                 }
                 
                 if (se->state != SE_STATE_SHUTDOWN) {
@@ -1841,7 +1850,10 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *hxi)
                  * current site entry to the new view. But, we must check
                  * whether there is another instance that is running. */
                 /* check if the root_salt is -1UL, if it is, we update it */
-                ASSERT(fsid != se->fsid, root);
+                if (fsid == se->fsid) {
+                    hvfs_err(root, "This means that we have just update "
+                             "the root entry.\n");
+                }
 
                 if (se->state != SE_STATE_SHUTDOWN) {
                     /* ok, we reject the fs change */
@@ -1999,8 +2011,10 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
         if (hci->gdt_salt != root->gdt_salt ||
             hci->root_salt != root->root_salt) {
             hvfs_err(root, "Internal error, salt mismatch in hci and root\n");
-            hvfs_err(root, "hci salt %lx root salt %lx\n",
+            hvfs_err(root, "hci gdt  salt %lx root salt %lx\n",
                      hci->gdt_salt, root->gdt_salt);
+            hvfs_err(root, "hci root salt %lx root salt %lx\n",
+                     hci->root_salt, root->root_salt);
             if (hci->root_salt == -1UL) {
                 hci->gdt_salt = root->gdt_salt;
                 hci->root_salt = root->root_salt;
