@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-17 23:30:41 macan>
+ * Time-stamp: <2010-07-19 11:02:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -799,6 +799,7 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
     if (hi->flag & INDEX_MDU_UPDATE) {
         /* hi->data is mdu_update */
         struct mdu_update *mu = (struct mdu_update *)hi->data;
+        int coffset = 0;
 
         if (mu->valid & MU_MODE)
             e->s.mdu.mode = mu->mode;
@@ -822,9 +823,14 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.size = mu->size;
         if (mu->valid & MU_NLINK)
             e->s.mdu.nlink = mu->nlink;
+        if (mu->valid & MU_LLFS) {
+            e->s.mdu.lr = *((struct llfs_ref *)hi->data +
+                            sizeof(struct mdu_update));
+            coffset = sizeof(struct llfs_ref);
+        }
         if (mu->valid & MU_COLUMN) {
             struct mu_column *mc = (struct mu_column *)(
-                hi->data + sizeof(struct mdu_update));
+                hi->data + coffset + sizeof(struct mdu_update));
             int i;
 
             for (i = 0; i < mu->column_no; i++) {
