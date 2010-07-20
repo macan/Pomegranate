@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-17 16:27:00 macan>
+ * Time-stamp: <2010-07-18 19:54:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -989,8 +989,9 @@ void __data_write(struct hvfs_index *hi, struct column *c)
     int err = 0, i;
 
     hvfs_debug(xnet, "Read uuid %ld column itbid %ld len %ld offset %ld "
-               "target len %d\n",
-               hi->uuid, c->stored_itbid, c->len, c->offset, len);
+               "target len %d itbid %ld\n",
+               hi->uuid, c->stored_itbid, c->len, c->offset, len,
+               hi->itbid);
     
     si = xzalloc(sizeof(*si) + sizeof(struct column_req));
     if (!si) {

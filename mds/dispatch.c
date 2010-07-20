@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-17 15:08:00 macan>
+ * Time-stamp: <2010-07-18 15:47:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -167,7 +167,7 @@ int mds_amc_dispatch(struct xnet_msg *msg)
 {
     switch (msg->tx.cmd) {
     case HVFS_AMC2MDS_REQ:
-//        xtable_handle_req(msg);
+        xtable_handle_req(msg);
         break;
     case HVFS_AMC2MDS_EXT:
         break;

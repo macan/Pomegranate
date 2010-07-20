@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-07-08 23:49:33 macan>
+# Time-stamp: <2010-07-20 14:13:39 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -20,7 +20,7 @@ r2_lib : $(R2_AR_SOURCE:.c=.o)
 	@echo -e " " AR"\t" $@
 	@$(AR) rcs libr2.a $(^:.c=.o)
 	@echo -e " " SL"\t" $(R2_SO)
-	@$(CC) -shared -Wl,-soname,libr2.so.1 -o libr2.so.1.0 $(^:.c=.o) -lc -lrt -lpthread
+	@$(CC) -shared -Wl,-soname,libr2.so.1 -o $(LIB_PATH)/libr2.so.1.0 $(^:.c=.o) -lc -lrt -lpthread
 
 clean : 
 	-@rm -rf $(R2_AR_SOURCE:.c=.o)

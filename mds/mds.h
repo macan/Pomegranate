@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-17 16:03:24 macan>
+ * Time-stamp: <2010-07-19 11:07:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -231,6 +231,7 @@ int mds_mds_dispatch(struct xnet_msg *msg);
 int mds_mdsl_dispatch(struct xnet_msg *msg);
 int mds_ring_dispatch(struct xnet_msg *msg);
 int mds_root_dispatch(struct xnet_msg *msg);
+int mds_amc_dispatch(struct xnet_msg *msg);
 
 /* for cbht.c */
 struct bucket *cbht_bucket_alloc(int);
@@ -483,5 +484,10 @@ int mds_scrub_create(void);
 void mds_scrub_destroy(void);
 
 /* gossip.c */
+int gossip_init(void);
+void gossip_destroy(void);
+
+/* capi.c */
+void xtable_handle_req(struct xnet_msg *);
 
 #endif

@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-07-08 23:49:17 macan>
+# Time-stamp: <2010-07-20 14:12:57 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -20,7 +20,7 @@ mdsl_lib : $(MDSL_AR_SOURCE:.c=.o)
 	@echo -e " " AR"\t" $@
 	@$(AR) rcs libmdsl.a $(^:.c=.o)
 	@echo -e " " SL"\t" $(MDSL_SO)
-	@$(CC) -shared -Wl,-soname,libmdsl.so.1 -o libmdsl.so.1.0 $(^:.c=.o) -lc -lrt -lpthread
+	@$(CC) -shared -Wl,-soname,libmdsl.so.1 -o $(LIB_PATH)/libmdsl.so.1.0 $(^:.c=.o) -lc -lrt -lpthread
 
 clean : 
 	-@rm -rf $(MDSL_AR_SOURCE:.c=.o)

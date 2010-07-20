@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-16 11:41:02 macan>
+ * Time-stamp: <2010-07-18 15:48:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -358,7 +358,10 @@ int mds_fe_dispatch(struct xnet_msg *msg)
         return mds_ring_dispatch(msg);
     } else if (HVFS_IS_ROOT(msg->tx.ssite_id)) {
         return mds_root_dispatch(msg);
+    } else if (HVFS_IS_AMC(msg->tx.ssite_id)) {
+        return mds_amc_dispatch(msg);
     }
+        
     hvfs_err(mds, "MDS front-end handle INVALID request <0x%lx %d>\n", 
              msg->tx.ssite_id, msg->tx.reqno);
 out:
