@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-07-20 16:02:51 macan>
+# Time-stamp: <2010-07-21 19:07:27 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -18,6 +18,8 @@ all : api_so
 			$(patsubst %.c, $(API)/%.c, $<)
 
 api_so : $(API_AR_SOURCE:.c=.o) $(XNET_LIB)
+	@echo -e " " AR"\t" $@
+	@$(AR) rcs libapi.a $(^:.c=.o)
 	@echo -e " " SL"\t" $(API_SO)
 	@$(CC) -L$(XNET) -shared -Wl,-soname,libapi.so.1 -o $(LIB_PATH)/libapi.so.1.0 $(^:.c=.o) -lc -lrt -lpthread -lxnet
 

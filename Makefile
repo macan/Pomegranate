@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-07-20 14:31:41 macan>
+# Time-stamp: <2010-07-21 19:50:30 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -42,7 +42,7 @@ $(XNET_LIB) : $(xnet_depend_files)
 	@echo -e " " MK"\t" $@
 	@$(MAKE) --no-print-directory -C $(XNET) -e "HOME_PATH=$(HOME_PATH)"
 
-$(API_SO) : $(api_depend_files)
+$(API_LIB) : $(api_depend_files)
 	@echo -e " " CD"\t" $(API)
 	@echo -e " " MK"\t" $@
 	@$(MAKE) --no-print-directory -C $(API) -e "HOME_PATH=$(HOME_PATH)"
@@ -52,6 +52,7 @@ clean :
 	@$(MAKE) --no-print-directory -C $(MDS) -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(MDSL) -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(R2) -e "HOME_PATH=$(HOME_PATH)" clean
+	@$(MAKE) --no-print-directory -C $(API) -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(XNET) -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(TEST)/mds -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(TEST)/xnet -e "HOME_PATH=$(HOME_PATH)" clean
@@ -64,11 +65,11 @@ $(LIB_PATH)/ring : $(RING_SOURCES)
 	@echo -e " " CC"\t" $@
 	@$(CC) $(CFLAGS) $^ -o $@ -DUNIT_TEST
 
-lib : $(HVFS_LIB) $(MDS_LIB) $(XNET_LIB) $(MDSL_LIB) $(R2_LIB) $(API_SO)
+lib : $(HVFS_LIB) $(MDS_LIB) $(XNET_LIB) $(MDSL_LIB) $(R2_LIB) $(API_LIB)
 	@echo -e " " Lib is ready.
 
 unit_test : $(ut_depend_files) $(HVFS_LIB) $(MDS_LIB) $(XNET_LIB) \
-			$(MDSL_LIB) $(R2_LIB)
+			$(MDSL_LIB) $(R2_LIB) $(API_LIB)
 	@echo -e " " CD"\t" $(TEST)/mds
 	@$(MAKE) --no-print-directory -C $(TEST)/mds -e "HOME_PATH=$(HOME_PATH)"
 	@echo -e " " CD"\t" $(TEST)/xnet

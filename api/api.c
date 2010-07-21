@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-20 23:36:32 macan>
+ * Time-stamp: <2010-07-21 23:58:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -239,153 +239,6 @@ out:
     return err;
 }
 
-int lookup_root()
-{
-    struct xnet_msg *msg;
-    struct hvfs_index hi;
-    struct hvfs_md_reply *hmr;
-    struct dhe *gdte;
-    u64 dsite;
-    u32 vid;
-    int err = 0;
-
-    gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
-    if (IS_ERR(gdte)) {
-        /* fatal error */
-        hvfs_err(xnet, "This is a fatal error, we can not find the GDT DHE.\n");
-        err = PTR_ERR(gdte);
-        goto out;
-    }
-
-    memset(&hi, 0, sizeof(hi));
-    hi.puuid = hmi.gdt_uuid;
-    hi.psalt = hmi.gdt_salt;
-    hi.uuid = hmi.root_uuid;
-    hi.hash = hvfs_hash_gdt(hi.uuid, hmi.gdt_salt);
-    hi.itbid = mds_get_itbid(gdte, hi.hash);
-    hi.flag = INDEX_LOOKUP | INDEX_BY_UUID;
-
-    dsite = SELECT_SITE(hi.itbid, hi.psalt, CH_RING_MDS, &vid);
-
-    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
-        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
-        err = -ENOMEM;
-        goto out;
-    }
-    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
-                     hmo.xc->site_id, dsite);
-    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_LOOKUP, 0, 0);
-#ifdef XNET_EAGER_WRITEV
-    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
-#endif
-    xnet_msg_add_sdata(msg, &hi, sizeof(hi));
-
-    err = xnet_send(hmo.xc, msg);
-    if (err) {
-        hvfs_err(xnet, "xnet_send() failed\n");
-        goto out_free;
-    }
-
-    ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err) {
-        hvfs_err(mds, "lookup root failed w/ %d\n",
-                 msg->pair->tx.err);
-        err = msg->pair->tx.err;
-        goto out_free;
-    }
-    if (msg->pair->xm_datacheck)
-        hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
-    else {
-        hvfs_err(xnet, "Invalid LOOKUP reply from site %lx.\n",
-                 msg->pair->tx.ssite_id);
-        err = -EFAULT;
-        goto out_free;
-    }
-    /* ok, get the root mdu */
-    {
-        struct gdt_md *m;
-        int no = 0;
-
-        m = hmr_extract(hmr, EXTRACT_MDU, &no);
-        if (!m) {
-            hvfs_err(xnet, "extract HI failed, not found.\n");
-        }
-        hmi.root_salt = m->salt;
-        hvfs_info(xnet, "Change root salt to %lx\n", hmi.root_salt);
-        hvfs_info(xnet, "root mdu mode %o nlink %d flags %x\n", 
-                  m->mdu.mode, m->mdu.nlink, m->mdu.flags);
-    }
-    xnet_set_auto_free(msg->pair);
-out_free:
-    xnet_free_msg(msg);
-out:
-    return err;
-}
-
-int create_root()
-{
-    char data[HVFS_MDU_SIZE];
-    struct hvfs_index hi;
-    struct dhe *gdte;
-    struct mdu *mdu = (struct mdu *)data;
-    struct chp *p;
-    u64 *i = (u64 *)(data + sizeof(struct mdu));
-    int err = 0;
-
-    gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
-    if (IS_ERR(gdte)) {
-        /* fatal error */
-        hvfs_err(xnet, "This is a fatal error, we can not find the GDT DHE.\n");
-        err = PTR_ERR(gdte);
-        goto out;
-    }
-
-    memset(&hi, 0, sizeof(hi));
-    hi.uuid = hmi.root_uuid;
-    hi.hash = hvfs_hash(hi.uuid, hmi.gdt_salt, 0, HASH_SEL_GDT);
-    hi.itbid = mds_get_itbid(gdte, hi.hash);
-
-    /* find the GDT service MDS */
-    p = ring_get_point(hi.itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
-    if (IS_ERR(p)) {
-        hvfs_err(xnet, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
-        err = -ECHP;
-        goto out;
-    }
-
-    /* ok, step 1, we lookup the root entry, if failed we will create a new
-     * root entry */
-relookup:
-    if (lookup_root() == 0) {
-        hvfs_info(xnet, "Lookup root entry successfully.\n");
-        return 0;
-    }
-
-    memset(data, 0, HVFS_MDU_SIZE);
-    mdu->mode = 0040755;
-    mdu->nlink = 2;
-    mdu->flags = HVFS_MDU_IF_NORMAL | HVFS_MDU_IF_KV;
-    
-    *i = hmi.root_uuid;         /* the root is myself */
-    *(i + 1) = hmi.root_salt;
-    *(i + 2) = hmi.root_salt;
-
-    err = get_send_msg_create_gdt(p->site_id, &hi, data);
-    if (err) {
-        hvfs_err(xnet, "create root GDT entry failed w/ %d\n", err);
-        if (err == -EEXIST)
-            goto relookup;
-    }
-
-    /* update the root salt now */
-    hmi.root_salt = hi.ssalt;
-    hvfs_info(xnet, "Change root salt to %lx\n", hmi.root_salt);
-    
-out:
-    return err;
-}
-
 int dh_insert(u64 uuid, u64 puuid, u64 ssalt)
 {
     struct hvfs_index hi;
@@ -399,7 +252,7 @@ int dh_insert(u64 uuid, u64 puuid, u64 ssalt)
 
     e = mds_dh_insert(&hmo.dh, &hi);
     if (IS_ERR(e)) {
-        hvfs_err(xnet, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
+        hvfs_warning(xnet, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
         goto out;
     }
     hvfs_debug(xnet, "Insert dir:%lx in DH w/  %p\n", uuid, e);
@@ -625,7 +478,7 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
     }
 
     /* parse the register reply message */
-    hvfs_err(xnet, "Begin parse the reg reply message\n");
+    hvfs_info(xnet, "Begin parse the reg reply message\n");
     if (msg->pair->xm_datacheck) {
         void *data = msg->pair->xm_data;
         void *bitmap;
@@ -769,6 +622,155 @@ void amc_cb_exit(void *arg)
                  hmo.xc->site_id, HVFS_RING(0), err);
         return;
     }
+}
+
+int hvfs_lookup_root(void)
+{
+    struct xnet_msg *msg;
+    struct hvfs_index hi;
+    struct hvfs_md_reply *hmr;
+    struct dhe *gdte;
+    u64 dsite;
+    u32 vid;
+    int err = 0;
+
+    gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+    if (IS_ERR(gdte)) {
+        /* fatal error */
+        hvfs_err(xnet, "This is a fatal error, we can not find the GDT DHE.\n");
+        err = PTR_ERR(gdte);
+        goto out;
+    }
+
+    memset(&hi, 0, sizeof(hi));
+    hi.puuid = hmi.gdt_uuid;
+    hi.psalt = hmi.gdt_salt;
+    hi.uuid = hmi.root_uuid;
+    hi.hash = hvfs_hash_gdt(hi.uuid, hmi.gdt_salt);
+    hi.itbid = mds_get_itbid(gdte, hi.hash);
+    hi.flag = INDEX_LOOKUP | INDEX_BY_UUID;
+
+    dsite = SELECT_SITE(hi.itbid, hi.psalt, CH_RING_MDS, &vid);
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_LOOKUP, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &hi, sizeof(hi));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_free;
+    }
+
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err) {
+        hvfs_err(mds, "lookup root failed w/ %d\n",
+                 msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out_free;
+    }
+    if (msg->pair->xm_datacheck)
+        hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
+    else {
+        hvfs_err(xnet, "Invalid LOOKUP reply from site %lx.\n",
+                 msg->pair->tx.ssite_id);
+        err = -EFAULT;
+        goto out_free;
+    }
+    /* ok, get the root mdu */
+    {
+        struct gdt_md *m;
+        int no = 0;
+
+        m = hmr_extract(hmr, EXTRACT_MDU, &no);
+        if (!m) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+        }
+        hmi.root_salt = m->salt;
+        hvfs_info(xnet, "Change root salt to %lx\n", hmi.root_salt);
+        hvfs_info(xnet, "root mdu mode %o nlink %d flags %x\n", 
+                  m->mdu.mode, m->mdu.nlink, m->mdu.flags);
+        dh_insert(hmi.root_uuid, hmi.root_uuid, hmi.root_salt);
+    }
+    xnet_set_auto_free(msg->pair);
+out_free:
+    xnet_free_msg(msg);
+out:
+    return err;
+}
+
+int hvfs_create_root(void)
+{
+    char data[HVFS_MDU_SIZE];
+    struct hvfs_index hi;
+    struct dhe *gdte;
+    struct mdu *mdu = (struct mdu *)data;
+    struct chp *p;
+    u64 *i = (u64 *)(data + sizeof(struct mdu));
+    int err = 0;
+
+    gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+    if (IS_ERR(gdte)) {
+        /* fatal error */
+        hvfs_err(xnet, "This is a fatal error, we can not find the GDT DHE.\n");
+        err = PTR_ERR(gdte);
+        goto out;
+    }
+
+    memset(&hi, 0, sizeof(hi));
+    hi.uuid = hmi.root_uuid;
+    hi.hash = hvfs_hash(hi.uuid, hmi.gdt_salt, 0, HASH_SEL_GDT);
+    hi.itbid = mds_get_itbid(gdte, hi.hash);
+
+    /* find the GDT service MDS */
+    p = ring_get_point(hi.itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
+    if (IS_ERR(p)) {
+        hvfs_err(xnet, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
+        err = -ECHP;
+        goto out;
+    }
+
+    /* ok, step 1, we lookup the root entry, if failed we will create a new
+     * root entry */
+relookup:
+    if (hvfs_lookup_root() == 0) {
+        hvfs_info(xnet, "Lookup root entry successfully.\n");
+        return 0;
+    }
+
+    memset(data, 0, HVFS_MDU_SIZE);
+    mdu->mode = 0040755;
+    mdu->nlink = 2;
+    mdu->flags = HVFS_MDU_IF_NORMAL | HVFS_MDU_IF_KV;
+    
+    *i = hmi.root_uuid;         /* the root is myself */
+    *(i + 1) = hmi.root_salt;
+    *(i + 2) = hmi.root_salt;
+
+    err = get_send_msg_create_gdt(p->site_id, &hi, data);
+    if (err) {
+        hvfs_err(xnet, "create root GDT entry failed w/ %d\n", err);
+        if (err == -EEXIST)
+            goto relookup;
+    }
+
+    /* update the root salt now */
+    hmi.root_salt = hi.ssalt;
+    dh_insert(hmi.root_uuid, hmi.root_uuid, hmi.root_salt);
+    hvfs_info(xnet, "Change root salt to %lx\n", hmi.root_salt);
+    
+out:
+    return err;
 }
 
 int __core_main(int argc, char *argv[])
@@ -941,7 +943,9 @@ int hvfs_create_table(char *name)
         goto out;
     dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
 
-    hi->flag = INDEX_CREATE | INDEX_BY_NAME | INDEX_CREATE_DIR;
+    /* using INDEX_CREATE_KV to get the self salt value */
+    hi->flag = INDEX_CREATE | INDEX_BY_NAME | INDEX_CREATE_DIR |
+        INDEX_CREATE_KV;
     memcpy(hi->name, name, strlen(name));
     hi->namelen = strlen(name);
     mu = (struct mdu_update *)((void *)hi + sizeof(struct hvfs_index) +
@@ -1022,12 +1026,186 @@ resend:
                        rhi->puuid, rhi->itbid);
         }
     }
+    /* ok, create the gdt entry now */
+    {
+        struct hvfs_index *rhi;
+        struct dhe *e;
+        struct gdt_md *m;
+        struct chp *p;
+        int no = 0;
+
+        rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+            goto out_msg;
+        }
+        m = hmr_extract(hmr, EXTRACT_MDU, &no);
+        if (!m) {
+            hvfs_err(xnet, "extract MDU failed, not found.\n");
+            goto out_msg;
+        }
+        e = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+        if (IS_ERR(e)) {
+            hvfs_err(xnet, "This is a fatal error, we can not find the GDT DHE.\b");
+            err = PTR_ERR(e);
+            goto out_msg;
+        }
+        memset(hi, 0, sizeof(*hi));
+        hi->uuid = rhi->uuid;
+        hi->hash = hvfs_hash(hi->uuid, hmi.gdt_salt, 0, HASH_SEL_GDT);
+        hi->itbid = mds_get_itbid(e, hi->hash);
+
+        /* find the GDT service MDS */
+        p = ring_get_point(hi->itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
+        if (IS_ERR(p)) {
+            hvfs_err(xnet, "ring_get_point() failed w/ %ld\n",
+                     PTR_ERR(p));
+            err = -ECHP;
+            goto out_msg;
+        }
+        m->mdu.mode = 0040755;
+        m->mdu.nlink = 2;
+        m->mdu.flags = HVFS_MDU_IF_NORMAL | HVFS_MDU_IF_KV;
+        m->puuid = rhi->puuid;
+        m->salt = m->mdu.dev;
+        m->psalt = rhi->psalt;
+        
+        err = get_send_msg_create_gdt(p->site_id, hi, m);
+        if (err) {
+            hvfs_err(xnet, "create table GDT entry failed w/ %d\n",
+                     err);
+            goto out_msg;
+        }
+    }
+    
     xnet_set_auto_free(msg->pair);
 
 out_msg:
     xnet_free_msg(msg);
     return err;
 out:
+    xfree(hi);
+    return err;
+}
+
+int hvfs_find_table(char *name, u64 *uuid, u64 *salt)
+{
+    size_t dpayload;
+    struct xnet_msg *msg;
+    struct hvfs_index *hi;
+    struct hvfs_md_reply *hmr;
+    u64 dsite;
+    u32 vid;
+    int err = 0;
+
+    dpayload = sizeof(struct hvfs_index) + strlen(name);
+    hi = (struct hvfs_index *)xzalloc(dpayload);
+    if (!hi) {
+        hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
+        return -ENOMEM;
+    }
+    hi->hash = hvfs_hash(hmi.root_uuid, (u64)name, strlen(name),
+                         HASH_SEL_EH);
+    hi->puuid = hmi.root_uuid;
+    hi->psalt = hmi.root_salt;
+
+    /* calculate the itbid now */
+    err = SET_ITBID(hi);
+    if (err)
+        goto out_free;
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
+
+    hi->flag = INDEX_LOOKUP | INDEX_BY_NAME | INDEX_ITE_ACTIVE;
+    memcpy(hi->name, name, strlen(name));
+    hi->namelen = strlen(name);
+
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE |
+                     XNET_NEED_REPLY, hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_LOOKUP, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(struct xnet_msg_tx));
+#endif
+    xnet_msg_add_sdata(msg, hi, dpayload);
+
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out;
+    }
+
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out;
+    }
+    if (msg->pair->xm_datacheck)
+        hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
+    else {
+        hvfs_err(xnet, "Invalid LOOKUP reply from site %lx.\n",
+                 msg->pair->tx.ssite_id);
+        err = -EFAULT;
+        goto out;
+    }
+    /* now, checking the hmr err */
+    if (hmr->err) {
+        /* hoo, sth wrong on the MDS */
+        hvfs_err(xnet, "MDS Site %lx reply w/ %d\n", 
+                 msg->pair->tx.ssite_id, hmr->err);
+        xnet_set_auto_free(msg->pair);
+        err = hmr->err;
+        goto out;
+    } else if (hmr->len) {
+        struct hvfs_index *rhi;
+        struct gdt_md *gmd;
+        int no = 0;
+
+        hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+        rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+        }
+        *uuid = rhi->uuid;
+        gmd = hmr_extract(hmr, EXTRACT_MDU, &no);
+        if (!gmd) {
+            hvfs_err(xnet, "extract MDU failed, not found.\n");
+        }
+        *salt = gmd->mdu.dev;
+        dh_insert(rhi->uuid, hmi.root_uuid, *salt);
+        
+        if (hmr->flag & MD_REPLY_WITH_BFLIP) {
+            mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
+                                 MDS_BITMAP_SET);
+            hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
+                       rhi->puuid, rhi->itbid);
+        }
+    }
+    /* ok, we got the correct respond, dump it */
+    //hmr_print(hmr);
+    xnet_set_auto_free(msg->pair);
+out:
+    xnet_free_msg(msg);
+    return err;
+out_free:
     xfree(hi);
     return err;
 }
@@ -1147,11 +1325,14 @@ out_free:
  * Note that, the key must not be zero, otherwise it will trigger the MDS key
  * recomputing :(
  */
-int hvfs_put(char *table, u64 key, void *value, int column)
+int hvfs_put(char *table, u64 key, char *value, int column)
 {
     struct xnet_msg *msg;
     struct amc_index ai;
-    int err = 0;
+    struct dhe *e;
+    u64 dsite;
+    u32 vid;
+    int err = 0, recreate = 0;
 
     memset(&ai, 0, sizeof(ai));
     ai.flag = INDEX_PUT;
@@ -1160,17 +1341,171 @@ int hvfs_put(char *table, u64 key, void *value, int column)
 
     /* lookup the table name in the root directory to find the table
      * metadata */
+    err = hvfs_find_table(table, &ai.ptid, &ai.psalt);
+    if (err) {
+        hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n", err);
+        goto out;
+    }
 
     /* using the info of table to get the slice id */
+    e = mds_dh_search(&hmo.dh, ai.ptid);
+    if (IS_ERR(e)) {
+        hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
+        err = PTR_ERR(e);
+        goto out;
+    }
+    
+    ai.sid = mds_get_itbid(e, key);
 
     /* construct the ai structure and send to the table server */
+    dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_AMC2MDS_REQ, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &ai, sizeof(ai));
+    ai.dlen = strlen(value);
+    xnet_msg_add_sdata(msg, value, strlen(value));
+
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT && !recreate) {
+        /* the ITB is under splitting, we need retry */
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        recreate = 1;
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "CREATE failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out_msg;
+    }
+    xnet_set_auto_free(msg->pair);
+
+    mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
+                         *(u64 *)msg->pair->xm_data,
+                         MDS_BITMAP_SET);
+out_msg:
+    xnet_free_msg(msg);
+    return err;
+out:
     return err;
 }
 
-int hvfs_get(u64 table_id, u64 key, void *value, int column)
+int hvfs_get(char *table, u64 key, char **value, int column)
 {
+    struct xnet_msg *msg;
+    struct amc_index ai;
+    struct kv *kv;
+    struct dhe *e;
+    u64 dsite;
+    u32 vid;
     int err = 0;
 
+    memset(&ai, 0, sizeof(ai));
+    ai.flag = INDEX_GET;
+    ai.column = column;
+    ai.key = key;
+
+    /* lookup the table name in the root directory to find the table
+     * metadata */
+    err = hvfs_find_table(table, &ai.ptid, &ai.psalt);
+    if (err) {
+        hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n", err);
+        goto out;
+    }
+
+    /* using the info of table to get the slice id */
+    e = mds_dh_search(&hmo.dh, ai.ptid);
+    if (IS_ERR(e)) {
+        hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
+        err = PTR_ERR(e);
+        goto out;
+    }
+
+    ai.sid = mds_get_itbid(e, key);
+
+    /* construct the ai structure and send to the table server */
+    dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_AMC2MDS_REQ, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &ai, sizeof(ai));
+
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT) {
+        /* the ITB is under splitting, we need retry */
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "CREATE failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out_msg;
+    }
+    xnet_set_auto_free(msg->pair);
+
+    mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
+                         *(u64 *)msg->pair->xm_data,
+                         MDS_BITMAP_SET);
+    *value = xmalloc(msg->pair->tx.len - sizeof(u64));
+    if (!*value) {
+        hvfs_err(xnet, "xmalloc() value failed\n");
+        err = -ENOMEM;
+        goto out_msg;
+    }
+    kv = msg->pair->xm_data + sizeof(u64);
+    memcpy(*value, kv->value, kv->len);
+    
+out_msg:
+    xnet_free_msg(msg);
+    return err;
+out:
     return err;
 }

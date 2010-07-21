@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-07-20 14:28:13 macan>
+# Time-stamp: <2010-07-21 19:06:08 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -113,3 +113,4 @@ MDS_LIB = $(MDS)/libmds.a
 MDSL_LIB = $(MDSL)/libmdsl.a
 R2_LIB = $(R2)/libr2.a
 XNET_LIB = $(XNET)/libxnet.a
+API_LIB = $(API)/libapi.a

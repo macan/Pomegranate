@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-17 23:28:10 macan>
+ * Time-stamp: <2010-07-21 14:49:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,6 +52,7 @@ struct hvfs_index
 
 #define INDEX_CREATE_LARGE      0x00020000 /* create large file */
 #define INDEX_CREATE_SMALL      0x00040000 /* create small file */
+#define INDEX_CREATE_KV         0x00080000 /* create kv file */
 
 #define INDEX_MDU_UPDATE        0x00100000 /* setattr, TXC */
 #define INDEX_UNLINK            0x00200000 /* unlink, TXC */

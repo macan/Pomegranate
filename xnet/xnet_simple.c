@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-16 15:09:52 macan>
+ * Time-stamp: <2010-07-21 23:55:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2071,9 +2071,9 @@ int xnet_replace_ipaddr(u64 site_id, int argc, struct hvfs_addr_tx *hat)
             struct sockaddr_in *sin = (struct sockaddr_in *)
                 &(xa + i)->sa;
             
-            hvfs_err(xnet, "site %lx addr %s %d\n", site_id, 
-                     inet_ntoa(sin->sin_addr),
-                     ntohs(sin->sin_port));
+            hvfs_warning(xnet, "site %lx addr %s %d\n", site_id, 
+                         inet_ntoa(sin->sin_addr),
+                         ntohs(sin->sin_port));
         }
     }
 

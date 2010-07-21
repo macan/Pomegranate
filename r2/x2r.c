@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-19 15:22:14 macan>
+ * Time-stamp: <2010-07-21 19:33:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -108,6 +108,7 @@ int root_do_reg(struct xnet_msg *msg)
     struct root_tx *root_tx;
     void *addr_data = NULL, *ring_data = NULL, *ring_data2 = NULL;
     u32 gid;
+    u64 fsid;
     int addr_len, ring_len, ring_len2;
     int err = 0, saved_err = 0;
 
@@ -263,10 +264,17 @@ int root_do_reg(struct xnet_msg *msg)
     }
     
     /* pack the global site table */
-    addr = addr_mgr_lookup(&hro.addr, msg->tx.arg1);
+    fsid = msg->tx.arg1;
+relookup_addr:
+    addr = addr_mgr_lookup(&hro.addr, fsid);
     if (IS_ERR(addr)) {
         hvfs_err(root, "lookup addr for fsid %ld failed w/ %ld\n",
-                 msg->tx.arg1, PTR_ERR(addr));
+                 fsid, PTR_ERR(addr));
+        /* we just fallback to the address table of fsid 0 */
+        if (msg->tx.arg1) {
+            fsid = 0;
+            goto relookup_addr;
+        }
         err = PTR_ERR(addr);
         goto send_rpy;
     }

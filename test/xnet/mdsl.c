@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-22 09:25:51 macan>
+ * Time-stamp: <2010-07-21 22:53:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,6 +33,8 @@
 #define TYPE_CLIENT     1
 #define TYPE_MDSL       2
 #define TYPE_RING       3
+
+u64 fsid = 0;
 
 char *ipaddr[] = {
     "10.10.111.9",              /* mds */
@@ -362,7 +364,7 @@ void mdsl_cb_exit(void *arg)
 {
     int err = 0;
 
-    err = r2cli_do_unreg(hmo.xc->site_id, HVFS_RING(0), 0, 0);
+    err = r2cli_do_unreg(hmo.xc->site_id, HVFS_RING(0), fsid, 0);
     if (err) {
         hvfs_err(xnet, "unreg self %lx w/ r2 %x failed w/ %d\n",
                  hmo.xc->site_id, HVFS_RING(0), err);
@@ -407,6 +409,12 @@ int main(int argc, char *argv[])
         mode = atoi(value);
     } else 
         mode = 0;
+
+    value = getenv("fsid");
+    if (value) {
+        fsid = atoi(value);
+    } else
+        fsid = 0;
 
     st_init();
     mdsl_pre_init();
@@ -489,7 +497,7 @@ int main(int argc, char *argv[])
     } else {
         hmo.cb_exit = mdsl_cb_exit;
         /* use ring info to init the mdsl */
-        err = r2cli_do_reg(self, HVFS_RING(0), 0, 0);
+        err = r2cli_do_reg(self, HVFS_RING(0), fsid, 0);
         if (err) {
             hvfs_err(xnet, "reg self %x w/ r2 %x failed w/ %d\n",
                      self, HVFS_RING(0), err);

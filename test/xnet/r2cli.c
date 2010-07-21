@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-24 15:44:54 macan>
+ * Time-stamp: <2010-07-21 19:25:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -448,7 +448,7 @@ int main(int argc, char *argv[])
     char *value;
     int type = 0;
     int err = 0;
-    int self, sport, op;
+    int self, sport, op, fsid;
 
     hvfs_info(xnet, "R2 Unit Test Client running...\n");
     hvfs_info(xnet, "type 0/1/2/3 => MDS/CLIENT/MDSL/RING\n");
@@ -467,6 +467,13 @@ int main(int argc, char *argv[])
         op = atoi(value);
     } else {
         op = 0;
+    }
+
+    value = getenv("fsid");
+    if (value) {
+        fsid = atoi(value);
+    } else {
+        fsid = 0;
     }
 
     if (argc < 2) {
@@ -512,7 +519,7 @@ int main(int argc, char *argv[])
 
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
     /* do sent here */
-    err = r2cli_do_reg(self, HVFS_RING(0), 0, 0);
+    err = r2cli_do_reg(self, HVFS_RING(0), fsid, 0);
     if (err) {
         hvfs_err(xnet, "reg self %x w/ r2 %x failed w/ %d\n",
                  self, HVFS_RING(0), err);
@@ -521,7 +528,7 @@ int main(int argc, char *argv[])
 
     switch (op) {
     case 0:
-        err = r2cli_do_hb(self, HVFS_RING(0), 0, 0);
+        err = r2cli_do_hb(self, HVFS_RING(0), fsid, 0);
         if (err) {
             hvfs_err(xnet, "hb %x w/ r2 %x failed w/ %d\n",
                      self, HVFS_RING(0), err);
@@ -529,7 +536,7 @@ int main(int argc, char *argv[])
         }
         break;
     case 1:
-        err = r2cli_do_mkfs(self, HVFS_RING(0), 0, 0);
+        err = r2cli_do_mkfs(self, HVFS_RING(0), fsid, 0);
         if (err) {
             hvfs_err(xnet, "mkfs self %x w/ r2 %x failed w/ %d\n",
                      self, HVFS_RING(0), err);
@@ -538,7 +545,7 @@ int main(int argc, char *argv[])
     default:;
     }
 
-    err = r2cli_do_unreg(self, HVFS_RING(0), 0, 0);
+    err = r2cli_do_unreg(self, HVFS_RING(0), fsid, 0);
     if (err) {
         hvfs_err(xnet, "unreg self %x w/ r2 %x failed w/ %d\n",
                  self, HVFS_RING(0), err);

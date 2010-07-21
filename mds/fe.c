@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-20 23:18:11 macan>
+ * Time-stamp: <2010-07-21 22:43:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -360,6 +360,9 @@ int mds_fe_dispatch(struct xnet_msg *msg)
         return mds_root_dispatch(msg);
     } else if (HVFS_IS_AMC(msg->tx.ssite_id)) {
         if (unlikely(msg->tx.cmd == HVFS_CLT2MDS_CREATE ||
+                     msg->tx.cmd == HVFS_CLT2MDS_LOOKUP ||
+                     msg->tx.cmd == HVFS_CLT2MDS_LD ||
+                     msg->tx.cmd == HVFS_CLT2MDS_LB_PROXY ||
                      msg->tx.cmd == HVFS_CLT2MDS_UNLINK)) {
             hvfs_info(mds, "Request %lx from %lx proxy to client "
                       "processing.\n", msg->tx.cmd, msg->tx.ssite_id);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-18 15:57:26 macan>
+ * Time-stamp: <2010-07-21 23:46:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -80,8 +80,7 @@ int xtable_put(struct amc_index *ai, struct iovec **iov, int *nr)
     hi = xzalloc(sizeof(struct hvfs_index));
     if (!hi) {
         hvfs_err(mds, "xzalloc() hvfs_index failed.\n");
-        err = -ENOMEM;
-        goto out;
+        return -ENOMEM;
     }
 
     memset(&hmr, 0, sizeof(hmr));
@@ -111,19 +110,29 @@ int xtable_put(struct amc_index *ai, struct iovec **iov, int *nr)
     }
     
     /* Note that, in a real kv store, we do NOT need to return the value on
-     * put operation. */
+     * put operation, instead, we return the real itbid. */
     *nr = 1;
     *iov = xzalloc(sizeof(struct iovec));
     if (!*iov) {
         hvfs_err(mds, "xzalloc iovec failed\n");
-        xfree(hmr.data);
         err = -ENOMEM;
         goto out;
     }
-    (*iov)->iov_base = hmr.data;
-    (*iov)->iov_len = hmr.len;
+    (*iov)->iov_base = xmalloc(sizeof(u64));
+    if (!(*iov)->iov_base) {
+        hvfs_err(mds, "xzalloc itbid failed\n");
+        err = -ENOMEM;
+        xfree(*iov);
+        *iov = NULL;
+        goto out;
+    }
+    (*iov)->iov_len = sizeof(u64);
+    *(u64 *)(*iov)->iov_base = hi->itbid;
     
-out:    
+out:
+    xfree(hmr.data);
+    xfree(hi);
+    
     return err;
 }
 
@@ -165,18 +174,30 @@ int xtable_get(struct amc_index *ai, struct iovec **iov, int *nr)
         goto out;
     }
 
-    *nr = 1;
-    *iov = xzalloc(sizeof(struct iovec));
+    *nr = 2;
+    *iov = xzalloc(sizeof(struct iovec) * 2);
     if (!*iov) {
         hvfs_err(mds, "xzalloc iovec failed\n");
         xfree(hmr.data);
         err = -ENOMEM;
         goto out;
     }
-    (*iov)->iov_base = hmr.data;
-    (*iov)->iov_len = hmr.len;
+    (*iov)->iov_base = xmalloc(sizeof(u64));
+    if (!(*iov)->iov_base) {
+        hvfs_err(mds, "xzalloc itbid failed\n");
+        err = -ENOMEM;
+        xfree(*iov);
+        *iov = NULL;
+        goto out;
+    }
+    (*iov)->iov_len = sizeof(u64);
+    *(u64 *)(*iov)->iov_base = hi->itbid;
+
+    (*iov + 1)->iov_base = hmr.data;
+    (*iov + 1)->iov_len = hmr.len;
 
 out:
+    xfree(hi);
     return err;
 }
 

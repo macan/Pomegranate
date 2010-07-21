@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-18 15:51:57 macan>
+ * Time-stamp: <2010-07-21 19:41:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,5 +50,17 @@ struct amc_index
     void *data;                 /* pointer to data payload */
     u64 dlen;                   /* intransfer length of payload */
 };
+
+/* APIs */
+int __core_main(int argc, char *argv[]);
+void __core_exit(void);
+
+int hvfs_lookup_root(void);
+int hvfs_create_root(void);
+int hvfs_create_table(char *name);
+int hvfs_find_table(char *name, u64 *uuid, u64 *salt);
+int hvfs_drop_table(char *name);
+int hvfs_put(char *table, u64 key, char *value, int column);
+int hvfs_get(char *table, u64 key, char **value, int column);
 
 #endif

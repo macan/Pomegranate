@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-15 12:47:53 macan>
+ * Time-stamp: <2010-07-21 23:55:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -539,7 +539,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
             xlock_unlock(&e->lock);
         }
     } else {
-        hvfs_err(mds, "Remote bitmap load uuid %ld offset %ld from %lx\n",
+        hvfs_warning(mds, "Remote bitmap load uuid %lx offset %ld from %lx\n",
                  e->uuid, offset, p->site_id);
         /* prepare the msg */
         xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
@@ -612,7 +612,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
             for (i = 0; i < 100; i++) {
                 sprintf(line + i, "%x", bitmap->array[i]);
             }
-            hvfs_err(mds, "bitmap %s\n", line);
+            hvfs_warning(mds, "bitmap %s\n", line);
             xnet_clear_auto_free(msg->pair);
         }
         xlock_unlock(&e->lock);

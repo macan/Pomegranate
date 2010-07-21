@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-19 11:02:26 macan>
+ * Time-stamp: <2010-07-21 14:54:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -727,6 +727,11 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.flags |= HVFS_MDU_IF_SMALL;
         else if (e->flag & ITE_FLAG_LARGE)
             e->s.mdu.flags |= HVFS_MDU_IF_LARGE;
+
+        /* for kv table */
+        if (unlikely(hi->flag & INDEX_CREATE_KV)) {
+            e->s.mdu.dev = lib_random(0xfffffff);
+        }
 
         /* we should not change this region, otherwise the name is changing
          * :(  The caller now must set the puuid and psalt themself. */

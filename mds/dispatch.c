@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-18 15:47:13 macan>
+ * Time-stamp: <2010-07-21 22:28:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -172,7 +172,7 @@ int mds_amc_dispatch(struct xnet_msg *msg)
     case HVFS_AMC2MDS_EXT:
         break;
     default:
-        hvfs_err(mds, "Invalid amc2MDS command: 0x%lx\n", msg->tx.cmd);
+        hvfs_err(mds, "Invalid AMC2MDS command: 0x%lx\n", msg->tx.cmd);
     }
 
     return 0;
