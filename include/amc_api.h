@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-21 19:41:00 macan>
+ * Time-stamp: <2010-07-22 20:49:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -62,5 +62,7 @@ int hvfs_find_table(char *name, u64 *uuid, u64 *salt);
 int hvfs_drop_table(char *name);
 int hvfs_put(char *table, u64 key, char *value, int column);
 int hvfs_get(char *table, u64 key, char **value, int column);
+int hvfs_del(char *table, u64 key, int column);
+int hvfs_update(char *table, u64 key, char *value, int column);
 
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-21 23:46:12 macan>
+ * Time-stamp: <2010-07-22 22:52:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -234,11 +234,28 @@ int xtable_del(struct amc_index *ai, struct iovec **iov, int *nr)
         goto out;
     }
 
-    *nr = 0;
-    *iov = NULL;
-    xfree(hmr.data);
+    *nr = 1;
+    *iov = xzalloc(sizeof(struct iovec));
+    if (!*iov) {
+        hvfs_err(mds, "xzalloc iovec failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    (*iov)->iov_base = xmalloc(sizeof(u64));
+    if (!(*iov)->iov_base) {
+        hvfs_err(mds, "xzalloc itbid failed\n");
+        err = -ENOMEM;
+        xfree(*iov);
+        *iov = NULL;
+        goto out;
+    }
+    (*iov)->iov_len = sizeof(u64);
+    *(u64 *)(*iov)->iov_base = hi->itbid;
 
 out:
+    xfree(hmr.data);
+    xfree(hi);
+
     return err;
 }
 
@@ -258,7 +275,7 @@ int xtable_update(struct amc_index *ai, struct iovec **iov, int *nr)
 
     memset(&hmr, 0, sizeof(hmr));
 
-    hi->flag = INDEX_UPDATE | INDEX_KV;
+    hi->flag = INDEX_MDU_UPDATE | INDEX_KV;
     hi->namelen = ai->dlen;
     hi->hash = ai->key;
     hi->itbid = ai->sid;
@@ -276,11 +293,28 @@ int xtable_update(struct amc_index *ai, struct iovec **iov, int *nr)
         goto out;
     }
 
-    *nr = 0;
-    *iov = NULL;
-    xfree(hmr.data);
-    
+    *nr = 1;
+    *iov = xzalloc(sizeof(struct iovec));
+    if (!*iov) {
+        hvfs_err(mds, "xzalloc iovec failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    (*iov)->iov_base = xmalloc(sizeof(u64));
+    if (!(*iov)->iov_base) {
+        hvfs_err(mds, "xzalloc itbid failed\n");
+        err = -ENOMEM;
+        xfree(*iov);
+        *iov = NULL;
+        goto out;
+    }
+    (*iov)->iov_len = sizeof(u64);
+    *(u64 *)(*iov)->iov_base = hi->itbid;
+
 out:
+    xfree(hmr.data);
+    xfree(hi);
+
     return err;
 }
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-21 23:00:00 macan>
+ * Time-stamp: <2010-07-22 20:49:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -73,6 +73,17 @@ int main(int argc, char *argv[])
         err = hvfs_put("table_a", 0x0001, "hello, world!", 0);
         if (err) {
             hvfs_err(xnet, "hvfs_put() failed w/ %d\n", err);
+            goto clean;
+        }
+        err = hvfs_get("table_a", 0x0001, &line, 0);
+        if (err) {
+            hvfs_err(xnet, "hvfs_get() failed w/ %d\n", err);
+            goto clean;
+        }
+        hvfs_info(xnet, "get value '%s'\n", line);
+        err = hvfs_update("table_a", 0x0001, "hoo...", 0);
+        if (err) {
+            hvfs_err(xnet, "hvfs_update() failed w/ %d\n", err);
             goto clean;
         }
         err = hvfs_get("table_a", 0x0001, &line, 0);

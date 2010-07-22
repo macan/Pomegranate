@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-21 14:54:01 macan>
+ * Time-stamp: <2010-07-22 22:59:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -801,7 +801,12 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
  */
 void ite_update(struct hvfs_index *hi, struct ite *e)
 {
-    if (hi->flag & INDEX_MDU_UPDATE) {
+    if (hi->flag & INDEX_KV) {
+        e->v.len = hi->namelen;
+        e->v.flags = HVFS_KV_NORMAL;
+        e->v.key = hi->hash;
+        memcpy(&e->v.value, hi->data, e->v.len);
+    } else if (hi->flag & INDEX_MDU_UPDATE) {
         /* hi->data is mdu_update */
         struct mdu_update *mu = (struct mdu_update *)hi->data;
         int coffset = 0;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-21 23:58:41 macan>
+ * Time-stamp: <2010-07-22 23:09:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -252,7 +252,7 @@ int dh_insert(u64 uuid, u64 puuid, u64 ssalt)
 
     e = mds_dh_insert(&hmo.dh, &hi);
     if (IS_ERR(e)) {
-        hvfs_warning(xnet, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
+        hvfs_debug(xnet, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
         goto out;
     }
     hvfs_debug(xnet, "Insert dir:%lx in DH w/  %p\n", uuid, e);
@@ -490,7 +490,7 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
         /* parse hxi */
         err = bparse_hxi(data, &hxi);
         if (err < 0) {
-            hvfs_err(root, "bparse_hxi failed w/ %d\n", err);
+            hvfs_err(xnet, "bparse_hxi failed w/ %d\n", err);
             goto out;
         }
         memcpy(&hmi, hxi, sizeof(hmi));
@@ -498,34 +498,34 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
         /* parse ring */
         err = bparse_ring(data, &ct);
         if (err < 0) {
-            hvfs_err(root, "bparse_ring failed w/ %d\n", err);
+            hvfs_err(xnet, "bparse_ring failed w/ %d\n", err);
             goto out;
         }
         hmo.chring[CH_RING_MDS] = chring_tx_to_chring(ct);
         if (!hmo.chring[CH_RING_MDS]) {
-            hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
+            hvfs_err(xnet, "chring_tx 2 chring failed w/ %d\n", err);
             goto out;
         }
         data += err;
         err = bparse_ring(data, &ct);
         if (err < 0) {
-            hvfs_err(root, "bparse_ring failed w/ %d\n", err);
+            hvfs_err(xnet, "bparse_ring failed w/ %d\n", err);
             goto out;
         }
         hmo.chring[CH_RING_MDSL] = chring_tx_to_chring(ct);
         if (!hmo.chring[CH_RING_MDS]) {
-            hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
+            hvfs_err(xnet, "chring_tx 2 chring failed w/ %d\n", err);
             goto out;
         }
         data += err;
         /* parse root_tx */
         err = bparse_root(data, &rt);
         if (err < 0) {
-            hvfs_err(root, "bparse root failed w/ %d\n", err);
+            hvfs_err(xnet, "bparse root failed w/ %d\n", err);
             goto out;
         }
         data += err;
-        hvfs_info(root, "fsid %ld gdt_uuid %ld gdt_salt %lx "
+        hvfs_info(xnet, "fsid %ld gdt_uuid %ld gdt_salt %lx "
                   "root_uuid %ld root_salt %lx\n",
                   rt->fsid, rt->gdt_uuid, rt->gdt_salt, 
                   rt->root_uuid, rt->root_salt);
@@ -534,7 +534,7 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
         /* parse bitmap */
         err = bparse_bitmap(data, &bitmap);
         if (err < 0) {
-            hvfs_err(root, "bparse bitmap failed w/ %d\n", err);
+            hvfs_err(xnet, "bparse bitmap failed w/ %d\n", err);
             goto out;
         }
         data += err;
@@ -543,13 +543,13 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
         /* parse addr */
         err = bparse_addr(data, &hst);
         if (err < 0) {
-            hvfs_err(root, "bparse addr failed w/ %d\n", err);
+            hvfs_err(xnet, "bparse addr failed w/ %d\n", err);
             goto out;
         }
         /* add the site table to the xnet */
         err = hst_to_xsst(hst, err - sizeof(u32));
         if (err) {
-            hvfs_err(root, "hst to xsst failed w/ %d\n", err);
+            hvfs_err(xnet, "hst to xsst failed w/ %d\n", err);
         }
     }
     
@@ -1509,3 +1509,178 @@ out_msg:
 out:
     return err;
 }
+
+int hvfs_del(char *table, u64 key, int column)
+{
+    struct xnet_msg *msg;
+    struct amc_index ai;
+    struct dhe *e;
+    u64 dsite;
+    u32 vid;
+    int err = 0;
+
+    memset(&ai, 0, sizeof(ai));
+    ai.flag = INDEX_UNLINK;
+    ai.column = column;
+    ai.key = key;
+
+    /* lookup the table name in the root directory to find the table
+     * metadata */
+    err = hvfs_find_table(table, &ai.ptid, &ai.psalt);
+    if (err) {
+        hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n", err);
+        goto out;
+    }
+
+    /* using the info of table to get the slice id */
+    e = mds_dh_search(&hmo.dh, ai.ptid);
+    if (IS_ERR(e)) {
+        hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
+        err = PTR_ERR(e);
+        goto out;
+    }
+
+    ai.sid = mds_get_itbid(e, key);
+
+    /* construct the ai structure and send to the table server */
+    dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_AMC2MDS_REQ, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &ai, sizeof(ai));
+
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT) {
+        /* the ITB is under splitting, we need retry */
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "UNLINK failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out_msg;
+    }
+    xnet_set_auto_free(msg->pair);
+
+    mds_dh_bitmap_update(&hmo.dh, ai.ptid,
+                         *(u64 *)msg->pair->xm_data,
+                         MDS_BITMAP_SET);
+out_msg:
+    xnet_free_msg(msg);
+    return err;
+out:
+    return err;
+}
+
+int hvfs_update(char *table, u64 key, char *value, int column)
+{
+    struct xnet_msg *msg;
+    struct amc_index ai;
+    struct dhe *e;
+    u64 dsite;
+    u32 vid;
+    int err = 0;
+
+    memset(&ai, 0, sizeof(ai));
+    ai.flag = INDEX_UPDATE;
+    ai.column = column;
+    ai.key = key;
+
+    /* lookup the table name in the root directory to find the table
+     * metadata */
+    err = hvfs_find_table(table, &ai.ptid, &ai.psalt);
+    if (err) {
+        hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n", err);
+        goto out;
+    }
+
+    /* using the info of table to get the slice id */
+    e = mds_dh_search(&hmo.dh, ai.ptid);
+    if (IS_ERR(e)) {
+        hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
+        err = PTR_ERR(e);
+        goto out;
+    }
+
+    ai.sid = mds_get_itbid(e, key);
+
+    /* construct the ai structure and send to the table server */
+    dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_AMC2MDS_REQ, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &ai, sizeof(ai));
+    ai.dlen = strlen(value);
+    xnet_msg_add_sdata(msg, value, strlen(value));
+
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT) {
+        /* the ITB is under splitting, we need retry */
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "UPDATE failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out_msg;
+    }
+    xnet_set_auto_free(msg->pair);
+
+    mds_dh_bitmap_update(&hmo.dh, ai.ptid,
+                         *(u64 *)msg->pair->xm_data,
+                         MDS_BITMAP_SET);
+out_msg:
+    xnet_free_msg(msg);
+    return err;
+out:
+    return err;
+}
+

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-17 16:02:49 macan>
+ * Time-stamp: <2010-07-22 23:58:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -83,6 +83,8 @@ int gossip_init(void)
 
 void gossip_destroy(void)
 {
+    if (hmo.gossip_thread_stop)
+        return;
     hmo.gossip_thread_stop = 1;
     pthread_kill(hmo.gossip_thread, SIGINT);
     pthread_join(hmo.gossip_thread, NULL);
