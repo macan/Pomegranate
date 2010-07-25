@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-21 22:51:11 macan>
+ * Time-stamp: <2010-07-25 21:14:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1107,7 +1107,7 @@ int main(int argc, char *argv[])
     }
 
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
-//    SET_TRACING_FLAG(mds, HVFS_DEBUG);
+//    SET_TRACING_FLAG(mds, HVFS_DEBUG | HVFS_VERBOSE);
 
     hvfs_info(xnet, "MDS is UP for serving requests now.\n");
 

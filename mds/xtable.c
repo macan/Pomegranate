@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-21 23:55:10 macan>
+ * Time-stamp: <2010-07-24 23:34:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -295,8 +295,8 @@ void mds_bitmap_refresh(struct hvfs_index *hi)
         err = PTR_ERR(e);
         goto out;
     }
-    hvfs_err(mds, "refresh uuid %ld bitmap slice offset %ld.\n",
-             hi->puuid, hi->itbid);
+    hvfs_info(mds, "refresh uuid %ld bitmap slice offset %ld.\n",
+              hi->puuid, hi->itbid);
     /* try to load the bitmap slice @ hi->itbid */
     offset = BITMAP_ROUNDDOWN(hi->itbid);
     err = mds_bitmap_load(e, offset);
@@ -310,6 +310,49 @@ void mds_bitmap_refresh(struct hvfs_index *hi)
     
 out:
     return;
+}
+
+/* mds_bitmap_refresh_all()
+ *
+ * refresh all the bitmap entries
+ */
+void mds_bitmap_refresh_all(u64 duuid)
+{
+    struct dhe *e;
+    u64 offset = 0;
+    int err = 0;
+
+    e = mds_dh_search(&hmo.dh, duuid);
+    if (IS_ERR(e)) {
+        err = PTR_ERR(e);
+        return;
+    }
+    hvfs_info(mds, "refresh uuid %ld bitmaps\n", duuid);
+
+    do {
+        offset = BITMAP_ROUNDDOWN(offset);
+        err = mds_bitmap_load(e, offset);
+        if (err == -ENOTEXIST) {
+            break;
+        } else if (err) {
+            hvfs_err(mds, "uuid %ld bitmap slice %ld load err w/ %d\n",
+                     duuid, offset, err);
+            break;
+        }
+        xlock_lock(&e->lock);
+        if (!list_empty(&e->bitmap)) {
+            struct itbitmap *b;
+
+            b = list_entry(e->bitmap.prev, struct itbitmap, 
+                           list);
+            if (b->offset >= offset && b->flag & BITMAP_END) {
+                xlock_unlock(&e->lock);
+                break;
+            }
+        }
+        xlock_unlock(&e->lock);
+        offset += XTABLE_BITMAP_SIZE;
+    } while (1);
 }
 
 /* mds_bitmap_load()
@@ -683,4 +726,62 @@ int mds_bitmap_create(struct dhe *e, u64 itbid)
     b->ts = 0;                  /* FIXME: set the ts here! */
 
     return __mds_bitmap_insert(e, b);
+}
+
+/* mds_bitmap_find_next()
+ *
+ * find the next valid itbid in the bitmap slices
+ *
+ * Return Value: 0: ok; >0: stop; <0: error
+ */
+int mds_bitmap_find_next(u64 duuid, u64 *itbid)
+{
+    struct dhe *e;
+    struct itbitmap *b;
+    int err = 0;
+
+    e = mds_dh_search(&hmo.dh, duuid);
+    if (IS_ERR(e)) {
+        err = PTR_ERR(e);
+        goto out;
+    }
+
+retry:
+    xlock_lock(&e->lock);
+    list_for_each_entry(b, &e->bitmap, list) {
+        if (b->offset <= *itbid && *itbid < b->offset +
+            XTABLE_BITMAP_SIZE) {
+            /* ok, we get the bitmap slice, let us find the next bit */
+            *itbid = find_next_bit((unsigned long *)b->array, 
+                                   XTABLE_BITMAP_SIZE,
+                                   *itbid - b->offset);
+            if (*itbid == XTABLE_BITMAP_SIZE) {
+                /* no bits set */
+                xlock_unlock(&e->lock);
+                return 1;
+            }
+            *itbid += b->offset;
+            break;
+        } else if (b->offset > *itbid) {
+            xlock_unlock(&e->lock);
+            err = mds_bitmap_load(e, *itbid);
+            if (err == -ENOTEXIST) {
+                return 1;
+            } else if (err) {
+                hvfs_err(mds, "Loading DHE %ld bitmap %ld failed w/ %d\n",
+                         duuid, *itbid, err);
+                goto out;
+            }
+            goto retry;
+        } else if (*itbid >= b->offset + XTABLE_BITMAP_SIZE) {
+            if (b->flag & BITMAP_END) {
+                xlock_unlock(&e->lock);
+                return 1;
+            }
+        }
+    }
+    xlock_unlock(&e->lock);
+    
+out:
+    return err;
 }

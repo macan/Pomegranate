@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-22 23:09:29 macan>
+ * Time-stamp: <2010-07-25 23:34:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1312,6 +1312,7 @@ resend:
                        rhi->puuid, rhi->itbid);
         }
     }
+    /* Then, we should release the gdt entry now */
     xnet_set_auto_free(msg->pair);
 out:
     xnet_free_msg(msg);
@@ -1520,7 +1521,7 @@ int hvfs_del(char *table, u64 key, int column)
     int err = 0;
 
     memset(&ai, 0, sizeof(ai));
-    ai.flag = INDEX_UNLINK;
+    ai.flag = INDEX_DEL;
     ai.column = column;
     ai.key = key;
 
@@ -1684,3 +1685,106 @@ out:
     return err;
 }
 
+/* hvfs_list() is used to list the tables in the root directory
+ */
+int hvfs_list(void)
+{
+    struct xnet_msg *msg;
+    struct hvfs_index hi;
+    u64 dsite, itbid = 0;
+    u32 vid;
+    int err = 0;
+
+    /* Step 1: we should refresh the bitmap of root directory */
+    mds_bitmap_refresh_all(hmi.root_uuid);
+
+    /* Step 2: we send the INDEX_BY_ITB requests to each MDS in serial or
+     * parallel mode */
+    do {
+        err = mds_bitmap_find_next(hmi.root_uuid, &itbid);
+        if (err < 0) {
+            hvfs_err(xnet, "mds_bitmap_find_next() failed @ %ld w/ %d\n ",
+                     itbid, err);
+            break;
+        } else if (err > 0) {
+            /* this means we can safely stop now */
+            break;
+        } else {
+            /* ok, we can issure the request to the dest site now */
+            hvfs_debug(xnet, "Issue request %ld to site ...\n",
+                       itbid);
+            /* Step 3: we print the results to the console */
+            memset(&hi, 0, sizeof(hi));
+            hi.puuid = hmi.root_uuid;
+            hi.psalt = hmi.root_salt;
+            hi.hash = -1UL;
+            hi.itbid = itbid;
+            hi.flag = INDEX_BY_ITB | INDEX_KV;
+
+            dsite = SELECT_SITE(itbid, hi.psalt, CH_RING_MDS, &vid);
+            msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+            if (!msg) {
+                hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+                err = -ENOMEM;
+                goto out;
+            }
+            xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                             hmo.xc->site_id, dsite);
+            xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_LIST, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+            xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+            xnet_msg_add_sdata(msg, &hi, sizeof(hi));
+
+            err = xnet_send(hmo.xc, msg);
+            if (err) {
+                hvfs_err(xnet, "xnet_send() failed\n");
+                xnet_free_msg(msg);
+                goto out;
+            }
+
+            ASSERT(msg->pair, xnet);
+            if (msg->pair->tx.err) {
+                /* Note that, if the itbid is less than 8, then we ignore the
+                 * ENOENT error */
+                if (itbid < 8 && msg->pair->tx.err == -ENOENT) {
+                    xnet_free_msg(msg);
+                    itbid++;
+                    continue;
+                }
+                hvfs_err(mds, "list root failed w/ %d\n",
+                         msg->pair->tx.err);
+                err = msg->pair->tx.err;
+                xnet_free_msg(msg);
+                goto out;
+            }
+            if (msg->pair->xm_datacheck) {
+                /* ok, dump the entries */
+                char *p = (char *)(msg->pair->xm_data +
+                                   sizeof(struct hvfs_md_reply));
+                int idx = 0, namelen;
+
+                while (idx < msg->pair->tx.len - 
+                       sizeof(struct hvfs_md_reply)) {
+                    namelen = *(u32 *)p;
+                    p += sizeof(u32);
+                    hvfs_info(xnet, "%*s\n", namelen, p);
+                    idx += namelen + sizeof(u32);
+                    p += namelen;
+                }
+            } else {
+                hvfs_err(xnet, "Invalid LIST reply from site %lx.\n",
+                         msg->pair->tx.ssite_id);
+                err = -EFAULT;
+                xnet_free_msg(msg);
+                goto out;
+            }
+            xnet_free_msg(msg);
+        }
+        itbid += 1;
+    } while (1);
+
+    err = 0;
+out:    
+    return err;
+}

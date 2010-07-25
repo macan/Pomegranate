@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-12 11:48:37 macan>
+ * Time-stamp: <2010-07-25 23:24:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -715,4 +715,57 @@ void mds_c2m_ldh(struct hvfs_tx *tx)
     mds_ldh(msg);
 
     mds_tx_done(tx);
+}
+
+/* LIST/Readdir */
+void mds_list(struct hvfs_tx *tx)
+{
+    struct hvfs_index *hi = NULL;
+    struct hvfs_md_reply *hmr;
+    int err;
+
+    /* sanity checking */
+    if (tx->req->tx.len < sizeof(*hi)) {
+        hvfs_err(mds, "Invalid LIST request %d received len %d\n", 
+                 tx->req->tx.reqno, tx->req->tx.len);
+        err = -EINVAL;
+        goto send_rpy;
+    }
+
+    if (tx->req->xm_datacheck)
+        hi = tx->req->xm_data;
+    else {
+        hvfs_err(mds, "Internal error, data lossing ...\n");
+        err = -EFAULT;
+        goto send_rpy;
+    }
+
+    hvfs_debug(mds, "LIST %ld %ld %lx %s %d uuid %ld flag %x\n",
+               hi->puuid, hi->itbid, hi->hash, hi->name, hi->namelen,
+               hi->uuid, hi->flag);
+
+    /* alloc hmr */
+    hmr = get_hmr();
+    if (!hmr) {
+        hvfs_err(mds, "get_hmr() failed\n");
+        /* do not retry myself */
+        mds_free_tx(tx);
+        return;
+    }
+
+    /* search in the CBHT */
+    hi->flag |= INDEX_BY_ITB;
+    err = mds_cbht_search(hi, hmr, tx->txg, &tx->txg);
+
+actually_send:
+    return mds_send_reply(tx, hmr, err);
+send_rpy:
+    hmr = get_hmr();
+    if (!hmr) {
+        hvfs_err(mds, "get_hmr() failed\n");
+        /* do not retry myself */
+        mds_free_tx(tx);
+        return;
+    }
+    goto actually_send;
 }

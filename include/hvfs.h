@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-17 10:28:23 macan>
+ * Time-stamp: <2010-07-24 23:46:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,12 +58,14 @@
                                                     * client, you should not
                                                     * rely on this
                                                     * interface */
+#define HVFS_CLT2MDS_LIST       0x8400000000000000 /* for readdir use */
 
 #define HVFS_CLT2MDS_DITB       0x8000000100000000 /* dump itb */
 #define HVFS_CLT2MDS_DEBUG      (HVFS_CLT2MDS_DITB)
 /* NOTE: there is no *_LD in client, because we can use lookup instead */
 #define HVFS_CLT2MDS_NODHLOOKUP (                                       \
-        (HVFS_CLT2MDS_STATFS | HVFS_CLT2MDS_RELEASE) &                  \
+        (HVFS_CLT2MDS_STATFS | HVFS_CLT2MDS_RELEASE |                   \
+         HVFS_CLT2MDS_LIST) &                                           \
         ~HVFS_CLT2MDS_BASE)
 #define HVFS_CLT2MDS_NOCACHE (                              \
         (HVFS_CLT2MDS_LOOKUP | HVFS_CLT2MDS_NODHLOOKUP |    \

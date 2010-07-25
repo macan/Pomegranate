@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-22 20:49:34 macan>
+ * Time-stamp: <2010-07-24 23:05:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -92,9 +92,18 @@ int main(int argc, char *argv[])
             goto clean;
         }
         hvfs_info(xnet, "get value '%s'\n", line);
+        err = hvfs_del("table_a", 0x0001, 0);
+        if (err) {
+            hvfs_err(xnet, "hvfs_del() failed w/ %d\n", err);
+            goto clean;
+        }
     }
     
 clean:
+    err = hvfs_list();
+    if (err) {
+        hvfs_err(xnet, "hvfs_list() faled w/ %d\n", err);
+    }
     err = hvfs_drop_table("table_a");
     if (err) {
         hvfs_err(xnet, "hvfs_drop_table() failed w/ %d\n", err);

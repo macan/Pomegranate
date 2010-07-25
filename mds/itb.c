@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-22 22:59:13 macan>
+ * Time-stamp: <2010-07-25 23:24:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -89,8 +89,10 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
     /* ok, we get the reply: ITB.len is the length */
     ASSERT(msg->pair, mds);
     if (msg->pair->tx.err) {
-        hvfs_err(mds, "MDSL %lx respond %d w/ ITB %ld read request.\n",
-                 msg->pair->tx.ssite_id, msg->pair->tx.err, itbid);
+        hvfs_err(mds, "MDSL %lx respond %d w/ uuid %ld ITB %ld "
+                 "read request.\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err, 
+                 puuid, itbid);
         i = ERR_PTR(msg->pair->tx.err);
     } else {
         struct hvfs_txg *t;
@@ -1640,7 +1642,49 @@ refresh:
 int itb_readdir(struct hvfs_index *hi, struct itb *i, 
                 struct hvfs_md_reply *hmr)
 {
-    return 0;
+    int err = 0;
+    
+    /* Note that, if we are in the KV store mode, we just return the names in
+     * this itb. If we are in the FS mode, we should return the dentries to
+     * the server. */
+    if (hi->flag & INDEX_KV) {
+        void *p;
+        int idx;
+        
+        /* Step 1: we calculate the buffer length */
+        hmr->len = atomic_read(&i->h.entries) * sizeof(u32);
+        if (!hmr->len) {
+            /* no active entries in this ITB */
+            goto out;
+        }
+        for (idx = 0; idx < (1 << i->h.adepth); idx++) {
+            if (test_bit(idx, (void *)i->bitmap)) {
+                hmr->len += i->ite[idx].namelen;
+            }
+        }
+        /* Step 2: alloc the space now */
+        hmr->data = xzalloc(hmr->len);
+        if (!hmr->data) {
+            hvfs_err(mds, "xzalloc hmr->data len %d failed.\n",
+                     hmr->len);
+            hmr->len = 0;
+            err = -ENOMEM;
+            goto out;
+        }
+        /* Step 3: copy the names */
+        p = hmr->data;
+        for (idx = 0; idx < (1 << i->h.adepth); idx++) {
+            if (test_bit(idx, (void *)i->bitmap)) {
+                *(u32 *)p = i->ite[idx].namelen;
+                p += sizeof(u32);
+                memcpy(p, i->ite[idx].s.name, i->ite[idx].namelen);
+                p += i->ite[idx].namelen;
+            }
+        }
+    }
+
+out:
+    return err;
 }
 
 /* itb_dump()

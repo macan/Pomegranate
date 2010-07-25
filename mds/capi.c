@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-22 22:52:46 macan>
+ * Time-stamp: <2010-07-24 18:07:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -363,6 +363,8 @@ void xtable_handle_req(struct xnet_msg *msg)
         err = xtable_update(ai, &iov, &nr);
     } else if (ai->flag & INDEX_CUPDATE) {
         err = xtable_cupdate(ai, &iov, &nr);
+    } else {
+        err = -EINVAL;
     }
 
 send_rpy:
