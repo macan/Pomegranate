@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-25 23:34:21 macan>
+ * Time-stamp: <2010-07-26 23:40:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -211,11 +211,11 @@ resend:
         hvfs_err(xnet, "Invalid reply w/o MDU as expacted.\n");
         goto skip;
     }
-    hvfs_err(xnet, "Got suuid 0x%lx ssalt %lx puuid %lx psalt %lx.\n", 
+    hvfs_info(xnet, "Got suuid 0x%lx ssalt %lx puuid %lx psalt %lx.\n", 
                hi->uuid, mdu->salt, mdu->puuid, mdu->psalt);
     /* we should export the self salt to the caller */
     oi->ssalt = mdu->salt;
-    hmr_print(hmr);
+    //hmr_print(hmr);
     
     /* finally, we wait for the commit respond */
 skip:
@@ -1313,6 +1313,80 @@ resend:
         }
     }
     /* Then, we should release the gdt entry now */
+    {
+        struct xnet_msg *msg2;
+        struct hvfs_index hi, *rhi;
+        struct dhe *gdte;
+        int no = 0;
+
+        rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+            err = -EFAULT;
+            goto out;
+        }
+
+        gdte = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+        if (IS_ERR(gdte)) {
+            /* fatal error */
+            hvfs_err(xnet, "This is a fatal error, we can not find the GDT DHE.\n");
+            err = PTR_ERR(gdte);
+            goto out;
+        }
+
+        memset(&hi, 0, sizeof(hi));
+        hi.puuid = hmi.gdt_uuid;
+        hi.psalt = hmi.gdt_salt;
+        hi.namelen = 0;
+        hi.uuid = rhi->uuid;
+        hi.flag = INDEX_BY_UUID | INDEX_UNLINK | INDEX_ITE_ACTIVE;
+        hi.hash = hvfs_hash(hi.uuid, hmi.gdt_salt, 0, HASH_SEL_GDT);
+        hi.itbid = mds_get_itbid(gdte, hi.hash);
+
+        dsite = SELECT_SITE(hi.itbid, hi.psalt, CH_RING_MDS, &vid);
+        
+        msg2 = xnet_alloc_msg(XNET_MSG_NORMAL);
+        if (!msg2) {
+            hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        xnet_msg_fill_tx(msg2, XNET_MSG_REQ, XNET_NEED_REPLY,
+                         hmo.xc->site_id, dsite);
+        xnet_msg_fill_cmd(msg2, HVFS_CLT2MDS_UNLINK, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+        xnet_msg_add_sdata(msg2, &msg2->tx, sizeof(msg2->tx));
+#endif
+        xnet_msg_add_sdata(msg2, &hi, sizeof(hi));
+
+    gdt_resend:
+        err = xnet_send(hmo.xc, msg2);
+        if (err) {
+            hvfs_err(xnet, "xnet_send() failed\n");
+            goto gdt_out;
+        }
+        ASSERT(msg2->pair, xnet);
+        if (msg2->pair->tx.err == -ESPLIT) {
+            /* the ITB is under splitting, we need retry */
+            xnet_set_auto_free(msg2->pair);
+            xnet_free_msg(msg2->pair);
+            msg2->pair = NULL;
+            goto gdt_resend;
+        } else if (msg2->pair->tx.err == -ERESTART) {
+            xnet_set_auto_free(msg2->pair);
+            xnet_free_msg(msg2->pair);
+            msg2->pair = NULL;
+            goto gdt_resend;
+        } else if (msg2->pair->tx.err) {
+            hvfs_err(xnet, "UNLINK failed @ MDS site %ld w/ %d\n",
+                     msg2->pair->tx.ssite_id, msg2->pair->tx.err);
+            err = msg2->pair->tx.err;
+            goto gdt_out;
+        }
+
+    gdt_out:
+        xnet_free_msg(msg2);
+    }
     xnet_set_auto_free(msg->pair);
 out:
     xnet_free_msg(msg);
@@ -1495,7 +1569,7 @@ resend:
     mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
                          *(u64 *)msg->pair->xm_data,
                          MDS_BITMAP_SET);
-    *value = xmalloc(msg->pair->tx.len - sizeof(u64));
+    *value = xzalloc(msg->pair->tx.len - sizeof(u64));
     if (!*value) {
         hvfs_err(xnet, "xmalloc() value failed\n");
         err = -ENOMEM;
@@ -1685,23 +1759,50 @@ out:
     return err;
 }
 
-/* hvfs_list() is used to list the tables in the root directory
+/* hvfs_list() is used to list the tables in the root directory or entries in
+ * the sub directory
  */
-int hvfs_list(void)
+int __hvfs_list(u64 duuid, int op, struct list_result *lr)
 {
     struct xnet_msg *msg;
     struct hvfs_index hi;
     u64 dsite, itbid = 0;
+    u64 salt;
     u32 vid;
     int err = 0;
 
+    /* Step 0: prepare the args */
+    if (op == LIST_OP_COUNT) {
+        if (!lr) {
+            hvfs_err(xnet, "No list_result argument provided!\n");
+            err = -EINVAL;
+            goto out;
+        }
+        lr->cnt = 0;
+    }
+    
+    if (duuid == hmi.root_uuid) {
+        salt = hmi.root_salt;
+    } else {
+        struct dhe *e;
+
+        e = mds_dh_search(&hmo.dh, duuid);
+        if (IS_ERR(e)) {
+            hvfs_err(xnet, "mds_dh_search() %lx failed w/ %ld\n",
+                     duuid, PTR_ERR(e));
+            err = PTR_ERR(e);
+            goto out;
+        }
+        salt = e->salt;
+    }
+    
     /* Step 1: we should refresh the bitmap of root directory */
-    mds_bitmap_refresh_all(hmi.root_uuid);
+    mds_bitmap_refresh_all(duuid);
 
     /* Step 2: we send the INDEX_BY_ITB requests to each MDS in serial or
      * parallel mode */
     do {
-        err = mds_bitmap_find_next(hmi.root_uuid, &itbid);
+        err = mds_bitmap_find_next(duuid, &itbid);
         if (err < 0) {
             hvfs_err(xnet, "mds_bitmap_find_next() failed @ %ld w/ %d\n ",
                      itbid, err);
@@ -1715,8 +1816,8 @@ int hvfs_list(void)
                        itbid);
             /* Step 3: we print the results to the console */
             memset(&hi, 0, sizeof(hi));
-            hi.puuid = hmi.root_uuid;
-            hi.psalt = hmi.root_salt;
+            hi.puuid = duuid;
+            hi.psalt = salt;
             hi.hash = -1UL;
             hi.itbid = itbid;
             hi.flag = INDEX_BY_ITB | INDEX_KV;
@@ -1760,6 +1861,7 @@ int hvfs_list(void)
             }
             if (msg->pair->xm_datacheck) {
                 /* ok, dump the entries */
+                char kbuf[128];
                 char *p = (char *)(msg->pair->xm_data +
                                    sizeof(struct hvfs_md_reply));
                 int idx = 0, namelen;
@@ -1768,7 +1870,13 @@ int hvfs_list(void)
                        sizeof(struct hvfs_md_reply)) {
                     namelen = *(u32 *)p;
                     p += sizeof(u32);
-                    hvfs_info(xnet, "%*s\n", namelen, p);
+                    memcpy(kbuf, p, namelen);
+                    kbuf[namelen] = '\0';
+                    if (op == LIST_OP_SCAN) {
+                        hvfs_info(xnet, "%s\n", kbuf);
+                    } else if (op == LIST_OP_COUNT) {
+                        lr->cnt++;
+                    }
                     idx += namelen + sizeof(u32);
                     p += namelen;
                 }
@@ -1786,5 +1894,41 @@ int hvfs_list(void)
 
     err = 0;
 out:    
+    return err;
+}
+
+int hvfs_list(char *table, int op)
+{
+    struct list_result lr = {0,};
+    u64 uuid, salt;
+    int err = 0;
+    
+    if (!table) {
+        err = __hvfs_list(hmi.root_uuid, op, &lr);
+        if (err) {
+            goto out;
+        }
+    } else {
+        err = hvfs_find_table(table, &uuid, &salt);
+        if (err) {
+            hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n",
+                     err);
+            goto out;
+        }
+        err = __hvfs_list(uuid, op, &lr);
+        if (err) {
+            goto out;
+        }
+    }
+    switch (op) {
+    case LIST_OP_SCAN:
+        break;
+    case LIST_OP_COUNT:
+        hvfs_info(xnet, "%d\n", lr.cnt);
+        break;
+    default:;
+    }
+
+out:
     return err;
 }

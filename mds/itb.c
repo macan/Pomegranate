@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-25 23:24:43 macan>
+ * Time-stamp: <2010-07-26 22:55:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -563,6 +563,8 @@ void ite_unlink(struct ite *e, struct itb *i, u64 offset, u64 pos)
     if (likely(e->flag & ITE_FLAG_NORMAL || e->flag & ITE_FLAG_SYM)) {
         /* normal file */
         e->s.mdu.nlink--;
+        if (e->s.mdu.mode & S_IFDIR)
+            e->s.mdu.nlink--;
         if (!e->s.mdu.nlink) {
             /* ok, we add this itb in the async_unlink list if the
              * configration saied that :) */
@@ -1648,6 +1650,7 @@ int itb_readdir(struct hvfs_index *hi, struct itb *i,
      * this itb. If we are in the FS mode, we should return the dentries to
      * the server. */
     if (hi->flag & INDEX_KV) {
+        char kbuf[128];
         void *p;
         int idx;
         
@@ -1659,7 +1662,13 @@ int itb_readdir(struct hvfs_index *hi, struct itb *i,
         }
         for (idx = 0; idx < (1 << i->h.adepth); idx++) {
             if (test_bit(idx, (void *)i->bitmap)) {
-                hmr->len += i->ite[idx].namelen;
+                if (i->ite[idx].v.flags & HVFS_KV_NORMAL) {
+                    /* this is a kv table entry */
+                    snprintf(kbuf, 127, "%ld", i->ite[idx].v.key);
+                    hmr->len += strlen(kbuf);
+                } else {
+                    hmr->len += i->ite[idx].namelen;
+                }
             }
         }
         /* Step 2: alloc the space now */
@@ -1675,10 +1684,18 @@ int itb_readdir(struct hvfs_index *hi, struct itb *i,
         p = hmr->data;
         for (idx = 0; idx < (1 << i->h.adepth); idx++) {
             if (test_bit(idx, (void *)i->bitmap)) {
-                *(u32 *)p = i->ite[idx].namelen;
-                p += sizeof(u32);
-                memcpy(p, i->ite[idx].s.name, i->ite[idx].namelen);
-                p += i->ite[idx].namelen;
+                if (i->ite[idx].v.flags & HVFS_KV_NORMAL) {
+                    snprintf(kbuf, 127, "%ld", i->ite[idx].v.key);
+                    *(u32 *)p = strlen(kbuf);
+                    p += sizeof(u32);
+                    memcpy(p, kbuf, strlen(kbuf));
+                    p += strlen(kbuf);
+                } else {
+                    *(u32 *)p = i->ite[idx].namelen;
+                    p += sizeof(u32);
+                    memcpy(p, i->ite[idx].s.name, i->ite[idx].namelen);
+                    p += i->ite[idx].namelen;
+                }
             }
         }
     }
