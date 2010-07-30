@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-16 15:06:50 macan>
+ * Time-stamp: <2010-07-29 17:29:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -474,9 +474,15 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
                int *freed, int *clean, int *notknown)
 {
     struct itbh *ih, *n;
-    struct itb *i;
+    struct itb *i, *tmpi = NULL;
     int err = 0, failed = 0;
 
+    /* try to get the temp itb now */
+    tmpi = xmalloc(sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE);
+    if (!tmpi) {
+        hvfs_err(mds, "Try to get temp itb for WB failed, slow down...\n");
+    }
+    
     list_for_each_entry_safe(ih, n, &t->dirty_list, list) {
         i = (struct itb *)ih;
         list_del_init(&ih->list);
@@ -500,9 +506,18 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
             (*freed)++;
         } else if (ih->state == ITB_STATE_DIRTY) {
             /* write w/ lock holding */
-            err = txg_wb_itb_ll(cta, i);
-            ih->state = ITB_STATE_CLEAN;
+            if (tmpi) {
+                /* ok, we just copy the itb to the temp itb */
+                memcpy(tmpi, i, atomic_read(&i->h.len));
+                ih->state = ITB_STATE_CLEAN;
+            } else {
+                err = txg_wb_itb_ll(cta, i);
+                ih->state = ITB_STATE_CLEAN;
+            }
             xrwlock_wunlock(&ih->lock);
+            if (tmpi) {
+                err = txg_wb_itb_ll(cta, tmpi);
+            }
             (*clean)++;
         } else {
             /* write w/ lock holding */
@@ -515,6 +530,10 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
     err = txg_wb_bcast_end(cta, failed);
     if (err) {
         hvfs_err(mds, "bcast end failed w/ %d\n", err);
+    }
+
+    if (tmpi) {
+        xfree(tmpi);
     }
 
     return err;

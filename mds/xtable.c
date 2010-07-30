@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-24 23:34:17 macan>
+ * Time-stamp: <2010-07-27 14:41:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -295,7 +295,7 @@ void mds_bitmap_refresh(struct hvfs_index *hi)
         err = PTR_ERR(e);
         goto out;
     }
-    hvfs_info(mds, "refresh uuid %ld bitmap slice offset %ld.\n",
+    hvfs_info(mds, "refresh uuid %lx bitmap slice offset %ld.\n",
               hi->puuid, hi->itbid);
     /* try to load the bitmap slice @ hi->itbid */
     offset = BITMAP_ROUNDDOWN(hi->itbid);

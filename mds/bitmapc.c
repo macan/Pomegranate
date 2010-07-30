@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-09 19:29:54 macan>
+ * Time-stamp: <2010-07-29 17:18:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -490,7 +490,7 @@ int mds_bc_backend_load(struct bc_entry *be, u64 itbid, u64 location)
         /* failed w/ invalid reply */
         err = -EFAULT;
         xnet_set_auto_free(msg->pair);
-        goto out_free_msg;
+        goto out_free;
     }
 
 out_free:
@@ -500,7 +500,7 @@ out_free:
     return err;
 
 out_free_msg:
-    xnet_raw_free_msg(msg);
+    xnet_free_msg(msg);
 out:
     return err;
 }
@@ -625,7 +625,7 @@ int __customized_send_request(struct bc_commit *commit)
 
     return err;
 out_free_msg:
-    xnet_raw_free_msg(msg);
+    xnet_free_msg(msg);
 out:
     return err;
 }

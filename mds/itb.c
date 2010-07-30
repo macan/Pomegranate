@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-26 22:55:18 macan>
+ * Time-stamp: <2010-07-27 21:29:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1146,6 +1146,7 @@ struct itb *itb_cow(struct itb *itb, struct hvfs_txg *txg)
 
     /* do NOT copy the ref! */
     memcpy(n, itb, sizeof(struct itbh) - sizeof(atomic_t));
+    atomic_set(&n->h.ref, 1);
 
     /* init ITB header */
     xrwlock_init(&n->h.lock);

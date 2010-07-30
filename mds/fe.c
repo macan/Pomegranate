@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-25 22:24:48 macan>
+ * Time-stamp: <2010-07-27 18:21:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -146,7 +146,6 @@ int mds_do_forward(struct xnet_msg *msg, u64 dsite)
     case 2:
         /* second loop, slow down the forwarding */
         au_handle_split_sync();
-        sched_yield();
         for (i = 0; i < MDS_FWD_MAX; i++) {
             if (rmf->route[i] != 0)
                 mf->route[i] = rmf->route[i];

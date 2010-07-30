@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-16 15:36:33 macan>
+ * Time-stamp: <2010-07-29 17:32:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -240,12 +240,9 @@ int __customized_send_request(struct bc_delta *bd)
     /* we should got the reply to confirm and delete the bc_delta, but we do
      * not do this operation here. We use send w/o XNET_NEED_REPLY because the
      * reply maybe delievered very late. */
-    xnet_free_msg(msg);
-    
-    return err;
 out_free_msg:
-    xnet_raw_free_msg(msg);
-out:
+    xnet_free_msg(msg);
+out:    
     return err;
 }
 

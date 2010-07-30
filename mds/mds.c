@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-17 15:28:05 macan>
+ * Time-stamp: <2010-07-29 17:56:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -127,12 +127,12 @@ void dynamic_adjust_txg_interval(time_t cur)
 
     if (hmo.conf.txg_interval && cur > last_ts) {
         if ((atomic64_read(&hmo.prof.cbht.modify) - last_modify) / 
-            (cur - last_ts) > 1000) {
+            (cur - last_ts) > 500) {
             nr = 0;
             hmo.conf.txg_interval = min(hmo.conf.txg_interval << 2, 15 * 60);
         } else {
             nr++;
-            if (nr > 30)
+            if (nr > 60)
                 hmo.conf.txg_interval = max(hmo.conf.txg_interval >> 1, 30);
         }
         last_ts = cur;
@@ -496,6 +496,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(xnet_resend_to, value);
     HVFS_MDS_GET_ENV_atoi(hb_interval, value);
     HVFS_MDS_GET_ENV_atoi(scrub_interval, value);
+    HVFS_MDS_GET_ENV_atoi(gto, value);
 
     HVFS_MDS_GET_ENV_atol(memlimit, value);
 
@@ -517,6 +518,8 @@ int mds_config(void)
         hmo.conf.txg_interval = 30;
     if (!hmo.conf.bitmap_cache_interval)
         hmo.conf.bitmap_cache_interval = 5;
+    if (!hmo.conf.gto)
+        hmo.conf.gto = 1;
 
     return 0;
 }

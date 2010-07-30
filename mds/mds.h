@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-25 00:14:37 macan>
+ * Time-stamp: <2010-07-27 18:44:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -88,6 +88,7 @@ struct mds_conf
     int xnet_resend_to;         /* xnet resend timeout */
     int hb_interval;            /* heart beat interval */
     int scrub_interval;         /* scurb interval */
+    int gto;                    /* gossip timeout */
     s8 itbid_check;             /* should we do ITBID check? */
     u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
                                  * conflicts */
@@ -219,6 +220,18 @@ int mds_init(int bdepth);
 int mds_verify(void);
 void mds_destroy(void);
 void mds_reset_itimer(void);
+static inline
+void mds_gossip_faster(void)
+{
+    if (hmo.conf.gto > 1)
+        hmo.conf.gto--;
+}
+static inline
+void mds_gossip_slower(void)
+{
+    if (hmo.conf.gto < 15)
+        hmo.conf.gto++;
+}
 
 /* for fe.c */
 #define MAX_RELAY_FWD    (0x1000)

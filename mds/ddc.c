@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-27 15:06:00 macan>
+ * Time-stamp: <2010-07-29 17:27:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,11 +63,8 @@ int txg_ddc_send_request(struct dir_delta_au *dda)
     /* We should got the reply to confirm and delete the dir delta au, but we
      * do not do this operation here. We us send w/o XNET_NEED_REPLY because
      * the reply mayb delievered very late. */
-    xnet_free_msg(msg);
-
-    return err;
 out_free_msg:
-    xnet_raw_free_msg(msg);
+    xnet_free_msg(msg);
 out:
     return err;
 }
@@ -108,11 +105,8 @@ int txg_ddc_send_reply(struct hvfs_dir_delta *hdd)
              hdd->duuid, atomic_read(&hdd->nlink), hdd->site_id,
              hdd->salt);
     /* We should not wait any reply :) */
-    xnet_free_msg(msg);
-
-    return err;
 out_free_msg:
-    xnet_raw_free_msg(msg);
+    xnet_free_msg(msg);
 out:
     return err;
 }

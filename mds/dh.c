@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-17 16:35:00 macan>
+ * Time-stamp: <2010-07-27 14:59:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -194,7 +194,9 @@ void __dh_gossip_bitmap(struct itbitmap *bitmap, u64 duuid)
     if (err) {
         hvfs_err(mds, "xnet_send() failed with %d\n", err);
     }
-    
+
+    xnet_free_msg(msg);
+    return;
 out_free:
     xnet_raw_free_msg(msg);
 }

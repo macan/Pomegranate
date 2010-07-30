@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-22 23:58:33 macan>
+ * Time-stamp: <2010-07-27 18:43:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,6 +43,8 @@ struct gossip_mgr gm = {
 void *gossip_thread_main(void *arg)
 {
     sigset_t set;
+    time_t last_ts = time(NULL), cur_ts;
+    u64 last_fwd = atomic64_read(&hmo.prof.mds.forward);
     int nr;
 
     /* first, let us block the SIGALRM */
@@ -61,8 +63,21 @@ void *gossip_thread_main(void *arg)
         }
         /* send the gossip message now */
         mds_dh_gossip(&hmo.dh);
-        
-        gm.gto = lib_random(15);
+
+        cur_ts = time(NULL);
+        if (cur_ts > last_ts) {
+            if ((atomic64_read(&hmo.prof.mds.forward) - last_fwd) /
+                (cur_ts - last_ts) > 1000) {
+                /* faster gossip */
+                mds_gossip_faster();
+            } else {
+                /* slower gossip */
+                mds_gossip_slower();
+            }
+        }
+        last_fwd = atomic64_read(&hmo.prof.mds.forward);
+        last_ts = cur_ts;
+        gm.gto = lib_random(hmo.conf.gto);
     }
 out:
     pthread_exit(0);
