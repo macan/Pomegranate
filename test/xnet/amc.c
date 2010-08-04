@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-26 23:40:56 macan>
+ * Time-stamp: <2010-08-04 14:53:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -100,7 +100,7 @@ int main(int argc, char *argv[])
         }
     }
 clean:
-    err = hvfs_list(NULL, LIST_OP_SCAN);
+    err = hvfs_list(NULL, LIST_OP_SCAN, NULL);
     if (err) {
         hvfs_err(xnet, "hvfs_list() faled w/ %d\n", err);
     }

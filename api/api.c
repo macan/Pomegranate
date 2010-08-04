@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-26 23:40:28 macan>
+ * Time-stamp: <2010-08-04 18:38:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1559,7 +1559,7 @@ resend:
         msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err) {
-        hvfs_err(xnet, "CREATE failed @ MDS site %lx w/ %d\n",
+        hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
         err = msg->pair->tx.err;
         goto out_msg;
@@ -1779,6 +1779,19 @@ int __hvfs_list(u64 duuid, int op, struct list_result *lr)
             goto out;
         }
         lr->cnt = 0;
+    } else if (op == LIST_OP_GREP) {
+        if (!lr) {
+            hvfs_err(xnet, "No list_result argument provided!\n");
+            err = -EINVAL;
+            goto out;
+        }
+    } else if (op == LIST_OP_GREP_COUNT) {
+        if (!lr) {
+            hvfs_err(xnet, "No list_result argument provided!\n");
+            err = -EINVAL;
+            goto out;
+        }
+        lr->cnt = 0;
     }
     
     if (duuid == hmi.root_uuid) {
@@ -1816,11 +1829,14 @@ int __hvfs_list(u64 duuid, int op, struct list_result *lr)
                        itbid);
             /* Step 3: we print the results to the console */
             memset(&hi, 0, sizeof(hi));
+            hi.op = op;
             hi.puuid = duuid;
             hi.psalt = salt;
             hi.hash = -1UL;
             hi.itbid = itbid;
             hi.flag = INDEX_BY_ITB | INDEX_KV;
+            if (lr->arg)
+                hi.namelen = strlen(lr->arg);
 
             dsite = SELECT_SITE(itbid, hi.psalt, CH_RING_MDS, &vid);
             msg = xnet_alloc_msg(XNET_MSG_NORMAL);
@@ -1836,6 +1852,7 @@ int __hvfs_list(u64 duuid, int op, struct list_result *lr)
             xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
             xnet_msg_add_sdata(msg, &hi, sizeof(hi));
+            xnet_msg_add_sdata(msg, lr->arg, hi.namelen);
 
             err = xnet_send(hmo.xc, msg);
             if (err) {
@@ -1870,12 +1887,22 @@ int __hvfs_list(u64 duuid, int op, struct list_result *lr)
                        sizeof(struct hvfs_md_reply)) {
                     namelen = *(u32 *)p;
                     p += sizeof(u32);
+                    if (!namelen) {
+                        idx += sizeof(u32);
+                        continue;
+                    }
                     memcpy(kbuf, p, namelen);
                     kbuf[namelen] = '\0';
-                    if (op == LIST_OP_SCAN) {
+                    switch (op) {
+                    case LIST_OP_SCAN:
+                    case LIST_OP_GREP:
                         hvfs_info(xnet, "%s\n", kbuf);
-                    } else if (op == LIST_OP_COUNT) {
+                        break;
+                    case LIST_OP_COUNT:
+                    case LIST_OP_GREP_COUNT:
                         lr->cnt++;
+                        break;
+                    default:;
                     }
                     idx += namelen + sizeof(u32);
                     p += namelen;
@@ -1897,9 +1924,12 @@ out:
     return err;
 }
 
-int hvfs_list(char *table, int op)
+int hvfs_list(char *table, int op, char *arg)
 {
-    struct list_result lr = {0,};
+    struct list_result lr = {
+        .arg = arg,
+        .cnt = 0,
+    };
     u64 uuid, salt;
     int err = 0;
     
@@ -1922,8 +1952,10 @@ int hvfs_list(char *table, int op)
     }
     switch (op) {
     case LIST_OP_SCAN:
+    case LIST_OP_GREP:
         break;
     case LIST_OP_COUNT:
+    case LIST_OP_GREP_COUNT:
         hvfs_info(xnet, "%d\n", lr.cnt);
         break;
     default:;

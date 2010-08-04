@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-25 23:24:30 macan>
+ * Time-stamp: <2010-08-04 17:03:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -722,6 +722,7 @@ void mds_list(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct hvfs_md_reply *hmr;
+    struct chp *p;
     int err;
 
     /* sanity checking */
@@ -744,6 +745,30 @@ void mds_list(struct hvfs_tx *tx)
                hi->puuid, hi->itbid, hi->hash, hi->name, hi->namelen,
                hi->uuid, hi->flag);
 
+    /* Note that, we should check if we should do message forwarding here */
+    p = ring_get_point(hi->itbid, hi->psalt, hmo.chring[CH_RING_MDS]);
+    if (IS_ERR(p)) {
+        hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
+        err = -ECHP;
+        goto send_rpy;
+    }
+    if (hmo.site_id != p->site_id) {
+        hi->flag |= INDEX_BIT_FLIP;
+        err = mds_do_forward(tx->req, p->site_id);
+        goto out;
+    }
+
+    switch (hi->op) {
+    case KV_OP_SCAN:
+    case KV_OP_SCAN_CNT:
+        break;
+    case KV_OP_GREP:
+    case KV_OP_GREP_CNT:
+        hi->data = tx->req->xm_data + sizeof(*hi);
+        break;
+    default:;
+    }
+    
     /* alloc hmr */
     hmr = get_hmr();
     if (!hmr) {
@@ -768,4 +793,12 @@ send_rpy:
         return;
     }
     goto actually_send;
+out:
+    if (unlikely(err)) {
+        hvfs_warning(mds, "MDS(%lx->%lx)(reqno %d) can't be handled w/ %d\n",
+                     tx->req->tx.ssite_id, tx->req->tx.dsite_id,
+                     tx->req->tx.reqno, err);
+    }
+    mds_tx_chg2forget(tx);
+    mds_tx_done(tx);
 }

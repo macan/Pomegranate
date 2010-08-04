@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-01-25 08:46:41 macan>
+ * Time-stamp: <2010-08-04 13:13:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,8 +43,12 @@
     
 static inline void *xzalloc(size_t size) 
 {
+#if 0
     void *m = xmalloc(size);
     memset(m, 0, size);
+#else
+    void *m = calloc(size, 1);
+#endif
     return m;
 }
 

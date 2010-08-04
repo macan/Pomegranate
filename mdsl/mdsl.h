@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-06 16:59:53 macan>
+ * Time-stamp: <2010-08-04 11:35:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -396,6 +396,7 @@ int mdsl_storage_update_range(struct txg_open_entry *);
 #define MDSL_AIO_SYNC           0x01
 #define MDSL_AIO_SYNC_UNMAP     0x03
 #define MDSL_AIO_ODIRECT        0x04
+#define MDSL_AIO_READ           0x10
 int mdsl_aio_create(void);
 void mdsl_aio_destroy(void);
 int mdsl_aio_submit_request(void *addr, u64 len, u64, loff_t, int, int);

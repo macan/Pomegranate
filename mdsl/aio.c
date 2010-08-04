@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-10 17:35:15 macan>
+ * Time-stamp: <2010-08-04 11:45:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -169,7 +169,8 @@ int __serv_sync_unmap_request(struct aio_request *ar)
     }
 #endif
     atomic64_add(ar->len, &hmo.prof.storage.wbytes);
-    madvise(ar->addr, ar->mlen, MADV_DONTNEED);
+    posix_madvise(ar->addr, ar->mlen, POSIX_MADV_DONTNEED);
+    posix_fadvise(ar->fd, ar->foff, ar->len, POSIX_FADV_DONTNEED);
     err = munmap(ar->addr, ar->mlen);
     if (err) {
         hvfs_err(mdsl, "AIO UNMAP region [%p,%ld] failed w/ %d\n",
@@ -209,6 +210,13 @@ out:
     return err;
 }
 
+int __serv_read_request(struct aio_request *ar)
+{
+    int err = 0;
+
+    return err;
+}
+
 static inline
 int __serv_request(void)
 {
@@ -245,6 +253,12 @@ int __serv_request(void)
         err = __serv_odirect_request(ar);
         if (err) {
             hvfs_err(mdsl, "Handle AIO odirect request failed w/ %d\n", err);
+        }
+        break;
+    case MDSL_AIO_READ:
+        err = __serv_read_request(ar);
+        if (err) {
+            hvfs_err(mdsl, "Handle AIO read request failed w/ %d\n", err);
         }
         break;
     default:

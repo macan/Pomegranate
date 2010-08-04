@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-14 15:46:17 macan>
+ * Time-stamp: <2010-08-04 12:46:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1325,6 +1325,8 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
             hvfs_err(mdsl, "append buf create failed w/ %d\n", err);
             goto out;
         }
+        /* ok, we should set the file to random access */
+        posix_fadvise(fde->fd, 0, 0, POSIX_FADV_RANDOM);
         break;
     case MDSL_STORAGE_BITMAP:
         sprintf(path, "%s/%ld/%ld/data-%ld", HVFS_MDSL_HOME, hmo.site_id, 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-29 19:35:19 macan>
+ * Time-stamp: <2010-07-30 16:26:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -320,7 +320,7 @@ int main(int argc, char *argv[])
     hmo.site_id = HVFS_MDSL(0);
     mdsl_verify();
 
-#if 0
+#if 1
     err = __test_append_buf();
     if (err) {
         hvfs_err(mdsl, "append buf test failed w/ %d\n", err);
@@ -344,6 +344,7 @@ int main(int argc, char *argv[])
         goto out;
     }
 #endif
+#if 0
     err = __test_data_rw();
     if (err) {
         hvfs_err(mdsl, "test data rw failed w/ %d\n", err);
@@ -351,6 +352,7 @@ int main(int argc, char *argv[])
     }
 
     mdsl_destroy();
+#endif
 
 out:
     return err;

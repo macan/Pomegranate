@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-21 14:49:43 macan>
+ * Time-stamp: <2010-08-04 17:51:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,8 +28,17 @@
 struct hvfs_index
 {
     u16 namelen;                /* the name length */
+    union
+    {
 #define INDEX_COLUMN_ALL        0xffff
-    u16 column;                 /* which data column do you want */
+        u16 column;             /* which data column do you want */
+
+#define KV_OP_SCAN              0x00
+#define KV_OP_SCAN_CNT          0x01
+#define KV_OP_GREP              0x02
+#define KV_OP_GREP_CNT          0x03
+        u16 op;                 /* option for scaner */
+    };
 
 #define INDEX_BY_NAME           0x00000001 /* search by name */
 #define INDEX_BY_UUID           0x00000002 /* search by uuid */

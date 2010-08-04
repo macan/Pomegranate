@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-27 21:29:05 macan>
+ * Time-stamp: <2010-08-04 18:27:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1638,6 +1638,40 @@ refresh:
     }
 }
 
+/* __readdir_filter() filter whether this ite entry should be return
+ *
+ * Return Value: 1: true and dump, 0: false and not dump
+ */
+static inline
+int __readdir_filter(struct hvfs_index *hi, struct itb *i, 
+                     int idx, int op, void *arg)
+{
+    switch (op) {
+    default:
+    case KV_OP_SCAN:
+    case KV_OP_SCAN_CNT:
+        return 1;
+        break;
+    case KV_OP_GREP:
+    case KV_OP_GREP_CNT:
+    {
+        char needle[hi->namelen + 1];
+    
+        memcpy(needle, arg, hi->namelen);
+        needle[hi->namelen] = '\0';
+        
+        if (strstr((char *)(i->ite[idx].v.value), needle) 
+            == NULL) {
+            return 0;
+        } else
+            return 1;
+        break;
+    }
+    }
+
+    return 1;
+}
+
 /* itb_readdir()
  *
  * NOTE: holding the bucket.rlock, be.rlock, itb.rlock
@@ -1686,11 +1720,13 @@ int itb_readdir(struct hvfs_index *hi, struct itb *i,
         for (idx = 0; idx < (1 << i->h.adepth); idx++) {
             if (test_bit(idx, (void *)i->bitmap)) {
                 if (i->ite[idx].v.flags & HVFS_KV_NORMAL) {
-                    snprintf(kbuf, 127, "%ld", i->ite[idx].v.key);
-                    *(u32 *)p = strlen(kbuf);
-                    p += sizeof(u32);
-                    memcpy(p, kbuf, strlen(kbuf));
-                    p += strlen(kbuf);
+                    if (__readdir_filter(hi, i, idx, hi->op, hi->data)) {
+                        snprintf(kbuf, 127, "%ld", i->ite[idx].v.key);
+                        *(u32 *)p = strlen(kbuf);
+                        p += sizeof(u32);
+                        memcpy(p, kbuf, strlen(kbuf));
+                        p += strlen(kbuf);
+                    }
                 } else {
                     *(u32 *)p = i->ite[idx].namelen;
                     p += sizeof(u32);
