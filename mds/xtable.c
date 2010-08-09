@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-27 14:41:56 macan>
+ * Time-stamp: <2010-08-07 23:03:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -516,22 +516,40 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
 
                 xlock_lock(&e->lock);
                 if (!list_empty(&e->bitmap)) {
+                    int processed = 0;
+                    
                     list_for_each_entry(b, &e->bitmap, list) {
-                        if (b->offset < offset) {
-                            continue;
+                        if (b->offset > bitmap->offset) {
+                            /* insert previous this entry */
+                            list_add_tail(&bitmap->list, &b->list);
+                            processed = 1;
+                            break;
                         }
                         if (b->offset == offset) {
                             /* hoo, someone insert the bitmap prior us, we
                              * just update our bitmap to the previous one */
                             mds_bitmap_update(b, bitmap);
+                            processed = 1;
                             xfree(bitmap);
                             break;
                         }
-                        if (b->offset > offset) {
+                        if (b->offset + XTABLE_BITMAP_SIZE == offset) {
                             /* ok, insert ourself prior this slice */
-                            list_add_tail(&bitmap->list, &b->list);
+                            list_add(&bitmap->list, &b->list);
+                            /* clear the END flag */
+                            b->flag &= ~BITMAP_END;
+                            processed = 1;
                             break;
                         }
+                    }
+                    if (!processed) {
+                        /* then, we should clean the end flag now */
+                        list_for_each_entry_reverse(b, &e->bitmap, list) {
+                            b->flag &= ~BITMAP_END;
+                            break;
+                        }
+                        /* ok, insert this bitmap slice to the end */
+                        list_add_tail(&bitmap->list, &e->bitmap);
                     }
                 } else {
                     /* ok, this is an empty list */
@@ -558,22 +576,39 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
 
             xlock_lock(&e->lock);
             if (!list_empty(&e->bitmap)) {
+                int processed = 0;
+                
                 list_for_each_entry(b, &e->bitmap, list) {
-                    if (b->offset < offset) {
-                        continue;
+                    if (b->offset > bitmap->offset) {
+                        /* insert previous this entry */
+                        list_add_tail(&bitmap->list, &b->list);
+                        processed = 1;
+                        break;
                     }
                     if (b->offset == offset) {
                         /* hoo, someone insert the bitmap prior us, we just
                          * update our bitmap to the previous one */
                         mds_bitmap_update(b, bitmap);
+                        processed = 1;
                         xfree(bitmap);
                         break;
                     }
-                    if (b->offset > offset) {
+                    if (b->offset + XTABLE_BITMAP_SIZE == offset) {
                         /* ok, insert ourself prior this slice */
-                        list_add_tail(&bitmap->list, &b->list);
+                        list_add(&bitmap->list, &b->list);
+                        b->flag &= ~BITMAP_END;
+                        processed = 1;
                         break;
                     }
+                }
+                if (!processed) {
+                    /* then, we should clear the end flag now */
+                    list_for_each_entry_reverse(b, &e->bitmap, list) {
+                        b->flag &= ~BITMAP_END;
+                        break;
+                    }
+                    /* ok, insert this bitmap slice to the end */
+                    list_add_tail(&bitmap->list, &e->bitmap);
                 }
             } else {
                 /* ok, this is an empty list */
@@ -627,23 +662,44 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
         /* hey, we got some bitmap slice, let us insert them to the dhe list */
         xlock_lock(&e->lock);
         if (!list_empty(&e->bitmap)) {
+            int processed = 0;
+            
             list_for_each_entry(b, &e->bitmap, list) {
-                if (b->offset < offset)
-                    continue;
+                if (b->offset > bitmap->offset) {
+                    /* insert previous this entry */
+                    list_add_tail(&bitmap->list, &b->list);
+                    processed = 1;
+                    xnet_clear_auto_free(msg->pair);
+                    break;
+                }
                 if (b->offset == offset) {
                     /* hoo, someone insert the bitmap prior us, we just update our
                      * bitmap to the previous one */
                     mds_bitmap_update(b, bitmap);
+                    processed = 1;
                     xnet_set_auto_free(msg->pair);
                     break;
                 }
-                if (b->offset > offset) {
+                if (b->offset + XTABLE_BITMAP_SIZE == offset) {
                     /* ok, insert ourself prior this slice */
-                    list_add_tail(&bitmap->list, &b->list);
+                    list_add(&bitmap->list, &b->list);
+                    /* clear the END flag */
+                    b->flag &= ~BITMAP_END;
+                    processed = 1;
                     /* FIXME: XNET clear the auto free flag */
                     xnet_clear_auto_free(msg->pair);
                     break;
                 }
+            }
+            if (!processed) {
+                /* then, we should clear the end flag now */
+                list_for_each_entry_reverse(b, &e->bitmap, list) {
+                    b->flag &= ~BITMAP_END;
+                    break;
+                }
+                /* ok, insert this bitmap slice to the end */
+                list_add_tail(&bitmap->list, &e->bitmap);
+                xnet_clear_auto_free(msg->pair);
             }
         } else {
             char line[1024] = {0,};
@@ -682,22 +738,42 @@ void mds_bitmap_free(struct itbitmap *b)
 int __mds_bitmap_insert(struct dhe *e, struct itbitmap *b)
 {
     struct itbitmap *pos;
-    int err = -EEXIST;
+    int err = -EEXIST, processed = 0;
 
     xlock_lock(&e->lock);
     if (!list_empty(&e->bitmap)) {
         list_for_each_entry(pos, &e->bitmap, list) {
-            if (pos->offset < b->offset)
-                continue;
-            if (pos->offset == b->offset) {
-                mds_bitmap_update(pos, b);
-                break;
-            }
             if (pos->offset > b->offset) {
+                /* insert previous this entry */
                 list_add_tail(&b->list, &pos->list);
+                processed = 1;
                 err = 0;
                 break;
             }
+            if (pos->offset == b->offset) {
+                mds_bitmap_update(pos, b);
+                processed = 1;
+                break;
+            }
+            if (b->offset == pos->offset + XTABLE_BITMAP_SIZE) {
+                list_add(&b->list, &pos->list);
+                /* we should clear the OLD BITMAP_END flag */
+                pos->flag &= ~BITMAP_END;
+                b->flag |= BITMAP_END;
+                processed = 1;
+                err = 0;
+                break;
+            }
+        }
+        if (!processed) {
+            /* then, we should clean the end flag now */
+            list_for_each_entry_reverse(pos, &e->bitmap, list) {
+                pos->flag &= ~BITMAP_END;
+                break;
+            }
+            /* ok, insert this bitmap slice to the end */
+            list_add_tail(&b->list, &e->bitmap);
+            err = 0;
         }
     } else {
         /* ok, this is an empty list */
@@ -714,6 +790,7 @@ int __mds_bitmap_insert(struct dhe *e, struct itbitmap *b)
 int mds_bitmap_create(struct dhe *e, u64 itbid)
 {
     struct itbitmap *b;
+    int err = 0;
 
     b = xzalloc(sizeof(struct itbitmap));
     if (!b) {
@@ -725,7 +802,13 @@ int mds_bitmap_create(struct dhe *e, u64 itbid)
     b->offset = itbid;
     b->ts = 0;                  /* FIXME: set the ts here! */
 
-    return __mds_bitmap_insert(e, b);
+    err = __mds_bitmap_insert(e, b);
+    if (err) {
+        /* oh, we should free the bitmap now */
+        xfree(b);
+    }
+
+    return err;
 }
 
 /* mds_bitmap_find_next()

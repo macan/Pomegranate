@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-08 19:50:17 macan>
+ * Time-stamp: <2010-08-07 01:00:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -133,6 +133,9 @@ int main(int argc, char *argv[])
         offset = XTABLE_BITMAP_SIZE + 100;
         hvfs_info(mds, "offset %ld roundup %ld\n", offset,
                   BITMAP_ROUNDUP(offset));
+        hvfs_info(mds, "offset %ld rounddown %ld\n", offset,
+                  BITMAP_ROUNDDOWN(offset));
+        offset = 1439283;
         hvfs_info(mds, "offset %ld rounddown %ld\n", offset,
                   BITMAP_ROUNDDOWN(offset));
     }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-27 18:21:39 macan>
+ * Time-stamp: <2010-08-06 18:05:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,10 +31,10 @@
 
 /* return the recent reqno for COMPARE
  */
-u64 mds_get_recent_reqno(u64 site)
+u32 mds_get_recent_reqno(u64 site)
 {
     /* FIXME: we do not support TXC for now */
-    return 0UL;
+    return 0;
 }
 
 /* update the recent reqno
@@ -267,6 +267,8 @@ int mds_fe_dispatch(struct xnet_msg *msg)
             tx = mds_txc_search(&hmo.txc, msg->tx.ssite_id, msg->tx.reqno);
             if (!tx) {
                 /* already evicted, respond w/ err */
+                hvfs_err(mds, "request from %lx w/ seqno %u has been evicted.\n",
+                         msg->tx.ssite_id, msg->tx.reqno);
                 err = -ETXCED;
                 goto out;
             }
@@ -275,6 +277,7 @@ int mds_fe_dispatch(struct xnet_msg *msg)
                 xnet_wait_group_add(mds_gwg, tx->rpy);
                 xnet_isend(hmo.xc, tx->rpy);
             }
+            hvfs_err(mds, "You should not goto this cache respond!\n");
             mds_put_tx(tx);
             return 0;
         }

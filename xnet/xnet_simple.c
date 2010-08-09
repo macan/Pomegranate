@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-23 15:26:14 macan>
+ * Time-stamp: <2010-08-06 19:40:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -240,6 +240,7 @@ int __xnet_handle_tx(int fd)
     lib_timer_def();
     lib_timer_B();
 #endif
+    
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!msg) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-04 17:03:28 macan>
+ * Time-stamp: <2010-08-07 20:49:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -554,6 +554,12 @@ void mds_lb(struct hvfs_tx *tx)
         goto send_err_rpy;
     }
 
+    /* ABI:
+     *
+     * tx.arg0: uuid to load
+     * tx.arg1: offset
+     */
+
     if (tx->req->xm_datacheck)
         hi = tx->req->xm_data;
     else {
@@ -578,6 +584,12 @@ void mds_lb(struct hvfs_tx *tx)
         /* this means that offset should be ZERO */
         offset = 0;
     } else {
+        /* Note that, we should just have a try to find if there is a slice in
+         * the cache! It is important! */
+        be = mds_bc_get(tx->req->tx.arg0, offset);
+        if (!IS_ERR(be)) {
+            goto find_it;
+        }
         /* Caution: we should cut the offset to the valid bitmap range
          * by size! */
         offset = mds_bitmap_cut(offset, size << 3);
@@ -648,6 +660,7 @@ void mds_lb(struct hvfs_tx *tx)
         /* FIXME: be sure to put the bc_entry after copied */
         struct iovec iov[2];
 
+    find_it:
         ibmap.offset = be->offset;
         ibmap.flag = ((size - (be->offset >> 3) > XTABLE_BITMAP_BYTES) ? 0 :
                       BITMAP_END);

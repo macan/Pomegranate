@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-27 14:59:21 macan>
+ * Time-stamp: <2010-08-08 00:34:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -476,6 +476,7 @@ retry:
                 offset = mds_bitmap_fallback(offset);
                 goto retry;
             }
+            /* NOTE: we are sure that we can not run into here! */
         } else if (b->offset > offset) {
             /* it means that we need to load the missing slice */
             xlock_unlock(&e->lock);
@@ -495,6 +496,22 @@ retry:
                 xlock_unlock(&e->lock);
                 offset = mds_bitmap_cut(offset,
                                         b->offset + XTABLE_BITMAP_SIZE);
+                goto retry;
+            } else if (b->list.next == &e->bitmap) {
+                /* ok, this means that b is the last entry, we should load the
+                 * next bitmap slice */
+                xlock_unlock(&e->lock);
+                err = mds_bitmap_load(e, b->offset + XTABLE_BITMAP_SIZE);
+                if (err == -ENOTEXIST) {
+                    /* FIXME: FATAL error this maybe a hole? */
+                    offset = mds_bitmap_fallback(offset);
+                } else if (err) {
+                    hvfs_err(mds, "Hoo, load DHE %ld Bitmap %ld failed w/ %d\n",
+                             e->uuid, 
+                             (u64)b->offset + XTABLE_BITMAP_SIZE, 
+                             err);
+                    goto out;
+                }
                 goto retry;
             }
         }
@@ -539,6 +556,7 @@ retry:
         if (b->offset <= itbid && itbid < b->offset + XTABLE_BITMAP_SIZE) {
             /* ok, we get the bitmap slice, just do it */
             mds_bitmap_update_bit(b, itbid, op);
+            break;
         } else if (b->offset > itbid) {
             /* it means that we need to load the missing slice */
             xlock_unlock(&e->lock);
@@ -562,6 +580,7 @@ retry:
             if (b->flag & BITMAP_END) {
                 /* ok, just create the slice now */
                 xlock_unlock(&e->lock);
+                hvfs_err(mds, "try to create BS @ %ld\n", itbid);
                 err = mds_bitmap_create(e, itbid);
                 if (err == -EEXIST) {
                     /* ok, we just retry */

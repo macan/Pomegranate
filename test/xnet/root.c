@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-14 15:47:16 macan>
+ * Time-stamp: <2010-08-05 15:07:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -346,7 +346,7 @@ int main(int argc, char *argv[])
             if (strcmp(cs[i].type, "mdsl") == 0) {
                 continue;
             } else if (strcmp(cs[i].type, "mds") == 0) {
-                ring_add(&re->ring, HVFS_MDS(cs[i].id), "mds");
+                ring_add(&re->ring, HVFS_MDS(cs[i].id), "mds-*-");
             }
         }
         res = ring_mgr_insert(&hro.ring, re);
@@ -370,7 +370,7 @@ int main(int argc, char *argv[])
 
         for (i = 0; i < nr; i++) {
             if (strcmp(cs[i].type, "mdsl") == 0) {
-                ring_add(&re->ring, HVFS_MDSL(cs[i].id), "mdsl");
+                ring_add(&re->ring, HVFS_MDSL(cs[i].id), "mdsl-$-");
             }
         }
         res = ring_mgr_insert(&hro.ring, re);

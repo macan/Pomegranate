@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-08 10:29:55 macan>
+ * Time-stamp: <2010-08-07 11:11:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -163,6 +163,10 @@ int main(int argc, char *argv[])
     dh_insert(0);
     hvfs_info(mds, ">>>>>>>>>>>>\n");
     bitmap_insert(0, 0);
+    hvfs_info(mds, ">>>>>>>>>>>>\n");
+    bitmap_insert(0, 1429283);
+    hvfs_info(mds, ">>>>>>>>>>>>\n");
+    bitmap_insert(0, 14292830);
     hvfs_info(mds, ">>>>>>>>>>>>\n");
     
     /* re-search in DH */

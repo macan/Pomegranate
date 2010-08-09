@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-04 13:13:31 macan>
+ * Time-stamp: <2010-08-06 23:55:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,7 +43,7 @@
     
 static inline void *xzalloc(size_t size) 
 {
-#if 0
+#if 1
     void *m = xmalloc(size);
     memset(m, 0, size);
 #else
@@ -105,9 +105,13 @@ static inline void *xrealloc(void *ptr, size_t size)
 #else  /* !__KERNEL */
 static inline void *xzalloc(size_t size)
 {
+#if 1
     void *m = malloc(size);
     if (likely(m))
         memset(m, 0, size);
+#else
+    void *m = calloc(size, 1);
+#endif
     return m;
 }
 
