@@ -15,11 +15,19 @@ function plot_mds() {
 }
 
 function plot_mds_aggr() {
-    sed "s/mds.gXXX.png/mds.aggr.png/g; s/CP-BACK-mds.FIRST/CP-BACK-mds.aggr/g; s/CP-BACK-mds.SECOND/CP-BACK-mds.aggr/g" mds.plot.aggr.template | gnuplot
+    if [ "x$1" == "x" ]; then
+        sed "s/mds.gXXX.png/mds.aggr.png/g; s/CP-BACK-mds.FIRST/CP-BACK-mds.aggr/g; s/CP-BACK-mds.SECOND/CP-BACK-mds.aggr/g" mds.plot.aggr.template | gnuplot
+    else
+        sed "s/#set xrange \[START:END\]/set xrange [$1:$2]/g; s/mds.gXXX.png/mds.aggr.png/g; s/CP-BACK-mds.FIRST/CP-BACK-mds.aggr/g; s/CP-BACK-mds.SECOND/CP-BACK-mds.aggr/g" mds.plot.aggr.template | gnuplot
+    fi
 }
 
 function plot_mdsl_aggr() {
-    sed "s/mdsl.gXXX.png/mdsl.aggr.png/g; s/CP-BACK-mdsl.FIRST/CP-BACK-mdsl.aggr/g; s/CP-BACK-mdsl.SECOND/CP-BACK-mdsl.aggr/g" mdsl.plot.aggr.template | gnuplot
+    if [ "x$1" == "x" ]; then
+        sed "s/mdsl.gXXX.png/mdsl.aggr.png/g; s/CP-BACK-mdsl.FIRST/CP-BACK-mdsl.aggr/g; s/CP-BACK-mdsl.SECOND/CP-BACK-mdsl.aggr/g" mdsl.plot.aggr.template | gnuplot
+    else
+        sed "s/#set xrange \[START:END\]/set xrange [$1:$2]/g; s/mdsl.gXXX.png/mdsl.aggr.png/g; s/CP-BACK-mdsl.FIRST/CP-BACK-mdsl.aggr/g; s/CP-BACK-mdsl.SECOND/CP-BACK-mdsl.aggr/g" mdsl.plot.aggr.template | gnuplot
+    fi
 }
 
 function plot_mdsl() {
@@ -61,8 +69,8 @@ function plot_sys_disk_mm() {
 }
 
 #plot_mds
-plot_mds_aggr
-plot_mdsl_aggr
+plot_mds_aggr 3770 4000
+plot_mdsl_aggr 3770 4000
 #plot_mdsl
 
 exit

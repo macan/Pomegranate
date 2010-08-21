@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-04 18:38:36 macan>
+ * Time-stamp: <2010-08-11 04:08:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1887,9 +1887,12 @@ int __hvfs_list(u64 duuid, int op, struct list_result *lr)
                        sizeof(struct hvfs_md_reply)) {
                     namelen = *(u32 *)p;
                     p += sizeof(u32);
+                    hvfs_debug(mds, "len %d idx %d total %ld\n", 
+                               namelen, idx, 
+                               msg->pair->tx.len - 
+                               sizeof(struct hvfs_md_reply));
                     if (!namelen) {
-                        idx += sizeof(u32);
-                        continue;
+                        break;
                     }
                     memcpy(kbuf, p, namelen);
                     kbuf[namelen] = '\0';

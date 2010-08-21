@@ -6,26 +6,31 @@ def aggr_mds(argv):
     f = list()
     a = list()
     ts = -5
+    total = 0
 
     for x in range(100):
+        total += 1
         try:
             f.append(open('./xnet/CP-BACK-mds.%d' % (x)))
         except IOError, ex:
             print >> sys.stderr, "IOError: %s" % ex
+            total -= 1
 
     while True:
         ts += 5
         r = ['PLOT', ts, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
-             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+             0]
 
         try:
-            for x in range(71):
+            for x in range(total):
                 l = f[x].readline()
                 l = l.rsplit('\n')
                 a = l[0].split(' ')
 
                 # accumulate the stats
-                for y in range(2, 37):
+                for y in range(2, 39):
+#                for y in range(2, 35):
                     r[y] = int(r[y]) + int(a[y])
         except:
             break
@@ -37,12 +42,15 @@ def aggr_mdsl(argv):
     f = list()
     a = list()
     ts = -5
+    total = 0
 
     for x in range(100):
+        total += 1
         try:
             f.append(open('./xnet/CP-BACK-mdsl.%d' % (x)))
         except IOError, ex:
             print >> sys.stderr, "IOError: %s" % ex
+            total -= 1
 
     while True:
         ts += 5
@@ -50,7 +58,7 @@ def aggr_mdsl(argv):
              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
         try:
-            for x in range(71):
+            for x in range(total):
                 l = f[x].readline()
                 l = l.rsplit('\n')
                 a = l[0].split(' ')

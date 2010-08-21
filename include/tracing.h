@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-10 13:25:56 macan>
+ * Time-stamp: <2010-08-10 16:56:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -150,7 +150,10 @@
 
 #define HVFS_VV PRINTK
 /* Use HVFS_BUG() to get the SIGSEGV signal to debug in the GDB */
-#define HVFS_BUG() (*((int *)0) = 1)
+#define HVFS_BUG() do {                         \
+        HVFS_VV(KERN_PLAIN "HVFS BUG :(\n");    \
+        (*((int *)0) = 1);                      \
+    } while (0)
 #define HVFS_BUGON(str) do {                        \
         HVFS_VV(KERN_PLAIN "Bug on '" #str "'\n");  \
         HVFS_BUG();                                 \

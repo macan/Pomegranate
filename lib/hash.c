@@ -1,4 +1,30 @@
+/*
+ **************************************************************************
+ *                                                                        *
+ *          General Purpose Hash Function Algorithms Library              *
+ *                                                                        *
+ * Author: Arash Partow - 2002                                            *
+ * URL: http://www.partow.net                                             *
+ * URL: http://www.partow.net/programming/hashfunctions/index.html        *
+ *                                                                        *
+ * Copyright notice:                                                      *
+ * Free use of the General Purpose Hash Function Algorithms Library is    *
+ * permitted under the guidelines and in accordance with the most current *
+ * version of the Common Public License.                                  *
+ * http://www.opensource.org/licenses/cpl.php                             *
+ *                                                                        *
+ **************************************************************************
+*/
+
+/* Murmurhash from http://sites.google.com/site/murmurhash/
+ *
+ * All code is released to public domain. For business purposes, Murmurhash is
+ * under the MIT license.
+ */
+
 /**
+ * Other codes written by Ma Can following the GPL
+ *
  * Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
  *                           <macan@ncic.ac.cn>
  *
@@ -208,6 +234,48 @@ static inline unsigned int APHash(char* str, unsigned int len)
 /* End Of AP Hash Function */
 /* END OF General Hash Functions */
 
+static inline
+u64 __murmurhash64a(const void *key, int len, u64 seed)
+{
+    const u64 m = 0xc6a4a7935bd1e995;
+    const int r = 47;
+
+    u64 h = seed ^ (len * m);
+
+    const u64 *data = (const u64 *)key;
+    const u64 *end = data + (len/8);
+
+    while (data != end) {
+        u64 k = *data++;
+
+        k *= m;
+        k ^= k >> r;
+        k *= m;
+
+        h ^= k;
+        h *= m;
+    }
+
+    const unsigned char *data2 = (const unsigned char *)data;
+
+    switch (len & 7) {
+    case 7: h ^= ((u64)data2[6]) << 48;
+    case 6: h ^= ((u64)data2[5]) << 40;
+    case 5: h ^= ((u64)data2[4]) << 32;
+    case 4: h ^= ((u64)data2[3]) << 24;
+    case 3: h ^= ((u64)data2[2]) << 16;
+    case 2: h ^= ((u64)data2[1]) << 8;
+    case 1: h ^= ((u64)data2[0]);
+        h *= m;
+    }
+
+    h ^= h >> r;
+    h *= m;
+    h ^= h >> r;
+
+    return h;
+}
+
 static inline u64 hvfs_hash_eh(u64 key1, u64 key2, u64 key2len)
 {
 #if 1
@@ -217,7 +285,7 @@ static inline u64 hvfs_hash_eh(u64 key1, u64 key2, u64 key2len)
     hash ^= JSHash((char *)key2, key2len);
     return hash;
 #else
-    return 0;
+    return __murmurhash64a((const void *)key2, key2len, key1);
 #endif
 }
 

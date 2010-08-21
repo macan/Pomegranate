@@ -19,7 +19,7 @@ set multiplot
 set size .5, 1
 set origin 0.0, 0
 set xlabel "TimeStamp (s)"
-set ylabel "IOPS (#/s)
+set ylabel "Request/Sec (#/s)
 set ytics nomirror
 set y2label "# of ITBs (#)"
 set y2tics
