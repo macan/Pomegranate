@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-11 16:55:13 macan>
+ * Time-stamp: <2010-09-07 14:15:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -171,5 +171,6 @@ int root_mkfs(struct root_entry *, struct ring_entry *, u32);
 
 /* cli.c */
 int cli_scan_ring(struct ring_entry *, int, struct ring_range *);
+int cli_dynamic_add_site(struct ring_entry *, u64);
 
 #endif

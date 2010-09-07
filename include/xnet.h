@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-01 16:39:00 macan>
+ * Time-stamp: <2010-09-07 14:53:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -124,6 +124,20 @@ struct xnet_context
 #endif
 };
 
+struct xnet_group_entry
+{
+    u64 site_id;
+#define XNET_GROUP_RECVED       0x00001
+    u64 flags;
+};
+
+struct xnet_group
+{
+#define XNET_GROUP_ALLOC_UNIT   64
+    int asize, psize;           /* actual size, physical size */
+    struct xnet_group_entry sites[0];
+};
+
 /* APIs */
 #ifdef USE_XNET_SIMPLE
 struct xnet_context *xnet_register_type(u8, u16, u64, struct xnet_type_ops *);
@@ -218,6 +232,56 @@ int xnet_update_ipaddr(u64, int, char *ipaddr[], short port[]);
 int hst_to_xsst(void *, int);
 void xnet_wait_any(struct xnet_context *xc);
 #endif
+
+/* XNET Group management */
+static inline
+int xnet_group_add(struct xnet_group **xg, u64 site_id)
+{
+    int err = 0, i;
+
+    if (!xg)
+        return -EINVAL;
+    if (!(*xg))
+        goto alloc;
+    
+    /* Note that, we do NOT check any argument */
+retry:
+    if ((*xg)->asize < (*xg)->psize) {
+        /* check if this site is already in the group */
+        for (i = 0; i < (*xg)->asize; i++) {
+            if ((*xg)->sites[i].site_id == site_id) {
+                return err;
+            }
+        }
+        (*xg)->sites[(*xg)->asize].site_id = site_id;
+        (*xg)->sites[(*xg)->asize].flags = 0;
+        (*xg)->asize += 1;
+    } else {
+        /* try to realloc more entries */
+        struct xnet_group *__xg;
+        
+    alloc:
+        __xg = xrealloc((*xg), sizeof(struct xnet_group) + 
+                        ((*xg == NULL) ? XNET_GROUP_ALLOC_UNIT : 
+                         ((*xg)->psize + XNET_GROUP_ALLOC_UNIT) * 
+                         sizeof(struct xnet_group_entry)));
+        if (__xg == NULL) {
+            err = -ENOMEM;
+            goto out;
+        }
+        if (!(*xg)) {
+            memset(__xg, 0, sizeof(struct xnet_group) + 
+                   XNET_GROUP_ALLOC_UNIT * sizeof(struct xnet_group_entry));
+            __xg->psize = XNET_GROUP_ALLOC_UNIT;
+        } else {
+            __xg->psize += XNET_GROUP_ALLOC_UNIT;
+        }
+        *xg = __xg;
+        goto retry;
+    }
+out:
+    return err;
+}
 
 /* Profiling Section */
 extern struct xnet_prof g_xnet_prof;

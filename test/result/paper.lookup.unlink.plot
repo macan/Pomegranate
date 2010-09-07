@@ -22,12 +22,16 @@ set xlabel "TimeStamp (s)"
 set ylabel "Request per Second (#/s)
 set format y "%gK"
 set ytics nomirror
-set y2label "Net Bandwidth (MB/s)
+set y2label "Net Bandwidth (MB/s)\n or # of Requests"
 set y2tics
 set key center bottom box
 set xrange [420:650]
 
-plot "< awk '{if (ts == 0) {ts = $2; lookup = $4;} \
+plot "< awk '{if (ts == 0) {ts = $2; fwds = $15;} \
+              {print ($2 - ts)\" \"(($15 - fwds));} \
+              fwds = $15;}' xnet/CP-BACK-mds.aggr"\
+     using 1:2 t "Forward Requests" w linesp ls 3 axes x1y2, \
+     "< awk '{if (ts == 0) {ts = $2; lookup = $4;} \
               {print ($2 - ts)\" \"(($4 - lookup)/5.0/1000);} \
               lookup = $4;}' xnet/CP-BACK-mds.aggr" \
      using 1:2 t "Lookup RPS" w linesp ls 1 axes x1y1, \
@@ -46,12 +50,16 @@ set xlabel "TimeStamp (s)"
 set ylabel "Request per Second (#/s)
 set format y "%gK"
 set ytics nomirror
-set y2label "Net Bandwidth (MB/s)
+set y2label "Net Bandwidth (MB/s)\n or # of Requests"
 set y2tics
 set key center bottom box
 set xrange [3770:4000]
 
-plot "< awk '{if (ts == 0) {ts = $2; modify = $5;} \
+plot "< awk '{if (ts == 0) {ts = $2; fwds = $15;} \
+              {print ($2 - ts)\" \"(($15 - fwds));} \
+              fwds = $15;}' xnet/CP-BACK-mds.aggr"\
+     using 1:2 t "Forward Requests" w linesp ls 3 axes x1y2, \
+     "< awk '{if (ts == 0) {ts = $2; modify = $5;} \
               {print ($2 - ts)\" \"(($5 - modify)/5.0/1000);} \
               modify = $5;}' xnet/CP-BACK-mds.aggr" \
      using 1:2 t "Delete RPS" w linesp ls 2 axes x1y1, \

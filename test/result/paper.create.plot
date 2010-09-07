@@ -42,7 +42,7 @@ plot "< awk '{if (ts == 0) {ts = $2; modify = $5;} \
      "< awk '{if (ts == 0) {ts = $2; sp_send = $14;} \
               {print ($2 - ts)\" \"($14 - sp_send);} \
               sp_send = $14;}' xnet/CP-BACK-mds.aggr"\
-     using 1:2 t "Split Sent" w linesp ls 6 axes x1y2
+     using 1:2 t "Split Sent" w linesp ls 3 axes x1y2
 
 # set origin .25, 0
 unset format
@@ -51,18 +51,19 @@ set ylabel "Throughput (MB/s)"
 set ytics nomirror
 set y2label "# of Requests (#)"
 set y2tics
+set format y2 "%gK"
 set key top box
 
 plot "< awk '{if (ts == 0) {ts = $2; fwds = $15;} \
-              {print ($2 - ts)\" \"($15 - fwds);} \
+              {print ($2 - ts)\" \"(($15 - fwds)/1000);} \
               fwds = $15;}' xnet/CP-BACK-mds.aggr"\
      using 1:2 t "Forward Requests" w linesp ls 1 axes x1y2, \
      "< awk '{if (ts == 0) {ts = $2;} \
-              {print ($2 - ts)\" \"($9);} \
+              {print ($2 - ts)\" \"($9/1000);} \
              }' xnet/CP-BACK-mds.aggr" \
      using 1:2 t "Active Table Slices" w linesp ls 3 axes x1y2, \
      "< awk '{if (ts == 0) {ts = $2; loop_fwds = $24;} \
-              {print ($2 - ts)\" \"($24 - loop_fwds);} \
+              {print ($2 - ts)\" \"(($24 - loop_fwds)/1000);} \
               loop_fwds = $24;}' xnet/CP-BACK-mds.aggr" \
      using 1:2 t "Looped Forwards" w linesp ls 2 axes x1y2, \
      "< awk '{if (ts == 0) {ts = $2; inBW = $21;} \

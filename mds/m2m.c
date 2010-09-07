@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-08 12:15:19 macan>
+ * Time-stamp: <2010-08-27 04:18:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -299,6 +299,7 @@ void mds_ausplit(struct xnet_msg *msg)
     atomic64_add(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
 
     hvfs_err(mds, "We update the bit of ITB %ld\n", i->h.itbid);
+    xnet_clear_auto_free(msg);
 
 send_rpy:
     {

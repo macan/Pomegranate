@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-05 15:07:18 macan>
+ * Time-stamp: <2010-09-07 10:27:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -436,6 +436,25 @@ int main(int argc, char *argv[])
         } else if (err < 0) {
             hvfs_err(xnet, "lookup create root 0 failed w/ %d\n", err);
         }
+    }
+
+    /* finally, we setup a test shell to recv commands */
+    {
+        struct ring_entry *re;
+
+        re = ring_mgr_lookup(&hro.ring, CH_RING_MDS);
+        if (IS_ERR(re)) {
+            hvfs_err(xnet, "lookup ring %d failed\n", CH_RING_MDS);
+            goto out;
+        }
+
+        err = cli_dynamic_add_site(re, 0xfffffff);
+        if (err) {
+            hvfs_err(xnet, "cli_dynamic_add_site() failed w/ %d\n", err);
+            goto out;
+        }
+        SET_TRACING_FLAG(lib, HVFS_DEBUG);
+        ring_dump(&re->ring);
     }
 
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);

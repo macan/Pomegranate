@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-11 22:57:14 macan>
+ * Time-stamp: <2010-09-07 10:09:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -405,6 +405,12 @@ int main(int argc, char *argv[])
                          err);
             }
         }
+        point = 2134132413;
+        x = ring_get_point2(point, r);
+        point = x->point;
+        x = ring_get_point2(point, r);
+        if (!IS_ERR(x))
+            hvfs_info(lib, "%ld in R:  %50ld\n", point, x->point);
     }
 
     ring_dump(r);

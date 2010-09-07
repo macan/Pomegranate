@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-29 10:27:44 macan>
+ * Time-stamp: <2010-08-28 03:22:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -224,6 +224,7 @@ int main(int argc, char *argv[])
 
     mds_pre_init();
     mds_init(10);
+    hmo.gossip_thread_stop = 1;
     hmo.prof.xnet = &g_xnet_prof;
 
     st_init();

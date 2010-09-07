@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-31 14:24:45 macan>
+ * Time-stamp: <2010-09-07 10:35:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -85,6 +85,10 @@ int root_config(void)
     HVFS_ROOT_GET_ENV_option(opt_memonly, MEMONLY, value);
 
     /* default configs */
+    if (!hro.conf.ring_vid_max) {
+        hro.conf.ring_vid_max = HVFS_RING_VID_MAX;
+    }
+    
     if (!hro.conf.root_home) {
         hro.conf.root_home = HVFS_ROOT_HOME;
     }
