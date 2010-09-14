@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-07 10:27:28 macan>
+ * Time-stamp: <2010-09-11 13:23:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -439,6 +439,7 @@ int main(int argc, char *argv[])
     }
 
     /* finally, we setup a test shell to recv commands */
+#if 0
     {
         struct ring_entry *re;
 
@@ -448,14 +449,18 @@ int main(int argc, char *argv[])
             goto out;
         }
 
-        err = cli_dynamic_add_site(re, 0xfffffff);
+        err = cli_dynamic_add_site(re, HVFS_MDS(0));
         if (err) {
             hvfs_err(xnet, "cli_dynamic_add_site() failed w/ %d\n", err);
             goto out;
         }
+#if 0
         SET_TRACING_FLAG(lib, HVFS_DEBUG);
         ring_dump(&re->ring);
+#endif
+        ring_mgr_put(re);
     }
+#endif
 
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
 //    SET_TRACING_FLAG(root, HVFS_DEBUG);

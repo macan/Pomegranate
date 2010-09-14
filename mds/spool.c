@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-06 20:26:49 macan>
+ * Time-stamp: <2010-09-11 14:53:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -143,8 +143,20 @@ int __serv_request(void)
 
     /* ok, deal with it, we just calling the secondary dispatcher */
     ASSERT(msg->xc, mds);
-    atomic64_inc(&hmo.prof.misc.reqin_handle);
-    return msg->xc->ops.dispatcher(msg);
+    if (likely(!hmo.reqin_drop)) {
+    dispatch:
+        atomic64_inc(&hmo.prof.misc.reqin_handle);
+        return msg->xc->ops.dispatcher(msg);
+    } else {
+        if (HVFS_IS_CLIENT(msg->tx.ssite_id) ||
+            HVFS_IS_AMC(msg->tx.ssite_id)) {
+            atomic64_inc(&hmo.prof.misc.reqin_drop);
+            xnet_free_msg(msg);
+        } else {
+            goto dispatch;
+        }
+        return 0;
+    }
 }
 
 static

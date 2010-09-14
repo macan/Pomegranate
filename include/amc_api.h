@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-04 15:38:22 macan>
+ * Time-stamp: <2010-09-14 16:57:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,6 +35,7 @@ struct amc_index
 #define INDEX_DEL       0x00000010
 #define INDEX_UPDATE    0x00000020
 #define INDEX_CUPDATE   0x00000040 /* conditional update */
+#define INDEX_COMMIT    0x00000080
 
 #define INDEX_CU_EXIST          0x0080000
 #define INDEX_CU_NOTEXIST       0x0040000
@@ -75,5 +76,10 @@ struct list_result
     int cnt;
 };
 int hvfs_list(char *table, int op, char *arg);
+int hvfs_commit(int id);
+int hvfs_get_cluster(char *type);
+char *hvfs_active_site(char *type);
+int hvfs_online(char *type, int id, char *ip);
+int hvfs_offline(char *type, int id);
 
 #endif

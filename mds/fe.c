@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-06 18:05:51 macan>
+ * Time-stamp: <2010-09-14 10:42:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -220,6 +220,42 @@ int mds_modify_control(struct xnet_msg *msg)
     }
 
     return 0;
+}
+
+int mds_pause(struct xnet_msg *msg)
+{
+    hmo.reqin_drop = 1;
+    xnet_free_msg(msg);
+
+    return 0;
+}
+
+int mds_resume(struct xnet_msg *msg)
+{
+    hmo.reqin_drop = 0;
+    xnet_free_msg(msg);
+
+    return 0;
+}
+
+int mds_ring_update(struct xnet_msg *msg)
+{
+    void *data = NULL;
+    int err = 0;
+    
+    if (msg->xm_datacheck) {
+        data = msg->xm_data;
+        /* ok, we should call the ring update callback function */
+        if (hmo.cb_ring_update)
+            hmo.cb_ring_update(data);
+    } else {
+        hvfs_err(mds, "Invalid data region of ring update request from %ld\n",
+                 msg->tx.ssite_id);
+    }
+
+    xnet_free_msg(msg);
+
+    return err;
 }
 
 /* Callback for XNET, should be thread-safe!

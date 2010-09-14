@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-24 18:07:29 macan>
+ * Time-stamp: <2010-09-08 19:16:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -323,6 +323,14 @@ int xtable_cupdate(struct amc_index *ai, struct iovec **iov, int *nr)
     return xtable_update(ai, iov, nr);
 }
 
+int xtable_commit(struct amc_index *ai, struct iovec **iov, int *nr)
+{
+    txg_change_immediately();
+    *nr = 0;
+
+    return 0;
+}
+
 /* xtable_handle_req() handle the incomming AMC request
  */
 void xtable_handle_req(struct xnet_msg *msg)
@@ -363,6 +371,8 @@ void xtable_handle_req(struct xnet_msg *msg)
         err = xtable_update(ai, &iov, &nr);
     } else if (ai->flag & INDEX_CUPDATE) {
         err = xtable_cupdate(ai, &iov, &nr);
+    } else if (ai->flag & INDEX_COMMIT) {
+        err = xtable_commit(ai, &iov, &nr);
     } else {
         err = -EINVAL;
     }

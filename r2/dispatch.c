@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-03 10:17:59 macan>
+ * Time-stamp: <2010-09-11 13:25:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,6 +61,12 @@ int root_dispatch(struct xnet_msg *msg)
         break;
     case HVFS_R2_LBGDT:
         err = root_do_lbgdt(msg);
+        break;
+    case HVFS_R2_ONLINE:
+        err = root_do_online(msg);
+        break;
+    case HVFS_R2_OFFLINE:
+        err = root_do_offline(msg);
         break;
     default:
         hvfs_err(root, "R2 core dispatcher handle INVALID "

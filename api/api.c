@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-11 04:08:22 macan>
+ * Time-stamp: <2010-09-14 16:56:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -513,7 +513,7 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
             goto out;
         }
         hmo.chring[CH_RING_MDSL] = chring_tx_to_chring(ct);
-        if (!hmo.chring[CH_RING_MDS]) {
+        if (!hmo.chring[CH_RING_MDSL]) {
             hvfs_err(xnet, "chring_tx 2 chring failed w/ %d\n", err);
             goto out;
         }
@@ -893,6 +893,7 @@ int __core_main(int argc, char *argv[])
     }
 
     /* should we create root entry? no! */
+    //SET_TRACING_FLAG(xnet, HVFS_DEBUG);
 
     /* FIXME: we should coming into a shell to send/recv requests and wait for
      * replies. */
@@ -1965,5 +1966,172 @@ int hvfs_list(char *table, int op, char *arg)
     }
 
 out:
+    return err;
+}
+
+int hvfs_commit(int id)
+{
+    struct xnet_msg *msg;
+    struct amc_index ai;
+    u64 site_id;
+    int err = 0;
+
+    memset(&ai, 0, sizeof(ai));
+    ai.flag = INDEX_COMMIT;
+
+    /* check the arguments */
+    if (id < 0) {
+        hvfs_err(xnet, "Invalid MDS id %d\n", id);
+        err = -EINVAL;
+        goto out;
+    }
+    site_id = HVFS_MDS(id);
+    
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, site_id);
+    xnet_msg_fill_cmd(msg, HVFS_AMC2MDS_REQ, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &ai, sizeof(ai));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    xnet_set_auto_free(msg->pair);
+
+out_msg:
+    xnet_free_msg(msg);
+out:
+    return err;
+}
+
+int hvfs_get_cluster(char *type)
+{
+    if (strncmp(type, "mdsl", 4) == 0) {
+        st_list("mdsl");
+    } else if (strncmp(type, "mds", 3) == 0) {
+        st_list("mds");
+    } else {
+        hvfs_err(xnet, "Type '%s' not supported yet.\n", type);
+    }
+
+    return 0;
+}
+
+char *hvfs_active_site(char *type)
+{
+    struct xnet_group *xg = NULL;
+    u64 base;
+    char *err = NULL, *p;
+    int i;
+    
+    if (strncmp(type, "mdsl", 4) == 0) {
+        base = HVFS_MDSL(0);
+        hvfs_info(xnet, "Active MDSL Sites:\n");
+        xg = cli_get_active_site(hmo.chring[CH_RING_MDSL]);
+        if (!xg) {
+            hvfs_err(xnet, "cli_get_active_site() failed\n");
+            err = "Error: No memory.";
+            goto out;
+        }
+    } else if (strncmp(type, "mds", 3) == 0) {
+        base = HVFS_MDS(0);
+        hvfs_info(xnet, "Active MDS Sites:\n");
+        xg = cli_get_active_site(hmo.chring[CH_RING_MDS]);
+        if (!xg) {
+            hvfs_err(xnet, "cli_get_active_site() failed\n");
+            err = "Error: No memory.";
+            goto out;
+        }
+    }
+
+    /* print the active sites */
+    if (xg) {
+        err = xzalloc(xg->asize * 64);
+        if (!err) {
+            hvfs_err(xnet, "xzalloc result string failed.\n");
+            err = "Error: No memory.";
+            goto out;
+        }
+        p = err;
+        for (i = 0; i < xg->asize; i++) {
+            p += snprintf(p, 63, "%ld ", xg->sites[i].site_id);
+            hvfs_info(xnet, "Site %ld => %ld\n", xg->sites[i].site_id - base,
+                      xg->sites[i].site_id);
+        }
+    }
+    
+    xfree(xg);
+out:
+    return err;
+}
+
+int hvfs_online(char *type, int id, char *ip)
+{
+    int err = 0;
+
+    return err;
+}
+
+int hvfs_offline(char *type, int id)
+{
+    struct xnet_msg *msg;
+    u64 site_id;
+    int err = 0;
+
+    if (strncmp(type, "mdsl", 4) == 0) {
+        site_id = HVFS_MDSL(id);
+    } else if (strncmp(type, "mds", 3) == 0) {
+        site_id = HVFS_MDS(id);
+    } else {
+        hvfs_err(xnet, "Invalid site type '%s'\n", type);
+        err = -EINVAL;
+        goto out;
+    }
+
+    if (id < 0) {
+        hvfs_err(xnet, "Invalid id %d\n", id);
+        err = -EINVAL;
+        goto out;
+    }
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, HVFS_ROOT(0));
+    xnet_msg_fill_cmd(msg, HVFS_R2_OFFLINE, site_id, 0); /* arg1: ip
+                                                          * address */
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    xnet_set_auto_free(msg->pair);
+
+out_msg:
+    xnet_free_msg(msg);
+out:
+    
     return err;
 }

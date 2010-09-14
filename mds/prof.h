@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-06 20:26:45 macan>
+ * Time-stamp: <2010-09-11 10:52:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -112,6 +112,7 @@ struct mds_misc_prof
     atomic64_t au_bitmap;       /* # of bitmap async updates,Out */
     atomic64_t au_dd;           /* # of dir delta */
     atomic64_t au_ddr;          /* # of dir delta reply */
+    atomic64_t reqin_drop;      /* # of dropped requets */
 };
 
 struct mds_prof

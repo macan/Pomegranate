@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-07 14:53:24 macan>
+ * Time-stamp: <2010-09-10 09:22:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -228,6 +228,7 @@ int xnet_isend(struct xnet_context *xc, struct xnet_msg *m);
 #ifdef USE_XNET_SIMPLE
 int st_init(void);
 void st_destroy(void);
+void st_list(char *type);
 int xnet_update_ipaddr(u64, int, char *ipaddr[], short port[]);
 int hst_to_xsst(void *, int);
 void xnet_wait_any(struct xnet_context *xc);
@@ -263,8 +264,8 @@ retry:
     alloc:
         __xg = xrealloc((*xg), sizeof(struct xnet_group) + 
                         ((*xg == NULL) ? XNET_GROUP_ALLOC_UNIT : 
-                         ((*xg)->psize + XNET_GROUP_ALLOC_UNIT) * 
-                         sizeof(struct xnet_group_entry)));
+                         ((*xg)->psize + XNET_GROUP_ALLOC_UNIT)) * 
+                         sizeof(struct xnet_group_entry));
         if (__xg == NULL) {
             err = -ENOMEM;
             goto out;
@@ -274,6 +275,8 @@ retry:
                    XNET_GROUP_ALLOC_UNIT * sizeof(struct xnet_group_entry));
             __xg->psize = XNET_GROUP_ALLOC_UNIT;
         } else {
+            memset(&__xg->sites[__xg->psize], 0, 
+                   sizeof(struct xnet_group_entry) * XNET_GROUP_ALLOC_UNIT);
             __xg->psize += XNET_GROUP_ALLOC_UNIT;
         }
         *xg = __xg;

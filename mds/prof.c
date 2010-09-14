@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-06 20:28:10 macan>
+ * Time-stamp: <2010-09-11 14:53:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,11 +43,11 @@ void dump_profiling_plot(time_t t)
      *  xnet.active_links mds.loop_fwd mds.paused_mreq cbht.aentry
      *  misc.au_submit misc.au_handle misc.au_bitmap misc.au_dd misc.au_ddr
      *  mds.bitmap_in mds.bitmap_out mdsl.itb_load, mdsl.itb_wb, mdsl.bitmap
-     *  mds.gossip_bitmap misc.reqin_total misc.reqin_handle"
+     *  mds.gossip_bitmap misc.reqin_total misc.reqin_handle misc.reqin_drop"
      */
     hvfs_pf("PLOT %ld %d %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
             "%ld %ld %d %d %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
-            "%ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld\n",
+            "%ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld\n",
             t, 
             atomic_read(&hmo.ic.csize),
             atomic64_read(&hmo.prof.cbht.lookup),
@@ -90,7 +90,8 @@ void dump_profiling_plot(time_t t)
             atomic64_read(&hmo.prof.mdsl.bitmap),
             atomic64_read(&hmo.prof.mds.gossip_bitmap),
             atomic64_read(&hmo.prof.misc.reqin_total),
-            atomic64_read(&hmo.prof.misc.reqin_handle)
+            atomic64_read(&hmo.prof.misc.reqin_handle),
+            atomic64_read(&hmo.prof.misc.reqin_drop)
         );
 }
 

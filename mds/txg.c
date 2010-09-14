@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-29 17:29:13 macan>
+ * Time-stamp: <2010-09-14 11:35:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -203,6 +203,82 @@ void txg_changer(time_t t)
         hvfs_info(mds, "Entering new txg %ld\n", hmo.txg[TXG_OPEN]->txg);
         sem_post(&hmo.commit_sem);
     }
+}
+
+/* txg_change_immediately()
+ *
+ * trigger an immediately txg change
+ */
+void txg_change_immediately(void)
+{
+    struct hvfs_txg *old = hmo.txg[TXG_OPEN];
+    u64 old_txg = old->txg;
+    u32 old_ti = hmo.conf.txg_interval;
+    u8 old_dati = hmo.conf.dati;
+    
+    /* if the current opened txg is clean, just return */
+    if (!TXG_IS_DIRTY(old))
+        return;
+
+    /* firstly, disable the DATI */
+    hmo.conf.dati = 0;
+
+    /* secondly, try to trigger a change */
+    hmo.conf.txg_interval = 1;
+
+    /* waiting for the txg changing */
+    do {
+        if (hmo.txg[TXG_OPEN]->txg > old_txg) {
+            if (hmo.txg[TXG_WB] == NULL || old != hmo.txg[TXG_WB]) {
+                hvfs_info(mds, "Clearance of txg %ld to MDSL.\n", old_txg);
+                break;
+            }
+        }
+        /* wait for 1 second */
+        sleep(1);
+    } while (1);
+
+    /* restore the state now */
+    hmo.conf.txg_interval = old_ti;
+    hmo.conf.dati = old_dati;
+}
+
+void mds_snapshot_fr2(struct xnet_msg *msg)
+{
+    struct xnet_msg *rpy;
+    int err = 0;
+
+    /* Magic:) if we see tx.arg1 is 1, then we pause request handling */
+    if (msg->tx.arg1 == 1) {
+        /* pause request handling now */
+        hmo.reqin_drop = 1;
+    }
+    
+    txg_change_immediately();
+
+    rpy = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!rpy) {
+        hvfs_err(mds, "xnet_alloc_msg() failed\n");
+        /* do not retry myself */
+        return;
+    }
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
+    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, XNET_NEED_DATA_FREE, hmo.site_id,
+                     msg->tx.ssite_id);
+    xnet_msg_fill_reqno(rpy, msg->tx.reqno);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_DATA, 0, 0);
+    /* match the original request at the source site */
+    rpy->tx.handle = msg->tx.handle;
+
+    err = xnet_send(hmo.xc, rpy);
+    if (err) {
+        hvfs_err(mds, "xnet_send() failed\n");
+    }
+
+    xnet_free_msg(rpy);
+    xnet_free_msg(msg);
 }
 
 /* txg_trigger_ccb()

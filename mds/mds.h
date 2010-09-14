@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-27 18:44:46 macan>
+ * Time-stamp: <2010-09-14 11:34:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,6 +95,8 @@ struct mds_conf
     u8 cbht_congestion;         /* set to 1 to slow down the incoming
                                  * request handling */
     u8 prof_plot;               /* do we dump profilings for gnuplot? */
+    u8 dati;                    /* enable or disable DATI (dynamic adjust txg
+                                 * interval */
 
     /* intervals */
     int profiling_thread_interval;
@@ -180,10 +182,12 @@ struct hvfs_mds_object
 
     u8 spool_modify_pause;      /* pause the modification */
     u8 scrub_running;           /* is scrub thread running */
+    u8 reqin_drop;              /* drop the incoming client requests */
 
     /* callback functions */
     void (*cb_exit)(void *);
     void (*cb_hb)(void *);
+    void (*cb_ring_update)(void *);
     u64 fsid;
 };
 
@@ -237,6 +241,9 @@ void mds_gossip_slower(void)
 #define MAX_RELAY_FWD    (0x1000)
 int mds_do_forward(struct xnet_msg *msg, u64 site_id);
 int mds_fe_dispatch(struct xnet_msg *msg);
+int mds_pause(struct xnet_msg *);
+int mds_resume(struct xnet_msg *);
+int mds_ring_update(struct xnet_msg *);
 
 /* for dispatch.c */
 int mds_client_dispatch(struct xnet_msg *msg);
@@ -355,6 +362,8 @@ int mds_add_bitmap_delta(struct hvfs_txg *, u64, u64, u64, u64);
 int txg_add_update_ddelta(struct hvfs_txg *, u64, s32, u32);
 int txg_ddht_compact(struct hvfs_txg *);
 int txg_rddb_add(struct hvfs_txg *, struct dir_delta_au *, u32);
+void txg_change_immediately(void);
+void mds_snapshot_fr2(struct xnet_msg *);
 
 /* for prof.c */
 void dump_profiling(time_t);
@@ -388,6 +397,7 @@ void mds_lb(struct hvfs_tx *);
 void mds_dump_itb(struct hvfs_tx *);
 void mds_c2m_ldh(struct hvfs_tx *);
 void mds_list(struct hvfs_tx *);
+void mds_snapshot(struct hvfs_tx *);
 
 /* for m2m.c, mds 2 mds APIs */
 void mds_ldh(struct xnet_msg *msg);

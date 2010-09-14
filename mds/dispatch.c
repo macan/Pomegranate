@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-25 00:14:00 macan>
+ * Time-stamp: <2010-09-14 10:43:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -87,6 +87,9 @@ int mds_client_dispatch(struct xnet_msg *msg)
     case HVFS_CLT2MDS_LIST:
         mds_list(tx);
         break;
+    case HVFS_CLT2MDS_COMMIT:
+        mds_snapshot(tx);
+        break;
     default:
         hvfs_err(mds, "Invalid client2MDS command: 0x%lx\n", msg->tx.cmd);
         /* free tx and xnet_msg */
@@ -147,6 +150,14 @@ int mds_ring_dispatch(struct xnet_msg *msg)
 {
     if (msg->tx.cmd == HVFS_MDS2MDS_AUBITMAP_R) {
         mds_aubitmap_r(msg);
+    } else if (msg->tx.cmd == HVFS_R22MDS_PAUSE) {
+        mds_pause(msg);
+    } else if (msg->tx.cmd == HVFS_R22MDS_RESUME) {
+        mds_resume(msg);
+    } else if (msg->tx.cmd == HVFS_R22MDS_COMMIT) {
+        mds_snapshot_fr2(msg);
+    } else if (msg->tx.cmd == HVFS_R22MDS_RUPDATE) {
+        mds_ring_update(msg);
     } else {
         xnet_free_msg(msg);
     }
@@ -158,6 +169,14 @@ int mds_root_dispatch(struct xnet_msg *msg)
 {
     if (msg->tx.cmd == HVFS_MDS2MDS_AUBITMAP_R) {
         mds_aubitmap_r(msg);
+    } else if (msg->tx.cmd == HVFS_R22MDS_PAUSE) {
+        mds_pause(msg);
+    } else if (msg->tx.cmd == HVFS_R22MDS_RESUME) {
+        mds_resume(msg);
+    } else if (msg->tx.cmd == HVFS_R22MDS_COMMIT) {
+        mds_snapshot_fr2(msg);
+    } else if (msg->tx.cmd == HVFS_R22MDS_RUPDATE) {
+        mds_ring_update(msg);
     } else {
         xnet_free_msg(msg);
     }

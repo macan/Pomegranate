@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-07 20:49:11 macan>
+ * Time-stamp: <2010-09-08 19:12:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -814,4 +814,23 @@ out:
     }
     mds_tx_chg2forget(tx);
     mds_tx_done(tx);
+}
+
+void mds_snapshot(struct hvfs_tx *tx)
+{
+    struct hvfs_md_reply *hmr;
+    
+    /* Step 1: do a snapshot and wait for the TXG to MDSL */
+    txg_change_immediately();
+
+    /* Step 2: reply the request */
+    hmr = get_hmr();
+    if (!hmr) {
+        hvfs_err(mds, "get_hmr() failed\n");
+        /* do not retry myself */
+        mds_free_tx(tx);
+        return;
+    }
+
+    return mds_send_reply(tx, hmr, 0);
 }

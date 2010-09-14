@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-25 21:14:50 macan>
+ * Time-stamp: <2010-09-14 11:32:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -947,6 +947,37 @@ void mds_cb_hb(void *arg)
         hvfs_err(xnet, "hb %lx w/ r2 %x failed w/ %d\n",
                  hmo.xc->site_id, HVFS_RING(0), err);
     }
+}
+
+void mds_cb_ring_update(void *arg)
+{
+    struct chring_tx *ct;
+    void *data = arg;
+    int err = 0;
+
+    err = bparse_ring(data, &ct);
+    if (err < 0) {
+        hvfs_err(xnet, "bparse_ring failed w/ %d\n", err);
+        goto out;
+    }
+    hmo.chring[CH_RING_MDS] = chring_tx_to_chring(ct);
+    if (!hmo.chring[CH_RING_MDS]) {
+        hvfs_err(xnet, "chring_tx 2 chring failed w/ %d\n", err);
+        goto out;
+    }
+    data += err;
+    err = bparse_ring(data, &ct);
+    if (err < 0) {
+        hvfs_err(xnet, "bparse_ring failed w/ %d\n", err);
+        goto out;
+    }
+    hmo.chring[CH_RING_MDSL] = chring_tx_to_chring(ct);
+    if (!hmo.chring[CH_RING_MDSL]) {
+        hvfs_err(xnet, "chring_tx 2 chring failed w/ %d\n", err);
+        goto out;
+    }
+out:
+    return;
 }
 
 int main(int argc, char *argv[])

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-06 19:40:23 macan>
+ * Time-stamp: <2010-09-10 10:37:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -730,6 +730,41 @@ void st_dump(struct site_table *st)
                 xlock_lock(&xa->lock);
                 for (j = 0; j < xa->index; j++) {
                     hvfs_info(xnet, "Site %x @ %d => %d.\n", i, j, xa->sockfd[j]);
+                }
+                xlock_unlock(&xa->lock);
+            }
+        }
+    }
+}
+
+/* Dump the entries filter with the type */
+void st_list(char *type)
+{
+    struct xnet_addr *xa;
+    u64 begin, end;
+    int i, j;
+
+    if (strncmp(type, "mdsl", 4) == 0) {
+        begin = HVFS_MDSL(0);
+        end = HVFS_MDSL(HVFS_SITE_N_MASK);
+    } else if (strncmp(type, "mds", 3) == 0) {
+        begin = HVFS_MDS(0);
+        end = HVFS_MDS(HVFS_SITE_N_MASK);
+    } else if (strncmp(type, "r2", 2) == 0) {
+        begin = HVFS_ROOT(0);
+        end = HVFS_ROOT(HVFS_SITE_N_MASK);
+    } else {
+        hvfs_err(xnet, "Type '%s' not supported.\n", type);
+        return;
+    }
+
+    for (i = begin; i <= end; i++) {
+        if (gst.site[i]) {
+            hvfs_info(xnet, "Site %x :\n", i);
+            list_for_each_entry(xa, &gst.site[i]->addr, list) {
+                xlock_lock(&xa->lock);
+                for (j = 0; j < xa->index; j++) {
+                    hvfs_info(xnet, "\t @ %d => %d.\n", j, xa->sockfd[j]);
                 }
                 xlock_unlock(&xa->lock);
             }

@@ -160,7 +160,8 @@ class pamc_shell(cmd.Cmd):
     bc = None
     table = None
     keywords = ["EOF", "create", "drop", "put", "get", "del", "update",
-                "quit", "list", "ls", "set"]
+                "quit", "list", "ls", "set", "commit", "getcluster",
+                "getactivesite"]
 
     def __init__(self):
         cmd.Cmd.__init__(self)
@@ -351,7 +352,7 @@ class pamc_shell(cmd.Cmd):
             return
         l = shlex.split(line)
         if len(l) < 2:
-            print "api.hvfs_update() failed w/ %d" % err
+            print "Invalid argument."
             return
         # ok, transform the key to long
         try:
@@ -361,6 +362,106 @@ class pamc_shell(cmd.Cmd):
             if err != 0:
                 print "api.hvfs_update() failed w/ %d" % err
                 return
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_commit(self, line):
+        '''Trigger a memory snapshot on the remote MDS.
+        Usage: commit #MDS'''
+        l = shlex.split(line)
+        if len(l) < 1:
+            print "Invalid argument."
+            return
+        # ok, transform the id to int
+        if l[0] == "all":
+            try:
+                api.hvfs_active_site.restype = c_char_p
+                asites = api.hvfs_active_site("mds")
+                lx = shlex.split(asites)
+                for x in lx:
+                    if x != "" and x != None:
+                        id = c_int(int(x))
+                        err = api.hvfs_commit(id)
+                        if err != 0:
+                            print "api.hvfs_commit() failed w/ %d" % err
+                            return
+            except ValueError, ve:
+                print "ValueError %s" % ve
+        else:
+            try:
+                id = c_int(int(l[0]))
+                err = api.hvfs_commit(id)
+                if err != 0:
+                    print "api.hvfs_commit() failed w/ %d" % err
+                    return
+            except ValueError, ve:
+                print "ValueError %s" % ve
+
+    def do_getcluster(self, line):
+        '''Get the MDS/MDSL cluster status.
+        Usage: getcluster 'mds/mdsl' '''
+        l = shlex.split(line)
+        if len(l) < 1:
+            print "Invalid argument."
+            return
+        # ok
+        try:
+            err = api.hvfs_get_cluster(l[0])
+            if err != 0:
+                print "api.hvfs_get_cluster() failed w/ %d" % err
+                return
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_getactivesite(self, line):
+        '''Get the active sites.
+        Usage: getactivesite 'mds/mdsl' '''
+        l = shlex.split(line)
+        if len(l) < 1:
+            print "Invalid argument. See help getactivesite!"
+            return
+        # ok
+        try:
+            err = api.hvfs_active_site(l[0])
+            if err == None:
+                print "api.hvfs_active_site() failed w/ %s" % err
+                return
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_offline(self, line):
+        '''Offline a site or a group of sites.
+        Usage: offline 'mds/mdsl' id'''
+        l = shlex.split(line)
+        if len(l) < 2:
+            print "Invalid argument. See help offline!"
+            return
+        # ok
+        try:
+            err = api.hvfs_offline(l[0], int(l[1]))
+            if err != 0:
+                print "api.hvfs_offline() failed w/ %d" % err
+                return
+        except TypeError, te:
+            print "TypeError %s" % te
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_online(self, line):
+        '''Online a site or a group sites.
+        Usage: online 'mds/mdsl' id ip'''
+        l = shlex.split(line)
+        if len(l) < 3:
+            print "Invalid argument. See help online!"
+            return
+        # ok
+        try:
+            err = api.hvfs_online(l[0], int(l[1]), l[2])
+            if err != 0:
+                print "api.hvfs_online() failed w/ %d" % err
+                return
+        except TypeError, te:
+            print "TypeError %s" % te
         except ValueError, ve:
             print "ValueError %s" % ve
 

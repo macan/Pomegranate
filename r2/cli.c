@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-07 14:57:26 macan>
+ * Time-stamp: <2010-09-11 14:59:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -217,6 +217,73 @@ int cli_find_del_site(struct ring_entry *re, u64 site_id)
     return 0;
 }
 
+int __cli_trigger_snapshot(u64 site_id)
+{
+    struct xnet_msg *msg;
+    int err = 0;
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hro.xc->site_id, site_id);
+    /* Note that, arg1 == 1 means to pause client/amc requests handling! */
+    xnet_msg_fill_cmd(msg, HVFS_R22MDS_COMMIT, site_id, 1);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    err = xnet_send(hro.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() to %lx failed\n", site_id);
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    xnet_set_auto_free(msg->pair);
+
+out_msg:
+    xnet_free_msg(msg);
+out:
+    return err;
+}
+
+int __cli_resume(u64 site_id)
+{
+    struct xnet_msg *msg;
+    int err = 0;
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hro.xc->site_id, site_id);
+    xnet_msg_fill_cmd(msg, HVFS_R22MDS_RESUME, site_id, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    err = xnet_send(hro.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() to %lx failed\n", site_id);
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    xnet_set_auto_free(msg->pair);
+
+out_msg:
+    xnet_free_msg(msg);
+out:
+    return err;
+}
+
 int cli_dynamic_add_site(struct ring_entry *re, u64 site_id)
 {
     struct ring_range *rr = NULL;
@@ -245,13 +312,40 @@ int cli_dynamic_add_site(struct ring_entry *re, u64 site_id)
             hvfs_err(root, "ring_get_point2() failed w/ %ld\n", PTR_ERR(p));
             goto out_free;
         }
-        err = xnet_group_add(&xg, site_id);
+        err = xnet_group_add(&xg, p->site_id);
+    }
+    for (i = 0; i < xg->asize; i++) {
+        hvfs_info(root, "Try to send pasue and evict message to %lx\n", 
+                   xg->sites[i].site_id);
+        err = __cli_trigger_snapshot(xg->sites[i].site_id);
+        if (err) {
+            hvfs_err(root, "trigger a snapshot on site %lx failed w/ %d\n",
+                     xg->sites[i].site_id, err);
+            goto out_free;
+        }
     }
 
     /* Step 3: commit and broadcast the new ring */
+    err = cli_range_add(re, site_id, hro.conf.ring_vid_max, rr);
+    if (err) {
+        hvfs_err(root, "cli_range_add() failed w/ %d\n", err);
+        goto out_free;
+    }
+    /* bcast the ring */
+    err = site_mgr_traverse(&hro.site, NULL);
+    if (err) {
+        hvfs_err(root, "bcast the ring failed w/ %d\n", err);
+        goto out_free;
+    }
+    
+    /* resume request handling */
     for (i = 0; i < xg->asize; i++) {
-        hvfs_info(root, "Try to send pasue and evict message to %lx\n", 
-                  xg->sites[i].site_id);
+        err = __cli_resume(xg->sites[i].site_id);
+        if (err) {
+            hvfs_err(root, "resume the request handling on site %lx "
+                     "failed w/ %d\n", xg->sites[i].site_id, err);
+            goto out_free;
+        }
     }
 
 out_free:
@@ -262,3 +356,53 @@ out:
     return err;
 }
 
+int cli_dynamic_del_site(struct ring_entry *re, u64 site_id)
+{
+    static atomic_t progress = {.counter = 0,};
+    int err = 0;
+
+    if (atomic_inc_return(&progress) > 1) {
+        atomic_dec(&progress);
+        return -EINVAL;
+    }
+    
+    /* Step 1: snapshot the infected site now */
+    err = __cli_trigger_snapshot(site_id);
+    if (err) {
+        hvfs_err(root, "try to snapshot on %lx failed w/ %d\n",
+                 site_id, err);
+        goto out;
+    }
+
+    /* Step 2: change the ring */
+    err = cli_find_del_site(re, site_id);
+    if (err) {
+        hvfs_err(root, "find and delete %lx from the ring failed w/ %d\n",
+                 site_id, err);
+        goto out;
+    }
+
+    /* Step 3: bcast the ring */
+    err = site_mgr_traverse(&hro.site, NULL);
+    if (err) {
+        hvfs_err(root, "bcast the ring failed w/ %d\n", err);
+        goto out;
+    }
+
+out:
+    atomic_dec(&progress);
+
+    return err;
+}
+
+struct xnet_group *cli_get_active_site(struct chring *r)
+{
+    struct xnet_group *xg = NULL;
+    int i, err;
+
+    for (i = 0; i < r->used; i++) {
+        err = xnet_group_add(&xg, r->array[i].site_id);
+    }
+
+    return xg;
+}

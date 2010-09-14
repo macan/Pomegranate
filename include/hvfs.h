@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-24 23:46:09 macan>
+ * Time-stamp: <2010-09-11 13:26:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -59,13 +59,15 @@
                                                     * rely on this
                                                     * interface */
 #define HVFS_CLT2MDS_LIST       0x8400000000000000 /* for readdir use */
+#define HVFS_CLT2MDS_COMMIT     0x8800000000000000 /* trigger a memory
+                                                    * snapshot */
 
 #define HVFS_CLT2MDS_DITB       0x8000000100000000 /* dump itb */
 #define HVFS_CLT2MDS_DEBUG      (HVFS_CLT2MDS_DITB)
 /* NOTE: there is no *_LD in client, because we can use lookup instead */
 #define HVFS_CLT2MDS_NODHLOOKUP (                                       \
         (HVFS_CLT2MDS_STATFS | HVFS_CLT2MDS_RELEASE |                   \
-         HVFS_CLT2MDS_LIST) &                                           \
+         HVFS_CLT2MDS_LIST | HVFS_CLT2MDS_COMMIT) &                     \
         ~HVFS_CLT2MDS_BASE)
 #define HVFS_CLT2MDS_NOCACHE (                              \
         (HVFS_CLT2MDS_LOOKUP | HVFS_CLT2MDS_NODHLOOKUP |    \
@@ -91,6 +93,13 @@
 
 /* MDSL to MDS */
 /* RING/ROOT to MDS */
+#define HVFS_R22MDS_COMMIT      0x0000000020000001 /* trigger a snapshot */
+#define HVFS_R22MDS_PAUSE       0x0000000020000002 /* pause client/amc request
+                                                    * handling */
+#define HVFS_R22MDS_RESUME      0x0000000020000003 /* resume request
+                                                    * handling */
+#define HVFS_R22MDS_RUPDATE     0x0000000020000004 /* ring update */
+
 /* AMC to MDS */
 #define HVFS_AMC2MDS_REQ        0x0000000040000001 /* normal request */
 #define HVFS_AMC2MDS_EXT        0x0000000040000002 /* extend request */
@@ -125,6 +134,8 @@
 #define HVFS_R2_HB              0x0000000040000008 /* heart beat */
 #define HVFS_R2_LGDT            0x0000000040000010 /* load gdt dh */
 #define HVFS_R2_LBGDT           0x0000000040000011 /* load gdt bitmap */
+#define HVFS_R2_ONLINE          0x0000000040000012 /* online a site */
+#define HVFS_R2_OFFLINE         0x0000000040000014 /* offline a site */
 
 /* APIs */
 #define HASH_SEL_EH     0x00

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-21 19:33:12 macan>
+ * Time-stamp: <2010-09-14 17:46:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -84,6 +84,32 @@ int __pack_msg(struct xnet_msg *msg, void *data, int len)
     xnet_msg_add_sdata(msg, data, len);
 
     return 0;
+}
+
+static inline
+void __simply_send_reply(struct xnet_msg *msg, int err)
+{
+    struct xnet_msg *rpy = xnet_alloc_msg(XNET_MSG_CACHE);
+
+    if (!rpy) {
+        hvfs_err(root, "xnet_alloc_msg() failed\n");
+        return;
+    }
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
+    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0, hro.site_id,
+                     msg->tx.ssite_id);
+    xnet_msg_fill_reqno(rpy, msg->tx.reqno);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_DATA, 0, 0);
+    /* match the original request at the source site */
+    rpy->tx.handle = msg->tx.handle;
+
+    if (xnet_send(hro.xc, rpy)) {
+        hvfs_err(root, "xnet_isend() failed\n");
+        /* do not retry myself, client is forced to retry */
+    }
+    xnet_free_msg(rpy);
 }
 
 /* root_do_reg()
@@ -925,3 +951,94 @@ int root_do_prof(struct xnet_msg *msg)
 
     return err;
 }
+
+int root_do_online(struct xnet_msg *msg)
+{
+    struct ring_entry *re;
+    int type;
+    int err = 0;
+
+    /* ABI:
+     * tx.arg0: site_id
+     * tx.arg1: ip address
+     */
+
+    /* first, we should update the address table and bcast it to all the
+     * active sites */
+    /* FIXME: */
+
+    /* second, we update the hash ring and bcast it */
+    if (HVFS_IS_MDS(msg->tx.arg0)) {
+        type = CH_RING_MDS;
+    } else if (HVFS_IS_MDSL(msg->tx.arg1)) {
+        type = CH_RING_MDSL;
+    } else {
+        hvfs_err(root, "Invalid site (type): %ld\n", msg->tx.arg0);
+        err = -EINVAL;
+        goto out;
+    }
+    
+    re = ring_mgr_lookup(&hro.ring, type);
+    if (IS_ERR(re)) {
+        hvfs_err(root, "lookup ring %d failed\n", CH_RING_MDS);
+        goto out;
+    }
+    
+    err = cli_dynamic_add_site(re, msg->tx.arg0);
+    if (err) {
+        hvfs_err(root, "cli_dynamic_add_site() failed w/ %d\n", err);
+        goto out;
+    }
+
+    ring_mgr_put(re);
+
+out:
+    /* FIXME: send a reply? */
+    xnet_free_msg(msg);
+
+    return err;
+}
+
+int root_do_offline(struct xnet_msg *msg)
+{
+    struct ring_entry *re;
+    int type;
+    int err = 0;
+
+    /* ABI:
+     * tx.arg0: site_id
+     * tx.arg1: ip address
+     */
+
+    if (HVFS_IS_MDS(msg->tx.arg0)) {
+        type = CH_RING_MDS;
+    } else if (HVFS_IS_MDSL(msg->tx.arg1)) {
+        type = CH_RING_MDSL;
+    } else {
+        hvfs_err(root, "Invalid site (type): %ld\n", msg->tx.arg0);
+        err = -EINVAL;
+        goto out;
+    }
+
+    re = ring_mgr_lookup(&hro.ring, type);
+    if (IS_ERR(re)) {
+        hvfs_err(root, "lookup ring %d failed\n", CH_RING_MDS);
+        goto out;
+    }
+    
+    err = cli_dynamic_del_site(re, msg->tx.arg0);
+    if (err) {
+        hvfs_err(root, "ring_find_site() failed w/ %d\n", err);
+        goto out;
+    }
+
+    ring_mgr_put(re);
+    
+out:
+    /* FIXME: send a reply? */
+    __simply_send_reply(msg, err);
+    xnet_free_msg(msg);
+
+    return err;
+}
+
