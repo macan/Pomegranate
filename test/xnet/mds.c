@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-14 11:32:51 macan>
+ * Time-stamp: <2010-09-15 14:18:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -789,7 +789,7 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
             goto out;
         }
         hmo.chring[CH_RING_MDSL] = chring_tx_to_chring(ct);
-        if (!hmo.chring[CH_RING_MDS]) {
+        if (!hmo.chring[CH_RING_MDSL]) {
             hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
             goto out;
         }
@@ -954,6 +954,8 @@ void mds_cb_ring_update(void *arg)
     struct chring_tx *ct;
     void *data = arg;
     int err = 0;
+
+    hvfs_info(xnet, "R2 triggers to update the chrings ...\n");
 
     err = bparse_ring(data, &ct);
     if (err < 0) {
@@ -1120,6 +1122,7 @@ int main(int argc, char *argv[])
     } else {
         hmo.cb_exit = mds_cb_exit;
         hmo.cb_hb = mds_cb_hb;
+        hmo.cb_ring_update = mds_cb_ring_update;
         /* use ring info to init the mds */
         err = r2cli_do_reg(self, HVFS_RING(0), fsid, 0);
         if (err) {

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-07 10:09:44 macan>
+ * Time-stamp: <2010-09-15 17:29:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -250,11 +250,12 @@ int ring_topn_range(int topn, struct chring *r, struct ring_range *rr)
  * Return Value: <0 means err; =0 means not found; >0 means found and return
  * the # of found chps.
  */
-int ring_find_site(struct chring *r, u64 site_id, struct chp **p)
+int ring_find_site(struct chring *r, u64 site_id, void **data)
 {
+    struct chp **p;
     int nr = 0, i, j;
 
-    if (!p || !r)
+    if (!r || !data)
         return -EINVAL;
     
     /* first pass, check the # of the hit points */
@@ -265,15 +266,16 @@ int ring_find_site(struct chring *r, u64 site_id, struct chp **p)
     }
     if (!nr)
         return 0;
-    *p = xzalloc(nr * sizeof(struct chp *));
-    if (!*p) {
+    *data = xzalloc(nr * sizeof(struct chp *));
+    if (!*data) {
         hvfs_err(lib, "xzalloc() chp failed\n");
         return -ENOMEM;
     }
 
+    p = (struct chp **)(*data);
     for (i = 0, j = 0; i < r->used; i++) {
         if (r->array[i].site_id == site_id) {
-            *(struct chp **)(*p + j) = &r->array[i];
+            *(p + j) = &r->array[i];
             j++;
         }
     }
@@ -290,7 +292,8 @@ void ring_dump(struct chring *r)
     hvfs_debug(lib, "Ring %d with %d(%d) entries:\n", r->group, 
                r->used, r->alloc);
     for (i = 0; i < r->used; i++) {
-        hvfs_debug(lib, "%16d: %50lu\n", i, r->array[i].point);
+        hvfs_debug(lib, "%16d: %20lu %20lu\n", i, r->array[i].point,
+                   r->array[i].site_id);
     }
 }
 
@@ -362,7 +365,8 @@ int main(int argc, char *argv[])
 
     {
         struct ring_range rr[100] = {0,};
-        struct chp p, *p2;
+        struct chp p, *p3;
+        void *p2;
         int nr = 10, err = 0;
         
         ring_topn_range(nr, r, rr);
@@ -394,12 +398,12 @@ int main(int argc, char *argv[])
         }
         
         hvfs_info(lib, "Del the point now ...\n");
-        p2 = ring_get_point2(rr[0].start + 1, r);
-        if (IS_ERR(p2)) {
+        p3 = ring_get_point2(rr[0].start + 1, r);
+        if (IS_ERR(p3)) {
             hvfs_err(lib, "ring_get_point2() failed w/ %ld\n",
-                     PTR_ERR(p2));
+                     PTR_ERR(p3));
         } else {
-            err = ring_del_point(p2, r);
+            err = ring_del_point(p3, r);
             if (err) {
                 hvfs_err(lib, "ring_del_point() failed w/ %d\n",
                          err);

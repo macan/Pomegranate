@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-18 19:54:08 macan>
+ * Time-stamp: <2010-09-15 11:28:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2107,12 +2107,63 @@ void client_cb_exit(void *arg)
     }
 }
 
+void client_cb_ring_update(void *arg)
+{
+    struct chring_tx *ct;
+    void *data = arg;
+    int err = 0;
+
+    hvfs_info(xnet, "Update the chrings ...\n");
+    
+    err = bparse_ring(data, &ct);
+    if (err < 0) {
+        hvfs_err(xnet, "bparse_ring failed w/ %d\n", err);
+        goto out;
+    }
+    hmo.chring[CH_RING_MDS] = chring_tx_to_chring(ct);
+    if (!hmo.chring[CH_RING_MDS]) {
+        hvfs_err(xnet, "chring_tx 2 chring failed w/ %d\n", err);
+        goto out;
+    }
+    data += err;
+    err = bparse_ring(data, &ct);
+    if (err < 0) {
+        hvfs_err(xnet, "bparse_ring failed w/ %d\n", err);
+        goto out;
+    }
+    hmo.chring[CH_RING_MDSL] = chring_tx_to_chring(ct);
+    if (!hmo.chring[CH_RING_MDSL]) {
+        hvfs_err(xnet, "chring_tx 2 chring failed w/ %d\n", err);
+        goto out;
+    }
+out:
+    return;
+}
+
+int client_dispatch(struct xnet_msg *msg)
+{
+    int err = 0;
+
+    switch (msg->tx.cmd) {
+    case HVFS_FR2_RU:
+        err = mds_ring_update(msg);
+        break;
+    default:
+        hvfs_err(xnet, "Client core dispatcher handle INVALID "
+                 "request <0x%lx %d>\n",
+                 msg->tx.ssite_id, msg->tx.reqno);
+        err = -EINVAL;
+    }
+
+    return err;
+}
+
 int main(int argc, char *argv[])
 {
     struct xnet_type_ops ops = {
         .buf_alloc = NULL,
         .buf_free = NULL,
-        .recv_handler = NULL,
+        .recv_handler = client_dispatch,
     };
     int err = 0;
     int self, sport, i, j, thread, mode;
@@ -2245,6 +2296,7 @@ int main(int argc, char *argv[])
         bitmap_insert(0, 0);
     } else {
         hmo.cb_exit = client_cb_exit;
+        hmo.cb_ring_update = client_cb_ring_update;
         /* use ring info to init the mds */
         err = r2cli_do_reg(self, HVFS_RING(0), 0, 0);
         if (err) {

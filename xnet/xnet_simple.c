@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-10 10:37:09 macan>
+ * Time-stamp: <2010-09-15 14:00:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1854,8 +1854,8 @@ reselect_conn:
             if (errno == EINTR)
                 goto rewait;
             else if (errno == ETIMEDOUT) {
-                hvfs_err(xnet, "time out for %d seconds.\n",
-                         g_xnet_conf.send_timeout);
+                hvfs_err(xnet, "Send to %lx time out for %d seconds.\n",
+                         msg->tx.dsite_id, g_xnet_conf.send_timeout);
                 err = -ETIMEDOUT;
             } else
                 hvfs_err(xnet, "sem_wait() failed %d\n", errno);

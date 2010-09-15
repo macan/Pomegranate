@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-14 17:46:00 macan>
+ * Time-stamp: <2010-09-15 23:04:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -994,6 +994,7 @@ int root_do_online(struct xnet_msg *msg)
 
 out:
     /* FIXME: send a reply? */
+    __simply_send_reply(msg, err);
     xnet_free_msg(msg);
 
     return err;

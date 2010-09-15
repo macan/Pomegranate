@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-14 10:42:37 macan>
+ * Time-stamp: <2010-09-15 22:58:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -232,7 +232,31 @@ int mds_pause(struct xnet_msg *msg)
 
 int mds_resume(struct xnet_msg *msg)
 {
+    struct xnet_msg *rpy;
+    
     hmo.reqin_drop = 0;
+
+    rpy = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!rpy) {
+        hvfs_err(mds, "xnet_alloc_msg() failed\n");
+        goto out;
+    }
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
+    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0, hmo.site_id,
+                     msg->tx.ssite_id);
+    xnet_msg_fill_reqno(rpy, msg->tx.reqno);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, 0, 0);
+    /* match the original request at the source site */
+    rpy->tx.handle = msg->tx.handle;
+
+    if (xnet_send(hmo.xc, rpy)) {
+        hvfs_err(mds, "xnet_send() failed\n");
+        /* do not retry myself */
+    }
+    xnet_free_msg(rpy);
+out:    
     xnet_free_msg(msg);
 
     return 0;

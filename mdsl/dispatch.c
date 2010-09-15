@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-06 16:59:27 macan>
+ * Time-stamp: <2010-09-15 09:53:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -78,18 +78,27 @@ int mdsl_client_dispatch(struct xnet_msg *msg)
 static
 int mdsl_mdsl_dispatch(struct xnet_msg *msg)
 {
+    xnet_free_msg(msg);
     return 0;
 }
 
 static
 int mdsl_ring_dispatch(struct xnet_msg *msg)
 {
+    if (msg->tx.cmd == HVFS_FR2_RU) {
+        /* do nothing */
+    }
+    xnet_free_msg(msg);
     return 0;
 }
 
 static
 int mdsl_root_dispatch(struct xnet_msg *msg)
 {
+    if (msg->tx.cmd == HVFS_FR2_RU) {
+        /* do nothing */
+    }
+    xnet_free_msg(msg);
     return 0;
 }
 

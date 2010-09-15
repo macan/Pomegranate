@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-11 12:36:03 macan>
+ * Time-stamp: <2010-09-15 09:46:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -123,7 +123,8 @@ struct site_entry *site_mgr_lookup(struct site_mgr *sm, u64 site_id)
     }
 }
 
-int site_mgr_traverse(struct site_mgr *sm, site_mgr_trav_callback_t callback)
+int site_mgr_traverse(struct site_mgr *sm, site_mgr_trav_callback_t callback, 
+                      void *args)
 {
     struct site_entry *pos;
     struct hlist_node *n;
@@ -135,8 +136,14 @@ int site_mgr_traverse(struct site_mgr *sm, site_mgr_trav_callback_t callback)
         xlock_lock(&rh->lock);
         hlist_for_each_entry(pos, n, &rh->h, hlist) {
             hvfs_info(root, "Hit site %lx\n", pos->site_id);
-            if (callback)
-                callback((void *)pos->site_id);
+            if (callback) {
+                if (!args)
+                    callback((void *)pos->site_id);
+                else {
+                    *(u64 *)args = pos->site_id;
+                    callback(args);
+                }
+            }
         }
         xlock_unlock(&rh->lock);
     }

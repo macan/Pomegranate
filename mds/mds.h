@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-14 11:34:00 macan>
+ * Time-stamp: <2010-09-15 23:20:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -487,6 +487,7 @@ int itb_split_local(struct itb *, int, struct itb_lock *, struct hvfs_txg *);
 /* bitmapc.c */
 int mds_bitmap_cache_init(void);
 void mds_bitmap_cache_destroy(void);
+int mds_bc_backend_commit(void);
 
 /* ddc.c */
 int txg_ddc_update_cbht(struct dir_delta_au *);

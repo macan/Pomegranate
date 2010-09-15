@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-14 10:43:36 macan>
+ * Time-stamp: <2010-09-15 11:16:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -156,9 +156,11 @@ int mds_ring_dispatch(struct xnet_msg *msg)
         mds_resume(msg);
     } else if (msg->tx.cmd == HVFS_R22MDS_COMMIT) {
         mds_snapshot_fr2(msg);
-    } else if (msg->tx.cmd == HVFS_R22MDS_RUPDATE) {
+    } else if (msg->tx.cmd == HVFS_FR2_RU) {
         mds_ring_update(msg);
     } else {
+        hvfs_err(mds, "Invalid request %d from R2 %lx.\n",
+                 msg->tx.reqno, msg->tx.ssite_id);
         xnet_free_msg(msg);
     }
     
@@ -175,9 +177,11 @@ int mds_root_dispatch(struct xnet_msg *msg)
         mds_resume(msg);
     } else if (msg->tx.cmd == HVFS_R22MDS_COMMIT) {
         mds_snapshot_fr2(msg);
-    } else if (msg->tx.cmd == HVFS_R22MDS_RUPDATE) {
+    } else if (msg->tx.cmd == HVFS_FR2_RU) {
         mds_ring_update(msg);
     } else {
+        hvfs_err(mds, "Invalid request %d from R2 %lx.\n",
+                 msg->tx.reqno, msg->tx.ssite_id);
         xnet_free_msg(msg);
     }
 

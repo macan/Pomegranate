@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-14 11:35:29 macan>
+ * Time-stamp: <2010-09-15 23:24:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -214,6 +214,7 @@ void txg_change_immediately(void)
     struct hvfs_txg *old = hmo.txg[TXG_OPEN];
     u64 old_txg = old->txg;
     u32 old_ti = hmo.conf.txg_interval;
+    int err;
     u8 old_dati = hmo.conf.dati;
     
     /* if the current opened txg is clean, just return */
@@ -241,6 +242,12 @@ void txg_change_immediately(void)
     /* restore the state now */
     hmo.conf.txg_interval = old_ti;
     hmo.conf.dati = old_dati;
+
+    /* try to commit the bitmap cache */
+    err = mds_bc_backend_commit();
+    if (err) {
+        hvfs_err(mds, "mds_bc_backend_commit() failed w/ %d\n", err);
+    }
 }
 
 void mds_snapshot_fr2(struct xnet_msg *msg)

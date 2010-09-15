@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-08 00:34:20 macan>
+ * Time-stamp: <2010-09-15 14:01:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -444,8 +444,8 @@ void mds_dh_gossip(struct dh *dh)
     }
     if (j >= stop) {
         /* ok, we find the dhe, we just send all the bitmap slices for now */
-        hvfs_err(mds, "selected the dhe %ld to gossip (%d/%d)\n", 
-                 e->uuid, stop, atomic_read(&dh->asize));
+        hvfs_debug(mds, "selected the dhe %ld to gossip (%d/%d)\n", 
+                   e->uuid, stop, atomic_read(&dh->asize));
         list_for_each_entry(b, &e->bitmap, list) {
             __dh_gossip_bitmap(b, e->uuid);
         }

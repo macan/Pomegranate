@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-14 16:56:20 macan>
+ * Time-stamp: <2010-09-15 22:40:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -624,6 +624,39 @@ void amc_cb_exit(void *arg)
     }
 }
 
+void amc_cb_ring_update(void *arg)
+{
+    struct chring_tx *ct;
+    void *data = arg;
+    int err = 0;
+
+    hvfs_info(xnet, "Update the chrings ...\n");
+    
+    err = bparse_ring(data, &ct);
+    if (err < 0) {
+        hvfs_err(xnet, "bparse_ring failed w/ %d\n", err);
+        goto out;
+    }
+    hmo.chring[CH_RING_MDS] = chring_tx_to_chring(ct);
+    if (!hmo.chring[CH_RING_MDS]) {
+        hvfs_err(xnet, "chring_tx 2 chring failed w/ %d\n", err);
+        goto out;
+    }
+    data += err;
+    err = bparse_ring(data, &ct);
+    if (err < 0) {
+        hvfs_err(xnet, "bparse_ring failed w/ %d\n", err);
+        goto out;
+    }
+    hmo.chring[CH_RING_MDSL] = chring_tx_to_chring(ct);
+    if (!hmo.chring[CH_RING_MDSL]) {
+        hvfs_err(xnet, "chring_tx 2 chring failed w/ %d\n", err);
+        goto out;
+    }
+out:
+    return;
+}
+
 int hvfs_lookup_root(void)
 {
     struct xnet_msg *msg;
@@ -773,12 +806,31 @@ out:
     return err;
 }
 
+int amc_dispatch(struct xnet_msg *msg)
+{
+    int err = 0;
+
+    switch (msg->tx.cmd) {
+    case HVFS_FR2_RU:
+        err = mds_ring_update(msg);
+        break;
+    default:
+        hvfs_err(xnet, "AMC core dispatcher handle INVALID "
+                 "request <0x%lx %d>\n",
+                 msg->tx.ssite_id, msg->tx.reqno);
+        err = -EINVAL;
+    }
+
+    return err;
+
+}
+
 int __core_main(int argc, char *argv[])
 {
     struct xnet_type_ops ops = {
         .buf_alloc = NULL,
         .buf_free = NULL,
-        .recv_handler = NULL,
+        .recv_handler = amc_dispatch,
     };
     int err = 0;
     int self = -1, sport = -1;
@@ -877,6 +929,7 @@ int __core_main(int argc, char *argv[])
     hmo.site_id = self;
 
     hmo.cb_exit = amc_cb_exit;
+    hmo.cb_ring_update = amc_cb_ring_update;
     err = r2cli_do_reg(self, HVFS_RING(0), 1, 0);
     if (err) {
         hvfs_err(xnet, "ref self %x w/ r2 %x failed w/ %d\n",
@@ -2067,7 +2120,7 @@ char *hvfs_active_site(char *type)
         p = err;
         for (i = 0; i < xg->asize; i++) {
             p += snprintf(p, 63, "%ld ", xg->sites[i].site_id);
-            hvfs_info(xnet, "Site %ld => %ld\n", xg->sites[i].site_id - base,
+            hvfs_info(xnet, "Site %ld => %lx\n", xg->sites[i].site_id - base,
                       xg->sites[i].site_id);
         }
     }
@@ -2079,7 +2132,52 @@ out:
 
 int hvfs_online(char *type, int id, char *ip)
 {
+    struct xnet_msg *msg;
+    u64 site_id;
     int err = 0;
+
+    if (strncmp(type, "mdsl", 4) == 0) {
+        site_id = HVFS_MDSL(id);
+    } else if (strncmp(type, "mds", 3) == 0) {
+        site_id = HVFS_MDS(id);
+    } else {
+        hvfs_err(xnet, "Invalid site type '%s'\n", type);
+        err = -EINVAL;
+        goto out;
+    }
+
+    if (id < 0) {
+        hvfs_err(xnet, "Invalid id %d\n", id);
+        err = -EINVAL;
+        goto out;
+    }
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, HVFS_ROOT(0));
+    /* arg1: ip address */
+    xnet_msg_fill_cmd(msg, HVFS_R2_ONLINE, site_id, inet_addr(ip));
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    xnet_set_auto_free(msg->pair);
+
+out_msg:
+    xnet_free_msg(msg);
+out:
 
     return err;
 }
