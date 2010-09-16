@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-15 23:20:39 macan>
+ * Time-stamp: <2010-09-16 10:55:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -276,6 +276,8 @@ int mds_cbht_insert_bbrlocked(struct eh *, struct itb *,
 int mds_cbht_exist_check(struct eh *, u64, u64);
 #define HVFS_MDS_OP_EVICT       0 /* evict the ITB to MDSL if it is clean */
 #define HVFS_MDS_OP_CLEAN       1 /* empty ITB to clean to MDSL */
+#define HVFS_MDS_OP_EVICT_ALL   2 /* evict all the ITBs to MDSL if it is
+                                   * clean */
 #define HVFS_MDS_MAX_OPS        3
 void mds_cbht_scan(struct eh *, int);
 
@@ -383,6 +385,7 @@ u64 mds_get_itbid(struct dhe *, u64);
 int mds_dh_bitmap_update(struct dh *, u64, u64, u8);
 void mds_dh_bitmap_dump(struct dh *, u64);
 void mds_dh_gossip(struct dh *);
+void mds_dh_evict(struct dh *);
 
 /* for c2m.c, client 2 mds APIs */
 void mds_statfs(struct hvfs_tx *);
@@ -488,6 +491,7 @@ int itb_split_local(struct itb *, int, struct itb_lock *, struct hvfs_txg *);
 int mds_bitmap_cache_init(void);
 void mds_bitmap_cache_destroy(void);
 int mds_bc_backend_commit(void);
+void mds_bitmap_cache_evict(void);
 
 /* ddc.c */
 int txg_ddc_update_cbht(struct dir_delta_au *);

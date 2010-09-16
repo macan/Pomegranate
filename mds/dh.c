@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-15 14:01:07 macan>
+ * Time-stamp: <2010-09-16 12:53:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,6 +57,32 @@ void mds_dh_destroy(struct dh *dh)
 {
     if (dh->ht)
         xfree(dh->ht);
+}
+
+void mds_dh_evict(struct dh *dh)
+{
+    struct regular_hash *rh;
+    struct itbitmap *b, *m;
+    struct dhe *tpos;
+    struct hlist_node *pos, *n;
+    int i;
+
+    for (i = 0; i < dh->hsize; i++) {
+        rh = dh->ht + i;
+        xlock_lock(&rh->lock);
+        hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {
+            if (tpos->uuid == hmi.gdt_uuid)
+                continue;
+            hlist_del_init(&tpos->hlist);
+            /* we should iterate the bitmap list and release all the
+             * bitmap slices */
+            list_for_each_entry_safe(b, m, &tpos->bitmap, list) {
+                xfree(b);
+            }
+            xfree(tpos);
+        }
+        xlock_unlock(&rh->lock);
+    }
 }
 
 /* mds_dh_hash()

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-17 22:26:21 macan>
+ * Time-stamp: <2010-09-16 15:11:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -731,7 +731,14 @@ void __cbht mds_cbht_scan(struct eh *eh, int op)
 
     if (op >= HVFS_MDS_MAX_OPS)
         return;
-    
+    if (op == HVFS_MDS_OP_EVICT_ALL) {
+        seg_offsets[op] = 0;
+        bucket_offsets[op] = 0;
+    }
+
+keepon:
+    b = NULL;
+    found = 0;
     xrwlock_wlock(&eh->lock);
     list_for_each_entry(s, &eh->dir, list) {
         if (s->offset <= seg_offsets[op] && 
@@ -782,6 +789,10 @@ void __cbht mds_cbht_scan(struct eh *eh, int op)
                         if (eh->ops->clean)
                             eh->ops->clean(b, be, ih);
                         break;
+                    case HVFS_MDS_OP_EVICT_ALL:
+                        if (eh->ops->evict_all)
+                            eh->ops->evict_all(b, be, ih);
+                        break;
                     default:;
                     }
                 }
@@ -792,6 +803,11 @@ void __cbht mds_cbht_scan(struct eh *eh, int op)
         xrwlock_wunlock(&b->lock);
     }
     xrwlock_wunlock(&eh->lock);
+
+    if (op == HVFS_MDS_OP_EVICT_ALL) {
+        if (seg_offsets[op] != 0 || bucket_offsets[op] != 0)
+            goto keepon;
+    }
 }
 
 /* CBHT dir search

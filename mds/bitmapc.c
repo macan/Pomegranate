@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-04 17:54:42 macan>
+ * Time-stamp: <2010-09-16 10:56:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -100,6 +100,32 @@ void mds_bc_lru_del(struct bc_entry *be)
     xlock_lock(&hmo.bc.lock);
     list_del_init(&be->list);
     xlock_unlock(&hmo.bc.lock);
+}
+
+void mds_bitmap_cache_evict(void)
+{
+    struct regular_hash *rh;
+    struct bc_entry *tpos;
+    struct hlist_node *pos, *n;
+    int err, i;
+
+    /* Step 1: commit the cached bitmaps */
+    err = mds_bc_backend_commit();
+    if (err) {
+        hvfs_err(mds, "mds_bc_backend_commit() failed w/ %d\n", err);
+    }
+
+    /* Step 2: free the whole cache */
+    for (i = 0; i < hmo.bc.hsize; i++) {
+        rh = hmo.bc.bcht + i;
+        xlock_lock(&rh->lock);
+        hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {
+            hlist_del_init(&tpos->hlist);
+            mds_bc_lru_del(tpos);
+            xfree(tpos);
+        }
+        xlock_unlock(&rh->lock);
+    }
 }
 
 /* mds_bc_gc() clean the lru list and shrink the cache size

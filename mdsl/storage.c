@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-04 12:46:16 macan>
+ * Time-stamp: <2010-09-16 11:57:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1268,7 +1268,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
      */
 
     /* make sure the duuid dir exist */
-    sprintf(path, "%s/%ld/%ld", HVFS_MDSL_HOME, hmo.site_id, fde->uuid);
+    sprintf(path, "%s/%lx/%lx", HVFS_MDSL_HOME, hmo.site_id, fde->uuid);
     err = mdsl_storage_dir_make_exist(path);
     if (err) {
         hvfs_err(mdsl, "duuid dir %s do not exist %d.\n", path, err);
@@ -1279,7 +1279,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
 
     switch (fde->type) {
     case MDSL_STORAGE_MD:
-        sprintf(path, "%s/%ld/%ld/md", HVFS_MDSL_HOME, hmo.site_id, fde->uuid);
+        sprintf(path, "%s/%lx/%lx/md", HVFS_MDSL_HOME, hmo.site_id, fde->uuid);
         err = mdsl_storage_fd_mdisk(fde, path);
         if (err) {
             hvfs_err(mdsl, "change state to open failed w/ %d\n", err);
@@ -1287,7 +1287,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         }
         break;
     case MDSL_STORAGE_ITB:
-        sprintf(path, "%s/%ld/%ld/itb-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+        sprintf(path, "%s/%lx/%lx/itb-%ld", HVFS_MDSL_HOME, hmo.site_id, 
                 fde->uuid, fde->arg);
         err = append_buf_create(fde, path, FDE_ABUF);
         if (err) {
@@ -1296,7 +1296,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         }
         break;
     case MDSL_STORAGE_ITB_ODIRECT:
-        sprintf(path, "%s/%ld/%ld/itb-%ld", HVFS_MDSL_HOME, hmo.site_id,
+        sprintf(path, "%s/%lx/%lx/itb-%ld", HVFS_MDSL_HOME, hmo.site_id,
                 fde->uuid, fde->arg);
         err = odirect_create(fde, path, FDE_ODIRECT);
         if (err) {
@@ -1308,7 +1308,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
     {
         struct mmap_args *ma = (struct mmap_args *)fde->arg;
         
-        sprintf(path, "%s/%ld/%ld/range-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+        sprintf(path, "%s/%lx/%lx/range-%ld", HVFS_MDSL_HOME, hmo.site_id, 
                 fde->uuid, ma->range_id);
         err = mdsl_storage_fd_mmap(fde, path, ma);
         if (err) {
@@ -1318,7 +1318,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         break;
     }
     case MDSL_STORAGE_DATA:
-        sprintf(path, "%s/%ld/%ld/data-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+        sprintf(path, "%s/%lx/%lx/data-%ld", HVFS_MDSL_HOME, hmo.site_id, 
                 fde->uuid, fde->arg);
         err = append_buf_create(fde, path, FDE_ABUF);
         if (err) {
@@ -1329,7 +1329,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         posix_fadvise(fde->fd, 0, 0, POSIX_FADV_RANDOM);
         break;
     case MDSL_STORAGE_BITMAP:
-        sprintf(path, "%s/%ld/%ld/data-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+        sprintf(path, "%s/%lx/%lx/data-%ld", HVFS_MDSL_HOME, hmo.site_id, 
                 fde->uuid, fde->arg);
         err = mdsl_storage_fd_bitmap(fde, path);
         if (err) {
@@ -1338,20 +1338,20 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         }
         break;
     case MDSL_STORAGE_DIRECTW:
-        sprintf(path, "%s/%ld/%ld/directw", HVFS_MDSL_HOME, hmo.site_id, 
+        sprintf(path, "%s/%lx/%lx/directw", HVFS_MDSL_HOME, hmo.site_id, 
                 fde->uuid);
         break;
     case MDSL_STORAGE_LOG:
-        sprintf(path, "%s/%ld/log", HVFS_MDSL_HOME, hmo.site_id);
+        sprintf(path, "%s/%lx/log", HVFS_MDSL_HOME, hmo.site_id);
         break;
     case MDSL_STORAGE_SPLIT_LOG:
-        sprintf(path, "%s/%ld/split_log", HVFS_MDSL_HOME, hmo.site_id);
+        sprintf(path, "%s/%lx/split_log", HVFS_MDSL_HOME, hmo.site_id);
         break;
     case MDSL_STORAGE_TXG:
-        sprintf(path, "%s/%ld/txg", HVFS_MDSL_HOME, hmo.site_id);
+        sprintf(path, "%s/%lx/txg", HVFS_MDSL_HOME, hmo.site_id);
         break;
     case MDSL_STORAGE_TMP_TXG:
-        sprintf(path, "%s/%ld/tmp_txg", HVFS_MDSL_HOME, hmo.site_id);
+        sprintf(path, "%s/%lx/tmp_txg", HVFS_MDSL_HOME, hmo.site_id);
         break;
     default:
         hvfs_err(mdsl, "Invalid file type provided, check your codes.\n");
