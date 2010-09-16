@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-15 22:58:42 macan>
+ * Time-stamp: <2010-09-16 20:59:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -413,8 +413,8 @@ int mds_fe_dispatch(struct xnet_msg *msg)
     } else if (HVFS_IS_RING(msg->tx.ssite_id)) {
         if (msg->tx.cmd & HVFS_CLT2MDS_BASE ||
             msg->tx.cmd == HVFS_CLT2MDS_LB_PROXY) {
-            hvfs_info(mds, "Request %lx from %lx proxy to client "
-                      "processing.\n", msg->tx.cmd, msg->tx.ssite_id);
+            hvfs_debug(mds, "Request %lx from %lx proxy to client "
+                       "processing.\n", msg->tx.cmd, msg->tx.ssite_id);
             goto client_proxy;
         }
         return mds_ring_dispatch(msg);
@@ -427,8 +427,8 @@ int mds_fe_dispatch(struct xnet_msg *msg)
                      msg->tx.cmd == HVFS_CLT2MDS_LIST ||
                      msg->tx.cmd == HVFS_CLT2MDS_LB_PROXY ||
                      msg->tx.cmd == HVFS_CLT2MDS_UNLINK)) {
-            hvfs_info(mds, "Request %lx from %lx proxy to client "
-                      "processing.\n", msg->tx.cmd, msg->tx.ssite_id);
+            hvfs_debug(mds, "Request %lx from %lx proxy to client "
+                       "processing.\n", msg->tx.cmd, msg->tx.ssite_id);
             goto client_proxy;
         }
         return mds_amc_dispatch(msg);

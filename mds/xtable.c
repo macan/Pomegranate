@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-07 23:03:38 macan>
+ * Time-stamp: <2010-09-16 17:54:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -327,7 +327,7 @@ void mds_bitmap_refresh_all(u64 duuid)
         err = PTR_ERR(e);
         return;
     }
-    hvfs_info(mds, "refresh uuid %ld bitmaps\n", duuid);
+    hvfs_info(mds, "refresh uuid %lx salt %ld bitmaps\n", duuid, e->salt);
 
     do {
         offset = BITMAP_ROUNDDOWN(offset);

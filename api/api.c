@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-15 22:40:01 macan>
+ * Time-stamp: <2010-09-16 21:05:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -134,6 +134,9 @@ int get_send_msg_create_gdt(int dsite, struct hvfs_index *oi, void *data)
     hi->namelen = 0;
     hi->flag = INDEX_CREATE | INDEX_CREATE_COPY | INDEX_BY_UUID |
         INDEX_CREATE_GDT;
+    if (oi->flag & INDEX_CREATE_KV) {
+        hi->flag |= INDEX_CREATE_KV;
+    }
 
     memcpy((void *)hi + sizeof(struct hvfs_index),
            data, HVFS_MDU_SIZE);
@@ -895,6 +898,8 @@ int __core_main(int argc, char *argv[])
         return EINVAL;
     }
 
+    hvfs_info(xnet, "AMC Self id %d port %d\n", self, sport);
+
     /* it is ok to init the MDS core function now */
     st_init();
     lib_init();
@@ -1108,6 +1113,7 @@ resend:
         hi->uuid = rhi->uuid;
         hi->hash = hvfs_hash(hi->uuid, hmi.gdt_salt, 0, HASH_SEL_GDT);
         hi->itbid = mds_get_itbid(e, hi->hash);
+        hi->flag = INDEX_CREATE_KV;
 
         /* find the GDT service MDS */
         p = ring_get_point(hi->itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
@@ -1123,7 +1129,7 @@ resend:
         m->puuid = rhi->puuid;
         m->salt = m->mdu.dev;
         m->psalt = rhi->psalt;
-        
+
         err = get_send_msg_create_gdt(p->site_id, hi, m);
         if (err) {
             hvfs_err(xnet, "create table GDT entry failed w/ %d\n",
@@ -1525,6 +1531,12 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
+    } else if (msg->pair->tx.err == -EHWAIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        sleep(1);
+        goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "CREATE failed @ MDS site %lx w/ %d\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
@@ -1924,7 +1936,8 @@ int __hvfs_list(u64 duuid, int op, struct list_result *lr)
                     itbid++;
                     continue;
                 }
-                hvfs_err(mds, "list root failed w/ %d\n",
+                hvfs_err(mds, "list table %lx slice %ld failed w/ %d\n", 
+                         duuid, itbid,
                          msg->pair->tx.err);
                 err = msg->pair->tx.err;
                 xnet_free_msg(msg);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-21 22:53:05 macan>
+ * Time-stamp: <2010-09-16 17:33:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -505,6 +505,7 @@ int main(int argc, char *argv[])
         }
     }
 
+    SET_TRACING_FLAG(mdsl, HVFS_DEBUG);
     msg_wait();
 
     mdsl_destroy();

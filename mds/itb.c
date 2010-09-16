@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-04 18:27:15 macan>
+ * Time-stamp: <2010-09-16 20:52:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -89,10 +89,10 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
     /* ok, we get the reply: ITB.len is the length */
     ASSERT(msg->pair, mds);
     if (msg->pair->tx.err) {
-        hvfs_err(mds, "MDSL %lx respond %d w/ uuid %ld ITB %ld "
+        hvfs_err(mds, "MDSL %lx respond %d w/ uuid %lx salt %ld ITB %ld "
                  "read request.\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err, 
-                 puuid, itbid);
+                 puuid, psalt, itbid);
         i = ERR_PTR(msg->pair->tx.err);
     } else {
         struct hvfs_txg *t;
@@ -648,7 +648,11 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
         /* hi->data is MDU */
         if (hi->flag & INDEX_CREATE_GDT) {
             memcpy(&e->g, hi->data, HVFS_MDU_SIZE);
-            e->g.salt = lib_random(0xfffffff);
+            if (unlikely(hi->flag & INDEX_CREATE_KV)) {
+                e->g.salt = e->g.mdu.dev;
+            } else {
+                e->g.salt = lib_random(0xfffffff);
+            }
         } else 
             memcpy(&e->s.mdu, hi->data, sizeof(struct mdu));
     } else if (unlikely(hi->flag & INDEX_CREATE_LINK)) {

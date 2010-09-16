@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-08 19:16:34 macan>
+ * Time-stamp: <2010-09-16 21:23:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -104,8 +104,8 @@ int xtable_put(struct amc_index *ai, struct iovec **iov, int *nr)
 
     /* then, parse the hmr to value */
     if (err) {
-        hvfs_err(mds, "mds_cbht_search() for KV put K:%lx failed w/ %d\n",
-                 hi->hash, err);
+        hvfs_debug(mds, "mds_cbht_search() for KV put K:%lx failed w/ %d\n",
+                   hi->hash, err);
         goto out;
     }
     
@@ -169,8 +169,8 @@ int xtable_get(struct amc_index *ai, struct iovec **iov, int *nr)
 
     /* then, parse the hmr to value */
     if (err) {
-        hvfs_err(mds, "mds_cbht_search() for KV get K:%lx failed w/ %d\n",
-                 hi->hash, err);
+        hvfs_debug(mds, "mds_cbht_search() for KV get K:%lx failed w/ %d\n",
+                   hi->hash, err);
         goto out;
     }
 
@@ -229,8 +229,8 @@ int xtable_del(struct amc_index *ai, struct iovec **iov, int *nr)
 
     /* then, parse the hmr and return the result */
     if (err) {
-        hvfs_err(mds, "mds_cbht_search() for KV del K:%lx failed w/ %d\n",
-                 hi->hash, err);
+        hvfs_debug(mds, "mds_cbht_search() for KV del K:%lx failed w/ %d\n",
+                   hi->hash, err);
         goto out;
     }
 
@@ -288,8 +288,8 @@ int xtable_update(struct amc_index *ai, struct iovec **iov, int *nr)
     txg_put(txg);
 
     if (err) {
-        hvfs_err(mds, "mds_cbht_search() for KV update K:%lx failed w/ %d\n",
-                 hi->hash, err);
+        hvfs_debug(mds, "mds_cbht_search() for KV update K:%lx failed w/ %d\n",
+                   hi->hash, err);
         goto out;
     }
 

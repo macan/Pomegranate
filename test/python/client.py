@@ -77,6 +77,7 @@ def main(argv):
 
     thread = 1
     id = 0
+    port = 9001
     ring = None
 
     try:
@@ -97,9 +98,10 @@ def main(argv):
     print "AMC Client %d Running w/ (%d threads)..." % (id, thread)
 
     # init the AMC client
-    CSTR_ARRAY = c_char_p * 5
-    argv = CSTR_ARRAY("pyAMC", "-d", "0", "-r", "10.10.111.9")
-    err = api.__core_main(5, argv)
+    CSTR_ARRAY = c_char_p * 7
+    argv = CSTR_ARRAY("pyAMC", "-d", str(id), "-r", "10.10.111.9", "-p", 
+                      str(port + id))
+    err = api.__core_main(7, argv)
     if err != 0:
         print "api.__core_main() failed w/ %d" % err
         return
