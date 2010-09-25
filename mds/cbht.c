@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-16 15:11:25 macan>
+ * Time-stamp: <2010-09-21 14:32:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -347,7 +347,7 @@ retry:
     atomic_inc(&ob->depth);
     atomic_set(&nb->depth, atomic_read(&ob->depth));
     /* set bucket id */
-    nb->id = ob->id | (1 << (atomic_read(&nb->depth) - 1));
+    nb->id = ob->id | (1UL << (atomic_read(&nb->depth) - 1));
 
     /* move ITBs */
     obe = ob->content;
@@ -447,6 +447,10 @@ int mds_cbht_init(struct eh *eh, int bdepth)
     /* do not move this region! */
     /* REGION BEGIN */
     eh->dir_depth = 0;
+    if (bdepth > 31) {
+        hvfs_err(mds, "Hey, CBHT can NOT handle bucket depth exceeding 31!\n");
+        return -EINVAL;
+    }
     eh->bucket_depth = bdepth;
     /* REGION END */
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-04 11:35:40 macan>
+ * Time-stamp: <2010-09-25 10:22:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -119,6 +119,14 @@ struct bmmap                    /* mmap of bitmap */
     size_t len;
     loff_t file_offset;
     xlock_t lock;
+};
+
+/* the header of each bitmap slice */
+struct bmslice_disk
+{
+    size_t len;
+    loff_t file_offset;
+    u64 nr;                     /* # of bitmap slices */
 };
 
 struct fdhash_entry
@@ -363,9 +371,9 @@ void toe_wait(struct txg_open_entry *, int);
 
 #define MDSL_STORAGE_RANGE_SHIFT        20
 #define MDSL_STORAGE_DEFAULT_RANGE_SIZE             \
-    (1 << (3 + MDSL_STORAGE_RANGE_SHIFT)) /* 8MB */
+    (1UL << (3 + MDSL_STORAGE_RANGE_SHIFT)) /* 8MB */
 #define MDSL_STORAGE_idx2range(idx)     (idx >> MDSL_STORAGE_RANGE_SHIFT)
-#define MDSL_STORAGE_RANGE_SLOTS        (1 << MDSL_STORAGE_RANGE_SHIFT)
+#define MDSL_STORAGE_RANGE_SLOTS        (1UL << MDSL_STORAGE_RANGE_SHIFT)
 
 int mdsl_storage_init(void);
 void mdsl_storage_destroy(void);

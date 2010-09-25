@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-16 17:54:12 macan>
+ * Time-stamp: <2010-09-21 17:12:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -93,7 +93,7 @@ int itb_split_local(struct itb *oi, int odepth, struct itb_lock *l,
 retry:
     oi->h.depth++;
     (ni)->h.depth = oi->h.depth;
-    (ni)->h.itbid = oi->h.itbid | (1 << (oi->h.depth - 1));
+    (ni)->h.itbid = oi->h.itbid | (1UL << (oi->h.depth - 1));
     (ni)->h.puuid = oi->h.puuid;
 
     ASSERT(list_empty(&ni->h.list), mds);
@@ -150,8 +150,8 @@ retry:
          */
         if (!saved_depth)
             saved_depth = oi->h.depth - 1;
-        hvfs_err(mds, "HIT untested code-path w/ depth %d.\n", 
-                 oi->h.depth);
+        hvfs_err(mds, "ITB %ld HIT untested code-path w/ depth %d(%ld).\n", 
+                 oi->h.itbid, oi->h.depth, ni->h.itbid);
         if (unlikely(oi->h.depth == 50)) {
             hvfs_err(mds, "We should consider the hash conflicts in "
                      "the same bucket!\n");
@@ -163,8 +163,8 @@ retry:
     if (unlikely(saved_depth))
         oi->h.depth = saved_depth;
     hvfs_debug(mds, "moved %d entries from %ld(%p,%d,%d) to %ld(%p,%d,%d)\n", 
-             moved, oi->h.itbid, oi, oi->h.depth, atomic_read(&oi->h.entries),
-             (ni)->h.itbid, (ni), (ni)->h.depth, 
+               moved, oi->h.itbid, oi, oi->h.depth, atomic_read(&oi->h.entries),
+               (ni)->h.itbid, (ni), (ni)->h.depth, 
                atomic_read(&(ni)->h.entries));
     /* commit the changes and release the locks */
     mds_dh_bitmap_update(&hmo.dh, oi->h.puuid, oi->h.itbid, MDS_BITMAP_SET);
@@ -353,6 +353,7 @@ void mds_bitmap_refresh_all(u64 duuid)
         xlock_unlock(&e->lock);
         offset += XTABLE_BITMAP_SIZE;
     } while (1);
+    hvfs_err(mds, "refresh_all w/ %d\n", err);
 }
 
 /* mds_bitmap_load()
@@ -787,7 +788,7 @@ int __mds_bitmap_insert(struct dhe *e, struct itbitmap *b)
 
 /* mds_bitmap_create()
  */
-int mds_bitmap_create(struct dhe *e, u64 itbid)
+int mds_bitmap_create(struct dhe *e, u64 itbid, int set_end)
 {
     struct itbitmap *b;
     int err = 0;
@@ -800,6 +801,8 @@ int mds_bitmap_create(struct dhe *e, u64 itbid)
     itbid = BITMAP_ROUNDDOWN(itbid);
     INIT_LIST_HEAD(&b->list);
     b->offset = itbid;
+    if (set_end)
+        b->flag = BITMAP_END;
     b->ts = 0;                  /* FIXME: set the ts here! */
 
     err = __mds_bitmap_insert(e, b);
@@ -839,9 +842,13 @@ retry:
                                    XTABLE_BITMAP_SIZE,
                                    *itbid - b->offset);
             if (*itbid == XTABLE_BITMAP_SIZE) {
-                /* no bits set */
-                xlock_unlock(&e->lock);
-                return 1;
+                /* no bits set, try the next slice */
+                *itbid = b->offset + XTABLE_BITMAP_SIZE;
+                if (b->flag & BITMAP_END) {
+                    xlock_unlock(&e->lock);
+                    return 1;
+                } else 
+                    continue;
             }
             *itbid += b->offset;
             break;

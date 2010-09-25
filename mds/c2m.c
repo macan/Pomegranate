@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-08 19:12:19 macan>
+ * Time-stamp: <2010-09-21 14:29:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -713,7 +713,7 @@ void mds_dump_itb(struct hvfs_tx *tx)
     }
     mds_cbht_search_dump_itb(hi);
     /* dump the previous ITB */
-    hi->itbid &= ~(1 << (fls64(hi->itbid)));
+    hi->itbid &= ~(1UL << (fls64(hi->itbid)));
     mds_cbht_search_dump_itb(hi);
 out:
     mds_tx_done(tx);

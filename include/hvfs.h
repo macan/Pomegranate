@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-15 11:18:00 macan>
+ * Time-stamp: <2010-09-21 09:55:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -167,7 +167,7 @@ struct itbitmap
     u8 array[XTABLE_BITMAP_BYTES];
 };
 
-#define BITMAP_ROUNDUP(x) (((x) + XTABLE_BITMAP_SIZE - 1) & \
+#define BITMAP_ROUNDUP(x) (((x + 1) + XTABLE_BITMAP_SIZE - 1) & \
                            ~(XTABLE_BITMAP_SIZE - 1))
 #define BITMAP_ROUNDDOWN(x) ((x) & (~((XTABLE_BITMAP_SIZE) - 1)))
 

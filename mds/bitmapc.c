@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-16 10:56:05 macan>
+ * Time-stamp: <2010-09-21 14:47:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -482,14 +482,14 @@ int mds_bc_backend_load(struct bc_entry *be, u64 itbid, u64 location)
         goto out;
     }
 
-    hvfs_err(mds, "Load bitmap %ld %ld %ld %ld\n", 
+    hvfs_err(mds, "Load bitmap %lx %ld %ld %ld\n", 
              be->uuid, itbid, location, be->offset);
 
     /* Step 3: construct the xnet_msg to send it to the destination */
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hmo.site_id, p->site_id);
     xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_BITMAP, be->uuid, 
-                      location + be->offset);
+                      location + (be->offset >> 3));
     msg->tx.reserved = p->vid;
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
@@ -559,8 +559,8 @@ int __customized_send_request(struct bc_commit *commit)
     err = xnet_send(hmo.xc, msg);
     if (err) {
         hvfs_err(mds, "Request to commit the bitmap %ld flip @ location "
-                 "0x%lx failed\n",
-                 commit->core.uuid, commit->core.location);
+                 "0x%lx failed w/ %d\n",
+                 commit->core.uuid, commit->core.location, err);
         goto out_free_msg;
     }
 
@@ -611,15 +611,15 @@ int __customized_send_request(struct bc_commit *commit)
         /* update the size and the offset in ITE */
         memset(mu, 0, sizeof(mu));
         mu->valid = MU_COLUMN | MU_SIZE;
-        mu->size = commit->core.size + XTABLE_BITMAP_BYTES;
-        ASSERT(mu->size == msg->pair->tx.arg1, mds);
+        mu->size = msg->pair->tx.arg1;
+        ASSERT(mu->size >= commit->core.size + XTABLE_BITMAP_BYTES, mds);
         mu->column_no = 1;
         mc = (void *)mu + sizeof(struct mdu_update);
         mc->cno = HVFS_GDT_BITMAP_COLUMN;
         mc->c.stored_itbid = hi.itbid;
         mc->c.len = mu->size;
         mc->c.offset = msg->pair->tx.arg0;
-        hvfs_err(mds, "Update puuid %ld uuid %ld itbid %ld column offset %ld "
+        hvfs_err(mds, "Update puuid %lx uuid %lx itbid %ld column offset %ld "
                  "len %ld itbid %ld\n",
                  hi.puuid, hi.uuid, hi.itbid, mc->c.offset,
                  mc->c.len, mc->c.stored_itbid);

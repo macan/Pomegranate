@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-16 14:22:08 macan>
+ * Time-stamp: <2010-09-18 09:30:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -263,13 +263,17 @@ void mds_snapshot_fr2(struct xnet_msg *msg)
         /* pause request handling now */
         hmo.reqin_drop = 1;
     }
-    
-    txg_change_immediately();
+
+    do {
+        txg_change_immediately();
+    } while (TXG_IS_DIRTY(hmo.txg[TXG_OPEN]));
 
     /* should evict the bitmapc, dh, and cbht */
     mds_bitmap_cache_evict();
     mds_dh_evict(&hmo.dh);
-    mds_cbht_scan(&hmo.cbht, HVFS_MDS_OP_EVICT_ALL);
+    do {
+        mds_cbht_scan(&hmo.cbht, HVFS_MDS_OP_EVICT_ALL);
+    } while (atomic64_read(&hmo.prof.cbht.aitb));
 
     rpy = xnet_alloc_msg(XNET_MSG_CACHE);
     if (!rpy) {

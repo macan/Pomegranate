@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-07 16:02:57 macan>
+ * Time-stamp: <2010-09-21 10:34:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -384,14 +384,21 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
         struct iovec iov = {
             .iov_len = 0,
         };
+        int nr;
 
-        data = xmalloc(bcc->size + fde->bmmap.len);
+        /* ooo, bug-0000023: the new bitmap slice may be at more longer
+         * position, say n times of bmmap.len */
+        /* 1. calculate the # of bitmap slices */
+        nr = (BITMAP_ROUNDUP(bcc->itbid) >> XTABLE_BITMAP_SHIFT >> 3) -
+            (bcc->size >> XTABLE_BITMAP_SHIFT >> 3);
+        /* 2. malloc memory */
+        data = xmalloc(bcc->size + nr * fde->bmmap.len);
         if (!data) {
             hvfs_err(mdsl, "alloc bitmap slice failed.\n");
             err = -ENOMEM;
             goto out_reply;
         }
-        memset(data + bcc->size, 0, fde->bmmap.len);
+        memset(data + bcc->size, 0, nr * fde->bmmap.len);
 
         if (bcc->size) {
             iov.iov_base = data;
@@ -417,7 +424,7 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
          * cost */
         /* Next, we will write the region to disk plus a new slice */
         iov.iov_base = data;
-        iov.iov_len += fde->bmmap.len;
+        iov.iov_len += (nr * fde->bmmap.len);
         size = iov.iov_len;
         msa.arg = &location;
         msa.iov = &iov;

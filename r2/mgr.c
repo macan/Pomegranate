@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-15 09:46:25 macan>
+ * Time-stamp: <2010-09-21 15:27:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2568,12 +2568,18 @@ static inline
 u64 root_bitmap_cut(u64 offset, u64 end_offset)
 {
     u64 mask;
-    int nr = fls64(end_offset);
+    int nr = fls64(end_offset) + 1;
 
     if (nr < 0)
         return 0;
-    mask = (1 << nr) - 1;
-    return offset & mask;
+    mask = (1UL << nr) - 1;
+    offset = offset & mask;
+
+    if (offset < end_offset)
+        return offset;
+    else {
+        return offset - end_offset;
+    }
 }
 
 static inline

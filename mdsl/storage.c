@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-16 11:57:00 macan>
+ * Time-stamp: <2010-09-21 09:37:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -654,7 +654,7 @@ int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path)
     }
     if (fde->state == FDE_OPEN) {
         /* we should load the disk struct to memory */
-        int br, bl = 0;
+        long br, bl = 0;
 
         do {
             br = pread(fde->fd, (void *)(&fde->mdisk) + bl, 
@@ -733,7 +733,7 @@ int __normal_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 int __normal_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 {
     loff_t offset;
-    int bl, br;
+    long bl, br;
     int err = 0, i;
 
     if (fde->state < FDE_OPEN || !msa->iov_nr || !msa->iov)
@@ -781,8 +781,8 @@ int __mmap_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 int __mdisk_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 {
     loff_t offset = 0;
+    long bw, bl = 0;
     int err = 0;
-    int bw, bl = 0;
     
     if (fde->state != FDE_MDISK)
         return 0;
@@ -843,14 +843,13 @@ out:
     return 0;
 }
 
-int __mdisk_add_range(struct fdhash_entry *fde, u64 begin, u64 end, 
-                      u64 range_id)
+int __mdisk_add_range_nolock(struct fdhash_entry *fde, u64 begin, u64 end, 
+                             u64 range_id)
 {
     range_t *ptr;
     size_t size = fde->mdisk.new_size;
     int err = 0;
     
-    xlock_lock(&fde->lock);
     if (fde->state != FDE_MDISK) {
         err = -EINVAL;
         goto out_unlock;
@@ -860,6 +859,7 @@ int __mdisk_add_range(struct fdhash_entry *fde, u64 begin, u64 end,
     ptr = xrealloc(fde->mdisk.new_range, size * sizeof(range_t));
     if (!ptr) {
         hvfs_err(mdsl, "xrealloc failed to extend\n");
+        err = -ENOMEM;
         goto out_unlock;
     }
 
@@ -873,18 +873,29 @@ int __mdisk_add_range(struct fdhash_entry *fde, u64 begin, u64 end,
     fde->mdisk.range_nr[0]++;
     
 out_unlock:
-    xlock_unlock(&fde->lock);
     
-    return 0;
+    return err;
 }
 
-int __mdisk_lookup(struct fdhash_entry *fde, int op, u64 arg, range_t **out)
+int __mdisk_add_range(struct fdhash_entry *fde, u64 begin, u64 end, 
+                      u64 range_id)
+{
+    int err = 0;
+
+    xlock_lock(&fde->lock);
+    err = __mdisk_add_range_nolock(fde, begin, end, range_id);
+    xlock_unlock(&fde->lock);
+    
+    return err;
+}
+
+int __mdisk_lookup_nolock(struct fdhash_entry *fde, int op, u64 arg, 
+                          range_t **out)
 {
     int found = 0;
     int i;
     int err = 0;
     
-    xlock_lock(&fde->lock);
     if (fde->state != FDE_MDISK) {
         err = -EINVAL;
         goto out_unlock;
@@ -927,8 +938,19 @@ int __mdisk_lookup(struct fdhash_entry *fde, int op, u64 arg, range_t **out)
 
     err = -ENOENT;
 out_unlock:
-    xlock_unlock(&fde->lock);
     
+    return err;
+}
+
+int __mdisk_lookup(struct fdhash_entry *fde, int op, u64 arg,
+                   range_t **out)
+{
+    int err;
+    
+    xlock_lock(&fde->lock);
+    err = __mdisk_lookup_nolock(fde, op, arg, out);
+    xlock_unlock(&fde->lock);
+
     return err;
 }
 
@@ -1094,7 +1116,7 @@ int mdsl_storage_fd_bitmap(struct fdhash_entry *fde, char *path)
             }
             {
                 u8 data = 0xff;
-                int bw = 0;
+                long bw = 0;
                 
                 do {
                     bw = pwrite(fde->fd, &data, 1, 0);
@@ -1141,8 +1163,9 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
      * file and return new start address. */
     u64 offset = (u64)msa->arg;
     u64 new_offset;
-    u64 snr;
-    int err = 0, bl, bw;
+    u64 snr, bl;
+    long bw;
+    int err = 0;
     
     if (msa->iov) {
         /* we have trouble! */
@@ -1152,6 +1175,7 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         /* append the iov to the file */
         new_offset = lseek(fde->fd, 0, SEEK_END);
         if (new_offset < 0) {
+            xlock_unlock(&fde->bmmap.lock);
             hvfs_err(mdsl, "lseek to bitmap fd %d failed w/ %d\n",
                      fde->fd, errno);
             err = -errno;
@@ -1165,8 +1189,10 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
             bw = pwrite(fde->fd, msa->iov->iov_base + bl,
                         msa->iov->iov_len - bl, new_offset + bl);
             if (bw < 0) {
-                hvfs_err(mdsl, "pwrite bitmap fd %d offset %ld failed w/ %d\n",
-                         fde->fd, new_offset + bl, errno);
+                xlock_unlock(&fde->bmmap.lock);
+                hvfs_err(mdsl, "pwrite bitmap fd %d offset %ld bl %ld "
+                         "failed w/ %s\n",
+                         fde->fd, new_offset + bl, bl, strerror(errno));
                 err = -errno;
                 goto out;
             }
@@ -1180,11 +1206,13 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 
         /* find the byte offset */
         snr = BITMAP_ROUNDDOWN(offset) >> XTABLE_BITMAP_SHIFT >> 3;
-    
+
+        xlock_lock(&fde->bmmap.lock);
         fde->bmmap.addr = mmap(NULL, fde->bmmap.len, PROT_READ | PROT_WRITE,
                                MAP_SHARED, fde->fd, 
                                msa->offset + snr * fde->bmmap.len);
         if (fde->bmmap.addr == MAP_FAILED) {
+            xlock_unlock(&fde->bmmap.lock);
             hvfs_err(mdsl, "mmap bitmap file @ %lx failed w/ %d\n",
                      msa->offset, errno);
             err = -errno;
@@ -1196,10 +1224,12 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         /* unmap the region now */
         err = munmap(fde->bmmap.addr, fde->bmmap.len);
         if (err) {
+            xlock_unlock(&fde->bmmap.lock);
             hvfs_err(mdsl, "munmap failed w/ %d\n", errno);
             err = -errno;
             goto out;
         }
+        xlock_unlock(&fde->bmmap.lock);
         hvfs_debug(mdsl, "map fd %d offset %ld and update bit %ld snr %ld\n",
                    fde->fd, msa->offset + snr * fde->bmmap.len, offset, snr);
     }
@@ -1211,7 +1241,7 @@ out:
 int __bitmap_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 {
     loff_t offset;
-    int bl, br;
+    long bl, br;
     int err = 0, i;
     
     if (fde->state < FDE_OPEN || !msa->iov_nr || !msa->iov) {
@@ -1553,7 +1583,7 @@ int mdsl_storage_toe_commit(struct txg_open_entry *toe, struct txg_end *te)
 {
     struct itb_info *pos;
     loff_t offset;
-    int bw, bl;
+    long bw, bl;
     int err = 0;
 
     xlock_lock(&hmo.storage.txg_fd_lock);
@@ -1604,7 +1634,8 @@ int mdsl_storage_toe_commit(struct txg_open_entry *toe, struct txg_end *te)
             bw = pwrite(hmo.storage.txg_fd, (void *)toe->other_region + bl,
                         toe->osize - bl, offset + bl);
             if (bw <= 0) {
-                hvfs_err(mdsl, "pwrite to fd %d (bw %d osize %d) failed w/ %d\n",
+                hvfs_err(mdsl, "pwrite to fd %d (bw %ld osize %d) "
+                         "failed w/ %d\n",
                          hmo.storage.txg_fd, bw, toe->osize, errno);
                 err = -errno;
                 goto out_unlock;
@@ -1652,20 +1683,28 @@ int mdsl_storage_update_range(struct txg_open_entry *toe)
         }
         ma.win = MDSL_STORAGE_DEFAULT_RANGE_SIZE;
     relookup:
-        err = __mdisk_lookup(fde, MDSL_MDISK_RANGE, pos->itbid, &range);
+        xlock_lock(&fde->lock);
+        err = __mdisk_lookup_nolock(fde, MDSL_MDISK_RANGE, pos->itbid, &range);
+        /* FIXME: here is a RACE point, no lock protect fde from concurrent
+         * __mdisk_add_range */
         if (err == -ENOENT) {
             /* create a new range now */
             u64 i;
             
             i = MDSL_STORAGE_idx2range(pos->itbid);
-            __mdisk_add_range(fde, i * MDSL_STORAGE_RANGE_SLOTS,
-                              (i + 1) * MDSL_STORAGE_RANGE_SLOTS - 1,
-                              fde->mdisk.range_aid++);
+            __mdisk_add_range_nolock(fde, i * MDSL_STORAGE_RANGE_SLOTS,
+                                     (i + 1) * MDSL_STORAGE_RANGE_SLOTS - 1,
+                                     fde->mdisk.range_aid++);
+            __mdisk_range_sort(fde->mdisk.new_range, fde->mdisk.new_size);
+            xlock_unlock(&fde->lock);
             goto relookup;
         } else if (err) {
-                hvfs_err(mdsl, "mdisk_lookup failed w/ %d\n", err);
+                hvfs_err(mdsl, "mdisk_lookup_nolock failed w/ %d\n", err);
+                xlock_unlock(&fde->lock);
                 goto put_fde;
         }
+        xlock_unlock(&fde->lock);
+
         ma.foffset = 0;
         ma.range_id = range->range_id;
         ma.range_begin = range->begin;

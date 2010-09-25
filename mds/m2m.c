@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-27 04:18:44 macan>
+ * Time-stamp: <2010-09-21 15:02:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -464,7 +464,7 @@ void mds_aubitmap(struct xnet_msg *msg)
     be = mds_bc_get(msg->tx.arg0, offset);
     if (IS_ERR(be)) {
         if (be == ERR_PTR(-ENOENT)) {
-            hvfs_err(mds, "Warning: bc_entry %ld offset %ld does not "
+            hvfs_err(mds, "Warning: bc_entry %lx offset %ld does not "
                      "exist.\n", msg->tx.arg0, offset);
 
             /* ok, we should create one bc_entry now */
@@ -494,14 +494,39 @@ void mds_aubitmap(struct xnet_msg *msg)
             if (size == 0) {
                 /* this means that we should just return a new default bitmap
                  * slice */
-                int i;
 
-                for (i = 0; i < 1; i++) {
-                    be->array[i] = 0xff;
+                if (be->offset) {
+                    /* ooo, it is very complex here! */
+                    struct bc_entry *__be;
+
+                    __be = mds_bc_get(msg->tx.arg0, 0);
+                    if (IS_ERR(__be)) {
+                        if (__be == ERR_PTR(-ENOENT)) {
+                            __be = mds_bc_new();
+                            if (!__be) {
+                                hvfs_err(mds, "New BC entry failed for new slice\n");
+                                goto send_rpy;
+                            }
+                            mds_bc_set(__be, msg->tx.arg0, 0);
+                            __be->array[0] = 0xff;
+
+                            nbe = mds_bc_insert(__be);
+                            if (nbe != __be) {
+                                mds_bc_free(__be);
+                                __be = nbe;
+                            }
+                            mds_bc_put(__be);
+                        } else {
+                            hvfs_err(mds, "bc_get() %lx failed w/ %d\n", 
+                                     msg->tx.arg0, err);
+                        }
+                    }
+                } else {
+                    be->array[0] = 0xff;
                 }
             } else if ((size << 3) <= offset) {
                 /* oh, we should enlarge the bitmap now */
-                hvfs_warning(mds, "Create a bitmap slice for uuid %ld offset %ld\n",
+                hvfs_warning(mds, "Create a bitmap slice for uuid %lx offset %ld\n",
                           msg->tx.arg0, offset);
             } else {
                 /* ok, no enlarge is need */
@@ -582,6 +607,8 @@ void mds_m2m_lb(struct xnet_msg *msg)
         goto send_err_rpy;
     }
 
+    hvfs_err(mds, "LOOKUP0 bc %lx offset %ld @ %ld size %ld\n", 
+             hi.uuid, offset, location, size);
     if (size == 0) {
         /* this means that offset should be ZERO */
         offset = 0;
@@ -597,6 +624,8 @@ void mds_m2m_lb(struct xnet_msg *msg)
         offset = mds_bitmap_cut(offset, size << 3);
         offset = BITMAP_ROUNDDOWN(offset);
     }
+    hvfs_err(mds, "LOOKUP1 bc %lx offset %ld @ %ld size %ld\n", 
+             hi.uuid, offset, location, size);
 
     be = mds_bc_get(msg->tx.arg0, offset);
     if (IS_ERR(be)) {
@@ -876,8 +905,8 @@ void mds_gossip_bitmap(struct xnet_msg *msg)
         ASSERT(BITMAP_ROUNDDOWN(b->offset) == b->offset, mds);
         INIT_LIST_HEAD(&b->list);
         err = __mds_bitmap_insert(e, b);
-        hvfs_warning(mds, "Gossip insert new bitmap slice @ %lx w/ %d\n",
-                     (u64)b->offset, err);
+        hvfs_warning(mds, "Gossip insert new (%lx) bitmap slice @ %lx w/ %d\n",
+                     msg->tx.arg0, (u64)b->offset, err);
         if (!err) {
             xnet_clear_auto_free(msg);
         }

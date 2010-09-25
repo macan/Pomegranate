@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-07 01:00:00 macan>
+ * Time-stamp: <2010-09-21 16:00:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -123,6 +123,13 @@ int main(int argc, char *argv[])
                   BITMAP_ROUNDUP(offset));
         hvfs_info(mds, "offset %ld rounddown %ld\n", offset,
                   BITMAP_ROUNDDOWN(offset));
+
+        offset = XTABLE_BITMAP_SIZE - 1;
+        hvfs_info(mds, "offset %ld roundup %ld\n", offset,
+                  BITMAP_ROUNDUP(offset));
+        hvfs_info(mds, "offset %ld rounddown %ld\n", offset,
+                  BITMAP_ROUNDDOWN(offset));
+
         offset = XTABLE_BITMAP_SIZE;
 
         hvfs_info(mds, "offset %ld roundup %ld\n", offset,
@@ -138,6 +145,31 @@ int main(int argc, char *argv[])
         offset = 1439283;
         hvfs_info(mds, "offset %ld rounddown %ld\n", offset,
                   BITMAP_ROUNDDOWN(offset));
+    }
+
+    {
+        u64 offset = 17179869188;
+        u64 size = 2147614720;
+        int nr = fls64(size << 3) + 1;
+        u64 mask = (1UL << nr) - 1;
+
+        hvfs_info(mds, "%lx %lx %lx nr %d\n", offset, size << 3, mask, nr);
+        hvfs_info(mds, "CUT OFF %ld to %ld\n", offset,
+                  mds_bitmap_cut(offset, size << 3));
+
+        offset = XTABLE_BITMAP_SIZE + 100;
+        size = XTABLE_BITMAP_BYTES;
+        nr = fls64(size << 3) + 1;
+        mask = (1UL << nr) - 1;
+        hvfs_info(mds, "%lx %lx %lx nr %d\n", offset, size << 3, mask, nr);
+        hvfs_info(mds, "CUT OFF %ld to %ld\n", offset,
+                  mds_bitmap_cut(offset, size << 3));
+
+        offset = XTABLE_BITMAP_SIZE - 1;
+        size = XTABLE_BITMAP_BYTES;
+        hvfs_info(mds, "CUT OFF %ld to %ld\n", offset,
+                  mds_bitmap_cut(offset, size << 3));
+        
     }
 
     {
