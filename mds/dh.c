@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-20 15:22:11 macan>
+ * Time-stamp: <2010-09-26 15:18:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -627,8 +627,9 @@ retry:
                 hvfs_err(mds, "try to create BS @ %ld\n", itbid);
                 err = mds_bitmap_create(e, itbid, 1);
                 if (err == -EEXIST) {
-                    /* ok, we just retry */
-                    goto retry;
+                    /* ok, we just break */
+                    b->flag &= ~BITMAP_END;
+                    break;
                 } else if (err) {
                     goto out;
                 }

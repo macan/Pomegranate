@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-21 17:12:41 macan>
+ * Time-stamp: <2010-09-26 15:28:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -618,7 +618,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
             xlock_unlock(&e->lock);
         }
     } else {
-        hvfs_warning(mds, "Remote bitmap load uuid %lx offset %ld from %lx\n",
+        hvfs_debug(mds, "Remote bitmap load uuid %lx offset %ld from %lx\n",
                  e->uuid, offset, p->site_id);
         /* prepare the msg */
         xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
@@ -759,8 +759,11 @@ int __mds_bitmap_insert(struct dhe *e, struct itbitmap *b)
             if (b->offset == pos->offset + XTABLE_BITMAP_SIZE) {
                 list_add(&b->list, &pos->list);
                 /* we should clear the OLD BITMAP_END flag */
-                pos->flag &= ~BITMAP_END;
-                b->flag |= BITMAP_END;
+                if (pos->flag & BITMAP_END) {
+                    pos->flag &= ~BITMAP_END;
+                    if (pos->list.next == &e->bitmap)
+                        b->flag |= BITMAP_END;
+                }
                 processed = 1;
                 err = 0;
                 break;

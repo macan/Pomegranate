@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-21 15:02:05 macan>
+ * Time-stamp: <2010-09-25 17:13:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -607,8 +607,8 @@ void mds_m2m_lb(struct xnet_msg *msg)
         goto send_err_rpy;
     }
 
-    hvfs_err(mds, "LOOKUP0 bc %lx offset %ld @ %ld size %ld\n", 
-             hi.uuid, offset, location, size);
+    hvfs_debug(mds, "LOOKUP0 bc %lx offset %ld @ %ld size %ld\n", 
+               hi.uuid, offset, location, size);
     if (size == 0) {
         /* this means that offset should be ZERO */
         offset = 0;
@@ -624,8 +624,8 @@ void mds_m2m_lb(struct xnet_msg *msg)
         offset = mds_bitmap_cut(offset, size << 3);
         offset = BITMAP_ROUNDDOWN(offset);
     }
-    hvfs_err(mds, "LOOKUP1 bc %lx offset %ld @ %ld size %ld\n", 
-             hi.uuid, offset, location, size);
+    hvfs_debug(mds, "LOOKUP1 bc %lx offset %ld @ %ld size %ld\n", 
+               hi.uuid, offset, location, size);
 
     be = mds_bc_get(msg->tx.arg0, offset);
     if (IS_ERR(be)) {

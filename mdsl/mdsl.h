@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-25 10:22:18 macan>
+ * Time-stamp: <2010-09-25 10:45:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -116,17 +116,21 @@ struct odirect
 struct bmmap                    /* mmap of bitmap */
 {
     void *addr;
+    void *h;                    /* header of the bitmap */
     size_t len;
     loff_t file_offset;
     xlock_t lock;
 };
 
-/* the header of each bitmap slice */
-struct bmslice_disk
+union bmmap_disk
 {
-    size_t len;
-    loff_t file_offset;
-    u64 nr;                     /* # of bitmap slices */
+    struct __bmmap_disk
+    {
+        size_t len;
+        loff_t file_offset;
+        u64 sarray[0];          /* sorted array of bitmap slice id */
+    } bd;
+    u8 __array[4096];
 };
 
 struct fdhash_entry

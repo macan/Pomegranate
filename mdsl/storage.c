@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-21 09:37:01 macan>
+ * Time-stamp: <2010-09-25 17:09:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1183,11 +1183,11 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         }
         *((u64 *)msa->arg) = new_offset;
 
-        ASSERT(msa->iov_nr == 1, mdsl);
+        ASSERT(msa->iov_nr == 2, mdsl);
         bl = 0;
         do {
-            bw = pwrite(fde->fd, msa->iov->iov_base + bl,
-                        msa->iov->iov_len - bl, new_offset + bl);
+            bw = pwrite(fde->fd, msa->iov[0].iov_base + bl,
+                        msa->iov[0].iov_len - bl, new_offset + bl);
             if (bw < 0) {
                 xlock_unlock(&fde->bmmap.lock);
                 hvfs_err(mdsl, "pwrite bitmap fd %d offset %ld bl %ld "
@@ -1197,7 +1197,31 @@ int __bitmap_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
                 goto out;
             }
             bl += bw;
-        } while (bl < msa->iov->iov_len);
+        } while (bl < msa->iov[0].iov_len);
+
+        /* do lseek now */
+        new_offset = lseek(fde->fd, msa->offset * fde->bmmap.len, SEEK_END);
+        if (new_offset < 0) {
+            xlock_unlock(&fde->bmmap.lock);
+            hvfs_err(mdsl, "lseek failed w/ %s\n", strerror(errno));
+            err = -errno;
+            goto out;
+        }
+        /* write the last bitmap slice */
+        bl = 0;
+        do {
+            bw = pwrite(fde->fd, msa->iov[1].iov_base + bl,
+                        msa->iov[1].iov_len - bl, new_offset + bl);
+            if (bw < 0) {
+                xlock_unlock(&fde->bmmap.lock);
+                hvfs_err(mdsl, "pwrite bitmap fd %d offset %ld bl %ld "
+                         "failed w/ %s\n",
+                         fde->fd, new_offset + bl, bl, strerror(errno));
+                err = -errno;
+                goto out;
+            }
+            bl += bw;
+        } while (bl < msa->iov[1].iov_len);
         xlock_unlock(&fde->bmmap.lock);
 
         atomic64_add(bl, &hmo.prof.storage.wbytes);

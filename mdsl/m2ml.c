@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-21 10:34:22 macan>
+ * Time-stamp: <2010-09-26 14:58:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -354,8 +354,8 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
     else
         goto out;
 
-    hvfs_debug(mdsl, "Recv bitmap commit request on %ld %ld %ld\n", 
-               bcc->uuid, bcc->itbid, bcc->location);
+    hvfs_debug(mdsl, "Recv bitmap commit request on %lx %ld %ld %ld\n", 
+               bcc->uuid, bcc->itbid, bcc->location, bcc->size);
 
     /* the uuid/itbid/location is in the bcc */
     /* Step 1: open the GDT dir/data-default file */
@@ -381,8 +381,9 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
     } else {
         /* First, we should read the whole region of the existed bitmap */
         void *data;
-        struct iovec iov = {
-            .iov_len = 0,
+        struct iovec iov[2] = {
+            {.iov_base = NULL, .iov_len = 0,},
+            {.iov_base = NULL, .iov_len = 0,},
         };
         int nr;
 
@@ -392,19 +393,19 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
         nr = (BITMAP_ROUNDUP(bcc->itbid) >> XTABLE_BITMAP_SHIFT >> 3) -
             (bcc->size >> XTABLE_BITMAP_SHIFT >> 3);
         /* 2. malloc memory */
-        data = xmalloc(bcc->size + nr * fde->bmmap.len);
+        data = xmalloc(bcc->size + fde->bmmap.len);
         if (!data) {
             hvfs_err(mdsl, "alloc bitmap slice failed.\n");
             err = -ENOMEM;
             goto out_reply;
         }
-        memset(data + bcc->size, 0, nr * fde->bmmap.len);
+        memset(data + bcc->size, 0, fde->bmmap.len);
 
         if (bcc->size) {
-            iov.iov_base = data;
-            iov.iov_len = bcc->size;
+            iov[0].iov_base = data;
+            iov[0].iov_len = bcc->size;
             msa.offset = bcc->location;
-            msa.iov = &iov;
+            msa.iov = iov;
             msa.iov_nr = 1;
             err = mdsl_storage_fd_read(fde, &msa);
             if (err) {
@@ -414,21 +415,44 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
                 xfree(data);
                 goto out_reply;
             }
+        } else {
+            /* this means that the bitmap is just INITed */
+            if (nr > 1) {
+                /* we should setup the first bitmap map slice */
+                void *__data;
+                
+                __data = xrealloc(data, fde->bmmap.len * 2);
+                if (!__data) {
+                    hvfs_err(mdsl, "realloc bitmap slice failed.\n");
+                    err = -ENOMEM;
+                    goto out_reply;
+                }
+                data = __data;
+
+                iov[0].iov_base = data;
+                iov[0].iov_len = fde->bmmap.len;
+                nr -= 1;
+                bcc->size = fde->bmmap.len;
+            } else {
+                /* ok, nr must be 1 */
+                ASSERT(nr == 1, mdsl);
+                iov[0].iov_len = 0;
+            }
+            /* if bcc->size is ZERO, it means that we are writing the first
+             * bitmap slice, we should set the default bits */
+            memset(data, 0xff, (1 << hmi.itb_depth) >> 3);
         }
 
-        /* if bcc->size is ZERO, it means that we are writing the first bitmap
-         * slice, we should set the default bits */
-        memset(data, 0xff, (1 << hmi.itb_depth) >> 3);
-        
         /* FIXME: maybe ftruncate can be used here to minimize the write
          * cost */
         /* Next, we will write the region to disk plus a new slice */
-        iov.iov_base = data;
-        iov.iov_len += (nr * fde->bmmap.len);
-        size = iov.iov_len;
+        iov[1].iov_base = data + bcc->size;
+        iov[1].iov_len = fde->bmmap.len;
+        size = bcc->size + (nr * fde->bmmap.len);
         msa.arg = &location;
-        msa.iov = &iov;
-        msa.iov_nr = 1;
+        msa.iov = iov;
+        msa.iov_nr = 2;
+        msa.offset = nr - 1;    /* lseek nr - 1 slices */
         err = mdsl_storage_fd_write(fde, &msa);
         if (err) {
             hvfs_err(mdsl, "write the dir %ld bitmap %ld location %lx "
