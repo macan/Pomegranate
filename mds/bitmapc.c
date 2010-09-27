@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-21 14:47:18 macan>
+ * Time-stamp: <2010-09-27 14:30:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -488,8 +488,8 @@ int mds_bc_backend_load(struct bc_entry *be, u64 itbid, u64 location)
     /* Step 3: construct the xnet_msg to send it to the destination */
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hmo.site_id, p->site_id);
-    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_BITMAP, be->uuid, 
-                      location + (be->offset >> 3));
+    /* Note that, be->uuid is NOT used in MDSL, so we change the ABI now */
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_BITMAP, location, be->offset);
     msg->tx.reserved = p->vid;
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
@@ -570,7 +570,7 @@ int __customized_send_request(struct bc_commit *commit)
     err = msg->pair->tx.err;
     /* if the errno is zero, and bcc->core.size is not -1UL, we should got and
      * update the new file location */
-    if (!err && commit->core.size != -1UL) {
+    if (!err && msg->pair->tx.arg1 != -1UL) {
         struct hvfs_txg *txg;
         struct dhe *e;
         struct hvfs_index hi = {

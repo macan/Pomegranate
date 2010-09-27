@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-25 17:09:26 macan>
+ * Time-stamp: <2010-09-27 21:43:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1261,6 +1261,93 @@ out:
     return err;
 }
 
+/* It has been fde locked yet!
+ */
+int __bitmap_write_v2(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
+{
+    /* Note that: msa->arg is just the bit offset; if the iov is not null,
+     * we have troubles. we must write the entire iov region to the end of the
+     * file and return new start address. */
+    u64 offset = (u64)msa->arg;
+    u64 new_offset;
+    u64 snr, bl;
+    long bw;
+    int err = 0;
+
+    if (msa->iov) {
+        /* write the total iov to disk sequentially and return the file
+         * location */
+        new_offset = lseek(fde->fd, 0, SEEK_END);
+        if (new_offset < 0) {
+            hvfs_err(mdsl, "lseek to bitmap fd %d failed w/ %d\n",
+                     fde->fd, errno);
+            err = -errno;
+            goto out;
+        }
+        *((u64 *)msa->arg) = new_offset;
+
+        ASSERT(msa->iov_nr == 2, mdsl);
+        bl = 0;
+        do {
+            bw = pwrite(fde->fd, msa->iov[0].iov_base + bl,
+                        msa->iov[0].iov_len - bl, new_offset + bl);
+            if (bw < 0) {
+                hvfs_err(mdsl, "pwrite bitmap fd %d offset %ld bl %ld "
+                         "failed w/ %s\n",
+                         fde->fd, new_offset + bl, bl, strerror(errno));
+                err = -errno;
+                goto out;
+            }
+            bl += bw;
+        } while (bl < msa->iov[0].iov_len);
+
+        new_offset += msa->iov[0].iov_len;
+        bl = 0;
+        do {
+            bw = pwrite(fde->fd, msa->iov[1].iov_base + bl,
+                        msa->iov[1].iov_len - bl, new_offset + bl);
+            if (bw < 0) {
+                hvfs_err(mdsl, "pwrite bitmap fd %d offset %ld bl %ld "
+                         "failed w/ %s\n",
+                         fde->fd, new_offset + bl, bl, strerror(errno));
+                err = -errno;
+                goto out;
+            }
+            bl += bw;
+        } while (bl < msa->iov[1].iov_len);
+
+        atomic64_add(bl, &hmo.prof.storage.wbytes);
+    } else {
+        /* ok, this means we should update the bit */
+
+        snr = BITMAP_ROUNDDOWN(offset) >> XTABLE_BITMAP_SHIFT >> 3;
+
+        fde->bmmap.addr = mmap(NULL, fde->bmmap.len, PROT_READ | PROT_WRITE,
+                               MAP_SHARED, fde->fd,
+                               msa->offset);
+        if (fde->bmmap.addr == MAP_FAILED) {
+            hvfs_err(mdsl, "mmap bitmap file @ %lx failed w/ %d\n",
+                     msa->offset, errno);
+            err = -errno;
+            goto out;
+        }
+        /* flip the bit now */
+        offset -= snr * (fde->bmmap.len << 3);
+        __set_bit(offset, fde->bmmap.addr);
+        /* unmap the region now */
+        err = munmap(fde->bmmap.addr, fde->bmmap.len);
+        if (err) {
+            hvfs_err(mdsl, "munmap failed w/ %d\n", errno);
+            err = -errno;
+            goto out;
+        }
+        hvfs_debug(mdsl, "map fd %d offset %ld and update bit %ld snr %ld\n",
+                   fde->fd, msa->offset, offset, snr);
+    }
+out:
+    return err;
+}
+
 /* this function only read the region(s) from the bitmap file */
 int __bitmap_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 {
@@ -1511,7 +1598,7 @@ retry:
             goto out_failed;
         }
     } else if (fde->state == FDE_BITMAP) {
-        err = __bitmap_write(fde, msa);
+        err = __bitmap_write_v2(fde, msa);
         if (err) {
             hvfs_err(mdsl, "__bitmap_write failed w/ %d\n", err);
             goto out_failed;

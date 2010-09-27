@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-26 15:28:54 macan>
+ * Time-stamp: <2010-09-27 22:04:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -436,7 +436,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
         hi.hash = hash;
         hi.itbid = itbid;
         
-        hvfs_err(mds, "Self bitmap load uuid %ld offset %ld\n",
+        hvfs_err(mds, "Self bitmap load uuid %lx offset %ld\n",
                  e->uuid, offset);
 
         /* cut the bitmap to valid range */
@@ -530,6 +530,9 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
                             /* hoo, someone insert the bitmap prior us, we
                              * just update our bitmap to the previous one */
                             mds_bitmap_update(b, bitmap);
+                            if (!(bitmap->flag & BITMAP_END)) {
+                                b->flag &= ~BITMAP_END;
+                            }
                             processed = 1;
                             xfree(bitmap);
                             break;
@@ -590,6 +593,9 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
                         /* hoo, someone insert the bitmap prior us, we just
                          * update our bitmap to the previous one */
                         mds_bitmap_update(b, bitmap);
+                        if (!(bitmap->flag & BITMAP_END)) {
+                            b->flag &= ~BITMAP_END;
+                        }
                         processed = 1;
                         xfree(bitmap);
                         break;
@@ -677,6 +683,9 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
                     /* hoo, someone insert the bitmap prior us, we just update our
                      * bitmap to the previous one */
                     mds_bitmap_update(b, bitmap);
+                    if (!(bitmap->flag & BITMAP_END)) {
+                        b->flag &= ~BITMAP_END;
+                    }
                     processed = 1;
                     xnet_set_auto_free(msg->pair);
                     break;

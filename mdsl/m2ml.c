@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-26 14:58:48 macan>
+ * Time-stamp: <2010-09-27 21:31:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -258,19 +258,176 @@ out:
     return;
 }
 
+static inline
+int __bmmap_find_nr(union bmmap_disk *bd, int nr)
+{
+    u64 entry;
+    int i;
+    
+    for (i = 0; i < bd->bd.used; i++) {
+        entry = bd->bd.sarray[i];
+        if ((entry >> BMMAP_DISK_NR_SHIFT) == nr) {
+            return entry & BMMAP_DISK_INDEX_MASK;
+        }
+    }
+
+    return -ENOTEXIST;
+}
+
+static inline
+int __bmmap_find_check_nr(union bmmap_disk *bd, int nr)
+{
+    u64 entry, max = 0;
+    int i, err = -ENOTEXIST;
+
+    for (i = 0; i < bd->bd.used; i++) {
+        entry = bd->bd.sarray[i];
+        if ((entry >> BMMAP_DISK_NR_SHIFT) > max) {
+            max = entry >> BMMAP_DISK_NR_SHIFT;
+        }
+        if ((entry >> BMMAP_DISK_NR_SHIFT) == nr) {
+            err = entry & BMMAP_DISK_INDEX_MASK;
+        }
+    }
+
+    if (err < 0 && max > nr) {
+        err = -EISEMPTY;
+    }
+
+    hvfs_debug(mdsl, "find check nr %d w/ err %d max %ld used %d\n", 
+               nr, err, max, bd->bd.used);
+    return err;
+}
+
+static inline
+int __bmmap_get_max(union bmmap_disk *bd)
+{
+    u64 entry, max = 0;
+    int i;
+
+    for (i = 0; i < bd->bd.used; i++) {
+        entry = bd->bd.sarray[i];
+        if ((entry >> BMMAP_DISK_NR_SHIFT) > max) {
+            max = entry >> BMMAP_DISK_NR_SHIFT;
+        }
+    }
+
+    return max;
+}
+
+static inline
+int __bmmap_add_nr(struct fdhash_entry *fde, struct bc_commit_core *bcc,
+                   union bmmap_disk *bd, 
+                   int nr, u64 *location, u64 *size)
+{
+    struct mdsl_storage_access msa;
+    void *data;
+    struct iovec iov[2] = {
+        {.iov_base = NULL, .iov_len = 0,},
+        {.iov_base = NULL, .iov_len = 0,},
+    };
+    u64 rloc;
+    int err = 0;
+
+    data = xmalloc(bd->bd.size + fde->bmmap.len);
+    if (!data) {
+        hvfs_err(mdsl, "xmalloc() slice array failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    /* Read
+     *
+     * (mdsl_storage_fd_read does not hold the fde lock) 
+     */
+    iov[0].iov_base = data;
+    iov[0].iov_len = bd->bd.size;
+    msa.offset = *location + sizeof(*bd);
+    rloc = msa.offset;
+    msa.iov = iov;
+    msa.iov_nr = 1;
+    err = mdsl_storage_fd_read(fde, &msa);
+    if (err) {
+        hvfs_err(mdsl, "read the dir %ld bitmap %ld location %lx "
+                 "failed w/ %d\n",
+                 bcc->uuid, bcc->itbid, *location, err);
+        xfree(data);
+        goto out;
+    }
+
+    /* Insert the slice in proper position
+     */
+    bd->bd.sarray[bd->bd.used] = 
+        (((u64)nr) << BMMAP_DISK_NR_SHIFT) | bd->bd.used;
+    bd->bd.used++;
+
+    /* memset the new slice now
+     */
+    memset(data + bd->bd.size, 0, fde->bmmap.len);
+    if (nr == 0) {
+        /* preset the 0xff in the first bitmap slice */
+        memset(data + bd->bd.size, 0xff, 1);
+    }
+
+    bd->bd.size += fde->bmmap.len;
+
+    /* Write to file 
+     */
+    iov[1].iov_base = data;
+    iov[1].iov_len = bd->bd.size;
+    iov[0].iov_base = bd;
+    iov[0].iov_len = sizeof(*bd);
+    msa.arg = location;
+    msa.iov = iov;
+    msa.iov_nr = 2;
+    err = mdsl_storage_fd_write(fde, &msa);
+    if (err) {
+        hvfs_err(mdsl, "write the dir %ld bitmap %ld failed w/ %d\n",
+                 bcc->uuid, bcc->itbid, err);
+        goto out;
+    }
+
+    /* adjust the location and size */
+    /* this means we should calculate the new length */
+    if (bcc->size != -1UL) {
+        *size = (BITMAP_ROUNDUP(bcc->itbid) >> XTABLE_BITMAP_SHIFT >> 3) * 
+            fde->bmmap.len;
+    } else {
+        *size = (__bmmap_get_max(bd) + 1) * fde->bmmap.len;
+    }
+
+    err = bd->bd.used - 1;
+    hvfs_debug(mdsl, "read location %ld used slice %d(%d) size %ld bdsize %ld\n",
+               rloc,
+               bd->bd.used, nr, *size, bd->bd.size);
+    xfree(data);
+    
+out:    
+    return err;
+}
+
 /* this function is for loading the bitmap
  */
 void mdsl_bitmap(struct xnet_msg *msg)
 {
-    u64 uuid, offset;
+    u64 uuid, offset, location;
     struct fdhash_entry *fde;
     struct iovec iov;
     struct mdsl_storage_access msa;
-    int err = 0;
+    union bmmap_disk *bd;
+    int err = 0, nr;
 
+    /* ABI:
+       tx.arg0: file location
+       tx.arg1: bit offset
+    */
     ASSERT(msg->tx.len == 0, mdsl);
-    uuid = msg->tx.arg0;
+    uuid = -1UL;
+    location = msg->tx.arg0;
     offset = msg->tx.arg1;
+
+    hvfs_debug(mdsl, "Load bitmap @ location %lx offset %ld\n", 
+               location, offset);
 
     /* Step 1: we should open the default GDT dir/data-default file */
     fde = mdsl_storage_fd_lookup_create(hmi.gdt_uuid, MDSL_STORAGE_BITMAP, 
@@ -287,9 +444,38 @@ void mdsl_bitmap(struct xnet_msg *msg)
         goto out_put;
     }
     iov.iov_len = XTABLE_BITMAP_BYTES;
+    nr = BITMAP_ROUNDDOWN(offset) >> XTABLE_BITMAP_SHIFT >> 3;
+
+    xlock_lock(&fde->bmmap.lock);
+    bd = mmap(NULL, sizeof(*bd), PROT_READ | PROT_WRITE,
+              MAP_SHARED, fde->fd,
+              location);
+    if ((void *)bd == MAP_FAILED) {
+        xlock_unlock(&fde->bmmap.lock);
+        hvfs_err(mdsl, "mmap bitmap header @ %lx failed w/ %d\n",
+                 offset, errno);
+        goto out_put;
+    }
+    err = __bmmap_find_check_nr(bd, nr);
+    if (err == -ENOTEXIST) {
+        xlock_unlock(&fde->bmmap.lock);
+        hvfs_err(mdsl, "bitmap slice %d does not exist.\n", nr);
+        goto out_put;
+    } else if (err == -EISEMPTY) {
+        xlock_unlock(&fde->bmmap.lock);
+        memset(iov.iov_base, 0, iov.iov_len);
+        goto out_reply;
+    } else if (err < 0) {
+        xlock_unlock(&fde->bmmap.lock);
+        hvfs_err(mdsl, "bitmap slice %d find in the header failed w/ %d\n",
+                 nr, err);
+        goto out_put;
+    }
+    xlock_unlock(&fde->bmmap.lock);
+
     msa.iov = &iov;
     msa.iov_nr = 1;
-    msa.offset = offset;
+    msa.offset = location + sizeof(*bd) + err * fde->bmmap.len;
     err = mdsl_storage_fd_read(fde, &msa);
     if (err) {
         hvfs_err(mdsl, "read from bitmap file %ld @ %lx failed w/ %d\n",
@@ -297,6 +483,7 @@ void mdsl_bitmap(struct xnet_msg *msg)
         goto out_put;
     }
     /* Step 3: prepare the reply and send it */
+out_reply:
     __mdsl_send_rpy_data(msg, &iov, 1);
     
 out_put:    
@@ -475,6 +662,126 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
             goto out_reply;
         }
     }
+
+    /* We need to send the reply here! reply w/ the errno and new location! */
+out_reply:
+    mdsl_storage_fd_put(fde);
+    __customized_send_reply(msg, err, location, size);
+    
+out:
+    return;
+}
+
+/* This is the second version of bitmap commit. The ABI is the same as the
+ * first version. We add a header at each bitmap region. There is a sorted
+ * (nr) array saving the existed slices. The max slices we support is
+ * HVFS_MDSL_MAX_SLICES.
+ */
+void mdsl_bitmap_commit_v2(struct xnet_msg *msg)
+{
+    struct fdhash_entry *fde;
+    struct mdsl_storage_access msa;
+    struct bc_commit_core *bcc;
+    union bmmap_disk *bd;
+    size_t len;
+    u64 location = -1UL, update_location = -1UL;
+    u64 size = 0;
+    int err = 0, nr;
+
+    len = msg->tx.len;
+    if (msg->xm_datacheck)
+        bcc = msg->xm_data;
+    else
+        goto out;
+
+    hvfs_debug(mdsl, "Recv bitmap commit request on %lx %ld %ld %ld\n", 
+               bcc->uuid, bcc->itbid, bcc->location, bcc->size);
+
+    location = bcc->location;
+    size = bcc->size;
+
+    /* the uuid/itbid/location is in the bcc */
+    /* Step 1: open the GDT dir/data-default file */
+    fde = mdsl_storage_fd_lookup_create(hmi.gdt_uuid, MDSL_STORAGE_BITMAP,
+                                        HVFS_GDT_BITMAP_COLUMN);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create %ld bitmap failed w/ %ld\n",
+                 bcc->uuid, PTR_ERR(fde));
+        err = PTR_ERR(fde);
+        goto out_reply;
+    }
+
+    /* Step 2: we should confirm that the slice # is in the header, otherwise
+     * we have to create a new slice and update it */
+    nr = (BITMAP_ROUNDDOWN(bcc->itbid) >> XTABLE_BITMAP_SHIFT >> 3);
+    xlock_lock(&fde->bmmap.lock);
+    if (bcc->size) {
+        bd = mmap(NULL, sizeof(*bd), PROT_READ | PROT_WRITE,
+                  MAP_SHARED, fde->fd,
+                  bcc->location);
+        if (bd == MAP_FAILED) {
+            xlock_unlock(&fde->bmmap.lock);
+            hvfs_err(mdsl, "mmap bitmap header @ %lx failed w/ %d\n",
+                     bcc->location, errno);
+            err = -errno;
+            goto out_reply;
+        }
+    } else {
+        bd = xzalloc(sizeof(*bd));
+        if (!bd) {
+            xlock_unlock(&fde->bmmap.lock);
+            hvfs_err(mdsl, "xzalloc() failed\n");
+            err = -ENOMEM;
+            goto out_reply;
+        }
+    }
+
+    /* bmmap_find_nr() return the in region index */
+    err = __bmmap_find_nr(bd, nr);
+    if (err == -ENOTEXIST) {
+        /* ok, we should create a new bitmap slice now, Read/Copy/Write is
+         * needed. */
+        err = __bmmap_add_nr(fde, bcc, bd, nr, &location, &size);
+        if (err < 0) {
+            hvfs_err(mdsl, "bmmap add nr %d failed w/ %d\n", nr, err);
+            goto out_unmap;
+        }
+        update_location = location + sizeof(*bd) + err * fde->bmmap.len;
+    } else if (err < 0) {
+        hvfs_err(mdsl, "bmmap find nr %d failed w/ %d\n", nr, err);
+        goto out_unmap;
+    } else {
+        /* it is ok to find the location */
+        update_location = bcc->location + sizeof(*bd) + err * fde->bmmap.len;
+    }
+
+    /* ok, we fall back to update now, the slice location is @ location! */
+    msa.offset = update_location;
+    msa.arg = (void *)bcc->itbid;
+    msa.iov = NULL;
+    err = mdsl_storage_fd_write(fde, &msa);
+    if (err) {
+        hvfs_err(mdsl, "write the dir %ld bitmap %ld location %lx "
+                 "failed w/ %d\n",
+                 bcc->uuid, bcc->itbid, location, err);
+        goto out_unmap;
+    }
+    hvfs_debug(mdsl, "Commit v2 to location %ld size %ld update %ld\n", 
+               location, size, update_location);
+    
+out_unmap:
+    if (bcc->size) {
+        err = munmap(bd, sizeof(*bd));
+        if (err) {
+            xlock_unlock(&fde->bmmap.lock);
+            hvfs_err(mdsl, "munmap failed w/ %d\n", errno);
+            err = -errno;
+            goto out;
+        }
+    } else {
+        xfree(bd);
+    }
+    xlock_unlock(&fde->bmmap.lock);
 
     /* We need to send the reply here! reply w/ the errno and new location! */
 out_reply:

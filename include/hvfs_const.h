@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-16 10:55:49 macan>
+ * Time-stamp: <2010-09-27 10:58:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -75,4 +75,5 @@ static char *hvfs_ccolor[] __attribute__((unused)) =
                                  * logic */
 #define EHWAIT          1033    /* wait a few seconds and retry */
 #define ERECOVER        1034    /* notify a recover process to the caller */
+#define EISEMPTY        1035    /* the bitmap slice is empty */
 #endif
