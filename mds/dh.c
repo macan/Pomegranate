@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-26 15:18:54 macan>
+ * Time-stamp: <2010-09-28 17:02:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -297,7 +297,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     if (p->site_id == hmo.site_id) {
         struct hvfs_txg *txg;
         
-        hvfs_err(mds, "Load DH (self): uuid %ld itbid %ld, site %lx\n", 
+        hvfs_err(mds, "Load DH (self): uuid %lx itbid %ld, site %lx\n", 
                  thi.uuid, thi.itbid, p->site_id);
         /* the GDT service MDS server is myself, so we just lookup the entry
          * in my CBHT. */
@@ -313,7 +313,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         err = mds_cbht_search(&thi, hmr, txg, &txg);
         txg_put(txg);
         if (err) {
-            hvfs_err(mds, "lookup uuid %ld failed w/ %d.\n",
+            hvfs_err(mds, "lookup uuid %lx failed w/ %d.\n",
                      thi.uuid, err);
             goto out_free_hmr;
         }
@@ -557,6 +557,90 @@ retry:
     goto retry;
 out:
     return 0;
+}
+
+/* mds_dh_bitmap_test()
+ *
+ * This function return the bit value of the position
+ */
+int mds_dh_bitmap_test(struct dh *dh, u64 puuid, u64 itbid)
+{
+    struct itbitmap *b;
+    struct dhe *e;
+    int err = -EINVAL;
+
+    e = mds_dh_search(dh, puuid);
+    if (IS_ERR(e)) {
+        hvfs_err(mds, "The DHE(%lx) is not exist.\n", puuid);
+        return -EINVAL;
+    }
+    /* check if the list is empty */
+    xlock_lock(&e->lock);
+    if (list_empty(&e->bitmap)) {
+        xlock_unlock(&e->lock);
+        err = mds_bitmap_load(e, 0);
+        if (err == -ENOTEXIST) {
+            hvfs_err(mds, "Hoo, loading DHE %lx Bitmap 0 failed, "
+                     "not exists\n",
+                     e->uuid);
+            goto out;
+        } else if (err) {
+            hvfs_err(mds, "Hoo, loading DHE %lx Bitmap 0 failed w/ %d\n",
+                     e->uuid, err);
+            goto out;
+        }
+    } else {
+        xlock_unlock(&e->lock);
+    }
+retry:
+    xlock_lock(&e->lock);
+    list_for_each_entry(b, &e->bitmap, list) {
+        if (b->offset <= itbid && itbid < b->offset + XTABLE_BITMAP_SIZE) {
+            /* ok, we get the bitmap slice, just do it */
+            err = mds_bitmap_test_bit(b, itbid);
+            break;
+        } else if (b->offset > itbid) {
+            /* it means that we need to load the missing slice */
+            xlock_unlock(&e->lock);
+            err = mds_bitmap_load(e, itbid);
+            if (err == -EISEMPTY) {
+                err = 0;
+                goto out;
+            } else if (err) {
+                hvfs_err(mds, "Hoo, loading DHE %lx Bitmap %ld failed w/ %d\n",
+                         e->uuid, itbid, err);
+                goto out;
+            }
+            goto retry;
+        } else if (itbid >= b->offset + XTABLE_BITMAP_SIZE) {
+            if (b->flag & BITMAP_END) {
+                /* ok, just create the slice now */
+                xlock_unlock(&e->lock);
+                err = 0;
+                break;
+            } else if (b->list.next == &e->bitmap) {
+                /* load the next slice */
+                xlock_unlock(&e->lock);
+                err = mds_bitmap_load(e, itbid);
+                if (err == -ENOTEXIST) {
+                    hvfs_err(mds, "Hoo, loading DHE %lx Bitmap %ld failed\n",
+                             e->uuid, itbid);
+                    goto out;
+                } else if (err == -EISEMPTY) {
+                    err = 0;
+                    break;
+                } else if (err) {
+                    hvfs_err(mds, "Hoo, loading DHE %lx Bitmap %ld failed\n",
+                             e->uuid, itbid);
+                    goto out;
+                }
+                goto retry;
+            }
+        }
+    }
+    xlock_unlock(&e->lock);
+out:
+    return err;
 }
 
 /* mds_dh_bitmap_update()

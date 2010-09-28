@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-27 22:04:00 macan>
+ * Time-stamp: <2010-09-28 16:44:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,7 +39,7 @@
  * NOTE: holding the bucket.rlock, be.rlock, itb.rlock, ite.wlock
  */
 int itb_split_local(struct itb *oi, int odepth, struct itb_lock *l,
-                    struct hvfs_txg *txg)
+                    struct hvfs_txg *txg, struct hvfs_index *hi)
 {
     struct bucket_entry *be;
     struct itb_index *ii;
@@ -116,14 +116,14 @@ retry:
                 hvfs_debug(mds, "self %d conflict %d\n", offset, conflict);
             }
             if ((oi->ite[ii->entry].hash >> ITB_DEPTH) & 
-                (1 << (oi->h.depth - 1))) {
+                (1UL << (oi->h.depth - 1))) {
                 /* move to the new itb */
                 
-                hvfs_debug(mds, "offset %d flag %d, %s hash %lx -- bit %d, "
+                hvfs_debug(mds, "offset %d flag %d, %s hash %lx -- bit %ld, "
                            "moved %d\n",
                            offset, ii->flag, oi->ite[ii->entry].s.name,
                            oi->ite[ii->entry].hash >> ITB_DEPTH, 
-                           (1 << (oi->h.depth - 1)), moved);
+                           (1UL << (oi->h.depth - 1)), moved);
                 if (ii->flag == 0)
                     ASSERT(0, mds);
                 __itb_add_ite_blob(ni, &oi->ite[ii->entry]);
@@ -152,6 +152,16 @@ retry:
             saved_depth = oi->h.depth - 1;
         hvfs_err(mds, "ITB %ld HIT untested code-path w/ depth %d(%ld).\n", 
                  oi->h.itbid, oi->h.depth, ni->h.itbid);
+        if ((hi->hash >> ITB_DEPTH) & (1UL << (oi->h.depth - 1))) {
+            /* this means the new entry should be in this new ITB, we are
+             * almost done! Check if this ITB is spliting or already split */
+            if (au_lookup(AU_ITB_SPLIT, ni->h.itbid) ||
+                mds_cbht_exist_check(&hmo.cbht, hi->puuid, ni->h.itbid) ||
+                mds_dh_bitmap_test(&hmo.dh, hi->puuid, ni->h.itbid)) {
+                goto out_relock;
+            }
+            goto can_continue;
+        }
         if (unlikely(oi->h.depth == 50)) {
             hvfs_err(mds, "We should consider the hash conflicts in "
                      "the same bucket!\n");
@@ -160,6 +170,7 @@ retry:
         goto retry;
     }
 
+can_continue:
     if (unlikely(saved_depth))
         oi->h.depth = saved_depth;
     hvfs_debug(mds, "moved %d entries from %ld(%p,%d,%d) to %ld(%p,%d,%d)\n", 
@@ -278,6 +289,13 @@ void mds_bitmap_update_bit(struct itbitmap *b, u64 offset, u8 op)
     u64 pos = offset - b->offset;
 
     __set_bit(pos, (unsigned long *)(b->array));
+}
+
+int mds_bitmap_test_bit(struct itbitmap *b, u64 offset)
+{
+    u64 pos = offset - b->offset;
+
+    return test_bit(pos, (unsigned long *)(b->array));
 }
 
 /* mds_bitmap_refresh()

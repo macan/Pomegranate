@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-04-22 20:10:21 macan>
+ * Time-stamp: <2010-09-28 16:30:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -51,5 +51,6 @@ struct async_update_mlist
 
 /* APIs */
 int au_submit(struct async_update_request *);
+int au_lookup(int, u64);
 
 #endif

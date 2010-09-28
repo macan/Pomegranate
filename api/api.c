@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-21 16:06:16 macan>
+ * Time-stamp: <2010-09-28 16:49:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1891,7 +1891,7 @@ int __hvfs_list(u64 duuid, int op, struct list_result *lr)
             break;
         } else {
             /* ok, we can issure the request to the dest site now */
-            hvfs_err(xnet, "Issue request %ld to site ...\n",
+            hvfs_debug(xnet, "Issue request %ld to site ...\n",
                        itbid);
             /* Step 3: we print the results to the console */
             memset(&hi, 0, sizeof(hi));

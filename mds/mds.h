@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-16 10:55:41 macan>
+ * Time-stamp: <2010-09-28 16:41:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -383,6 +383,7 @@ struct dhe *mds_dh_search(struct dh *, u64);
 int mds_dh_remove(struct dh *, u64);
 u64 mds_get_itbid(struct dhe *, u64);
 int mds_dh_bitmap_update(struct dh *, u64, u64, u8);
+int mds_dh_bitmap_test(struct dh *, u64, u64);
 void mds_dh_bitmap_dump(struct dh *, u64);
 void mds_dh_gossip(struct dh *);
 void mds_dh_evict(struct dh *);
@@ -485,7 +486,8 @@ struct hvfs_txg *mds_get_wb_txg(struct hvfs_mds_object *hmo)
     return hmo->txg[TXG_WB];
 }
 
-int itb_split_local(struct itb *, int, struct itb_lock *, struct hvfs_txg *);
+int itb_split_local(struct itb *, int, struct itb_lock *, struct hvfs_txg *,
+                    struct hvfs_index *hi);
 
 /* bitmapc.c */
 int mds_bitmap_cache_init(void);

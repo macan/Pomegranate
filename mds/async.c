@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-25 10:30:25 macan>
+ * Time-stamp: <2010-09-28 16:45:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -673,6 +673,27 @@ void au_handle_split_sync(void)
     }
 
     return;
+}
+
+int au_lookup(int op, u64 arg)
+{
+    struct async_update_request *aur = NULL;
+    struct itb *i;
+    int found = 0;
+    
+    if (op == AU_ITB_SPLIT) {
+        xlock_lock(&g_aum.lock);
+        list_for_each_entry(aur, &g_aum.aurlist, list) {
+            i = (struct itb *)aur->arg;
+            if (aur->op == op && i->h.itbid == arg) {
+                found = 1;
+                break;
+            }
+        }
+        xlock_unlock(&g_aum.lock);
+    }
+
+    return found;
 }
 
 int au_submit(struct async_update_request *aur)

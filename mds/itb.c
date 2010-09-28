@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-16 20:52:55 macan>
+ * Time-stamp: <2010-09-28 16:02:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -375,7 +375,7 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
         atomic_dec(&i->h.entries);
         hvfs_debug(mds, "ITB itbid %ld, depth %d, entries %d\n", 
                    i->h.itbid, i->h.depth, atomic_read(&i->h.entries));
-        err = itb_split_local(i, i->h.depth, l, txg);
+        err = itb_split_local(i, i->h.depth, l, txg, hi);
         if (!err)
             err = -ESPLIT;
         goto out;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-25 17:13:56 macan>
+ * Time-stamp: <2010-09-28 17:07:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -202,8 +202,8 @@ void mds_ldh(struct xnet_msg *msg)
         }
         _hi->ssalt = m->salt;
     } else {
-        hvfs_err(mds, "do_ldh() cbht search failed w/ %d\n",
-                 err);
+        hvfs_err(mds, "do_ldh() cbht search %lx failed w/ %d\n",
+                 hi->uuid, err);
     }
 
 actually_send:
