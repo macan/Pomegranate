@@ -78,7 +78,7 @@ def main(argv):
     thread = 1
     id = 0
     port = 9001
-    ring = None
+    ring = "127.0.0.1"
 
     try:
         for opt, arg in opts:
@@ -99,7 +99,7 @@ def main(argv):
 
     # init the AMC client
     CSTR_ARRAY = c_char_p * 7
-    argv = CSTR_ARRAY("pyAMC", "-d", str(id), "-r", "10.10.111.9", "-p", 
+    argv = CSTR_ARRAY("pyAMC", "-d", str(id), "-r", ring, "-p", 
                       str(port + id))
     err = api.__core_main(7, argv)
     if err != 0:
@@ -478,7 +478,9 @@ class pamc_shell(cmd.Cmd):
 def print_help():
     print "AMC Client: "
     print " -h, --help          print this help document."
-    print " -t, --thread        how many threads do you want to run."
+    print " -t, --thread        how many threads do you want to run.(IGNORED)"
+    print " -i, --id            the logical id of this AMC client."
+    print " -r, --ring          the R2 server ip address."
 
 if __name__ == '__main__':
     main(sys.argv[1:])

@@ -1,5 +1,373 @@
-Writter: Ma Can <macan@ncic.ac.cn>
-Time-stamp: <2009-11-26 14:46:33 macan>
+Writter: Ma Can <macan@ncic.ac.cn> or <ml.macana@gmail.com> (gmail is preferred)
+Time-stamp: <2010-09-30 11:56:06 macan>
+
+Features of Pomegranate:
+
+1. Support key/value access now, however, the value length must less than 340
+   bytes for now. Longer value support is ongoing.
+
+2. Support POSIX file system interface, while, the kernel/fuse client do not
+   included in this repo. We are busy on testing on these clients, and are
+   happy to open them to public quickly.
+
+3. Dynamically add/del MDS is support in key/value client. Note that, you must
+   make sure that there is no requests issued in changing. We plan to remove
+   this restriction in later version.
+
+4. How to run the Key/Value interface?
+
+   4.1 Start the R2 server
+
+   4.1.1 Edit the config file
+
+       For example, the config file in conf/hvfs.conf shows how to add new
+       servers. Each line is in the format of `type:ip:port:id', where type is
+       in `mds/mdsl/r2/client/amc'.
+
+       $ cat conf/hvfs.conf
+       # HVFS config file
+
+       mds:127.0.0.1:8210:0
+       mds:127.0.0.1:8211:1
+       mds:127.0.0.1:8212:2
+       mds:127.0.0.1:8213:3
+
+       mdsl:127.0.0.1:8810:0
+       mdsl:127.0.0.1:8811:1
+
+       r2:127.0.0.1:8710:0
+
+       client:127.0.0.1:8412:0
+       client:127.0.0.1:8413:1
+       client:127.0.0.1:8414:2
+       client:127.0.0.1:8415:3
+
+       amc:127.0.0.1:9001:0
+       amc:127.0.0.1:9002:1
+
+       This config file defines *four* MDS servers, *two* MDSL servers, *one*
+       R2 server, and many clients and amcs.
+
+   4.1.2 Start the R2 server in cmdline
+
+       $ create=1 mode=1 hvfs_root_hb_interval=10 test/xnet/root.ut 0 conf/hvfs.conf
+
+       `create=1' means that if the fs is not exist, we just create a new one;
+
+       `hvfs_root_hb_interval=10' means R2 server expect to receive heartbeats
+       from each registered site every 10 seconds.
+
+       the first argument `0' sets the ID, the second argument
+       `conf/hvfs.conf' sets the config file.
+
+       After this, you will see the console output on initializing the
+       site/fs/addr information.
+
+   4.2 Start the MDSL servers
+
+       Start one MDSL server is easy. Using the following cmd line.
+
+       $ mode=1 hvfs_mdsl_prof_plot=1 hvfs_mdsl_opt_write_drop=0 test/xnet/mdsl.ut id
+
+       `mode=1' means that MDSL will register itself with the R2 server.
+
+       `hvfs_mdsl_prof_plot=1' means that MDSL dump the internal profilings in
+       predefined plot format.
+
+       `hvfs_mdsl_opt_write_drop=0' means that MDSL do NOT drop any write
+       requests. If it is set to 1, then all the write requests are just
+       dropped.
+
+       There are many other predefined environment variables, and the total
+       list WILL be avaiable on line at
+       http://github.com/macan/Pomegranate/wiki/Document
+
+       Arguments:
+
+       1. argv[1]: ID, logical number of this server id;
+
+       2. argv[2]: R2_IP, the ip address of the R2 server;
+
+       3. argv[3]: PORT, the local listen port number of this server, it
+                   should be consistent with the value in the config file.
+
+       Note that, you can start a bunch of MDSLs in a bash script, for example:
+
+       $ cat start_mdsl.sh
+       #!/bin/bash
+
+       mode=1 hvfs_mdsl_prof_plot=1 hvfs_mdsl_opt_write_drop=0 test/xnet/mdsl.ut 0 > mdsl.0.log &
+       mode=1 hvfs_mdsl_prof_plot=1 hvfs_mdsl_opt_write_drop=0 test/xnet/mdsl.ut 1 > mdsl.1.log &
+
+       All the output info are redirected to files `mdsl.*.log'.
+
+   4.3 Start the MDS servers
+
+       Start one MDS server is easy too. Using the following cmd line.
+
+       $ fsid=1 mode=1 hvfs_mds_opt_memlimit=0 hvfs_mds_memlimit=1072896010 hvfs_mds_txg_interval=5 hvfs_mds_opt_memonly=0 type=0 cache=0 test/xnet/mds.ut 0
+
+       `fsid=1' means that we supply metadata service for file system 1.
+
+       `mode=1' means thet MDS will register itself with the R2 server.
+
+       `hvfs_mds_opt_memlimit=0' means that there is NO memory limit on
+       internal CACHED table slices. If it is set to 1, you must set
+       `hvfs_mds_memlimit=xxxxxxx' either.
+
+       `hvfs_mds_memlimit=xxxxxxx' means that the memory upper limit for
+       CACHED table slices is xxxxxxx BYTES.
+
+       `hvfs_mds_txg_interval=5' means that the base timer interval of
+       transaction group write back is FIVE seconds. Note that, if you enable
+       `hvfs_mds_dati', this interval will be ADJUST dynamically based on the
+       current system load. If the load is high, we delay the write back to
+       NOT content with user requests. If the load is lower, we trigger the
+       pending write back.
+
+       `hvfs_mds_opt_memonly=0' means that MDS is NOT memory-only. All the
+       modifications WILL be commited to MDSL. If it is set, all the
+       modifications will ONLY resident in memory.
+
+       `type=0' means that it is a MDS server. It is the default value, so you
+       can just ignore it.
+
+       `cache=0' means that MDS do NOT pre-allocate ANY table slices. If it is
+       set to X, then on starting the MDS will allocate X table slices.
+
+       Arguments:
+
+       1. argv[1]: ID, logical number of this server id;
+
+       2. argv[2]: R2_IP, the ip address of the R2 server;
+
+       3. argv[3]: PORT, the local listen port number of this server, it
+                   should be consistent with the value in the config file;
+
+   4.4 Create the file system
+
+       On default, there is no file system. To use the key/value store on top
+       of Pomegranate, we should create the file system 1(fsid=1). We have
+       provided a tool to create a clean file system in directory test/xnet.
+
+       Using the following cmd line to create a file system:
+
+       $ fsid=1 type=1 op=1 test/xnet/r2cli.ut 0
+
+       `fsid=1' means that we create a new file system with id=1.
+
+       `type=1' means that we pretend ourself to be a CLIENT.
+
+       `op=1' means that we want to do MKFS operation on R2 server.
+
+       Arguments:
+
+       1. argv[1]: ID, logical number of this client;
+
+       Operations:
+
+       op 0/1 => hb/mkfs
+
+       1. `hb' means heartbeat operation. A heartbeat message is sent to R2
+          server.
+
+       2. `mkfs' means make file system operation. A mkfs message is sent to
+          R2 server, carring the fsid.
+
+       $ # output of execution is:
+       [INFO] R2 Unit Test Client running...
+       [INFO] type 0/1/2/3 => MDS/CLIENT/MDSL/RING
+       [INFO] fsid => 0-$
+       [INFO] op 0/1 => hb/mkfs
+       [INFO] Self type+ID is client:0.
+       [INFO] Open site store /tmp/hvfs/site_store success.
+       [INFO] Open root store /tmp/hvfs/root_store success.
+       [INFO] Open bitmap store /tmp/hvfs/bitmap_store success.
+       [INFO] Open addr store /tmp/hvfs/addr_store success.
+       [ERR ] HVFS (         r2cli.c,   209): r2cli_do_reg[2a95588540]: Begin parse the reg reply message
+       [INFO] HCI: gdt_uuid 0 gdt_salt bb5d18c root_uuid 1 root_salt ffffffffffffffff group 0
+       [INFO] fsid 1 gdt_uuid 0 gdt_salt bb5d18c root_uuid 1 root_salt ffffffffffffffff
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588540]: site 20000 addr 127.0.0.1 8412
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588540]: site 20001 addr 127.0.0.1 8413
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588540]: site 20002 addr 127.0.0.1 8414
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588540]: site 20003 addr 127.0.0.1 8415
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588540]: site 40000 addr 127.0.0.1 8210
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588540]: site 40001 addr 127.0.0.1 8211
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588540]: site 40002 addr 127.0.0.1 8212
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588540]: site 40003 addr 127.0.0.1 8213
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588540]: site 60000 addr 127.0.0.1 8810
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588540]: site 60001 addr 127.0.0.1 8811
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588540]: site 80000 addr 127.0.0.1 8710
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588540]: site c0000 addr 127.0.0.1 9001
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588540]: site c0001 addr 127.0.0.1 9002
+       [ERR ] HVFS (         r2cli.c,   378): r2cli_do_mkfs[2a95588540]: Begin parse the mkfs reply message
+       [INFO] MKFS fsid 1 w/ root_salt 96aa6cd
+
+       Note that, it is important to see the last line 'MKFS fsid 1 w/
+       root_salt xxxxxx'. It means that a new file system 1 has been created!
+       If you see the following error, it means that the file system 1 has
+       already been created before. Just ignore that, you can do the next
+       step:)
+
+       [ERR ] HVFS (         r2cli.c,   372): r2cli_do_mkfs[2a95588540]: mkfs site 20000 failed w/ -17
+       [ERR ] HVFS (         r2cli.c,   544): main[2a95588540]: mkfs self 20000 w/ r2 80000 failed w/ -17
+
+   4.5 Start the KV client
+
+       We have provide a key/value access client for KV store on top of
+       Pomegranate. Using the following cmd line to start it:
+
+       $ cd test/python
+       $ python client.py -h
+       Arguments:
+       AMC Client: 
+        -h, --help          print this help document.
+        -t, --thread        how many threads do you want to run.(IGNORED)
+        -i, --id            the logical id of this AMC client.
+        -r, --ring          the R2 server ip address.
+
+       $ python client.py # using the default ip address (127.0.0.1)
+       AMC Client 0 Running w/ (1 threads)...
+       [INFO] AMC Self id 0 port 9001
+       [INFO] DCONF cmd channel: /tmp/.MDS.DCONF
+       [INFO] Begin parse the reg reply message
+       b01d016855b285f00fb1edb5751af494 CHRING
+       aa876e5d7c1a228c6ea54543d7929db1 CHRING
+       [INFO] fsid 1 gdt_uuid 0 gdt_salt bb5d18c root_uuid 1 root_salt 96aa6cd
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588f80]: site 20000 addr 127.0.0.1 8412
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588f80]: site 20001 addr 127.0.0.1 8413
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588f80]: site 20002 addr 127.0.0.1 8414
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588f80]: site 20003 addr 127.0.0.1 8415
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588f80]: site 40000 addr 127.0.0.1 8210
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588f80]: site 40001 addr 127.0.0.1 8211
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588f80]: site 40002 addr 127.0.0.1 8212
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588f80]: site 40003 addr 127.0.0.1 8213
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588f80]: site 60000 addr 127.0.0.1 8810
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588f80]: site 60001 addr 127.0.0.1 8811
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588f80]: site 80000 addr 127.0.0.1 8710
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588f80]: site c0000 addr 127.0.0.1 9001
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/xnet/xnet_simple.c,  2112): xnet_replace_ipaddr[2a95588f80]: site c0001 addr 127.0.0.1 9002
+       [INFO] AMI gdt uuid 0 salt bb5d18c
+       [INFO] Change root salt to 96aa6cd
+       [INFO] root mdu mode 40744 nlink 2 flags 8000000
+       [INFO] Lookup root entry successfully.
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/mds/xtable.c,   742): mds_bitmap_load[2a95588f80]: bitmap f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+       [INFO] Got suuid 0x8000400000000003 ssalt b59c60 puuid 1 psalt 96aa6cd.
+       table table_x uuid -7fffbffffffffffd salt b59c60
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/mds/xtable.c,   742): mds_bitmap_load[2a95588f80]: bitmap f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+       get value 'hello, world!'
+       Welcome to Python AMC Client Shell, for help please input ? or help
+       (cmd) 
+       # waiting for your commands :)
+
+       Commands List:
+
+       1. commit: Trigger a memory snapshot on the remote MDS. 
+                  Usage: commit [<id of MDS>/<all>]
+
+       2. create: Create a new table in the KV store.
+                  Usage: create table <table_name>
+
+       3. del: Delete the key/value pair in the KV store.
+               Usage: del <key>
+
+       4. drop: Drop a table in the KV store.
+                Usage: drop table <table_name>
+
+       5. get: Get the value of the key from the KV store.
+               Usage: get <key>
+
+       6. getactivesite: Get the active sites.
+                         Usage: getactivesite <mds/mdsl>
+
+       7. getcluster: Get the MDS/MDSL cluster status.
+                      Usage: getcluster <mds/mdsl>
+
+       8. list: List the tables in KV store.
+                Usage: list
+
+       9. ls: the same as list
+
+       10. offline: Offline a MDS or MDSL site. (Fow now MDSL is not supported to offline/online)
+                    Usage: offline <mds/mdsl> id
+
+       11. online: Online a MDS or MDSL site.
+                   Usage: online <mds/mdsl> id ip
+
+       12. put: Put a key/value pair to the KV store.
+                Usage: put key value
+
+       13. select: Select something from the table.
+                   Usage: select * from <table_name> # return all the keys in table <table_name>
+                          select count(1) from <table_name> # return the total count of keys in table <table_name>
+                          select * from <table_name> where 'str' # return all the keys whose value contains string 'str' in table <table_name>
+                          select count(1) from <table_name> where 'str' # return the total count of keys whose value contains string 'str' in table <table_name>
+
+       14. set: Set the working table.
+                Usage: set table <table_name>
+
+       15. update: Update an existing key/value pair in the KV store.
+                   Usage: update key value
+
+       For example, say we create a table ABCD and put key/value pairs
+       [<1,bob>, <2,alice>, <3,macan>, <1111,Li>, <135666,Zhang>] to table
+       ABCD.
+
+       (Cmd) create table ABCD
+       [INFO] Got suuid 0x8000200000000003 ssalt 1456a85 puuid 1 psalt 96aa6cd.
+       (Cmd) set table ABCD
+       (Cmd) put 1 bob
+       [WARN] HVFS (/home/macan/hvfs/hvfs.macan/mds/xtable.c,   742): mds_bitmap_load[2a95588f80]: bitmap f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+       (Cmd) put 2 alice
+       (Cmd) put 3 macan
+       (Cmd) put 1111 Li
+       (Cmd) put 135666 Zhang
+
+       Then, we do some queries:
+
+       (Cmd) select * from ABCD
+       [INFO] refresh uuid 8000200000000003 salt 21326469 bitmaps
+       1
+       2
+       3
+       1111
+       135666
+       (Cmd) select count(1) from ABCD
+       [INFO] refresh uuid 8000200000000003 salt 21326469 bitmaps
+       5
+       (Cmd) select * from ABCD where macan
+       Gramma OK.
+       [INFO] refresh uuid 8000200000000003 salt 21326469 bitmaps
+       3
+       (Cmd) select * from ABCD where bob
+       Gramma OK.
+       [INFO] refresh uuid 8000200000000003 salt 21326469 bitmaps
+       1
+       (Cmd) select * from ABCD where a
+       Gramma OK.
+       [INFO] refresh uuid 8000200000000003 salt 21326469 bitmaps
+       2
+       3
+       135666
+       (Cmd) get 1111
+       Key: 1111 => Value: Li
+
+       Next, we update some values, and do queries.
+
+       (Cmd) update 1111 alex
+       (Cmd) select * from ABCD where a
+       Gramma OK.
+       [INFO] refresh uuid 8000200000000003 salt 21326469 bitmaps
+       2
+       3
+       1111
+       135666
+       (Cmd) get 1111
+       Key: 1111 => Value: alex
+
+       Ho, it works? Any problem please contact me via mail at ml.macana AT gmail.com
+
+History for HVFS:
 
 1. HVFS architecture
 

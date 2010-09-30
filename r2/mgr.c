@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-21 15:27:33 macan>
+ * Time-stamp: <2010-09-29 15:03:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -136,6 +136,9 @@ int site_mgr_traverse(struct site_mgr *sm, site_mgr_trav_callback_t callback,
         xlock_lock(&rh->lock);
         hlist_for_each_entry(pos, n, &rh->h, hlist) {
             hvfs_info(root, "Hit site %lx\n", pos->site_id);
+            if (pos->state == SE_STATE_INIT ||
+                pos->state == SE_STATE_SHUTDOWN)
+                continue;
             if (callback) {
                 if (!args)
                     callback((void *)pos->site_id);
@@ -1981,16 +1984,23 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
             err = 0;
         }
     } else if (HVFS_IS_CLIENT(site_id) || HVFS_IS_AMC(site_id)) {
-        err = root_mgr_lookup_create(&hro.root, fsid, &root);
+        /* Bug-xxxx: we approve create requests from client and amc sites, it
+         * is really need. */
+        err = root_mgr_lookup_create2(&hro.root, fsid, &root);
         if (err < 0) {
             hvfs_err(root, "lookup create entry %ld failed w/ %d\n",
                      fsid, err);
             goto out;
+        } else if (err > 0) {
+            hvfs_err(root, "create fs %ld on-the-fly\n", fsid);
+            err = 0;
         }
+#if 0
         if (root->root_salt == -1UL) {
             hvfs_err(root, "reject %lx w/o mkfs called\n", site_id);
             return -EAGAIN;
         }
+#endif
     }
 
     /* read in the site hxi info from site store file */

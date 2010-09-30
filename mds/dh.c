@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-28 17:02:32 macan>
+ * Time-stamp: <2010-09-29 15:08:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -193,7 +193,7 @@ void __dh_gossip_bitmap(struct itbitmap *bitmap, u64 duuid)
     point = hvfs_hash(lib_random(0xfffffff),
                       lib_random(0xfffffff), 0, HASH_SEL_GDT);
     p = ring_get_point2(point, hmo.chring[CH_RING_MDS]);
-    if (!p) {
+    if (IS_ERR(p)) {
         hvfs_err(mds, "ring_get_point2() failed w/ %ld\n",
                  PTR_ERR(p));
         goto out_free;

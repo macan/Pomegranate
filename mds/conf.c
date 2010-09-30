@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-28 09:10:55 macan>
+ * Time-stamp: <2010-09-30 11:17:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -176,7 +176,8 @@ int dconf_init(void)
     if (err)
         goto out;
     
-    hvfs_info(mds, "DCONF cmd channel: %s\n", hmo.conf.dcaddr);
+    hvfs_info(mds, "create DCONF cmd channel: %s w/ %d\n", 
+              hmo.conf.dcaddr, err);
 out:
     return err;
 }

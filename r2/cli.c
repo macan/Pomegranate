@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-15 23:10:38 macan>
+ * Time-stamp: <2010-09-29 15:01:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -130,6 +130,9 @@ int cli_find_topn(struct ring_entry *re, int vnr, struct ring_range **orr)
 {
     struct ring_range *rr;
     int err = 0;
+
+    if (!re->ring.used)
+        return -EISEMPTY;
 
     if (vnr <= 0 || vnr > re->ring.used)
         return -EINVAL;
@@ -411,6 +414,40 @@ out:
     return err;
 }
 
+/* __add2ring() add one site to the CH ring w/ ring_vid_max entries
+ */
+int __add2ring(struct chring *r, u64 site)
+{
+    struct chp *p;
+    char buf[256];
+    int vid_max, i, err;
+
+    vid_max = hro.conf.ring_vid_max ? hro.conf.ring_vid_max : 
+        HVFS_RING_VID_MAX;
+
+    p = (struct chp *)xzalloc(vid_max * sizeof(struct chp));
+    if (!p) {
+        hvfs_err(root, "xzalloc() chp failed\n");
+        return -ENOMEM;
+    }
+
+    for (i = 0; i < vid_max; i++) {
+        snprintf(buf, 256, "%ld.%d", site, i);
+        (p + i)->point = hvfs_hash(site, (u64)buf, strlen(buf), 
+                                   HASH_SEL_VSITE);
+        (p + i)->vid = i;
+        (p + i)->type = CHP_AUTO;
+        (p + i)->site_id = site;
+        err = ring_add_point_nosort(p + i, r);
+        if (err) {
+            hvfs_err(xnet, "ring_add_point() failed.\n");
+            return err;
+        }
+    }
+
+    return 0;
+}
+
 int cli_dynamic_add_site(struct ring_entry *re, u64 site_id)
 {
     struct ring_range *rr = NULL;
@@ -427,8 +464,17 @@ int cli_dynamic_add_site(struct ring_entry *re, u64 site_id)
     
     /* Step 1: change the ring by insert the site to the topn large ranges */
     err = cli_find_topn(re, hro.conf.ring_vid_max, &rr);
-    if (err) {
-        hvfs_err(root, "cli_find_topn_add() failed w/ %d\n", err);
+    if (err == -EISEMPTY) {
+        hvfs_warning(root, "empty CH ring, just do insert.\n");
+        /* just add the site to the ring */
+        err = __add2ring(&re->ring, site_id);
+        if (err) {
+            hvfs_err(root, "add site %lx to ring failed\n", site_id);
+            goto out;
+        }
+        goto bcast;
+    } else if (err) {
+        hvfs_err(root, "cli_find_topn() failed w/ %d\n", err);
         goto out;
     }
         
@@ -460,6 +506,7 @@ int cli_dynamic_add_site(struct ring_entry *re, u64 site_id)
         goto out_free;
     }
     /* bcast the ring */
+bcast:
     err = site_mgr_traverse(&hro.site, __cli_send_rings, &ra);
     if (err) {
         hvfs_err(root, "bcast the ring failed w/ %d\n", err);

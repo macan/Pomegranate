@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-28 16:44:30 macan>
+ * Time-stamp: <2010-09-30 11:50:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -371,7 +371,7 @@ void mds_bitmap_refresh_all(u64 duuid)
         xlock_unlock(&e->lock);
         offset += XTABLE_BITMAP_SIZE;
     } while (1);
-    hvfs_err(mds, "refresh_all w/ %d\n", err);
+    hvfs_debug(mds, "refresh_all w/ %d\n", err);
 }
 
 /* mds_bitmap_load()

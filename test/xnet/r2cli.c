@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-21 19:25:47 macan>
+ * Time-stamp: <2010-09-29 11:47:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -386,7 +386,8 @@ int r2cli_do_mkfs(u64 request_site, u64 root_site, u64 fsid, u32 gid)
             hvfs_err(root, "bparse root failed w/ %d\n", err);
             goto out;
         }
-        hvfs_info(root, "MKFS root_salt %lx\n", rt->root_salt);
+        hvfs_info(root, "MKFS fsid %ld w/ root_salt %lx\n", 
+                  fsid, rt->root_salt);
         /* update to g_hxi */
         __update_hxi(request_site, rt);
         err = 0;
@@ -452,6 +453,7 @@ int main(int argc, char *argv[])
 
     hvfs_info(xnet, "R2 Unit Test Client running...\n");
     hvfs_info(xnet, "type 0/1/2/3 => MDS/CLIENT/MDSL/RING\n");
+    hvfs_info(xnet, "fsid => 0-$\n");
     hvfs_info(xnet, "op 0/1 => hb/mkfs\n");
 
     value = getenv("type");
@@ -532,7 +534,7 @@ int main(int argc, char *argv[])
         if (err) {
             hvfs_err(xnet, "hb %x w/ r2 %x failed w/ %d\n",
                      self, HVFS_RING(0), err);
-            goto out;
+            goto out_unreg;
         }
         break;
     case 1:
@@ -540,11 +542,12 @@ int main(int argc, char *argv[])
         if (err) {
             hvfs_err(xnet, "mkfs self %x w/ r2 %x failed w/ %d\n",
                      self, HVFS_RING(0), err);
-            goto out;
+            goto out_unreg;
         }
     default:;
     }
 
+out_unreg:
     err = r2cli_do_unreg(self, HVFS_RING(0), fsid, 0);
     if (err) {
         hvfs_err(xnet, "unreg self %x w/ r2 %x failed w/ %d\n",

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-28 16:49:28 macan>
+ * Time-stamp: <2010-09-30 11:54:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1966,7 +1966,7 @@ int __hvfs_list(u64 duuid, int op, struct list_result *lr)
                     switch (op) {
                     case LIST_OP_SCAN:
                     case LIST_OP_GREP:
-                        hvfs_info(xnet, "%s\n", kbuf);
+                        hvfs_plain(xnet, "%s\n", kbuf);
                         break;
                     case LIST_OP_COUNT:
                     case LIST_OP_GREP_COUNT:
