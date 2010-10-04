@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-23 21:01:15 macan>
+ * Time-stamp: <2010-10-04 17:43:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,10 +44,10 @@ u64 __attribute__((unused)) lookup_failed = 0;
 u64 __attribute__((unused)) unlink_failed = 0;
 
 char *ipaddr[] = {
-    "10.10.111.9",              /* mds */
-    "10.10.111.9",              /* client */
-    "10.10.111.9",              /* mdsl */
-    "10.10.111.9",              /* ring */
+    "127.0.0.1",              /* mds */
+    "127.0.0.1",              /* client */
+    "127.0.0.1",              /* mdsl */
+    "127.0.0.1",              /* ring */
 };
 
 short port[4][4] = {

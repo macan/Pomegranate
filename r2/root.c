@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-07 10:35:38 macan>
+ * Time-stamp: <2010-10-04 20:05:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,6 +30,26 @@ u32 hvfs_root_tracing_flags = HVFS_DEFAULT_LEVEL;
 
 struct hvfs_root_object hro;
 
+int root_dir_make_exist(char *path)
+{
+    int err;
+
+    err = mkdir(path, 0755);
+    if (err) {
+        err = -errno;
+        if (errno == EEXIST) {
+            err = 0;
+        } else if (errno == EACCES) {
+            hvfs_err(root, "Failed to create the dir %s, no permission.\n",
+                     path);
+        } else {
+            hvfs_err(root, "mkdir %s failed w/ %d\n", path, errno);
+        }
+    }
+
+    return err;
+}
+
 /* root_pre_init()
  * 
  * setting up the internal configs.
@@ -46,8 +66,17 @@ void root_pre_init()
  */
 int root_verify(void)
 {
-    /* check sth */
-    return 0;
+    int err = 0;
+    
+    /* check the HVFS_HOME */
+    err = root_dir_make_exist(hro.conf.root_home);
+    if (err) {
+        hvfs_err(root, "dir %s do not exist.\n", hro.conf.root_home);
+        goto out;
+    }
+
+out:
+    return err;
 }
 
 /* root_config()
@@ -314,6 +343,11 @@ int root_init(void)
     if (err)
         goto out_config;
 
+    /* verify the configs */
+    err = root_verify();
+    if (err)
+        goto out_verify;
+    
     /* init hro */
     err = site_mgr_init(&hro.site);
     if (err)
@@ -350,6 +384,7 @@ out_addr_mgr:
 out_root_mgr:
 out_ring_mgr:
 out_site_mgr:
+out_verify:
 out_config:
     
     return err;

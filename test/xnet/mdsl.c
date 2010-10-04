@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-16 17:33:50 macan>
+ * Time-stamp: <2010-10-04 17:45:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,10 +37,10 @@
 u64 fsid = 0;
 
 char *ipaddr[] = {
-    "10.10.111.9",              /* mds */
-    "10.10.111.9",              /* client */
-    "10.10.111.9",              /* mdsl */
-    "10.10.111.9",              /* ring */
+    "127.0.0.1",              /* mds */
+    "127.0.0.1",              /* client */
+    "127.0.0.1",              /* mdsl */
+    "127.0.0.1",              /* ring */
     "10.10.111.96",             /* test client */
 };
 

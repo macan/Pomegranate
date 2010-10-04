@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-31 12:58:05 macan>
+ * Time-stamp: <2010-10-04 17:44:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,11 +34,11 @@ u64 lookup_failed = 0;
 u64 unlink_failed = 0;
 
 char *ipaddr1[] = {
-    "10.10.111.9",
+    "127.0.0.1",
 };
 
 char *ipaddr2[] = {
-    "10.10.111.9",
+    "127.0.0.1",
 };
 
 short port1[] = {

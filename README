@@ -1,5 +1,5 @@
 Writter: Ma Can <macan@ncic.ac.cn> or <ml.macana@gmail.com> (gmail is preferred)
-Time-stamp: <2010-09-30 11:56:06 macan>
+Time-stamp: <2010-10-04 20:22:59 macan>
 
 Features of Pomegranate:
 
@@ -14,7 +14,25 @@ Features of Pomegranate:
    make sure that there is no requests issued in changing. We plan to remove
    this restriction in later version.
 
+Getting Start with Pomegranate:
+
 4. How to run the Key/Value interface?
+
+   4.0 Preparing Environment
+
+   4.0.1 Create File System Home
+
+       $ mkdir -p /tmp/hvfs
+
+   4.0.2 Get the ROOT permission
+
+       $ su
+
+   4.0.3 Python 2.5 or ctypes modules is needed
+
+       You should prepare the Python 2.5 environment or install ctypes
+       module. Please refer to site [[Python|www.python.org]] and
+       [[ctypes|http://sourceforge.net/projects/ctypes/files/]].
 
    4.1 Start the R2 server
 
@@ -143,6 +161,16 @@ Features of Pomegranate:
 
        3. argv[3]: PORT, the local listen port number of this server, it
                    should be consistent with the value in the config file;
+
+       Note that, you can start a bunch of MDSs in a bash script, for example:
+
+       $ cat start_mds.sh
+       #!/bin/bash
+       
+       fsid=1 mode=1 hvfs_mds_opt_memlimit=0 hvfs_mds_memlimit=1072896010 hvfs_mds_txg_interval=5 hvfs_mds_opt_memonly=0 type=0 cache=0 test/xnet/mds.ut 0 > mds.0.log &
+       fsid=1 mode=1 hvfs_mds_opt_memlimit=0 hvfs_mds_memlimit=1072896010 hvfs_mds_txg_interval=5 hvfs_mds_opt_memonly=0 type=0 cache=0 test/xnet/mds.ut 1 > mds.1.log &
+       fsid=1 mode=1 hvfs_mds_opt_memlimit=0 hvfs_mds_memlimit=1072896010 hvfs_mds_txg_interval=5 hvfs_mds_opt_memonly=0 type=0 cache=0 test/xnet/mds.ut 2 > mds.2.log &
+       fsid=1 mode=1 hvfs_mds_opt_memlimit=0 hvfs_mds_memlimit=1072896010 hvfs_mds_txg_interval=5 hvfs_mds_opt_memonly=0 type=0 cache=0 test/xnet/mds.ut 3 > mds.3.log &
 
    4.4 Create the file system
 
@@ -366,6 +394,51 @@ Features of Pomegranate:
        Key: 1111 => Value: alex
 
        Ho, it works? Any problem please contact me via mail at ml.macana AT gmail.com
+
+Fast Error Code Reference:
+
+     1. Error Code defined by OS and Reused by Pomegranate
+
+     Code # OS-Meanings Pomegranate-Meanings
+
+     EEXIST 17 "File exists" Extends to any object exists
+
+     ENOENT 2 "No such file or directory" Extends to any object that not exists
+
+     ENOMEM 12  "Cannot allocate memory" No free memory
+
+     EFAULT
+
+     EINVAL 
+
+     EAGAIN 11
+
+     <Table is not completed.>
+
+     2. Error Code defined by Pomegranate
+
+     ETXCED 1025 TXC evicted
+
+     ECHP 1026 Consistent hash point error
+
+     ERINGCHG 1027 Ring Changed
+
+     ESPLIT 1028 Need Split
+
+     ENOTEXIST 1029 Object not existed
+
+     EHSTOP 1030 Stop here
+
+     EBITMAP 1031 Bitmap not correct, you should reload the bitmap
+
+     EUPDATED 1032 the delta has already been applied, although there is an
+                   error in another logic
+
+     EHWAIT 1033 wait a few seconds and retry
+
+     ERECOVER 1034 notify a recover process to the caller
+
+     EISEMPTY 1035 the bitmap slice is empty
 
 History for HVFS:
 

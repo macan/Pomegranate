@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-29 11:47:20 macan>
+ * Time-stamp: <2010-10-04 17:45:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,10 +36,10 @@
 union hvfs_x_info g_hxi;
 
 char *ipaddr[] = {
-    "10.10.111.9",              /* mds */
-    "10.10.111.9",              /* client */
-    "10.10.111.9",              /* mdsl */
-    "10.10.111.9",              /* ring */
+    "127.0.0.1",              /* mds */
+    "127.0.0.1",              /* client */
+    "127.0.0.1",              /* mdsl */
+    "127.0.0.1",              /* ring */
 };
 
 short port[5][5] = {

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-27 10:10:46 macan>
+ * Time-stamp: <2010-10-04 17:59:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -226,6 +226,7 @@ struct mdsl_conf
     pthread_t dcpt;
 
     /* section for file name */
+    char *mdsl_home;
     char *profiling_file;
     char *conf_file;
     char *log_file;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-16 12:49:27 macan>
+ * Time-stamp: <2010-10-04 19:11:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -275,14 +275,14 @@ int mdsl_verify(void)
     int err = 0;
 
     /* check the MDSL_HOME */
-    err = mdsl_storage_dir_make_exist(HVFS_MDSL_HOME);
+    err = mdsl_storage_dir_make_exist(hmo.conf.mdsl_home);
     if (err) {
-        hvfs_err(mdsl, "dir %s do not exist.\n", HVFS_MDSL_HOME);
+        hvfs_err(mdsl, "dir %s do not exist.\n", hmo.conf.mdsl_home);
         goto out;
     }
 
     /* check the MDSL site directory */
-    sprintf(path, "%s/%lx", HVFS_MDSL_HOME, hmo.site_id);
+    sprintf(path, "%s/%lx", hmo.conf.mdsl_home, hmo.site_id);
     err = mdsl_storage_dir_make_exist(path);
     if (err) {
         hvfs_err(mdsl, "dir %s do not exist.\n", path);
@@ -307,6 +307,7 @@ int mdsl_config(void)
     }
 
     HVFS_MDSL_GET_ENV_strncpy(dcaddr, value, MDSL_DCONF_MAX_NAME_LEN);
+    HVFS_MDSL_GET_ENV_cpy(mdsl_home, value);
     HVFS_MDSL_GET_ENV_cpy(profiling_file, value);
     HVFS_MDSL_GET_ENV_cpy(conf_file, value);
     HVFS_MDSL_GET_ENV_cpy(log_file, value);
@@ -326,7 +327,12 @@ int mdsl_config(void)
 
     HVFS_MDSL_GET_ENV_option(write_drop, WDROP, value);
     HVFS_MDSL_GET_ENV_option(memlimit, MEMLIMIT, value);
-    
+
+    /* set default mdsl home */
+    if (!hmo.conf.mdsl_home) {
+        hmo.conf.mdsl_home = HVFS_MDSL_HOME;
+    }
+
     /* set default chunk if not setted. */
     if (!hmo.conf.itb_file_chunk)
         hmo.conf.itb_file_chunk = MDSL_STORAGE_ITB_DEFAULT_CHUNK;
