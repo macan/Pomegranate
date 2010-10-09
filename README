@@ -1,5 +1,5 @@
 Writter: Ma Can <macan@ncic.ac.cn> or <ml.macana@gmail.com> (gmail is preferred)
-Time-stamp: <2010-10-04 20:22:59 macan>
+Time-stamp: <2010-10-09 10:54:29 macan>
 
 Features of Pomegranate:
 
@@ -17,6 +17,29 @@ Features of Pomegranate:
 Getting Start with Pomegranate:
 
 4. How to run the Key/Value interface?
+
+   4.0- Using bin/hvfs.sh to start Servers?
+
+       Now, we have a simple script to start/stop/check servers. It is located
+       at bin/hvfs.sh. 
+
+       $ ./hvfs.sh
+       Version 1.0.0b
+       Author: Can Ma <ml.macana@gmail.com>
+
+       Usage: hvfs.sh [start | stop | kill | check mds | mdsl | r2 | all]
+                      [clean]
+
+       This script loads the config file conf/hvfs.conf and start processes on
+       the remote sites. However, it is not very robust:)
+
+       Steps:
+       # Start all the servers
+       $ ./hvfs.sh start [all]
+       # Check if any server is irregular
+       $ ./hvfs.sh check
+       # Ok, stop all the servers
+       $ ./hvfs.sh stop [all]
 
    4.0 Preparing Environment
 

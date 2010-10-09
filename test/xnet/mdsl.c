@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-04 17:45:05 macan>
+ * Time-stamp: <2010-10-09 09:57:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -504,6 +504,8 @@ int main(int argc, char *argv[])
             goto out;
         }
     }
+
+    hvfs_info(xnet, "MDSL is UP for serving requests now.\n");
 
     SET_TRACING_FLAG(mdsl, HVFS_DEBUG);
     msg_wait();

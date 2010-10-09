@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-09-09 09:41:05 macan>
+# Time-stamp: <2010-10-04 21:28:34 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -20,6 +20,7 @@ R2 = $(HOME_PATH)/r2
 XNET = $(HOME_PATH)/xnet
 TEST = $(HOME_PATH)/test
 CONF = $(HOME_PATH)/conf
+BIN = $(HOME_PATH)/bin
 API = $(HOME_PATH)/api
 
 COMPILE_DATE = `date`
