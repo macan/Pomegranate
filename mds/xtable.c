@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-30 11:50:34 macan>
+ * Time-stamp: <2010-10-11 10:01:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -544,7 +544,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
                             processed = 1;
                             break;
                         }
-                        if (b->offset == offset) {
+                        if (b->offset == bitmap->offset) {
                             /* hoo, someone insert the bitmap prior us, we
                              * just update our bitmap to the previous one */
                             mds_bitmap_update(b, bitmap);
@@ -555,7 +555,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
                             xfree(bitmap);
                             break;
                         }
-                        if (b->offset + XTABLE_BITMAP_SIZE == offset) {
+                        if (b->offset + XTABLE_BITMAP_SIZE == b->offset) {
                             /* ok, insert ourself prior this slice */
                             list_add(&bitmap->list, &b->list);
                             /* clear the END flag */
@@ -607,7 +607,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
                         processed = 1;
                         break;
                     }
-                    if (b->offset == offset) {
+                    if (b->offset == bitmap->offset) {
                         /* hoo, someone insert the bitmap prior us, we just
                          * update our bitmap to the previous one */
                         mds_bitmap_update(b, bitmap);
@@ -618,7 +618,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
                         xfree(bitmap);
                         break;
                     }
-                    if (b->offset + XTABLE_BITMAP_SIZE == offset) {
+                    if (b->offset + XTABLE_BITMAP_SIZE == bitmap->offset) {
                         /* ok, insert ourself prior this slice */
                         list_add(&bitmap->list, &b->list);
                         b->flag &= ~BITMAP_END;
@@ -697,7 +697,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
                     xnet_clear_auto_free(msg->pair);
                     break;
                 }
-                if (b->offset == offset) {
+                if (b->offset == bitmap->offset) {
                     /* hoo, someone insert the bitmap prior us, we just update our
                      * bitmap to the previous one */
                     mds_bitmap_update(b, bitmap);
@@ -708,7 +708,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
                     xnet_set_auto_free(msg->pair);
                     break;
                 }
-                if (b->offset + XTABLE_BITMAP_SIZE == offset) {
+                if (b->offset + XTABLE_BITMAP_SIZE == bitmap->offset) {
                     /* ok, insert ourself prior this slice */
                     list_add(&bitmap->list, &b->list);
                     /* clear the END flag */
