@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-27 21:43:34 macan>
+ * Time-stamp: <2010-10-12 08:55:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -979,7 +979,7 @@ int __range_lookup(u64 duuid, u64 itbid, struct mmap_args *ma, u64 *location)
 
     fde = mdsl_storage_fd_lookup_create(duuid, MDSL_STORAGE_RANGE, (u64)ma);
     if (IS_ERR(fde)) {
-        hvfs_err(mdsl, "lookup create %ld/%ld range %ld faield\n",
+        hvfs_err(mdsl, "lookup create %lx/%ld range %ld faield\n",
                  duuid, itbid, ma->range_id);
         err = PTR_ERR(fde);
         goto out;
@@ -998,7 +998,7 @@ int __range_write(u64 duuid, u64 itbid, struct mmap_args *ma, u64 location)
 
     fde = mdsl_storage_fd_lookup_create(duuid, MDSL_STORAGE_RANGE, (u64)ma);
     if (IS_ERR(fde)) {
-        hvfs_err(mdsl, "lookup create %ld/%ld range %ld failed\n",
+        hvfs_err(mdsl, "lookup create %lx/%ld range %ld failed\n",
                  duuid, itbid, ma->range_id);
         err = PTR_ERR(fde);
         goto out;
@@ -1820,7 +1820,7 @@ int mdsl_storage_update_range(struct txg_open_entry *toe)
         ma.range_id = range->range_id;
         ma.range_begin = range->begin;
 
-        hvfs_debug(mdsl, "write II %ld %ld to location %ld\n",
+        hvfs_debug(mdsl, "write II %lx %ld to location %ld\n",
                    pos->duuid, pos->itbid, pos->location);
 
         err = __range_write(pos->duuid, pos->itbid, &ma, pos->location);

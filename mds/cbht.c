@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-21 14:32:08 macan>
+ * Time-stamp: <2010-10-12 13:32:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -911,7 +911,7 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     /* FIXME: fill hmr with mdu_rpy */
     /* determine the flags */
     m = (struct mdu *)(mdu_rpy);
-    if (unlikely(m->flags & HVFS_KV_NORMAL)) {
+    if (unlikely((m->flags & HVFS_KV_NORMAL) || (m->flags & HVFS_KV_STR))) {
         if (hi->flag & INDEX_KV) {
             if (hi->flag & INDEX_COLUMN) {
             } else {
@@ -1055,6 +1055,7 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
                 itb_free(i);
                 i = oi;
             } else if (unlikely(err)) {
+                itb_free(i);
                 goto out;
             }
             err = cbht_itb_hit(i, hi, hmr, txg, otxg);

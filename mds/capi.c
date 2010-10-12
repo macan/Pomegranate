@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-16 21:23:49 macan>
+ * Time-stamp: <2010-10-11 15:02:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -331,6 +331,271 @@ int xtable_commit(struct amc_index *ai, struct iovec **iov, int *nr)
     return 0;
 }
 
+int xtable_sput(struct amc_index *ai, struct iovec **iov, int *nr)
+{
+    struct hvfs_index *hi;
+    struct hvfs_md_reply hmr;
+    struct hvfs_txg *txg;
+    int err = 0;
+
+    hi = xzalloc(sizeof(struct hvfs_index));
+    if (!hi) {
+        hvfs_err(mds, "xzalloc() hvfs_index failed.\n");
+        return -ENOMEM;
+    }
+
+    memset(&hmr, 0, sizeof(hmr));
+
+    /* MDS does NOT set the uuid internally, we can use it */
+    hi->flag = INDEX_CREATE | INDEX_KV;
+
+    /* Note that in KVS mode, we do not support column access */
+    /* Set the string kv flag and the length to hi->uuid! */
+    hi->kvflag = HVFS_KV_STR;
+    hi->uuid = ai->tid;
+
+    hi->namelen = ai->dlen;
+    hi->hash = ai->key;
+    hi->itbid = ai->sid;
+    hi->puuid = ai->ptid;
+    hi->psalt = ai->psalt;
+    hi->data = ai->data;
+
+    txg = mds_get_open_txg(&hmo);
+    err = mds_cbht_search(hi, &hmr, txg, &txg);
+    txg_put(txg);
+
+    /* then, parse the hmr to value */
+    if (err) {
+        hvfs_debug(mds, "mds_cbht_search() for KV put K:%lx failed w/ %d\n",
+                   hi->hash, err);
+        goto out;
+    }
+    
+    /* Note that, in a real kv store, we do NOT need to return the value on
+     * put operation, instead, we return the real itbid. */
+    *nr = 1;
+    *iov = xzalloc(sizeof(struct iovec));
+    if (!*iov) {
+        hvfs_err(mds, "xzalloc iovec failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    (*iov)->iov_base = xmalloc(sizeof(u64));
+    if (!(*iov)->iov_base) {
+        hvfs_err(mds, "xzalloc itbid failed\n");
+        err = -ENOMEM;
+        xfree(*iov);
+        *iov = NULL;
+        goto out;
+    }
+    (*iov)->iov_len = sizeof(u64);
+    *(u64 *)(*iov)->iov_base = hi->itbid;
+    
+out:
+    xfree(hmr.data);
+    xfree(hi);
+    
+    return err;
+}
+
+int xtable_sget(struct amc_index *ai, struct iovec **iov, int *nr)
+{
+    struct hvfs_index *hi;
+    struct hvfs_md_reply hmr;
+    struct hvfs_txg *txg;
+    int err = 0;
+
+    hi = xzalloc(sizeof(struct hvfs_index));
+    if (!hi) {
+        hvfs_err(mds, "xzalloc() hvfs_index failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    memset(&hmr, 0, sizeof(hmr));
+
+    hi->flag = INDEX_LOOKUP | INDEX_KV;
+    /* Note that in KVS mode, we do not support column access */
+    /* Set the string kv flag and the length to hi->uuid! */
+    hi->kvflag = HVFS_KV_STR;
+    hi->uuid = ai->tid;
+
+    hi->hash = ai->key;
+    hi->itbid = ai->sid;
+    hi->puuid = ai->ptid;
+    hi->psalt = ai->psalt;
+    hi->data = ai->data;
+
+    txg = mds_get_open_txg(&hmo);
+    err = mds_cbht_search(hi, &hmr, txg, &txg);
+    txg_put(txg);
+
+    /* then, parse the hmr to value */
+    if (err) {
+        hvfs_debug(mds, "mds_cbht_search() for KV get K:%lx failed w/ %d\n",
+                   hi->hash, err);
+        goto out;
+    }
+
+    *nr = 2;
+    *iov = xzalloc(sizeof(struct iovec) * 2);
+    if (!*iov) {
+        hvfs_err(mds, "xzalloc iovec failed\n");
+        xfree(hmr.data);
+        err = -ENOMEM;
+        goto out;
+    }
+    (*iov)->iov_base = xmalloc(sizeof(u64));
+    if (!(*iov)->iov_base) {
+        hvfs_err(mds, "xzalloc itbid failed\n");
+        err = -ENOMEM;
+        xfree(*iov);
+        *iov = NULL;
+        goto out;
+    }
+    (*iov)->iov_len = sizeof(u64);
+    *(u64 *)(*iov)->iov_base = hi->itbid;
+
+    (*iov + 1)->iov_base = hmr.data;
+    (*iov + 1)->iov_len = hmr.len;
+
+out:
+    xfree(hi);
+    return err;
+}
+
+int xtable_sdel(struct amc_index *ai, struct iovec **iov, int *nr)
+{
+    struct hvfs_index *hi;
+    struct hvfs_md_reply hmr;
+    struct hvfs_txg *txg;
+    int err = 0;
+
+    hi = xzalloc(sizeof(struct hvfs_index));
+    if (!hi) {
+        hvfs_err(mds, "xzalloc() hvfs_index failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    memset(&hmr, 0, sizeof(hmr));
+
+    hi->flag = INDEX_UNLINK | INDEX_KV;
+    /* Set the string kv flag and the length to hi->uuid! */
+    hi->kvflag = HVFS_KV_STR;
+    hi->uuid = ai->tid;
+
+    hi->hash = ai->key;
+    hi->itbid = ai->sid;
+    hi->puuid = ai->ptid;
+    hi->psalt = ai->psalt;
+    hi->data = ai->data;
+
+    txg = mds_get_open_txg(&hmo);
+    err = mds_cbht_search(hi, &hmr, txg, &txg);
+    txg_put(txg);
+
+    /* then, parse the hmr and return the result */
+    if (err) {
+        hvfs_debug(mds, "mds_cbht_search() for KV del K:%lx failed w/ %d\n",
+                   hi->hash, err);
+        goto out;
+    }
+
+    *nr = 1;
+    *iov = xzalloc(sizeof(struct iovec));
+    if (!*iov) {
+        hvfs_err(mds, "xzalloc iovec failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    (*iov)->iov_base = xmalloc(sizeof(u64));
+    if (!(*iov)->iov_base) {
+        hvfs_err(mds, "xzalloc itbid failed\n");
+        err = -ENOMEM;
+        xfree(*iov);
+        *iov = NULL;
+        goto out;
+    }
+    (*iov)->iov_len = sizeof(u64);
+    *(u64 *)(*iov)->iov_base = hi->itbid;
+
+out:
+    xfree(hmr.data);
+    xfree(hi);
+
+    return err;
+}
+
+int xtable_supdate(struct amc_index *ai, struct iovec **iov, int *nr)
+{
+    struct hvfs_index *hi;
+    struct hvfs_md_reply hmr;
+    struct hvfs_txg *txg;
+    int err = 0;
+
+    hi = xzalloc(sizeof(struct hvfs_index));
+    if (!hi) {
+        hvfs_err(mds, "xzalloc() hvfs_index failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    memset(&hmr, 0, sizeof(hmr));
+
+    hi->flag = INDEX_MDU_UPDATE | INDEX_KV;
+    /* Set the string kv flag and the length to hi->uuid! */
+    hi->kvflag = HVFS_KV_STR;
+    hi->uuid = ai->tid;
+
+    hi->namelen = ai->dlen;
+    hi->hash = ai->key;
+    hi->itbid = ai->sid;
+    hi->puuid = ai->ptid;
+    hi->psalt = ai->psalt;
+    hi->data = ai->data;
+
+    txg = mds_get_open_txg(&hmo);
+    err = mds_cbht_search(hi, &hmr, txg, &txg);
+    txg_put(txg);
+
+    if (err) {
+        hvfs_debug(mds, "mds_cbht_search() for KV update K:%lx failed w/ %d\n",
+                   hi->hash, err);
+        goto out;
+    }
+
+    *nr = 1;
+    *iov = xzalloc(sizeof(struct iovec));
+    if (!*iov) {
+        hvfs_err(mds, "xzalloc iovec failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    (*iov)->iov_base = xmalloc(sizeof(u64));
+    if (!(*iov)->iov_base) {
+        hvfs_err(mds, "xzalloc itbid failed\n");
+        err = -ENOMEM;
+        xfree(*iov);
+        *iov = NULL;
+        goto out;
+    }
+    (*iov)->iov_len = sizeof(u64);
+    *(u64 *)(*iov)->iov_base = hi->itbid;
+
+out:
+    xfree(hmr.data);
+    xfree(hi);
+
+    return err;
+}
+
+int xtable_scupdate(struct amc_index *ai, struct iovec **iov, int *nr)
+{
+    return xtable_supdate(ai, iov, nr);
+}
+
 /* xtable_handle_req() handle the incomming AMC request
  */
 void xtable_handle_req(struct xnet_msg *msg)
@@ -361,19 +626,41 @@ void xtable_handle_req(struct xnet_msg *msg)
     } else
         ai->data = NULL;
 
-    if (ai->flag & INDEX_PUT) {
+    switch (ai->op) {
+    case INDEX_PUT:
         err = xtable_put(ai, &iov, &nr);
-    } else if (ai->flag & INDEX_GET) {
+        break;
+    case INDEX_SPUT:
+        err = xtable_sput(ai, &iov, &nr);
+        break;
+    case INDEX_GET:
         err = xtable_get(ai, &iov, &nr);
-    } else if (ai->flag & INDEX_DEL) {
+        break;
+    case INDEX_SGET:
+        err = xtable_sget(ai, &iov, &nr);
+        break;
+    case INDEX_DEL:
         err = xtable_del(ai, &iov, &nr);
-    } else if (ai->flag & INDEX_UPDATE) {
+        break;
+    case INDEX_SDEL:
+        err = xtable_sdel(ai, &iov, &nr);
+        break;
+    case INDEX_UPDATE:
         err = xtable_update(ai, &iov, &nr);
-    } else if (ai->flag & INDEX_CUPDATE) {
+        break;
+    case INDEX_SUPDATE:
+        err = xtable_supdate(ai, &iov, &nr);
+        break;
+    case INDEX_CUPDATE:
         err = xtable_cupdate(ai, &iov, &nr);
-    } else if (ai->flag & INDEX_COMMIT) {
+        break;
+    case INDEX_SCUPDATE:
+        err = xtable_scupdate(ai, &iov, &nr);
+        break;
+    case INDEX_COMMIT:
         err = xtable_commit(ai, &iov, &nr);
-    } else {
+        break;
+    default:
         err = -EINVAL;
     }
 

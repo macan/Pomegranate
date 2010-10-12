@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-04 17:51:20 macan>
+ * Time-stamp: <2010-10-11 14:25:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,6 +38,11 @@ struct hvfs_index
 #define KV_OP_GREP              0x02
 #define KV_OP_GREP_CNT          0x03
         u16 op;                 /* option for scaner */
+        /* we use the flags in ite.h struct kv.flags:
+         *
+         * HVFS_KV_NORMAL, HVFS_KV_STR
+         */
+        u16 kvflag;
     };
 
 #define INDEX_BY_NAME           0x00000001 /* search by name */

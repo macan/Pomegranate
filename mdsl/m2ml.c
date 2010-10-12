@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-27 21:31:50 macan>
+ * Time-stamp: <2010-10-12 21:22:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -78,8 +78,10 @@ void __mdsl_send_rpy(struct xnet_msg *msg)
     xnet_free_msg(rpy);
 }
 
+/* @flag: 1 means we are sending ITB; 0 means we are sending other data
+ */
 static inline
-void __mdsl_send_rpy_data(struct xnet_msg *msg, struct iovec iov[], int nr)
+void __mdsl_send_rpy_data(struct xnet_msg *msg, struct iovec iov[], int nr, int flag)
 {
     struct xnet_msg *rpy;
     int i;
@@ -100,7 +102,10 @@ void __mdsl_send_rpy_data(struct xnet_msg *msg, struct iovec iov[], int nr)
     xnet_msg_fill_tx(rpy, XNET_MSG_RPY, XNET_NEED_DATA_FREE, 
                      hmo.site_id, msg->tx.ssite_id);
     xnet_msg_fill_reqno(rpy, msg->tx.reqno);
-    xnet_msg_fill_cmd(rpy, XNET_RPY_DATA_ITB, 0, 0);
+    if (flag)
+        xnet_msg_fill_cmd(rpy, XNET_RPY_DATA_ITB, 0, 0);
+    else
+        xnet_msg_fill_cmd(rpy, XNET_RPY_DATA, 0, 0);
     /* match the original request at the source site */
     rpy->tx.handle = msg->tx.handle;
 
@@ -250,7 +255,7 @@ out:
             itb_iov[1].iov_len = data_len;
             err++;
         }
-        __mdsl_send_rpy_data(msg, itb_iov, err);
+        __mdsl_send_rpy_data(msg, itb_iov, err, 1);
     }
 
     xnet_set_auto_free(msg);
@@ -484,7 +489,7 @@ void mdsl_bitmap(struct xnet_msg *msg)
     }
     /* Step 3: prepare the reply and send it */
 out_reply:
-    __mdsl_send_rpy_data(msg, &iov, 1);
+    __mdsl_send_rpy_data(msg, &iov, 1, 0);
     
 out_put:    
     mdsl_storage_fd_put(fde);

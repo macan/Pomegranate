@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-14 16:57:42 macan>
+ * Time-stamp: <2010-10-11 14:23:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,9 +37,16 @@ struct amc_index
 #define INDEX_CUPDATE   0x00000040 /* conditional update */
 #define INDEX_COMMIT    0x00000080
 
+#define INDEX_SPUT      0x00000100
+#define INDEX_SGET      0x00000200
+#define INDEX_SDEL      0x00000300
+#define INDEX_SUPDATE   0x00000400
+#define INDEX_SCUPDATE  0x00000500
+    u16 op;
+
 #define INDEX_CU_EXIST          0x0080000
 #define INDEX_CU_NOTEXIST       0x0040000
-    u32 flag;
+    u16 flag;
     int column;                 /* which column you want to get/put */
 
     u64 key;                    /* used to search in EH, should be unique */
@@ -65,6 +72,10 @@ int hvfs_put(char *table, u64 key, char *value, int column);
 int hvfs_get(char *table, u64 key, char **value, int column);
 int hvfs_del(char *table, u64 key, int column);
 int hvfs_update(char *table, u64 key, char *value, int column);
+int hvfs_sput(char *table, char *key, char *value, int column);
+int hvfs_sget(char *table, char *key, char **value, int column);
+int hvfs_sdel(char *table, char *key, int column);
+int hvfs_supdate(char *table, char *key, char *value, int column);
 
 #define LIST_OP_SCAN            0
 #define LIST_OP_COUNT           1

@@ -346,6 +346,16 @@ static inline u64 hvfs_hash_vsite(u64 key1, u64 key2, u64 key2len)
     return val1;
 }
 
+static inline u64 hvfs_hash_kvs(u64 key, u64 keylen)
+{
+    u64 val;
+
+    val = APHash((char *)key, keylen);
+    val <<= 32;
+    val |= RSHash((char *)key, keylen);
+    return val;
+}
+
 static inline u32 hvfs_hash_tws(u64 key)
 {
     return APHash((char *)(&key), sizeof(key));
@@ -428,6 +438,8 @@ u64 hvfs_hash(u64 key1, u64 key2, u64 key2len, u32 sel)
     case HASH_SEL_VSITE:
         return hvfs_hash_vsite(key1, key2, key2len);
         break;
+    case HASH_SEL_KVS:
+        return hvfs_hash_kvs(key2, key2len);
     default:
         /* we just fall through to zero */
         HVFS_VV("Invalid hash selector %d\n", sel);

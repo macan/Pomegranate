@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-10 17:12:43 macan>
+ * Time-stamp: <2010-10-11 13:15:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -60,11 +60,15 @@ struct gdt_md
 struct kv
 {
     /* NOTE THAT: this flags share the id space with mdu.flags and ls.flags */
+    /* For now, we pre-allocate the fourth 4bits to kv flags */
 #define HVFS_KV_NORMAL  0x0008000
+#define HVFS_KV_STR     0x0004000
     u32 flags;
-    u32 len;
+    u32 len;                    /* len is the value length */
     u64 key;
-#define KV_HEADER_LEN   (16)    /* 2 u64 */
+    u32 klen;                   /* key length should not be larger than
+                                 * 256B */
+#define KV_HEADER_LEN   (20)    /* 2 u64 + 1 u32 */
     u8 value[XTABLE_VALUE_SIZE];
 };
 

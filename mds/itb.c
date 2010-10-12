@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-28 16:02:32 macan>
+ * Time-stamp: <2010-10-12 21:02:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -101,6 +101,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
         if (msg->pair->tx.len < sizeof(struct itb)) {
             hvfs_err(mds, "Invalid ITB load reply received from %lx\n",
                      msg->pair->tx.ssite_id);
+            atomic64_dec(&hmo.prof.cbht.aitb);
             i = ERR_PTR(-EIO);
             xnet_set_auto_free(msg->pair);
             goto out_free;
@@ -109,6 +110,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
             i = (struct itb *)(msg->pair->xm_data);
         else {
             hvfs_err(mds, "Internal error, data lossing ..\n");
+            atomic64_dec(&hmo.prof.cbht.aitb);
             i = ERR_PTR(-EIO);
             xnet_set_auto_free(msg->pair);
             goto out_free;
@@ -131,9 +133,9 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
         atomic64_add(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
     }
 
+    atomic64_inc(&hmo.prof.mdsl.itb_load);
 out_free:
     xnet_free_msg(msg);
-    atomic64_inc(&hmo.prof.mdsl.itb_load);
     
     return i;
 }
@@ -630,9 +632,16 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
 
     if (unlikely(hi->flag & INDEX_KV)) {
         e->v.len = hi->namelen;
-        e->v.flags = HVFS_KV_NORMAL;
         e->v.key = hi->hash;
         memcpy(&e->v.value, hi->data, e->v.len);
+
+        if (hi->kvflag & HVFS_KV_STR) {
+            e->v.flags = HVFS_KV_STR;
+            /* you know that hi->uuid saved the key length */
+            e->v.klen = hi->uuid;
+        } else {
+            e->v.flags = HVFS_KV_NORMAL;
+        }
 
         return;
     }
@@ -810,10 +819,17 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
 void ite_update(struct hvfs_index *hi, struct ite *e)
 {
     if (hi->flag & INDEX_KV) {
+        /* note that, for KV/KVS, on update the key length should not
+         * changed */
+
         e->v.len = hi->namelen;
-        e->v.flags = HVFS_KV_NORMAL;
-        e->v.key = hi->hash;
         memcpy(&e->v.value, hi->data, e->v.len);
+
+        if (hi->kvflag & HVFS_KV_STR) {
+            e->v.flags = HVFS_KV_STR;
+        } else {
+            e->v.flags = HVFS_KV_NORMAL;
+        }
     } else if (hi->flag & INDEX_MDU_UPDATE) {
         /* hi->data is mdu_update */
         struct mdu_update *mu = (struct mdu_update *)hi->data;
@@ -875,10 +891,26 @@ inline int ite_match(struct ite *e, struct hvfs_index *hi)
 {
     /* for kv store, we just compare the key with the hash value */
     if (unlikely(hi->flag & INDEX_KV)) {
-        if (hi->hash == e->v.key)
-            return ITE_MATCH_HIT;
-        else
-            return ITE_MATCH_MISS;
+        if (hi->kvflag & HVFS_KV_STR) {
+            if (hi->hash != e->v.key)
+                return ITE_MATCH_MISS;
+            else {
+                /* we reuse hi->uuid as the key length */
+                if (e->v.klen != hi->uuid || !hi->data)
+                    return ITE_MATCH_MISS;
+                if (strncmp((const char *)hi->data, 
+                            (const char *)e->v.value, (size_t)hi->uuid) == 0) {
+                    return ITE_MATCH_HIT;
+                } else
+                    return ITE_MATCH_MISS;
+            }
+        } else {
+            /* defaults to KV_NORMAL */
+            if (hi->hash == e->v.key)
+                return ITE_MATCH_HIT;
+            else
+                return ITE_MATCH_MISS;
+        }
     }
     
     /* compare the name or uuid */
@@ -1099,6 +1131,7 @@ void itb_reinit(struct itb *n)
         }
     }
     atomic_set(&n->h.ref, 1);
+    n->h.twin = 0;
 }
 
 /* itb_idx_bmp_reinit()
@@ -1663,12 +1696,20 @@ int __readdir_filter(struct hvfs_index *hi, struct itb *i,
     
         memcpy(needle, arg, hi->namelen);
         needle[hi->namelen] = '\0';
-        
-        if (strstr((char *)(i->ite[idx].v.value), needle) 
-            == NULL) {
-            return 0;
-        } else
-            return 1;
+
+        if (i->ite[idx].v.flags & HVFS_KV_NORMAL) {
+            if (strstr((char *)(i->ite[idx].v.value), needle) 
+                == NULL) {
+                return 0;
+            } else
+                return 1;
+        } else if (i->ite[idx].v.flags &HVFS_KV_STR) {
+            if (strstr((char *)(i->ite[idx].v.value) + i->ite[idx].v.klen, 
+                       needle) == NULL) {
+                return 0;
+            } else
+                return 1;
+        }
         break;
     }
     }
@@ -1705,6 +1746,9 @@ int itb_readdir(struct hvfs_index *hi, struct itb *i,
                     /* this is a kv table entry */
                     snprintf(kbuf, 127, "%ld", i->ite[idx].v.key);
                     hmr->len += strlen(kbuf);
+                } else if (i->ite[idx].v.flags & HVFS_KV_STR) {
+                    /* this is a kvs table entry */
+                    hmr->len += i->ite[idx].v.klen;
                 } else {
                     hmr->len += i->ite[idx].namelen;
                 }
@@ -1730,6 +1774,13 @@ int itb_readdir(struct hvfs_index *hi, struct itb *i,
                         p += sizeof(u32);
                         memcpy(p, kbuf, strlen(kbuf));
                         p += strlen(kbuf);
+                    }
+                } else if (i->ite[idx].v.flags & HVFS_KV_STR) {
+                    if (__readdir_filter(hi, i, idx, hi->op, hi->data)) {
+                        *(u32 *)p = i->ite[idx].v.klen;
+                        p += sizeof(u32);
+                        memcpy(p, i->ite[idx].v.value, i->ite[idx].v.klen);
+                        p += i->ite[idx].v.klen;
                     }
                 } else {
                     *(u32 *)p = i->ite[idx].namelen;

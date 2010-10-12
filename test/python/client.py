@@ -367,6 +367,90 @@ class pamc_shell(cmd.Cmd):
         except ValueError, ve:
             print "ValueError %s" % ve
 
+    def do_sput(self, line):
+        '''Put a Key/Value pair to the KV store.
+        Usage: put key value'''
+        if self.table == None:
+            print "Please set the table w/ 'set table <table_name>'"
+            return
+        l = shlex.split(line)
+        if len(l) < 2:
+            print "Usage: put key value"
+            return
+        # ok, transfer the key to int
+        try:
+            key = c_char_p(l[0])
+            value = c_char_p(l[1])
+            err = api.hvfs_sput(self.table, key, value, 0)
+            if err != 0:
+                print "api.hvfs_put() failed w/ %d" % err
+                return
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_sget(self, line):
+        '''Get the value of the key from the KV store.
+        Usage: get key'''
+        if self.table == None:
+            print "Please set the table w/ 'set table <table_name>'"
+            return
+        l = shlex.split(line)
+        if len(l) < 1:
+            print "Usage: get key"
+            return
+        # ok, transform the key to long
+        try:
+            key = c_char_p(l[0])
+            value = c_char_p("")
+            err = api.hvfs_sget(self.table, key, byref(value), 0)
+            if err != 0:
+                print "api.hvfs_get() failed w/ %d" % err
+                return
+            print >> sys.stderr, "Key: %s => Value: %s" % (key.value, value.value)
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_sdel(self, line):
+        '''Delete the key/value pair in the KV store.
+        Usage: del key'''
+        if self.table == None:
+            print "Please set the table w/ 'set table <table_name>'"
+            return
+        l = shlex.split(line)
+        if len(l) < 1:
+            print "Usage: del key"
+            return
+        # ok, transform the key to long
+        try:
+            key = c_char_p(l[0])
+            err = api.hvfs_sdel(self.table, key, 0)
+            if err != 0:
+                print "api.hvfs_del() failed w/ %d" % err
+                return
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_supdate(self, line):
+        '''Update the key/value pair in the KV store.
+        Usage: update key value'''
+        if self.table == None:
+            print "Please set the table w/ 'set table <table_name>'"
+            return
+        l = shlex.split(line)
+        if len(l) < 2:
+            print "Invalid argument."
+            return
+        # ok, transform the key to long
+        try:
+            key = c_char_p(l[0])
+            value = c_char_p(l[1])
+            err = api.hvfs_supdate(self.table, key, value, 0)
+            if err != 0:
+                print "api.hvfs_update() failed w/ %d" % err
+                return
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
     def do_commit(self, line):
         '''Trigger a memory snapshot on the remote MDS.
         Usage: commit #MDS'''

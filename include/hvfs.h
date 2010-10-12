@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-21 09:55:16 macan>
+ * Time-stamp: <2010-10-11 14:40:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -148,6 +148,7 @@
 #define HASH_SEL_DH     0x03
 #define HASH_SEL_GDT    0x04
 #define HASH_SEL_VSITE  0x05
+#define HASH_SEL_KVS    0x06
 
 #include "hash.c"
 
