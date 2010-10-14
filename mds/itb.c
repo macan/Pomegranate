@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-12 21:02:59 macan>
+ * Time-stamp: <2010-10-14 09:49:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -631,9 +631,27 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
     /* there is always a struct mdu_update with normal create request */
 
     if (unlikely(hi->flag & INDEX_KV)) {
-        e->v.len = hi->namelen;
         e->v.key = hi->hash;
-        memcpy(&e->v.value, hi->data, e->v.len);
+        if (hi->kvflag & HVFS_KV_MAX_COLUMN) {
+            /* set to key length */
+            e->v.len = hi->uuid;
+            /* we should write the value content to MDSL, for now we just keep
+             * the data length */
+            if (hi->kvflag & HVFS_KV_STR) {
+                /* copy the key content to e->v.value */
+                memcpy(&e->v.value, hi->data, hi->uuid);
+                /* copy the value offset content to the column cell */
+                memcpy(&(e->column[hi->kvflag & HVFS_KV_MAX_COLUMN]),
+                       hi->data + hi->uuid, sizeof(struct column));
+            } else {
+                memcpy(&(e->column[hi->kvflag & HVFS_KV_MAX_COLUMN]),
+                       hi->data, sizeof(struct column));
+            }
+        } else {
+            /* this is the 0th column access */
+            e->v.len = hi->namelen;
+            memcpy(&e->v.value, hi->data, e->v.len);
+        }
 
         if (hi->kvflag & HVFS_KV_STR) {
             e->v.flags = HVFS_KV_STR;
@@ -822,13 +840,27 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
         /* note that, for KV/KVS, on update the key length should not
          * changed */
 
-        e->v.len = hi->namelen;
-        memcpy(&e->v.value, hi->data, e->v.len);
-
-        if (hi->kvflag & HVFS_KV_STR) {
-            e->v.flags = HVFS_KV_STR;
+        if (hi->flag & INDEX_COLUMN) {
+            if (hi->kvflag & HVFS_KV_STR) {
+                /* ok, you know, the key content can not be updated, so we
+                 * just copy the value content(column actually) */
+                e->v.flags = HVFS_KV_STR;
+                memcpy(&(e->column[hi->kvflag & HVFS_KV_MAX_COLUMN]),
+                       hi->data + hi->uuid, sizeof(struct column));
+            } else {
+                e->v.flags = HVFS_KV_NORMAL;
+                memcpy(&(e->column[hi->kvflag & HVFS_KV_MAX_COLUMN]),
+                       hi->data, sizeof(struct column));
+            }
         } else {
-            e->v.flags = HVFS_KV_NORMAL;
+            e->v.len = hi->namelen;
+            memcpy(&e->v.value, hi->data, e->v.len);
+            
+            if (hi->kvflag & HVFS_KV_STR) {
+                e->v.flags = HVFS_KV_STR;
+            } else {
+                e->v.flags = HVFS_KV_NORMAL;
+            }
         }
     } else if (hi->flag & INDEX_MDU_UPDATE) {
         /* hi->data is mdu_update */
@@ -1420,9 +1452,16 @@ void __data_column_hook(struct hvfs_index *hi, struct itb *itb,
 {
     if (unlikely(hi->flag & INDEX_COLUMN)) {
         if (unlikely(hi->flag & INDEX_KV)) {
-            memcpy(data + sizeof(struct kv),
-                   &(itb->ite[ii->entry].column[hi->column]), 
-                   sizeof(struct column));
+            if (hi->kvflag & HVFS_KV_STR) {
+                memcpy(data + sizeof(struct kv),
+                       &(itb->ite[ii->entry].column[hi->kvflag & 
+                                                    HVFS_KV_MAX_COLUMN]),
+                       sizeof(struct column));
+            } else {
+                memcpy(data + sizeof(struct kv),
+                       &(itb->ite[ii->entry].column[hi->column]), 
+                       sizeof(struct column));
+            }
         } else {
             memcpy(data + HVFS_MDU_SIZE, 
                    &(itb->ite[ii->entry].column[hi->column]), 

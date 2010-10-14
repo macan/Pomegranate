@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-12 13:32:55 macan>
+ * Time-stamp: <2010-10-13 10:21:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -914,6 +914,24 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     if (unlikely((m->flags & HVFS_KV_NORMAL) || (m->flags & HVFS_KV_STR))) {
         if (hi->flag & INDEX_KV) {
             if (hi->flag & INDEX_COLUMN) {
+                /* ok, the data contains kv and the column, we packed them
+                 * together */
+                struct kv *v = (struct kv *)mdu_rpy;
+
+                hmr->len = v->len + KV_HEADER_LEN + sizeof(struct column);
+                hmr->flag = MD_REPLY_WITH_KV;
+                if (hmr->len) {
+                    hmr->data = xmalloc(hmr->len);
+                    if (!hmr->data) {
+                        hvfs_err(mds, "xmalloc() hmr data failed\n");
+                        err = -ENOMEM;
+                        goto out;
+                    }
+                    memcpy(hmr->data, v, v->len + KV_HEADER_LEN);
+                    /* then, copy the column */
+                    memcpy(hmr->data + v->len + KV_HEADER_LEN,
+                           mdu_rpy + sizeof(*v), sizeof(struct column));
+                } /* hmr->len is always bigger than ZERO. */
             } else {
                 /* ok, the data is in mdu_rpy */
                 struct kv *v = (struct kv *)mdu_rpy;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-04 17:43:33 macan>
+ * Time-stamp: <2010-10-13 09:46:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -988,7 +988,7 @@ void __data_write(struct hvfs_index *hi, struct column *c)
     int len = lib_random(1023) + 1;
     int err = 0, i;
 
-    hvfs_debug(xnet, "Read uuid %ld column itbid %ld len %ld offset %ld "
+    hvfs_debug(xnet, "Read uuid %lx column itbid %ld len %ld offset %ld "
                "target len %d itbid %ld\n",
                hi->uuid, c->stored_itbid, c->len, c->offset, len,
                hi->itbid);

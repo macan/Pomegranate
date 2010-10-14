@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-04 20:05:39 macan>
+ * Time-stamp: <2010-10-13 10:40:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,78 @@ u32 hvfs_root_tracing_flags = HVFS_DEFAULT_LEVEL;
 #endif
 
 struct hvfs_root_object hro;
+
+void root_sigaction_default(int signo, siginfo_t *info, void *arg)
+{
+    if (signo == SIGSEGV || signo == SIGBUS) {
+        hvfs_info(lib, "Recv %sSIGSEGV%s %s\n",
+                  HVFS_COLOR_RED,
+                  HVFS_COLOR_END,
+                  SIGCODES(info->si_code));
+        lib_segv(signo, info, arg);
+    }
+    if (signo == SIGHUP) {
+        hvfs_info(lib, "Exit ROOT Server ...\n");
+        root_destroy();
+        exit(0);
+    }
+
+    return;
+}
+
+/* root_init_signal()
+ */
+static int root_init_signal(void)
+{
+    struct sigaction ac;
+    int err;
+
+    ac.sa_sigaction = root_sigaction_default;
+    err = sigemptyset(&ac.sa_mask);
+    if (err) {
+        err = errno;
+        goto out;
+    }
+
+#ifndef UNIT_TEST
+    err = sigaction(SIGTERM, &ac, NULL);
+    if (err) {
+        err = errno;
+        goto out;
+    }
+    err = sigaction(SIGHUP, &ac, NULL);
+    if (err) {
+        err = errno;
+        goto out;
+    }
+    /* FIXME: mask the SIGINT for testing */
+#if 0
+    err = sigaction(SIGINT, &ac, NULL);
+    if (err) {
+        err = errno;
+        goto out;
+    }
+#endif
+    err = sigaction(SIGSEGV, &ac, NULL);
+    if (err) {
+        err = errno;
+        goto out;
+    }
+    err = sigaction(SIGBUS, &ac, NULL);
+    if (err) {
+        err = errno;
+        goto out;
+    }
+    err = sigaction(SIGQUIT, &ac, NULL);
+    if (err) {
+        err = errno;
+        goto out;
+    }
+#endif
+
+out:
+    return err;
+}
 
 int root_dir_make_exist(char *path)
 {
@@ -347,6 +419,10 @@ int root_init(void)
     err = root_verify();
     if (err)
         goto out_verify;
+
+    err = root_init_signal();
+    if (err)
+        goto out_signal;
     
     /* init hro */
     err = site_mgr_init(&hro.site);
@@ -384,6 +460,7 @@ out_addr_mgr:
 out_root_mgr:
 out_ring_mgr:
 out_site_mgr:
+out_signal:
 out_verify:
 out_config:
     

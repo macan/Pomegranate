@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-11 14:25:25 macan>
+ * Time-stamp: <2010-10-13 08:49:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,6 +42,8 @@ struct hvfs_index
          *
          * HVFS_KV_NORMAL, HVFS_KV_STR
          */
+#define HVFS_KV_MASK            (0xf000)
+#define HVFS_KV_MAX_COLUMN      (0x1000 - 1)
         u16 kvflag;
     };
 

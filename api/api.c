@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-12 08:32:57 macan>
+ * Time-stamp: <2010-10-14 09:49:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,6 +36,8 @@
  */
 #define HVFS_R2_DEFAULT_PORT    8710
 #define HVFS_AMC_DEFAULT_PORT   9001
+
+int __hvfs_list(u64 duuid, int op, struct list_result *lr);
 
 int msg_wait()
 {
@@ -1280,6 +1282,35 @@ int hvfs_drop_table(char *name)
     u32 vid;
     int err = 0;
 
+    /* check if this table is empty, if it is not empty, we reject the drop
+     * operation */
+    {
+        struct list_result lr = {
+            .arg = NULL,
+            .cnt = 0,
+        };
+        u64 uuid, salt;
+        
+        err = hvfs_find_table(name, &uuid, &salt);
+        if (err) {
+            hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n",
+                     err);
+            goto out;
+        }
+        err = __hvfs_list(uuid, LIST_OP_COUNT, &lr);
+        if (err) {
+            hvfs_err(xnet, "__hvfs_list() failed w/ %d\n", err);
+            goto out;
+        }
+        if (lr.cnt) {
+            hvfs_err(xnet, "Table %s is not empty (%d entrie(s)), "
+                     "reject drop\n", name, lr.cnt);
+            err = -EINVAL;
+            goto out;
+        }
+    }
+
+    /* normal drop table flow */
     dpayload = sizeof(struct hvfs_index) + strlen(name);
     hi = (struct hvfs_index *)xzalloc(dpayload);
     if (!hi) {
@@ -1456,6 +1487,167 @@ out_free:
     return err;
 }
 
+int __hvfs_read(struct amc_index *ai, char **value, struct column *c)
+{
+    struct storage_index *si;
+    struct xnet_msg *msg;
+    u64 dsite;
+    u32 vid = 0;
+    int err = 0;
+
+    hvfs_warning(xnet, "Read column itbid %ld len %ld offset %ld\n",
+                 c->stored_itbid, c->len, c->offset);
+
+    si = xzalloc(sizeof(*si) + sizeof(struct column_req));
+    if (!si) {
+        hvfs_err(xnet, "xzalloc() storage index failed\n");
+        return -ENOMEM;
+    }
+
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err= -ENOMEM;
+        goto out_free;
+    }
+
+    si->sic.uuid = ai->ptid;
+    si->sic.arg0 = c->stored_itbid;
+    si->scd.cnr = 1;
+    si->scd.cr[0].cno = ai->column;
+    si->scd.cr[0].stored_itbid = ai->sid;
+    si->scd.cr[0].file_offset = c->offset;
+    si->scd.cr[0].req_offset = 0;
+    si->scd.cr[0].req_len = c->len;
+
+    /* select the MDSL site by itbid */
+    dsite = SELECT_SITE(c->stored_itbid, ai->psalt, CH_RING_MDSL, &vid);
+
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDSL_READ, 0, 0);
+    msg->tx.reserved = vid;
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, si, sizeof(*si) +
+                       sizeof(struct column_req));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply, parse the data now */
+    ASSERT(msg->pair->tx.len == c->len, xnet);
+    if (msg->pair->xm_datacheck) {
+        *value = xmalloc(c->len + 1);
+        if (!*value) {
+            hvfs_err(xnet, "xmalloc value region failed.\n");
+            err = -ENOMEM;
+            goto out_msg;
+        }
+        memcpy(*value, msg->pair->xm_data, c->len);
+        (*value)[c->len] = '\0';
+    } else {
+        hvfs_err(xnet, "recv data read reply ERROR %d\n",
+                 msg->pair->tx.err);
+        xnet_set_auto_free(msg->pair);
+        goto out_msg;
+    }
+
+out_msg:
+    xnet_free_msg(msg);
+out_free:
+    xfree(si);
+
+    return err;
+}
+
+int __hvfs_write(struct amc_index *ai, char *value, struct column *col)
+{
+    struct storage_index *si;
+    struct xnet_msg *msg;
+    u64 dsite;
+    u64 location;
+    u32 vid = 0;
+    u32 len = strlen(value);
+    int err = 0;
+
+    hvfs_debug(xnet, "TO write column target len %d itbid %ld\n",
+               len, ai->sid);
+    
+    si = xzalloc(sizeof(*si) + sizeof(struct column_req));
+    if (!si) {
+        hvfs_err(xnet, "xzalloc() storage index failed\n");
+        return -ENOMEM;
+    }
+
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+
+    si->sic.uuid = ai->ptid;
+    si->sic.arg0 = ai->sid;
+    si->scd.cnr = 1;
+    si->scd.cr[0].cno = ai->column;
+    si->scd.cr[0].stored_itbid = ai->sid;
+    si->scd.cr[0].req_len = len;
+
+    /* select the MDSL site by itbid */
+    dsite = SELECT_SITE(ai->sid, ai->psalt, CH_RING_MDSL, &vid);
+
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDSL_WRITE, 0, 0);
+    msg->tx.reserved = vid;
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, si, sizeof(*si) + 
+                       sizeof(struct column_req));
+    xnet_msg_add_sdata(msg, value, len);
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply, parse the offset now */
+    if (msg->pair->xm_datacheck) {
+        location = *((u64 *)msg->pair->xm_data);
+    } else {
+        hvfs_err(xnet, "recv data write reply ERROR!\n");
+        goto out_free;
+    }
+
+    if (location == 0) {
+        hvfs_warning(xnet, "puuid %lx uuid 0x%lx to %lx L @ %ld len %d\n",
+                     ai->ptid, ai->tid, dsite, location, len);
+    }
+
+    col->stored_itbid = ai->sid;
+    col->len = strlen(value);
+    col->offset = location;
+
+out_msg:
+    xnet_free_msg(msg);
+
+out_free:
+    xfree(si);
+    
+    return err;
+}
+
 /*
  * Note that, the key must not be zero, otherwise it will trigger the MDS key
  * recomputing :(
@@ -1465,6 +1657,7 @@ int hvfs_put(char *table, u64 key, char *value, int column)
     struct xnet_msg *msg;
     struct amc_index ai;
     struct dhe *e;
+    struct column col;
     u64 dsite;
     u32 vid;
     int err = 0, recreate = 0;
@@ -1489,8 +1682,18 @@ int hvfs_put(char *table, u64 key, char *value, int column)
         err = PTR_ERR(e);
         goto out;
     }
-    
+
     ai.sid = mds_get_itbid(e, key);
+
+    /* if it is not the 0th column, we write the value to MDSL */
+    if (column) {
+        err = __hvfs_write(&ai, value, &col);
+        if (err) {
+            hvfs_err(xnet, "write value to storage column %d failed w/ %d %s\n",
+                     column, err, strerror(-err));
+            goto out;
+        }
+    }
 
     /* construct the ai structure and send to the table server */
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
@@ -1508,8 +1711,13 @@ int hvfs_put(char *table, u64 key, char *value, int column)
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
     xnet_msg_add_sdata(msg, &ai, sizeof(ai));
-    ai.dlen = strlen(value);
-    xnet_msg_add_sdata(msg, value, strlen(value));
+    if (column) {
+        ai.dlen = sizeof(col);
+        xnet_msg_add_sdata(msg, &col, sizeof(col));
+    } else {
+        ai.dlen = strlen(value);
+        xnet_msg_add_sdata(msg, value, strlen(value));
+    }
 
 resend:
     err = xnet_send(hmo.xc, msg);
@@ -1643,7 +1851,20 @@ resend:
         goto out_msg;
     }
     kv = msg->pair->xm_data + sizeof(u64);
-    memcpy(*value, kv->value, kv->len);
+    /* if it is not the 0th column, we read the value from mdsl */
+    if (column) {
+        struct column *c = (void *)kv + kv->len + KV_HEADER_LEN;
+
+        err = __hvfs_read(&ai, value, c);
+        if (err) {
+            hvfs_err(xnet, "__hvfs_read() itbid %ld offset %ld len %ld "
+                     "failed w/ %d\n",
+                     c->stored_itbid, c->offset, c->len, err);
+            goto out_msg;
+        }
+    } else {
+        memcpy(*value, kv->value, kv->len);
+    }
     
 out_msg:
     xnet_free_msg(msg);
@@ -1743,6 +1964,7 @@ int hvfs_update(char *table, u64 key, char *value, int column)
     struct xnet_msg *msg;
     struct amc_index ai;
     struct dhe *e;
+    struct column col;
     u64 dsite;
     u32 vid;
     int err = 0;
@@ -1770,6 +1992,16 @@ int hvfs_update(char *table, u64 key, char *value, int column)
 
     ai.sid = mds_get_itbid(e, key);
 
+    /* if it is not the 0th column, we write the value to MDSL */
+    if (column) {
+        err = __hvfs_write(&ai, value, &col);
+        if (err) {
+            hvfs_err(xnet, "write value to storage column %d failed w/ %d %s\n",
+                     column, err, strerror(-err));
+            goto out;
+        }
+    }
+
     /* construct the ai structure and send to the table server */
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
@@ -1786,8 +2018,13 @@ int hvfs_update(char *table, u64 key, char *value, int column)
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
     xnet_msg_add_sdata(msg, &ai, sizeof(ai));
-    ai.dlen = strlen(value);
-    xnet_msg_add_sdata(msg, value, strlen(value));
+    if (column) {
+        ai.dlen = sizeof(col);
+        xnet_msg_add_sdata(msg, &col, sizeof(col));
+    } else {
+        ai.dlen = strlen(value);
+        xnet_msg_add_sdata(msg, value, strlen(value));
+    }
 
 resend:
     err = xnet_send(hmo.xc, msg);
@@ -1831,6 +2068,7 @@ int hvfs_sput(char *table, char *key, char *value, int column)
     struct xnet_msg *msg;
     struct amc_index ai;
     struct dhe *e;
+    struct column col;
     u64 dsite;
     u32 vid;
     int err = 0, recreate = 0;
@@ -1865,6 +2103,16 @@ int hvfs_sput(char *table, char *key, char *value, int column)
     
     ai.sid = mds_get_itbid(e, ai.key);
 
+    /* if it is not the 0th column, we write the value to MDSL */
+    if (column) {
+        err = __hvfs_write(&ai, value, &col);
+        if (err) {
+            hvfs_err(xnet, "write value to storage column %d failed w/ %d %s\n",
+                     column, err, strerror(-err));
+            goto out;
+        }
+    }
+
     /* construct the ai structure and send to the table server */
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
@@ -1882,9 +2130,14 @@ int hvfs_sput(char *table, char *key, char *value, int column)
 #endif
     xnet_msg_add_sdata(msg, &ai, sizeof(ai));
     xnet_msg_add_sdata(msg, key, strlen(key));
-    /* ai.dlen saved the total length */
-    ai.dlen = strlen(value) + ai.tid;
-    xnet_msg_add_sdata(msg, value, strlen(value));
+    if (column) {
+        ai.dlen = sizeof(col) + ai.tid;
+        xnet_msg_add_sdata(msg, &col, sizeof(col));
+    } else {
+        /* ai.dlen saved the total length */
+        ai.dlen = strlen(value) + ai.tid;
+        xnet_msg_add_sdata(msg, value, strlen(value));
+    }
 
     hvfs_info(xnet, "%ld, %ld\n", ai.tid, ai.dlen);
 
@@ -2030,11 +2283,27 @@ resend:
         goto out_msg;
     }
     kv = msg->pair->xm_data + sizeof(u64);
-    /* check if it is the correct key */
-    if (strncmp(key, (const char *)kv->value, (size_t)kv->klen) == 0) {
-        memcpy(*value, kv->value + kv->klen, kv->len - kv->klen);
+    if (column) {
+        struct column *c = (void *)kv + kv->len + KV_HEADER_LEN;
+
+        if (strncmp(key, (const char *)kv->value, (size_t)kv->klen) == 0) {
+            err = __hvfs_read(&ai, value, c);
+            if (err) {
+                hvfs_err(xnet, "__hvfs_read() itbid %ld offset %ld len %ld "
+                         "failed w/ %d\n",
+                         c->stored_itbid, c->offset, c->len, err);
+                goto out_msg;
+            } 
+        } else {
+            err = -ENOTEXIST;
+        }
     } else {
-        err = -ENOTEXIST;
+        /* check if it is the correct key */
+        if (strncmp(key, (const char *)kv->value, (size_t)kv->klen) == 0) {
+            memcpy(*value, kv->value + kv->klen, kv->len - kv->klen);
+        } else {
+            err = -ENOTEXIST;
+        }
     }
     
 out_msg:
@@ -2145,6 +2414,7 @@ int hvfs_supdate(char *table, char *key, char *value, int column)
     struct xnet_msg *msg;
     struct amc_index ai;
     struct dhe *e;
+    struct column col;
     u64 dsite;
     u32 vid;
     int err = 0;
@@ -2179,6 +2449,16 @@ int hvfs_supdate(char *table, char *key, char *value, int column)
 
     ai.sid = mds_get_itbid(e, ai.key);
 
+    /* if it is not the 0th column, we write the value to MDSL */
+    if (column) {
+        err = __hvfs_write(&ai, value, &col);
+        if (err) {
+            hvfs_err(xnet, "write value to storage column %d failed w/ %d %s\n",
+                     column, err, strerror(-err));
+            goto out;
+        }
+    }
+
     /* construct the ai structure and send to the table server */
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
@@ -2196,8 +2476,13 @@ int hvfs_supdate(char *table, char *key, char *value, int column)
 #endif
     xnet_msg_add_sdata(msg, &ai, sizeof(ai));
     xnet_msg_add_sdata(msg, key, ai.tid);
-    ai.dlen = strlen(value) + ai.tid;
-    xnet_msg_add_sdata(msg, value, strlen(value));
+    if (column) {
+        ai.dlen = sizeof(col) + ai.tid;
+        xnet_msg_add_sdata(msg, &col, sizeof(col));
+    } else {
+        ai.dlen = strlen(value) + ai.tid;
+        xnet_msg_add_sdata(msg, value, strlen(value));
+    }
 
 resend:
     err = xnet_send(hmo.xc, msg);

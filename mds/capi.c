@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-11 15:02:20 macan>
+ * Time-stamp: <2010-10-14 09:58:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -276,6 +276,11 @@ int xtable_update(struct amc_index *ai, struct iovec **iov, int *nr)
     memset(&hmr, 0, sizeof(hmr));
 
     hi->flag = INDEX_MDU_UPDATE | INDEX_KV;
+    if (ai->column != 0) {
+        /* the 0th column default attached to the ITE */
+        hi->flag |= INDEX_COLUMN;
+        hi->column = ai->column;
+    }
     hi->namelen = ai->dlen;
     hi->hash = ai->key;
     hi->itbid = ai->sid;
@@ -349,9 +354,20 @@ int xtable_sput(struct amc_index *ai, struct iovec **iov, int *nr)
     /* MDS does NOT set the uuid internally, we can use it */
     hi->flag = INDEX_CREATE | INDEX_KV;
 
-    /* Note that in KVS mode, we do not support column access */
+    /* Note that in KVS mode, we do support column access, max column is
+     * 2^12 - 1 */
+    if (ai->column > HVFS_KV_MAX_COLUMN) {
+        hvfs_err(mds, "Column number %d is too large.\n", ai->column);
+        err = -EINVAL;
+        goto out;
+    } else if (ai->column) {
+        /* the 0th column default attached to the ITE */
+        hi->flag |= INDEX_COLUMN;
+        hi->kvflag = ai->column;
+    }
+    
     /* Set the string kv flag and the length to hi->uuid! */
-    hi->kvflag = HVFS_KV_STR;
+    hi->kvflag |= HVFS_KV_STR;
     hi->uuid = ai->tid;
 
     hi->namelen = ai->dlen;
@@ -416,9 +432,20 @@ int xtable_sget(struct amc_index *ai, struct iovec **iov, int *nr)
     memset(&hmr, 0, sizeof(hmr));
 
     hi->flag = INDEX_LOOKUP | INDEX_KV;
-    /* Note that in KVS mode, we do not support column access */
+    /* Note that in KVS mode, we do support column access, max column is 2^12
+     * - 1 */
+    if (ai->column > HVFS_KV_MAX_COLUMN) {
+        hvfs_err(mds, "Column number %d is too large.\n", ai->column);
+        err = -EINVAL;
+        goto out;
+    } else if (ai->column) {
+        /* the 0th column default attached to the ITE */
+        hi->flag |= INDEX_COLUMN;
+        hi->kvflag = ai->column;
+    }
+    
     /* Set the string kv flag and the length to hi->uuid! */
-    hi->kvflag = HVFS_KV_STR;
+    hi->kvflag |= HVFS_KV_STR;
     hi->uuid = ai->tid;
 
     hi->hash = ai->key;
@@ -545,8 +572,21 @@ int xtable_supdate(struct amc_index *ai, struct iovec **iov, int *nr)
     memset(&hmr, 0, sizeof(hmr));
 
     hi->flag = INDEX_MDU_UPDATE | INDEX_KV;
+
+    /* Note that in KVS mode, we do support column access, max column is
+     * 2^12 - 1 */
+    if (ai->column > HVFS_KV_MAX_COLUMN) {
+        hvfs_err(mds, "Column number %d is too large.\n", ai->column);
+        err = -EINVAL;
+        goto out;
+    } else if (ai->column) {
+        /* the 0th column default attached to the ITE */
+        hi->flag |= INDEX_COLUMN;
+        hi->kvflag = ai->column;
+    }
+
     /* Set the string kv flag and the length to hi->uuid! */
-    hi->kvflag = HVFS_KV_STR;
+    hi->kvflag |= HVFS_KV_STR;
     hi->uuid = ai->tid;
 
     hi->namelen = ai->dlen;

@@ -134,18 +134,18 @@ def main(argv):
     ov = c_char_p()
 
     # put the entry
-    err = api.hvfs_put(table, key, value, 0)
+    err = api.hvfs_put(table, key, value, 1)
     if err != 0:
         print "api.hvfs_put() failed w/ %d" % err
     else:
         # get the entry
-        err = api.hvfs_get(table, key, byref(ov), 0)
+        err = api.hvfs_get(table, key, byref(ov), 1)
         if err != 0:
             print "api.hvfs_get() failed w/ %d" % err
         else:
             print "get value '%s'" % ov.value
             # delete the entry
-            err = api.hvfs_del(table, key, 0)
+            err = api.hvfs_del(table, key, 1)
             if err != 0:
                 print "api.hvfs_del() failed w/ %d" % err
 
@@ -285,7 +285,7 @@ class pamc_shell(cmd.Cmd):
 
     def do_put(self, line):
         '''Put a Key/Value pair to the KV store.
-        Usage: put key value'''
+        Usage: put key value [column]'''
         if self.table == None:
             print "Please set the table w/ 'set table <table_name>'"
             return
@@ -297,7 +297,13 @@ class pamc_shell(cmd.Cmd):
         try:
             key = c_ulonglong(long(l[0]))
             value = c_char_p(l[1])
-            err = api.hvfs_put(self.table, key, value, 0)
+            if len(l) == 3:
+                column = c_int(int(l[2]))
+                if column.value >= 0x1000:
+                    print "Invalid column id %ld" % (column.value)
+            else:
+                column = c_int(0)
+            err = api.hvfs_put(self.table, key, value, column)
             if err != 0:
                 print "api.hvfs_put() failed w/ %d" % err
                 return
@@ -306,7 +312,7 @@ class pamc_shell(cmd.Cmd):
 
     def do_get(self, line):
         '''Get the value of the key from the KV store.
-        Usage: get key'''
+        Usage: get key [column]'''
         if self.table == None:
             print "Please set the table w/ 'set table <table_name>'"
             return
@@ -318,11 +324,20 @@ class pamc_shell(cmd.Cmd):
         try:
             key = c_ulonglong(long(l[0]))
             value = c_char_p("")
-            err = api.hvfs_get(self.table, key, byref(value), 0)
+            if len(l) == 2:
+                column = c_int(int(l[1]))
+                if column.value >= 0x1000:
+                    print "Invalid column id %ld" % (column.value)
+            else:
+                column = c_int(0)
+            err = api.hvfs_get(self.table, key, byref(value), column)
             if err != 0:
                 print "api.hvfs_get() failed w/ %d" % err
                 return
-            print >> sys.stderr, "Key: %ld => Value: %s" % (key.value, value.value)
+            if value.value == "":
+                print >> sys.stderr, "Key: %ld => Value: NONE" % (key.value)
+            else:
+                print >> sys.stderr, "Key: %ld => Value: %s" % (key.value, value.value)
         except ValueError, ve:
             print "ValueError %s" % ve
 
@@ -348,7 +363,7 @@ class pamc_shell(cmd.Cmd):
 
     def do_update(self, line):
         '''Update the key/value pair in the KV store.
-        Usage: update key value'''
+        Usage: update key value [column]'''
         if self.table == None:
             print "Please set the table w/ 'set table <table_name>'"
             return
@@ -360,7 +375,13 @@ class pamc_shell(cmd.Cmd):
         try:
             key = c_ulonglong(long(l[0]))
             value = c_char_p(l[1])
-            err = api.hvfs_update(self.table, key, value, 0)
+            if len(l) == 3:
+                column = c_int(int(l[2]))
+                if column.value >= 0x1000:
+                    print "Invalid column id %ld" % (column.value)
+            else:
+                column = c_int(0)
+            err = api.hvfs_update(self.table, key, value, column)
             if err != 0:
                 print "api.hvfs_update() failed w/ %d" % err
                 return
@@ -369,7 +390,7 @@ class pamc_shell(cmd.Cmd):
 
     def do_sput(self, line):
         '''Put a Key/Value pair to the KV store.
-        Usage: put key value'''
+        Usage: put key value [column]'''
         if self.table == None:
             print "Please set the table w/ 'set table <table_name>'"
             return
@@ -381,7 +402,13 @@ class pamc_shell(cmd.Cmd):
         try:
             key = c_char_p(l[0])
             value = c_char_p(l[1])
-            err = api.hvfs_sput(self.table, key, value, 0)
+            if len(l) == 3:
+                column = c_int(int(l[2]))
+                if column.value >= 0x1000:
+                    print "Invalid column id %ld" % (column.value)
+            else:
+                column = c_int(0)
+            err = api.hvfs_sput(self.table, key, value, column)
             if err != 0:
                 print "api.hvfs_put() failed w/ %d" % err
                 return
@@ -390,7 +417,7 @@ class pamc_shell(cmd.Cmd):
 
     def do_sget(self, line):
         '''Get the value of the key from the KV store.
-        Usage: get key'''
+        Usage: get key [column]'''
         if self.table == None:
             print "Please set the table w/ 'set table <table_name>'"
             return
@@ -402,11 +429,22 @@ class pamc_shell(cmd.Cmd):
         try:
             key = c_char_p(l[0])
             value = c_char_p("")
-            err = api.hvfs_sget(self.table, key, byref(value), 0)
+            if len(l) == 2:
+                column = c_int(int(l[1]))
+                if column.value >= 0x1000:
+                    print "Invalid column id %ld" % (column.value)
+            else:
+                column = c_int(0)
+            err = api.hvfs_sget(self.table, key, byref(value), column)
             if err != 0:
-                print "api.hvfs_get() failed w/ %d" % err
+                print "api.hvfs_sget() failed w/ (%d) %s" % (err, 
+                                                             os.strerror(-err))
                 return
-            print >> sys.stderr, "Key: %s => Value: %s" % (key.value, value.value)
+            if value.value == "":
+                print >> sys.stderr, "Key: %s => Value: NONE" % (key.value)
+            else:
+                print >> sys.stderr, "Key: %s => Value: %s" % (key.value, 
+                                                               value.value)
         except ValueError, ve:
             print "ValueError %s" % ve
 
@@ -444,7 +482,13 @@ class pamc_shell(cmd.Cmd):
         try:
             key = c_char_p(l[0])
             value = c_char_p(l[1])
-            err = api.hvfs_supdate(self.table, key, value, 0)
+            if len(l) == 3:
+                column = c_int(int(l[2]))
+                if column.value >= 0x1000:
+                    print "Invalid column id %ld" % (column.value)
+            else:
+                column = c_int(0)
+            err = api.hvfs_supdate(self.table, key, value, column)
             if err != 0:
                 print "api.hvfs_update() failed w/ %d" % err
                 return
