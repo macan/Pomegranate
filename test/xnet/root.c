@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-09 09:57:31 macan>
+ * Time-stamp: <2010-10-14 14:09:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -140,7 +140,7 @@ int main(int argc, char *argv[])
         .dispatcher = root_dispatch,
     };
     int err = 0, i, j;
-    int self, sport, mode, do_create;
+    int self, sport = -1, mode, do_create;
     char profiling_fname[256];
     char *value;
     char *conf_file;
@@ -160,6 +160,9 @@ int main(int argc, char *argv[])
         self = atoi(argv[1]);
         hvfs_info(xnet, "Self type+ID is R2:%d.\n", self);
         conf_file = argv[2];
+        if (argc == 4) {
+            sport = atoi(argv[3]);
+        }
     }
 
     value = getenv("mode");
@@ -195,7 +198,8 @@ int main(int argc, char *argv[])
         return EINVAL;
     }
 
-    sport = port[TYPE_RING][self];
+    if (sport == -1)
+        sport = port[TYPE_RING][self];
     self = HVFS_ROOT(self);
 
     hro.xc = xnet_register_type(0, sport, self, &ops);

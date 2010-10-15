@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-14 09:49:12 macan>
+ * Time-stamp: <2010-10-14 15:50:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1295,18 +1295,18 @@ int hvfs_drop_table(char *name)
         if (err) {
             hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n",
                      err);
-            goto out;
+            goto out_exit;
         }
         err = __hvfs_list(uuid, LIST_OP_COUNT, &lr);
         if (err) {
             hvfs_err(xnet, "__hvfs_list() failed w/ %d\n", err);
-            goto out;
+            goto out_exit;
         }
         if (lr.cnt) {
             hvfs_err(xnet, "Table %s is not empty (%d entrie(s)), "
                      "reject drop\n", name, lr.cnt);
             err = -EINVAL;
-            goto out;
+            goto out_exit;
         }
     }
 
@@ -1481,6 +1481,7 @@ resend:
     xnet_set_auto_free(msg->pair);
 out:
     xnet_free_msg(msg);
+out_exit:
     return err;
 out_free:
     xfree(hi);
@@ -1495,8 +1496,8 @@ int __hvfs_read(struct amc_index *ai, char **value, struct column *c)
     u32 vid = 0;
     int err = 0;
 
-    hvfs_warning(xnet, "Read column itbid %ld len %ld offset %ld\n",
-                 c->stored_itbid, c->len, c->offset);
+    hvfs_debug(xnet, "Read column itbid %ld len %ld offset %ld\n",
+               c->stored_itbid, c->len, c->offset);
 
     si = xzalloc(sizeof(*si) + sizeof(struct column_req));
     if (!si) {
@@ -2139,7 +2140,7 @@ int hvfs_sput(char *table, char *key, char *value, int column)
         xnet_msg_add_sdata(msg, value, strlen(value));
     }
 
-    hvfs_info(xnet, "%ld, %ld\n", ai.tid, ai.dlen);
+    hvfs_debug(xnet, "key len %ld, key+value len %ld\n", ai.tid, ai.dlen);
 
 resend:
     err = xnet_send(hmo.xc, msg);

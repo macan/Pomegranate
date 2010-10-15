@@ -1,5 +1,5 @@
 Writter: Ma Can <macan@ncic.ac.cn> or <ml.macana@gmail.com> (gmail is preferred)
-Time-stamp: <2010-10-09 10:54:29 macan>
+Time-stamp: <2010-10-15 11:24:51 macan>
 
 Features of Pomegranate:
 
@@ -13,6 +13,17 @@ Features of Pomegranate:
 3. Dynamically add/del MDS is support in key/value client. Note that, you must
    make sure that there is no requests issued in changing. We plan to remove
    this restriction in later version.
+
+Known Issues:
+
+1. R2 server is not stable on comparing saved site info with incoming site
+info.
+
+2. Memory management in MDS is not stable on requesting to create a lot of
+   files (say more than 2,000,000 on a 4GB memory machine).
+
+3. Bad memory usage in MDSL on manipulating many directories (say 20 on a 4GB
+   memory machine).
 
 Getting Start with Pomegranate:
 
@@ -417,6 +428,140 @@ Getting Start with Pomegranate:
        Key: 1111 => Value: alex
 
        Ho, it works? Any problem please contact me via mail at ml.macana AT gmail.com
+
+5. How to run the file system interface UNIT TEST?
+
+   Although our kernel/fuse file system client is not availble, you can run
+   our unit test on the internal interface. The UT client is at
+   'test/xnet/client.ut'. Following the steps below to run the unit test.
+
+   5.1 Using bin/hvfs.sh to start Servers
+
+       $ cd bin
+       $ MODE=fs ./hvfs.sh start
+       Start R2 server done. Waiting for 5 seconds to clean up latest instance...
+       Start MDSL server done.
+       Start MDS server done.
+       $ ./hvfs.sh stat
+       Checking servers' status ...
+       ----------MDSL----------
+       MDSL 0 is running.
+       MDSL 1 is running.
+       ----------MDS----------
+       MDS  0 is running.
+       MDS  1 is running.
+       MDS  2 is running.
+       MDS  3 is running.
+       ----------R2----------
+       R2   0 is running.
+       $ ./hvfs.sh ut
+       There are many unit test parameters, please see the config file in 'conf/ut.conf'.
+       Start 4 UT client(s) done.
+       $ top # you will see the UTs are running
+
+       You can see the log files in $LOG_DIR (defaults to ~) named
+       client.*.log for more information. For example:
+       $ tail ~/client.0.log
+       [INFO] ECHO Create Latency:  	 287.157100 us
+       [INFO] ECHO Create Latency:  	 290.737750 us
+       [INFO] ECHO Create Latency:  	 291.206600 us
+       [INFO] ECHO Create Latency:  	 292.183800 us
+       [INFO] ECHO Create Latency:  	 292.979700 us
+       [INFO] ECHO Create Aggr Lt:  	 58.598370 us
+       [INFO] ECHO Lookup Latency:  	 254.205600 us
+       [INFO] ECHO Lookup Latency:  	 256.316400 us
+       [INFO] ECHO Lookup Latency:  	 257.151800 us
+       [INFO] ECHO Lookup Latency:  	 258.977100 us
+       [INFO] ECHO Lookup Latency:  	 260.042600 us
+       [INFO] ECHO Lookup Aggr Lt:  	 52.009380 us
+       [INFO] ECHO WDATA Latency:  	     827.301850 us
+       [INFO] ECHO WDATA Latency:  	     833.583000 us
+       [INFO] ECHO WDATA Latency:  	     834.267550 us
+       [INFO] ECHO WDATA Latency:  	     845.088500 us
+       [INFO] ECHO WDATA Latency:  	     849.379500 us
+       [INFO] ECHO WDATA  Aggr Lt:  	 169.876830 us
+       [INFO] ECHO RDATA Latency:  	     674.832350 us
+       [INFO] ECHO RDATA Latency:  	     679.080200 us
+       [INFO] ECHO RDATA Latency:  	     685.311900 us
+       [INFO] ECHO RDATA Latency:  	     687.121300 us
+       [INFO] ECHO RDATA Latency:  	     689.273700 us
+       [INFO] ECHO RDATA  Aggr Lt:  	 137.854680 us
+       [INFO] ECHO Unlink Latency:  	 253.964900 us
+       [INFO] ECHO Unlink Latency:  	 254.777700 us
+       [INFO] ECHO Unlink Latency:  	 255.078950 us
+       [INFO] ECHO Unlink Latency:  	 255.470900 us
+       [INFO] ECHO Unlink Latency:  	 255.833850 us
+       [INFO] ECHO Unlink Aggr Lt:  	 51.167090 us
+       [INFO] Split_retry 167, FAILED:[create,lookup,unlink] 0 0 0
+
+   5.2 Running UT manually
+
+       5.2.1 Start the R2 server
+
+             It is the same as starting the R2 server in Section 4.1.
+
+       5.2.2 Start the MDSL servers
+
+             It is the same as starting the MDSL servers in Section 4.2.
+
+       5.2.3 Start the MDS servers
+
+             It is a little changing in start MDS servers. We default use
+             file system 0 for our file system interface unit test. Thus,
+
+             $ fsid=0 mode=1 hvfs_mds_opt_memlimit=0 hvfs_mds_memlimit=1072896010 hvfs_mds_txg_interval=5 hvfs_mds_opt_memonly=0 type=0 cache=0 test/xnet/mds.ut 0
+
+             You need to change the script 'start_mds.sh" either.
+
+       5.2.4 Create the file system
+
+             You actually do NOT need to create file system 0. The R2 server
+             will create it on-the-fly if it has not existed.
+
+       5.2.5 Running the UT program
+
+             We have provide a file system interface UT program at
+             'test/xnet/client.ut'. Using the following cmd line to start it:
+
+             $ mode=1 op=200 thread=5 entry=100000 time test/xnet/client.ut 0
+
+             `mode=1' means that CLIENT will register itself with the R2 server.
+
+             `op=200' means that we want to do
+             'create/lookup/wdata/rdata/unlink' sequentially. 
+
+             `thread=5' means that we want to run with 5 concurrent threads.
+
+             `entry=100000' means that we want to manipulate on 100000 files.
+
+             Arguments:
+
+             1. argv[1]: ID, logical number of this client;
+
+             2. argv[2]: R2_IP, the ip address of the R2 server;
+
+             3. argv[3]: PORT, the local listen port number of this server, it
+                         should be consistent with the value in the config file;
+
+             op 0/1/2/3/4/5/100/200 =>
+             create/lookup/unlink/create_dir/write_data/read_data/[0,1,2]/[0,1,4,5,2]
+
+             1. create: create a file's metadata without any data;
+
+             2. lookup: lookup a file's metadata;
+
+             3. unlink: delete a file;
+
+             4. create_dir: create a [fake] directory;
+
+             5. write_data: lookup a file's metadata and write data content to it;
+
+             6. read_data: lookup a file's metadata and read the data content;
+
+             7. [0,1,2]: do create, lookup, unlink sequentially;
+
+             8. [0,1,4,5,2]: do create, lookup, write_data, read_data, unlink
+                             sequentially;
 
 Fast Error Code Reference:
 

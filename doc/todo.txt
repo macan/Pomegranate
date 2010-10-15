@@ -1,0 +1,29 @@
+Pomegranate TODOs:
+
+1. Dynamically add and delete sites on active system (Priority: low)
+
+   0. find the impacted site groups (root only)
+
+   1. setup client request filter to block client requests (sync)
+
+   2. bcast / receive the new ring (sync)
+
+   3. flush the async queue of each impacted site (sync)
+
+   4. snapshot each impacted site (sync)
+
+   5. bcast / change the new ring to all (sync)
+
+2. Distributed execution framework embeded in MDSL (Priority: low)
+
+3. Active code with each table line (Priority: high)
+
+4. Key/Value store support multiple columns (Priority: high)
+
+   We planed to use e->column[0] to store the indirect columns. Any column id
+   bigger than 5 will use this indirect column to address the correct
+   column. Client needs to fetch the column 0 to parse the correct column
+   info. The internal structure of the indirect column is a sorted list. We
+   have provide a API to parse, add, delete columns. Enjoy it:)
+
+   Scheduled from 10/15/2010 to 10/20/2010.

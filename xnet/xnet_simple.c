@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-15 14:00:02 macan>
+ * Time-stamp: <2010-10-14 17:26:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -125,8 +125,8 @@ void setnodelay(int fd)
 
     err = setsockopt(fd, SOL_TCP, TCP_NODELAY, &val, sizeof(val));
     if (err < 0) {
-        hvfs_err(xnet, "setsockopt() failed %d, the short messages may be "
-                 "very slow now\n", errno);
+        hvfs_err(xnet, "setsockopt(%d) failed %d, the short messages may be "
+                 "very slow now\n", fd, errno);
     }
 }
 

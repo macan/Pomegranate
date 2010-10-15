@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-13 09:46:39 macan>
+ * Time-stamp: <2010-10-14 15:07:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2166,7 +2166,7 @@ int main(int argc, char *argv[])
         .recv_handler = client_dispatch,
     };
     int err = 0;
-    int self, sport, i, j, thread, mode;
+    int self, sport = -1, i, j, thread, mode;
     long entry;
     int op;
     char *value;
@@ -2211,6 +2211,9 @@ int main(int argc, char *argv[])
         hvfs_info(xnet, "Self type+ID is client:%d.\n", self);
         if (argc == 3) {
             ring_ip = argv[2];
+        } else if (argc == 4) {
+            ring_ip = argv[2];
+            sport = atoi(argv[3]);
         }
     }
 
@@ -2249,11 +2252,13 @@ int main(int argc, char *argv[])
         if (!ring_ip) {
             xnet_update_ipaddr(HVFS_RING(0), 1, &ipaddr[3],
                                (short *)(&port[3][0]));
-            sport = port[TYPE_CLIENT][self];
+            if (sport == -1)
+                sport = port[TYPE_CLIENT][self];
         } else {
             xnet_update_ipaddr(HVFS_RING(0), 1, &ring_ip,
                                (short *)(&port[3][0]));
-            sport = port[TYPE_CLIENT][0];
+            if (sport == -1)
+                sport = port[TYPE_CLIENT][0];
         }
     }
 

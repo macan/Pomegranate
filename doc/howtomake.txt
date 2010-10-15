@@ -1,0 +1,51 @@
+Writter: Ma Can <macan@ncic.ac.cn> or <ml.macana@gmail.com> (gmail is preferred)
+Time-stamp: <2010-10-15 13:38:00 macan>
+
+Making Pomegranate is very easy :) You just should following the next steps:
+
+1. Prepare the source code.
+
+   You can download the latest code at [[http://github.com/macan/Pomegranate]]
+   via web browser or git.
+
+   git clone git://github.com/macan/Pomegranate.git
+
+   or via HTTP downloading at the following URL,
+
+   http://github.com/macan/Pomegranate/archives/master
+
+2. Prepare the GCC tools.
+
+   You should have gcc, make, and other binary utilities.
+
+   Make sure you are compiling on a 64-bit box! For now, Pomegranate only
+   supports 64-bit box.
+
+3. Make the binary code.
+
+   Note that, current code base do NOT support 32 bits platform, as a result,
+   please do NOT try to make and run the binary code on a 32 bits box.
+
+   $ make
+
+4. We have already done:)
+
+   All the binaries is in their own directories. For example, the MDS server,
+   MDSL server, MKFS utility, unit test clients are in directory
+   `test/xnet'. The Pomegranate libraries are in directory `lib/'. I described
+   it more detailly in the following table.
+
+   Pathname             Description
+
+   test/xnet            MDS server:     mds.ut
+                        MDSL server:    mdsl.ut
+                        R2 server:      root.ut
+                        MKFS utility:   r2cli.ut
+                        UT client:      client.ut
+
+   lib/                 API lib:        libapi.so.1.0
+                        HVFS lib:       libhvfs.so.1.0
+                        MDS lib:        libmds.so.1.0
+                        MDSL lib:       libmdsl.so.1.0
+                        XNET lib:       libxnet.so.1.0
+                        R2 lib:         libr2.so.1.0

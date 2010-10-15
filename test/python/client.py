@@ -161,6 +161,8 @@ def main(argv):
 class pamc_shell(cmd.Cmd):
     bc = None
     table = None
+    clock_start = 0.0
+    clock_stop = 0.0
     keywords = ["EOF", "create", "drop", "put", "get", "del", "update",
                 "quit", "list", "ls", "set", "commit", "getcluster",
                 "getactivesite"]
@@ -171,6 +173,22 @@ class pamc_shell(cmd.Cmd):
         self.bc = bcolors()
 
     def emptyline(self):
+        return
+
+    def start_clock(self):
+        self.clock_start = time.time()
+        return
+
+    def stop_clock(self):
+        self.clock_stop = time.time()
+
+    def echo_clock(self, str):
+        if self.bc.mode:
+            print self.bc.OKGREEN + "%s %fs" % (str, 
+                                                self.clock_stop 
+                                                - self.clock_start) + self.bc.ENDC
+        else:
+            print "%s %fs" % (str, self.clock_stop - self.clock_start)
         return
 
     def do_create(self, line):
@@ -212,7 +230,8 @@ class pamc_shell(cmd.Cmd):
         table = c_char_p(l[1])
         err = api.hvfs_drop_table(table)
         if err != 0:
-            print "api.hvfs_drop_table() failed w/ %d" % err
+            print "api.hvfs_drop_table() failed w/ (%d) %s" % (err, 
+                                                               os.strerror(-err))
             return
 
     def do_list(self, line):
@@ -303,10 +322,13 @@ class pamc_shell(cmd.Cmd):
                     print "Invalid column id %ld" % (column.value)
             else:
                 column = c_int(0)
+            self.start_clock()
             err = api.hvfs_put(self.table, key, value, column)
             if err != 0:
                 print "api.hvfs_put() failed w/ %d" % err
                 return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
         except ValueError, ve:
             print "ValueError %s" % ve
 
@@ -330,14 +352,17 @@ class pamc_shell(cmd.Cmd):
                     print "Invalid column id %ld" % (column.value)
             else:
                 column = c_int(0)
+            self.start_clock()
             err = api.hvfs_get(self.table, key, byref(value), column)
             if err != 0:
                 print "api.hvfs_get() failed w/ %d" % err
                 return
+            self.stop_clock()
             if value.value == "":
                 print >> sys.stderr, "Key: %ld => Value: NONE" % (key.value)
             else:
                 print >> sys.stderr, "Key: %ld => Value: %s" % (key.value, value.value)
+            self.echo_clock("Time elasped:")
         except ValueError, ve:
             print "ValueError %s" % ve
 
@@ -354,10 +379,13 @@ class pamc_shell(cmd.Cmd):
         # ok, transform the key to long
         try:
             key = c_ulonglong(long(l[0]))
+            self.start_clock()
             err = api.hvfs_del(self.table, key, 0)
             if err != 0:
                 print "api.hvfs_del() failed w/ %d" % err
                 return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
         except ValueError, ve:
             print "ValueError %s" % ve
 
@@ -381,10 +409,13 @@ class pamc_shell(cmd.Cmd):
                     print "Invalid column id %ld" % (column.value)
             else:
                 column = c_int(0)
+            self.start_clock()
             err = api.hvfs_update(self.table, key, value, column)
             if err != 0:
                 print "api.hvfs_update() failed w/ %d" % err
                 return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
         except ValueError, ve:
             print "ValueError %s" % ve
 
@@ -408,10 +439,13 @@ class pamc_shell(cmd.Cmd):
                     print "Invalid column id %ld" % (column.value)
             else:
                 column = c_int(0)
+            self.start_clock()
             err = api.hvfs_sput(self.table, key, value, column)
             if err != 0:
                 print "api.hvfs_put() failed w/ %d" % err
                 return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
         except ValueError, ve:
             print "ValueError %s" % ve
 
@@ -435,16 +469,19 @@ class pamc_shell(cmd.Cmd):
                     print "Invalid column id %ld" % (column.value)
             else:
                 column = c_int(0)
+            self.start_clock()
             err = api.hvfs_sget(self.table, key, byref(value), column)
             if err != 0:
                 print "api.hvfs_sget() failed w/ (%d) %s" % (err, 
                                                              os.strerror(-err))
                 return
+            self.stop_clock()
             if value.value == "":
                 print >> sys.stderr, "Key: %s => Value: NONE" % (key.value)
             else:
                 print >> sys.stderr, "Key: %s => Value: %s" % (key.value, 
                                                                value.value)
+            self.echo_clock("Time elasped:")
         except ValueError, ve:
             print "ValueError %s" % ve
 
@@ -461,10 +498,13 @@ class pamc_shell(cmd.Cmd):
         # ok, transform the key to long
         try:
             key = c_char_p(l[0])
+            self.start_clock()
             err = api.hvfs_sdel(self.table, key, 0)
             if err != 0:
                 print "api.hvfs_del() failed w/ %d" % err
                 return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
         except ValueError, ve:
             print "ValueError %s" % ve
 
@@ -488,10 +528,13 @@ class pamc_shell(cmd.Cmd):
                     print "Invalid column id %ld" % (column.value)
             else:
                 column = c_int(0)
+            self.start_clock()
             err = api.hvfs_supdate(self.table, key, value, column)
             if err != 0:
                 print "api.hvfs_update() failed w/ %d" % err
                 return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
         except ValueError, ve:
             print "ValueError %s" % ve
 
@@ -568,10 +611,13 @@ class pamc_shell(cmd.Cmd):
             return
         # ok
         try:
+            self.start_clock()
             err = api.hvfs_offline(l[0], int(l[1]))
             if err != 0:
                 print "api.hvfs_offline() failed w/ %d" % err
                 return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
         except TypeError, te:
             print "TypeError %s" % te
         except ValueError, ve:
@@ -586,10 +632,13 @@ class pamc_shell(cmd.Cmd):
             return
         # ok
         try:
+            self.start_clock()
             err = api.hvfs_online(l[0], int(l[1]), l[2])
             if err != 0:
                 print "api.hvfs_online() failed w/ %d" % err
                 return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
         except TypeError, te:
             print "TypeError %s" % te
         except ValueError, ve:
