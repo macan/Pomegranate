@@ -1,4 +1,11 @@
 #!/bin/env python
+#
+# Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
+#                           <macan@ncic.ac.cn>
+#
+# Time-stamp: <2010-10-18 17:04:18 macan>
+#
+# Armed with EMACS.
 
 import os, time, sys
 import getopt
@@ -359,9 +366,9 @@ class pamc_shell(cmd.Cmd):
                 return
             self.stop_clock()
             if value.value == "":
-                print >> sys.stderr, "Key: %ld => Value: NONE" % (key.value)
+                print >> sys.stderr, "Key: %ld Column: %d => Value: NONE" % (key.value, column.value)
             else:
-                print >> sys.stderr, "Key: %ld => Value: %s" % (key.value, value.value)
+                print >> sys.stderr, "Key: %ld Column: %d => Value: %s" % (key.value, column.value, value.value)
             self.echo_clock("Time elasped:")
         except ValueError, ve:
             print "ValueError %s" % ve

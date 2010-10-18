@@ -1,0 +1,28 @@
+#!/usr/bin/expect -f 
+#
+# Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
+#                           <macan@ncic.ac.cn>
+#
+# Time-stamp: <2010-10-18 17:13:17 macan>
+#
+# Armed with EMACS.
+
+# cmdline args:
+# argv[0] password
+# argv[1] user@ipaddress
+# argv[2] .. argv[end] command and arguments
+
+set password [lrange $argv 0 0]
+set ipaddr [lrange $argv 1 1]
+set cmd [lrange $argv 2 end]
+set timeout -1
+
+spawn ssh -x $ipaddr $cmd
+match_max 100000
+
+expect "*?assword:*"
+
+send -- "$password\r"
+
+send -- "\r"
+expect eof

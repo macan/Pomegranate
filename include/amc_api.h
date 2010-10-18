@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-11 14:23:50 macan>
+ * Time-stamp: <2010-10-15 15:34:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -76,6 +76,9 @@ int hvfs_sput(char *table, char *key, char *value, int column);
 int hvfs_sget(char *table, char *key, char **value, int column);
 int hvfs_sdel(char *table, char *key, int column);
 int hvfs_supdate(char *table, char *key, char *value, int column);
+
+int hvfs_get_indirect(struct amc_index *iai, struct mu_column **mc);
+int hvfs_sget_indirect(struct amc_index *iai, struct mu_column **mc);
 
 #define LIST_OP_SCAN            0
 #define LIST_OP_COUNT           1

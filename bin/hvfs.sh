@@ -12,6 +12,23 @@ if [ "x$LOG_DIR" == "x" ]; then
     LOG_DIR="~"
 fi
 
+if [ "x$PASSWD" == "x" ]; then
+    # it is the normal mode, we do not use expect
+    SSH="ssh -x"
+else
+    # we have to use expect to login
+    SSH="$HVFS_HOME/bin/rexec.exp $PASSWD"
+    if [ ! -x /usr/bin/expect ]; then
+        echo "/usr/bin/expect does not exist. Use 'which expect' to find it and update the header in file 'rexec.exp'."
+    fi
+fi
+
+if [ "x$USERNAME" == "x" ]; then
+    UN=""
+else
+    UN="$USERNAME@"
+fi
+
 function do_conf_check() {
     if [ -d $HVFS_HOME/conf ]; then
         if [ -e $HVFS_HOME/conf/hvfs.conf ]; then
@@ -66,7 +83,7 @@ function start_mdsl() {
             ip=`echo $x | awk -F: '{print $1}'`
             id=`echo $x | awk -F: '{print $2}'`
             port=`echo $x | awk -F: '{print $3}'`
-            ssh -x $ip "$MDSL_CMD $HVFS_HOME/test/xnet/mdsl.ut $id $R2IP $port > $LOG_DIR/mdsl.$id.log" &
+            $SSH $UN$ip "$MDSL_CMD $HVFS_HOME/test/xnet/mdsl.ut $id $R2IP $port > $LOG_DIR/mdsl.$id.log" &
         done
         echo "Start MDSL server done."
     else
@@ -75,7 +92,7 @@ function start_mdsl() {
             ip=`echo $x | awk -F: '{print $1}'`
             id=`echo $x | awk -F: '{print $2}'`
             port=`echo $x | awk -F: '{print $3}'`
-            ssh -x $ip "$MDSL_CMD $HVFS_HOME/test/xnet/mdsl.ut $id $R2IP $port > $LOG_DIR/mdsl.$id.log" &
+            $SSH $UN$ip "$MDSL_CMD $HVFS_HOME/test/xnet/mdsl.ut $id $R2IP $port > $LOG_DIR/mdsl.$id.log" &
             echo "Start MDSL server $id done."
         done
     fi
@@ -88,7 +105,7 @@ function start_mds() {
             ip=`echo $x | awk -F: '{print $1}'`
             id=`echo $x | awk -F: '{print $2}'`
             port=`echo $x | awk -F: '{print $3}'`
-            ssh -x $ip "$MDS_CMD $HVFS_HOME/test/xnet/mds.ut $id $R2IP $port > $LOG_DIR/mds.$id.log" &
+            $SSH $UN$ip "$MDS_CMD $HVFS_HOME/test/xnet/mds.ut $id $R2IP $port > $LOG_DIR/mds.$id.log" &
         done
         echo "Start MDS server done."
     else
@@ -97,7 +114,7 @@ function start_mds() {
             ip=`echo $x | awk -F: '{print $1}'`
             id=`echo $x | awk -F: '{print $2}'`
             port=`echo $x | awk -F: '{print $3}'`
-            ssh -x $ip "$MDS_CMD $HVFS_HOME/test/xnet/mds.ut $id $R2IP $port > $LOG_DIR/mds.$id.log" &
+            $SSH $UN$ip "$MDS_CMD $HVFS_HOME/test/xnet/mds.ut $id $R2IP $port > $LOG_DIR/mds.$id.log" &
             echo "Start MDS server $id done."
         done
     fi
@@ -110,7 +127,7 @@ function start_root() {
             ip=`echo $x | awk -F: '{print $1}'`
             id=`echo $x | awk -F: '{print $2}'`
             port=`echo $x | awk -F: '{print $3}'`
-            ssh -x $ip "$ROOT_CMD $HVFS_HOME/test/xnet/root.ut $id $HVFS_HOME/conf/hvfs.conf $port > $LOG_DIR/root.$id.log" &
+            $SSH $UN$ip "$ROOT_CMD $HVFS_HOME/test/xnet/root.ut $id $HVFS_HOME/conf/hvfs.conf $port > $LOG_DIR/root.$id.log" &
         done
         echo "Start R2 server done. Waiting for 5 seconds to clean up latest instance..."
     else
@@ -119,7 +136,7 @@ function start_root() {
             ip=`echo $x | awk -F: '{print $1}'`
             id=`echo $x | awk -F: '{print $2}'`
             port=`echo $x | awk -F: '{print $3}'`
-            ssh -x $ip "$ROOT_CMD $HVFS_HOME/test/xnet/root.ut $id $HVFS_HOME/conf/hvfs.conf $port > $LOG_DIR/root.$id.log" &
+            $SSH $UN$ip "$ROOT_CMD $HVFS_HOME/test/xnet/root.ut $id $HVFS_HOME/conf/hvfs.conf $port > $LOG_DIR/root.$id.log" &
             echo "Start R2 server %id done. Waiting for 5 seconds to clean up latest instance..."
         done
     fi
@@ -131,7 +148,7 @@ function check_mdsl() {
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        R=`ssh -x $ip "cat $LOG_DIR/mdsl.$id.log | grep UP"`
+        R=`$SSH $UN$ip "cat $LOG_DIR/mdsl.$id.log | grep UP"`
         if [ "x$R" == "x" ]; then
             echo "MDSL $id is not alive, please check it!"
         fi
@@ -143,7 +160,7 @@ function check_mds() {
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        R=`ssh -x $ip "cat $LOG_DIR/mds.$id.log | grep UP"`
+        R=`$SSH $UN$ip "cat $LOG_DIR/mds.$id.log | grep UP"`
         if [ "x$R" == "x" ]; then
             echo "MDS $id is not alive, please check it!"
         fi
@@ -155,7 +172,7 @@ function check_root() {
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        R=`ssh -x $ip "cat $LOG_DIR/root.$id.log | grep UP"`
+        R=`$SSH $UN$ip "cat $LOG_DIR/root.$id.log | grep UP"`
         if [ "x$R" == "x" ]; then
             echo "R2 $id is not alive, please check it!"
         fi
@@ -179,8 +196,8 @@ function stop_mdsl() {
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        PID=`ssh -x $ip "ps aux | grep \"mdsl.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
-        ssh -x $ip "kill -s SIGHUP $PID 2&>1 > /dev/null"
+        PID=`$SSH $UN$ip "ps aux | grep \"mdsl.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
+        $SSH $UN$ip "kill -s SIGHUP $PID 2&>1 > /dev/null"
     done
     sleep 5
 }
@@ -195,8 +212,8 @@ function stop_mds() {
     for x in $ipnr; do
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        PID=`ssh -x $ip "ps aux | grep \"mds.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
-        ssh -x $ip "kill -s SIGHUP $PID 2&>1 > /dev/null"
+        PID=`$SSH $UN$ip "ps aux | grep \"mds.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
+        $SSH $UP$ip "kill -s SIGHUP $PID 2&>1 > /dev/null"
     done
     sleep 2
 }
@@ -211,8 +228,8 @@ function stop_root() {
     for x in $ipnr; do
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        PID=`ssh -x $ip "ps aux | grep \"root.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
-        ssh -x $ip "kill -s SIGHUP $PID 2&>1 > /dev/null"
+        PID=`$SSH $UN$ip "ps aux | grep \"root.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
+        $SSH $UN$ip "kill -s SIGHUP $PID 2&>1 > /dev/null"
     done
 }
 
@@ -226,8 +243,8 @@ function kill_mdsl() {
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        PID=`ssh -x $ip "ps aux | grep \"mdsl.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
-        ssh -x $ip "kill -9 $PID 2&>1 > /dev/null"
+        PID=`$SSH $UN$ip "ps aux | grep \"mdsl.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
+        $SSH $UN$ip "kill -9 $PID 2&>1 > /dev/null"
     done
     sleep 5
 }
@@ -242,8 +259,8 @@ function kill_mds() {
     for x in $ipnr; do
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        PID=`ssh -x $ip "ps aux | grep \"mds.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
-        ssh -x $ip "kill -9 $PID 2&>1 > /dev/null"
+        PID=`$SSH $UN$ip "ps aux | grep \"mds.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
+        $SSH $UN$ip "kill -9 $PID 2&>1 > /dev/null"
     done
     sleep 2
 }
@@ -258,8 +275,8 @@ function kill_root() {
     for x in $ipnr; do
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        PID=`ssh -x $ip "ps aux | grep \"root.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
-        ssh -x $ip "kill -9 $PID 2&>1 > /dev/null"
+        PID=`$SSH $UN$ip "ps aux | grep \"root.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
+        $SSH $UN$ip "kill -9 $PID 2&>1 > /dev/null"
     done
 }
 
@@ -287,9 +304,9 @@ function do_clean() {
     for x in $ipnr; do
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        ssh -x $ip "rm -rf /tmp/hvfs/6*"
-        ssh -x $ip "rm -rf /tmp/hvfs/*_store"
-        ssh -x $ip "rm -rf /tmp/hvfs/txg"
+        $SSH $UN$ip "rm -rf /tmp/hvfs/6*"
+        $SSH $UN$ip "rm -rf /tmp/hvfs/*_store"
+        $SSH $UN$ip "rm -rf /tmp/hvfs/txg"
     done
 }
 
@@ -299,7 +316,7 @@ function stat_mdsl() {
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        NR=`ssh -x $ip "ps aux | grep \"mdsl.ut $id\" | grep -v bash | grep -v ssh | grep -v grep | wc -l"`
+        NR=`$SSH $UN$ip "ps aux | grep \"mdsl.ut $id\" | grep -v bash | grep -v ssh | grep -v grep | wc -l"`
         if [ $NR -eq 1 ]; then
             echo "MDSL $id is running."
         else
@@ -314,7 +331,7 @@ function stat_mds() {
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        NR=`ssh -x $ip "ps aux | grep \"mds.ut $id\" | grep -v bash | grep -v ssh | grep -v grep | wc -l"`
+        NR=`$SSH $UN$ip "ps aux | grep \"mds.ut $id\" | grep -v bash | grep -v ssh | grep -v grep | wc -l"`
         if [ $NR -eq 1 ]; then
             echo "MDS  $id is running."
         else
@@ -329,7 +346,7 @@ function stat_root() {
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        NR=`ssh -x $ip "ps aux | grep \"root.ut $id\" | grep -v bash | grep -v ssh | grep -v grep | wc -l"`
+        NR=`$SSH $UN$ip "ps aux | grep \"root.ut $id\" | grep -v bash | grep -v ssh | grep -v grep | wc -l"`
         if [ $NR -eq 1 ]; then
             echo "R2   $id is running."
         else
@@ -344,7 +361,7 @@ function stat_client() {
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
-        NR=`ssh -x $ip "ps aux | grep \"client.ut $id\" | grep -v bash | grep -v ssh | grep -v grep | wc -l"`
+        NR=`$SSH $UN$ip "ps aux | grep \"client.ut $id\" | grep -v bash | grep -v ssh | grep -v grep | wc -l"`
         if [ $NR -eq 1 ]; then
             echo "CLT  $id is running."
         else
@@ -383,7 +400,7 @@ function do_ut() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         port=`echo $x | awk -F: '{print $3}'`
-        ssh -x $ip "$CLIENT_CMD $HVFS_HOME/test/xnet/client.ut $id $R2IP $port > $LOG_DIR/client.$id.log" &
+        $SSH $UN$ip "$CLIENT_CMD $HVFS_HOME/test/xnet/client.ut $id $R2IP $port > $LOG_DIR/client.$id.log" &
         let I+=1
     done
     echo "Start $NR UT client(s) done."
@@ -408,8 +425,8 @@ function do_kut() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         port=`echo $x | awk -F: '{print $3}'`
-        PID=`ssh -x $ip "ps aux | grep \"client.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
-        ssh -x $ip "kill -9 $PID 2&>1 > /dev/null"
+        PID=`$SSH $UN$ip "ps aux | grep \"client.ut $id\" | grep -v bash | grep -v ssh | grep -v grep"`
+        $SSH $UN$ip "kill -9 $PID 2&>1 > /dev/null"
         let I+=1
     done
 }
@@ -429,6 +446,10 @@ function do_help() {
     echo "      check [t] [id]  check servers' status"
     echo "      clean           clean the STOREGE home"
     echo "      stat            get and print servers' status"
+    echo "      ut              do file system UNIT TEST"
+    echo "                      NOTE: you have to in MODE=fs"
+    echo "      kut             kill the unit test programs"
+    echo "      sut             stat the unit test programs"
     echo ""
     echo "Environments:"
     echo "      HVFS_HOME       default to the current path."
@@ -438,6 +459,9 @@ function do_help() {
     echo "      MODE            fs: file system mode."
     echo "                      kv: key value mode."
     echo "      LOG_DIR         default to ~"
+    echo ""
+    echo "      USERNAME        default user name for each ssh connection."
+    echo "      PASSWD          default passwd for each ssh connection."
     echo ""
     echo "Examples:"
     echo "1. start all the servers in config file."
@@ -450,6 +474,8 @@ function do_help() {
     echo "   $ hvfs.sh stop"
     echo "5. get the current status"
     echo "   $ hvfs.sh stat"
+    echo "6. run into the file system mode."
+    echo "   $ MODE=fs hvfs.sh start"
 }
 
 if [ "x$1" == "xstart" ]; then

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-14 09:58:34 macan>
+ * Time-stamp: <2010-10-18 20:26:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -86,10 +86,19 @@ int xtable_put(struct amc_index *ai, struct iovec **iov, int *nr)
     memset(&hmr, 0, sizeof(hmr));
 
     hi->flag = INDEX_CREATE | INDEX_KV;
-    if (ai->column != 0) {
+    if (ai->column > HVFS_KV_MAX_COLUMN) {
+        hvfs_err(xnet, "Column is %d, which exceeds the maximum column.\n", 
+                 ai->column);
+        err = -EINVAL;
+        goto out_hi;
+    } else if (ai->column > XTABLE_INDIRECT_COLUMN) {
+        hi->flag |= INDEX_COLUMN;
+        hi->kvflag = HVFS_KV_NORMAL; /* column is ZERO */
+    } else if (ai->column != 0) {
         /* the 0th column default attached to the ITE */
         hi->flag |= INDEX_COLUMN;
-        hi->column = ai->column;
+        hi->kvflag = ai->column;
+        hi->kvflag |= HVFS_KV_NORMAL;
     }
     hi->namelen = ai->dlen;
     hi->hash = ai->key;
@@ -131,6 +140,7 @@ int xtable_put(struct amc_index *ai, struct iovec **iov, int *nr)
     
 out:
     xfree(hmr.data);
+out_hi:
     xfree(hi);
     
     return err;
@@ -146,18 +156,28 @@ int xtable_get(struct amc_index *ai, struct iovec **iov, int *nr)
     hi = xzalloc(sizeof(struct hvfs_index));
     if (!hi) {
         hvfs_err(mds, "xzalloc() hvfs_index failed.\n");
-        err = -ENOMEM;
-        goto out;
+        return -ENOMEM;
     }
 
     memset(&hmr, 0, sizeof(hmr));
 
     hi->flag = INDEX_LOOKUP | INDEX_KV;
-    if (ai->column != 0) {
-        /* the 0th column default to attached to the ITE */
-        hi->flag |= INDEX_COLUMN;
-        hi->column = ai->column;
+    /* the 0th column default to attached to the ITE */
+    if (ai->column > HVFS_KV_MAX_COLUMN) {
+        hvfs_err(mds, "Column number %d is too large.\n",
+                 ai->column);
+        err = -EINVAL;
+        goto out;
+    } else if (ai->column != 0) {
+        if (unlikely(ai->column == -1)) {
+            hi->flag |= INDEX_COLUMN;
+            hi->kvflag = 0;
+        } else {
+            hi->flag |= INDEX_COLUMN;
+            hi->kvflag = ai->column;
+        }
     }
+    hi->kvflag |= HVFS_KV_NORMAL;
     hi->hash = ai->key;
     hi->itbid = ai->sid;
     hi->puuid = ai->ptid;
@@ -186,6 +206,7 @@ int xtable_get(struct amc_index *ai, struct iovec **iov, int *nr)
     if (!(*iov)->iov_base) {
         hvfs_err(mds, "xzalloc itbid failed\n");
         err = -ENOMEM;
+        xfree(hmr.data);
         xfree(*iov);
         *iov = NULL;
         goto out;
@@ -211,8 +232,7 @@ int xtable_del(struct amc_index *ai, struct iovec **iov, int *nr)
     hi = xzalloc(sizeof(struct hvfs_index));
     if (!hi) {
         hvfs_err(mds, "xzalloc() hvfs_index failed.\n");
-        err = -ENOMEM;
-        goto out;
+        return -ENOMEM;
     }
 
     memset(&hmr, 0, sizeof(hmr));
@@ -269,17 +289,25 @@ int xtable_update(struct amc_index *ai, struct iovec **iov, int *nr)
     hi = xzalloc(sizeof(struct hvfs_index));
     if (!hi) {
         hvfs_err(mds, "xzalloc() hvfs_index failed.\n");
-        err = -ENOMEM;
-        goto out;
+        return -ENOMEM;
     }
 
     memset(&hmr, 0, sizeof(hmr));
 
     hi->flag = INDEX_MDU_UPDATE | INDEX_KV;
-    if (ai->column != 0) {
+    if (unlikely(ai->column > HVFS_KV_MAX_COLUMN)) {
+        hvfs_err(mds, "Column number %d is too large.\n", ai->column);
+        err = -EINVAL;
+        goto out_hi;
+    } else if (ai->column > XTABLE_INDIRECT_COLUMN) {
+        hi->flag |= INDEX_COLUMN;
+        /* column is ZERO */
+        hi->kvflag = HVFS_KV_NORMAL;
+    } else if (ai->column != 0) {
         /* the 0th column default attached to the ITE */
         hi->flag |= INDEX_COLUMN;
-        hi->column = ai->column;
+        hi->kvflag = ai->column;
+        hi->kvflag |= HVFS_KV_NORMAL;
     }
     hi->namelen = ai->dlen;
     hi->hash = ai->key;
@@ -318,6 +346,7 @@ int xtable_update(struct amc_index *ai, struct iovec **iov, int *nr)
 
 out:
     xfree(hmr.data);
+out_hi:
     xfree(hi);
 
     return err;
@@ -356,10 +385,13 @@ int xtable_sput(struct amc_index *ai, struct iovec **iov, int *nr)
 
     /* Note that in KVS mode, we do support column access, max column is
      * 2^12 - 1 */
-    if (ai->column > HVFS_KV_MAX_COLUMN) {
+    if (unlikely(ai->column > HVFS_KV_MAX_COLUMN)) {
         hvfs_err(mds, "Column number %d is too large.\n", ai->column);
         err = -EINVAL;
-        goto out;
+        goto out_hi;
+    } else if (ai->column > XTABLE_INDIRECT_COLUMN) {
+        hi->flag |= INDEX_COLUMN;
+        /* column is ZERO */
     } else if (ai->column) {
         /* the 0th column default attached to the ITE */
         hi->flag |= INDEX_COLUMN;
@@ -410,6 +442,7 @@ int xtable_sput(struct amc_index *ai, struct iovec **iov, int *nr)
     
 out:
     xfree(hmr.data);
+out_hi:
     xfree(hi);
     
     return err;
@@ -425,8 +458,7 @@ int xtable_sget(struct amc_index *ai, struct iovec **iov, int *nr)
     hi = xzalloc(sizeof(struct hvfs_index));
     if (!hi) {
         hvfs_err(mds, "xzalloc() hvfs_index failed.\n");
-        err = -ENOMEM;
-        goto out;
+        return -ENOMEM;
     }
 
     memset(&hmr, 0, sizeof(hmr));
@@ -438,6 +470,9 @@ int xtable_sget(struct amc_index *ai, struct iovec **iov, int *nr)
         hvfs_err(mds, "Column number %d is too large.\n", ai->column);
         err = -EINVAL;
         goto out;
+    } else if (ai->column == -1) {
+        hi->flag |= INDEX_COLUMN;
+        hi->kvflag = 0;
     } else if (ai->column) {
         /* the 0th column default attached to the ITE */
         hi->flag |= INDEX_COLUMN;
@@ -478,6 +513,7 @@ int xtable_sget(struct amc_index *ai, struct iovec **iov, int *nr)
         hvfs_err(mds, "xzalloc itbid failed\n");
         err = -ENOMEM;
         xfree(*iov);
+        xfree(hmr.data);
         *iov = NULL;
         goto out;
     }
@@ -502,8 +538,7 @@ int xtable_sdel(struct amc_index *ai, struct iovec **iov, int *nr)
     hi = xzalloc(sizeof(struct hvfs_index));
     if (!hi) {
         hvfs_err(mds, "xzalloc() hvfs_index failed.\n");
-        err = -ENOMEM;
-        goto out;
+        return -ENOMEM;
     }
 
     memset(&hmr, 0, sizeof(hmr));
@@ -565,8 +600,7 @@ int xtable_supdate(struct amc_index *ai, struct iovec **iov, int *nr)
     hi = xzalloc(sizeof(struct hvfs_index));
     if (!hi) {
         hvfs_err(mds, "xzalloc() hvfs_index failed.\n");
-        err = -ENOMEM;
-        goto out;
+        return -ENOMEM;
     }
 
     memset(&hmr, 0, sizeof(hmr));
@@ -578,7 +612,10 @@ int xtable_supdate(struct amc_index *ai, struct iovec **iov, int *nr)
     if (ai->column > HVFS_KV_MAX_COLUMN) {
         hvfs_err(mds, "Column number %d is too large.\n", ai->column);
         err = -EINVAL;
-        goto out;
+        goto out_hi;
+    } else if (ai->column > XTABLE_INDIRECT_COLUMN) {
+        hi->flag |= INDEX_COLUMN;
+        /* column is ZERO */
     } else if (ai->column) {
         /* the 0th column default attached to the ITE */
         hi->flag |= INDEX_COLUMN;
@@ -626,6 +663,7 @@ int xtable_supdate(struct amc_index *ai, struct iovec **iov, int *nr)
 
 out:
     xfree(hmr.data);
+out_hi:
     xfree(hi);
 
     return err;

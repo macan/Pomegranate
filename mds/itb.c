@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-14 09:49:55 macan>
+ * Time-stamp: <2010-10-18 11:51:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -632,7 +632,7 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
 
     if (unlikely(hi->flag & INDEX_KV)) {
         e->v.key = hi->hash;
-        if (hi->kvflag & HVFS_KV_MAX_COLUMN) {
+        if (hi->flag & INDEX_COLUMN) {
             /* set to key length */
             e->v.len = hi->uuid;
             /* we should write the value content to MDSL, for now we just keep
@@ -1459,7 +1459,8 @@ void __data_column_hook(struct hvfs_index *hi, struct itb *itb,
                        sizeof(struct column));
             } else {
                 memcpy(data + sizeof(struct kv),
-                       &(itb->ite[ii->entry].column[hi->column]), 
+                       &(itb->ite[ii->entry].column[hi->kvflag &
+                                                    HVFS_KV_MAX_COLUMN]), 
                        sizeof(struct column));
             }
         } else {

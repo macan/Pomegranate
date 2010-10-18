@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-14 15:50:00 macan>
+ * Time-stamp: <2010-10-18 20:40:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1568,18 +1568,18 @@ out_free:
     return err;
 }
 
-int __hvfs_write(struct amc_index *ai, char *value, struct column *col)
+int __hvfs_write(struct amc_index *ai, char *value, u32 len, 
+                 struct column *col)
 {
     struct storage_index *si;
     struct xnet_msg *msg;
     u64 dsite;
     u64 location;
     u32 vid = 0;
-    u32 len = strlen(value);
     int err = 0;
 
-    hvfs_debug(xnet, "TO write column target len %d itbid %ld\n",
-               len, ai->sid);
+    hvfs_debug(xnet, "TO write column %d target len %d itbid %ld\n",
+               ai->column, len, ai->sid);
     
     si = xzalloc(sizeof(*si) + sizeof(struct column_req));
     if (!si) {
@@ -1637,7 +1637,7 @@ int __hvfs_write(struct amc_index *ai, char *value, struct column *col)
     }
 
     col->stored_itbid = ai->sid;
-    col->len = strlen(value);
+    col->len = len;
     col->offset = location;
 
 out_msg:
@@ -1646,6 +1646,133 @@ out_msg:
 out_free:
     xfree(si);
     
+    return err;
+}
+
+int __hvfs_indirect_write(struct amc_index *ai, char *key, char *value, 
+                          struct column *col)
+{
+    struct mu_column *mc, nmc;
+    int target_column = ai->column;
+    int err = 0, i, nr, found = 0, indirect_len;
+
+    hvfs_debug(xnet, "TO write column %d target len %ld itbid %ld\n",
+               ai->column, strlen(value), ai->sid);
+
+    /* Step 1: Get data content of the indirect column (sync read) */
+    if (ai->op == INDEX_PUT || ai->op == INDEX_UPDATE)
+        err = hvfs_get_indirect(ai, &mc);
+    else if (ai->op == INDEX_SPUT || ai->op == INDEX_SUPDATE) {
+        void *data = ai->data;
+        size_t dlen = ai->dlen;
+
+        ai->data = key;
+        ai->dlen = strlen(key);
+        err = hvfs_sget_indirect(ai, &mc);
+        ai->data = data;
+        ai->dlen = dlen;
+    }
+
+    if (err == -ENOENT) {
+        /* ok, it is safe to use hvfs_put to create this column cell */
+        err = 0;
+    } else if (err < 0) {
+        hvfs_err(xnet, "get indirect column failed w/ %d, "
+                 "try to use '(s)update'?\n", err);
+        goto out;
+    } else {
+        if (ai->op == INDEX_PUT)
+            ai->op = INDEX_UPDATE;
+        if (ai->op == INDEX_SPUT)
+            ai->op = INDEX_SUPDATE;
+    }
+    
+    if (!(err == 0 || err % sizeof(struct mu_column) == 0)) {
+        HVFS_BUGON("Corrupted indirect column!");
+    }
+    indirect_len = err;
+
+    /* Step 2: Write the new data column (sync write) */
+    ai->column = target_column;
+    err = __hvfs_write(ai, value, strlen(value), col);
+    if (err) {
+        hvfs_err(xnet, "write value to stroage column %d failed w/ %d %s\n",
+                 ai->column, err, strerror(-err));
+        goto out_free;
+    }
+    
+    /* Step 3: Try to add or update new content */
+    if (!indirect_len) {
+        nmc.cno = target_column;
+        nmc.c = *col;
+    } else {
+        nr = indirect_len / sizeof(struct mu_column);
+        for (i = 0; i < nr; i++) {
+            if ((mc + i)->cno == target_column) {
+                (mc + i)->c = *col;
+                found = 1;
+                break;
+            }
+        }
+        if (!found) {
+            /* realloc the mc and put the new column at last */
+            struct mu_column *p;
+
+            p = xrealloc(mc, indirect_len + sizeof(struct mu_column));
+            if (!p) {
+                hvfs_err(xnet, "realloc indirect column failed\n");
+                err = -ENOMEM;
+                goto out_free;
+            }
+            mc = p;
+            p = ((void *)p) + indirect_len;
+            p->cno = target_column;
+            p->c = *col;
+        }
+    }
+
+    /* Step 4: Write the new indirect column (sync write) */
+    if (found) {
+        /* just write mc */
+        ai->column = 0;
+        err = __hvfs_write(ai, (char *)mc, indirect_len, col);
+        if (err) {
+            hvfs_err(xnet, "write indirect column failed w/ %d\n",
+                     err);
+            goto out_free;
+        }
+    } else {
+        /* write mc if exist and the nmc */
+        ai->column = 0;
+        if (indirect_len) {
+            /* write mc */
+            err = __hvfs_write(ai, (char *)mc, indirect_len + 
+                               sizeof(struct mu_column), col);
+            if (err) {
+                hvfs_err(xnet, "write indirect column failed w/ %d\n",
+                         err);
+                goto out_free;
+            }
+        } else {
+            /* write nmc */
+            err = __hvfs_write(ai, (char *)&nmc, sizeof(nmc), col);
+            if (err) {
+                hvfs_err(xnet, "write indirect column failed w/ %d\n",
+                         err);
+                goto out_free;
+            }
+        }
+    }
+
+    /* Step 5: Update indirect column info to 'col', already in it */
+    hvfs_info(xnet, "indirect_len %d, col offset %ld len %ld\n", 
+              indirect_len, col->offset, col->len);
+
+out_free:
+    ai->column = target_column;
+    xfree(mc);
+
+out:
     return err;
 }
 
@@ -1686,12 +1813,32 @@ int hvfs_put(char *table, u64 key, char *value, int column)
 
     ai.sid = mds_get_itbid(e, key);
 
-    /* if it is not the 0th column, we write the value to MDSL */
-    if (column) {
-        err = __hvfs_write(&ai, value, &col);
+    if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
+        hvfs_err(xnet, "Column is %d, which exceeds the maximum column.\n", column);
+        err = -EINVAL;
+        goto out;
+    } else if (column > XTABLE_INDIRECT_COLUMN) {
+        /* we have to use the indirect column to save this column */
+        err = __hvfs_indirect_write(&ai, (char *)&key, value, &col);
         if (err) {
             hvfs_err(xnet, "write value to storage column %d failed w/ %d %s\n",
                      column, err, strerror(-err));
+            goto out;
+        }
+    } else if (column) {
+        /* if it is not the 0th column, we write the value to MDSL */
+        err = __hvfs_write(&ai, value, strlen(value), &col);
+        if (err) {
+            hvfs_err(xnet, "write value to storage column %d failed w/ %d %s\n",
+                     column, err, strerror(-err));
+            goto out;
+        }
+    } else {
+        /* check the value length */
+        if (strlen(value) > XTABLE_VALUE_SIZE) {
+            hvfs_err(xnet, "Value is %d bytes long, using other columns "
+                     "instead.\n", (int)strlen(value));
+            err = -EINVAL;
             goto out;
         }
     }
@@ -1765,6 +1912,96 @@ out:
     return err;
 }
 
+int hvfs_get_indirect(struct amc_index *iai, struct mu_column **mc)
+{
+    struct xnet_msg *msg;
+    struct amc_index ai;
+    struct kv *kv;
+    u64 dsite;
+    u32 vid;
+    int err = 0;
+
+    /* construct the ai structure and send to the table server */
+    memcpy(&ai, iai, sizeof(ai));
+    ai.op = INDEX_GET;
+    ai.column = -1;            /* this means to access the indirect column */
+    dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_AMC2MDS_REQ, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &ai, sizeof(ai));
+
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT) {
+        /* the ITB is under splitting, we need retry */
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_debug(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
+                   msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out_msg;
+    }
+    xnet_set_auto_free(msg->pair);
+
+    mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
+                         *(u64 *)msg->pair->xm_data,
+                         MDS_BITMAP_SET);
+    *mc = xzalloc(msg->pair->tx.len - sizeof(u64));
+    if (!*mc) {
+        hvfs_err(xnet, "xmalloc() value failed\n");
+        err = -ENOMEM;
+        goto out_msg;
+    }
+    kv = msg->pair->xm_data + sizeof(u64);
+    /* read in the data content */
+    {
+        struct column *c = (void *)kv + kv->len + KV_HEADER_LEN;
+
+        ai.column = 0;
+        hvfs_warning(xnet, "Read in itbid %ld offset %ld len %ld\n",
+                     c->stored_itbid, c->offset, c->len);
+        err = __hvfs_read(&ai, (char **)mc, c);
+        if (err) {
+            hvfs_err(xnet, "__hvfs_read() itbid %ld offset %ld len %ld "
+                     "failed w/ %d\n",
+                     c->stored_itbid, c->offset, c->len, err);
+            goto out_msg;
+        }
+        err = c->len;
+    }
+    
+out_msg:
+    xnet_free_msg(msg);
+    return err;
+out:
+    return err;
+}
+
 int hvfs_get(char *table, u64 key, char **value, int column)
 {
     struct xnet_msg *msg;
@@ -1798,6 +2035,16 @@ int hvfs_get(char *table, u64 key, char **value, int column)
 
     ai.sid = mds_get_itbid(e, key);
 
+    if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
+        hvfs_err(xnet, "Column is %d, which exceeds the maximum column.\n", column);
+        err = -EINVAL;
+        goto out;
+    } else if (column > XTABLE_INDIRECT_COLUMN) {
+        /* we should read in the indirect column and then read the real
+         * column */
+        ai.column = -1;
+    }
+    
     /* construct the ai structure and send to the table server */
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
@@ -1852,10 +2099,52 @@ resend:
         goto out_msg;
     }
     kv = msg->pair->xm_data + sizeof(u64);
-    /* if it is not the 0th column, we read the value from mdsl */
-    if (column) {
+    if (column > XTABLE_INDIRECT_COLUMN) {
+        /* we have read in the indirect column in kv */
+        struct column *c = (void *)kv + kv->len + KV_HEADER_LEN;
+        struct mu_column *mc;
+        int i, found = 0;
+
+        if (!c->len)
+            goto out_msg;
+        ai.column = 0;
+        err = __hvfs_read(&ai, (char **)&mc, c);
+        if (err) {
+            hvfs_err(xnet, "__hvfs_read() itbid %ld offset %ld len %ld "
+                     "failed w/ %d\n",
+                     c->stored_itbid, c->offset, c->len, err);
+            goto out_msg;
+        }
+        /* find in the mu_column array */
+        for (i = 0; i < (c->len / sizeof(*mc)); i++) {
+            if (column == (mc + i)->cno) {
+                found = 1;
+                break;
+            }
+        }
+        /* read the real column now */
+        if (found) {
+            ai.column = column;
+            err = __hvfs_read(&ai, value, &(mc + i)->c);
+            if (err) {
+                hvfs_err(xnet, "__hvfs_read() itbid %ld offset %ld"
+                         " len %ld failed w/ %d\n",
+                         (mc + i)->c.stored_itbid, 
+                         (mc + i)->c.offset, 
+                         (mc + i)->c.len, err);
+                goto out_msg;
+            }
+        } else {
+            hvfs_warning(xnet, "Column %d does not exist.\n",
+                         column);
+        }
+    } else if (column) {
+        /* if it is not the 0th column, we read the value from mdsl */
         struct column *c = (void *)kv + kv->len + KV_HEADER_LEN;
 
+        if (!c->len) {
+            goto out_msg;
+        }
         err = __hvfs_read(&ai, value, c);
         if (err) {
             hvfs_err(xnet, "__hvfs_read() itbid %ld offset %ld len %ld "
@@ -1869,6 +2158,7 @@ resend:
     
 out_msg:
     xnet_free_msg(msg);
+
     return err;
 out:
     return err;
@@ -1993,12 +2283,32 @@ int hvfs_update(char *table, u64 key, char *value, int column)
 
     ai.sid = mds_get_itbid(e, key);
 
-    /* if it is not the 0th column, we write the value to MDSL */
-    if (column) {
-        err = __hvfs_write(&ai, value, &col);
+    if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
+        hvfs_err(xnet, "Column is %d, which exceeds the maximum column.\n", column);
+        err = -EINVAL;
+        goto out;
+    } else if (column > XTABLE_INDIRECT_COLUMN) {
+        /* we have to use the indirect column to save this column */
+        err = __hvfs_indirect_write(&ai, (char *)&key, value, &col);
         if (err) {
             hvfs_err(xnet, "write value to storage column %d failed w/ %d %s\n",
                      column, err, strerror(-err));
+            goto out;
+        }
+    } else if (column) {
+        /* if it is not the 0th column, we write the value to MDSL */
+        err = __hvfs_write(&ai, value, strlen(value), &col);
+        if (err) {
+            hvfs_err(xnet, "write value to storage column %d failed w/ %d %s\n",
+                     column, err, strerror(-err));
+            goto out;
+        }
+    } else {
+        /* check the value length */
+        if (strlen(value) > XTABLE_VALUE_SIZE) {
+            hvfs_err(xnet, "Value is %d bytes long, using other columns "
+                     "instead.\n", (int)strlen(value));
+            err = -EINVAL;
             goto out;
         }
     }
@@ -2104,9 +2414,21 @@ int hvfs_sput(char *table, char *key, char *value, int column)
     
     ai.sid = mds_get_itbid(e, ai.key);
 
-    /* if it is not the 0th column, we write the value to MDSL */
-    if (column) {
-        err = __hvfs_write(&ai, value, &col);
+    if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
+        hvfs_err(xnet, "Column is %d, which exceeds the maximum column.\n", column);
+        err = -EINVAL;
+        goto out;
+    } else if (column > XTABLE_INDIRECT_COLUMN) {
+        /* we have to use the indirect column to save this column */
+        err = __hvfs_indirect_write(&ai, key, value, &col);
+        if (err) {
+            hvfs_err(xnet, "write value to storage column %d failed w/ %d %s\n",
+                     column, err, strerror(-err));
+            goto out;
+        }
+    } else if (column) {
+        /* if it is not the 0th column, we write the value to MDSL */
+        err = __hvfs_write(&ai, value, strlen(value), &col);
         if (err) {
             hvfs_err(xnet, "write value to storage column %d failed w/ %d %s\n",
                      column, err, strerror(-err));
@@ -2187,6 +2509,100 @@ out:
     return err;
 }
 
+int hvfs_sget_indirect(struct amc_index *iai, struct mu_column **mc)
+{
+    struct xnet_msg *msg;
+    struct amc_index ai;
+    struct kv *kv;
+    u64 dsite;
+    u32 vid;
+    int err = 0;
+
+    /* construct the ai structure and send to the table server */
+    memcpy(&ai, iai, sizeof(ai));
+    ai.op = INDEX_SGET;
+    /* this means to access the indirect column */
+    ai.column = -1;
+    dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_AMC2MDS_REQ, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &ai, sizeof(ai));
+    /* add the key content */
+    ai.dlen = ai.tid;
+    xnet_msg_add_sdata(msg, ai.data, ai.tid);
+
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT) {
+        /* the ITB is under splitting, we need retry */
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_debug(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
+                   msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out_msg;
+    }
+    xnet_set_auto_free(msg->pair);
+
+    mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
+                         *(u64 *)msg->pair->xm_data,
+                         MDS_BITMAP_SET);
+    *mc = xzalloc(msg->pair->tx.len - sizeof(u64));
+    if (!*mc) {
+        hvfs_err(xnet, "xmalloc() value failed\n");
+        err = -ENOMEM;
+        goto out_msg;
+    }
+    kv = msg->pair->xm_data + sizeof(u64);
+    /* read in the data content */
+    {
+        struct column *c = (void *)kv + kv->len + KV_HEADER_LEN;
+
+        ai.column = 0;
+        hvfs_warning(xnet, "Read in itbid %ld offset %ld len %ld\n",
+                     c->stored_itbid, c->offset, c->len);
+        err = __hvfs_read(&ai, (char **)mc, c);
+        if (err) {
+            hvfs_err(xnet, "__hvfs_read() itbid %ld offset %ld len %ld "
+                     "failed w/ %d\n",
+                     c->stored_itbid, c->offset, c->len, err);
+            goto out_msg;
+        }
+        err = c->len;
+    }
+    
+out_msg:
+    xnet_free_msg(msg);
+    return err;
+out:
+    return err;
+}
+
 int hvfs_sget(char *table, char *key, char **value, int column)
 {
     struct xnet_msg *msg;
@@ -2226,6 +2642,16 @@ int hvfs_sget(char *table, char *key, char **value, int column)
     }
 
     ai.sid = mds_get_itbid(e, ai.key);
+
+    if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
+        hvfs_err(xnet, "Column is %d, which exceeds the maximum column.\n", column);
+        err = -EINVAL;
+        goto out;
+    } else if (column > XTABLE_INDIRECT_COLUMN) {
+        /* we should read in the indirect column and then read the real
+         * column */
+        ai.column = -1;
+    }
 
     /* construct the ai structure and send to the table server */
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
@@ -2284,7 +2710,46 @@ resend:
         goto out_msg;
     }
     kv = msg->pair->xm_data + sizeof(u64);
-    if (column) {
+    if (column > XTABLE_INDIRECT_COLUMN) {
+        /* we have read in the indirect column in kv */
+        struct column *c = (void *)kv + kv->len + KV_HEADER_LEN;
+        struct mu_column *mc;
+        int i, found = 0;
+
+        if (!c->len)
+            goto out_msg;
+        ai.column = 0;
+        err = __hvfs_read(&ai, (char **)&mc, c);
+        if (err) {
+            hvfs_err(xnet, "__hvfs_read() itbid %ld offset %ld len %ld "
+                     "failed w/ %d\n",
+                     c->stored_itbid, c->offset, c->len, err);
+            goto out_msg;
+        }
+        /* find in the mu_column array */
+        for (i = 0; i < (c->len / sizeof(*mc)); i++) {
+            if (column == (mc + i)->cno) {
+                found = 1;
+                break;
+            }
+        }
+        /* read the real column now */
+        if (found) {
+            ai.column = column;
+            err = __hvfs_read(&ai, value, &(mc + i)->c);
+            if (err) {
+                hvfs_err(xnet, "__hvfs_read() itbid %ld offset %ld"
+                         " len %ld failed w/ %d\n",
+                         (mc + i)->c.stored_itbid,
+                         (mc + i)->c.offset,
+                         (mc + i)->c.len, err);
+                goto out_msg;
+            }
+        } else {
+            hvfs_warning(xnet, "Column %d does not exist.\n",
+                         column);
+        }
+    } else if (column) {
         struct column *c = (void *)kv + kv->len + KV_HEADER_LEN;
 
         if (strncmp(key, (const char *)kv->value, (size_t)kv->klen) == 0) {
@@ -2450,9 +2915,22 @@ int hvfs_supdate(char *table, char *key, char *value, int column)
 
     ai.sid = mds_get_itbid(e, ai.key);
 
-    /* if it is not the 0th column, we write the value to MDSL */
-    if (column) {
-        err = __hvfs_write(&ai, value, &col);
+    if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
+        hvfs_err(xnet, "Column is %d, which exceeds the maximum column.\n", column);
+        err = -EINVAL;
+        goto out;
+    } else if (column > XTABLE_INDIRECT_COLUMN) {
+        /* we have to use the indirect column to save this column */
+        err = __hvfs_indirect_write(&ai, key, value, &col);
+        if (err) {
+            hvfs_err(xnet, "write value to storage column %d "
+                     "failed w/ %d %s\n",
+                     column, err, strerror(-err));
+            goto out;
+        }
+    } else if (column) {
+        /* if it is not the 0th column, we write the value to MDSL */
+        err = __hvfs_write(&ai, value, strlen(value), &col);
         if (err) {
             hvfs_err(xnet, "write value to storage column %d failed w/ %d %s\n",
                      column, err, strerror(-err));
