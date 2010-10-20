@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-12 10:16:00 macan>
+ * Time-stamp: <2010-10-19 15:59:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -526,6 +526,10 @@ int mds_config(void)
         return -EINVAL;
     }
 
+    /* default to enable DATI */
+    if (!hmo.conf.dati)
+        hmo.conf.dati = 1;
+
     HVFS_MDS_GET_ENV_strncpy(dcaddr, value, MDS_DCONF_MAX_NAME_LEN);
 
     HVFS_MDS_GET_ENV_cpy(profiling_file, value);
@@ -585,9 +589,6 @@ int mds_config(void)
         hmo.conf.bitmap_cache_interval = 5;
     if (!hmo.conf.gto)
         hmo.conf.gto = 1;
-    /* default to enable DATI */
-    if (!hmo.conf.dati)
-        hmo.conf.dati = 1;
 
     return 0;
 }

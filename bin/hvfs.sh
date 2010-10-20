@@ -65,12 +65,36 @@ function do_ut_conf_check() {
 # Read the config file and start the servers 
 
 ROOT_CMD="create=1 mode=1 hvfs_root_hb_interval=10"
-MDSL_CMD="mode=1 hvfs_mdsl_prof_plot=1 hvfs_mdsl_opt_write_drop=0"
-if [ "x$MODE" == "xfs" ]; then
-    MDS_CMD="fsid=0 mode=1 hvfs_mds_opt_memlimit=0 hvfs_mds_memlimit=1072896010 hvfs_mds_txg_interval=5 hvfs_mds_opt_memonly=0 type=0 cache=0"
+#Construct the mdsl command line
+if [ -e $HVFS_HOME/conf/mdsl.conf ]; then
+    # Using the config file
+    ARGS=`cat $HVFS_HOME/conf/mdsl.conf | grep -v "^ *#" | grep -v "^$"`
+    MDSL_CMD=`echo $ARGS`
 else
-    MDS_CMD="fsid=1 mode=1 hvfs_mds_opt_memlimit=0 hvfs_mds_memlimit=1072896010 hvfs_mds_txg_interval=5 hvfs_mds_opt_memonly=0 type=0 cache=0"
+    MDSL_CMD="mode=1 hvfs_mdsl_prof_plot=1 hvfs_mdsl_opt_write_drop=0"
 fi
+
+# Construct the mds command line
+if [ -e $HVFS_HOME/conf/mds.conf ]; then
+    # Using the config file
+    if [ "x$MODE" == "xfs" ]; then
+        ARGS=`cat $HVFS_HOME/conf/mds.conf | grep -v "^ *#" | grep -v "^$" | grep -v "fsid="`
+        MDS_CMD="fsid=0 "`echo $ARGS`
+    elif [ "x$MODE" == "xkv" ]; then
+        ARGS=`cat $HVFS_HOME/conf/mds.conf | grep -v "^ *#" | grep -v "^$" | grep -v "fsid="`
+        MDS_CMD="fsid=1 "`echo $ARGS`
+    else
+        ARGS=`cat $HVFS_HOME/conf/mds.conf | grep -v "^ *#" | grep -v "^$"`
+        MDS_CMD=`echo $ARGS`
+    fi
+else
+    if [ "x$MODE" == "xfs" ]; then
+        MDS_CMD="fsid=0 mode=1 hvfs_mds_opt_memlimit=0 hvfs_mds_memlimit=1072896010 hvfs_mds_txg_interval=5 hvfs_mds_opt_memonly=0 type=0 cache=0"
+    else
+        MDS_CMD="fsid=1 mode=1 hvfs_mds_opt_memlimit=0 hvfs_mds_memlimit=1072896010 hvfs_mds_txg_interval=5 hvfs_mds_opt_memonly=0 type=0 cache=0"
+    fi
+fi
+
 CLIENT_CMD=""
 
 ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "r2:" | awk -F: '{print $2":"$4}'`
@@ -370,6 +394,21 @@ function stat_client() {
     done
 }
 
+function repeat_ut() {
+    RND=1
+    while true;
+    do
+        stat_client > rut.log
+        RES=`cat rut.log | grep running`
+        if [ "x$RES" == "x" ]; then
+            echo "Repeat unit test, round $RND start ..."
+            let RND+=1
+            do_ut
+        fi
+        sleep 5
+    done
+}
+
 function do_status() {
     echo "Checking servers' status ..."
     stat_mdsl
@@ -378,7 +417,6 @@ function do_status() {
 }
 
 function do_ut() {
-    echo "There are many unit test parameters, please see the config file in 'conf/ut.conf'."
     ARGS=`cat $HVFS_HOME/conf/ut.conf | grep -v "^ *#" | grep -v "^$"`
     NR=`cat $HVFS_HOME/conf/ut.conf | grep -v "^ *#" | grep -v "^$" | grep 'nr=' | sed -e 's/nr=//g'`
     TOTAL=`cat $HVFS_HOME/conf/hvfs.conf | grep "client:" | wc -l`
@@ -520,6 +558,7 @@ elif [ "x$1" == "xcheck" ]; then
     fi
 elif [ "x$1" == "xut" ]; then
     do_ut_conf_check
+    echo "There are many unit test parameters, please see the config file in 'conf/ut.conf'."
     do_ut
 elif [ "x$1" == "xkut" ]; then
     do_ut_conf_check
@@ -529,6 +568,8 @@ elif [ "x$1" == "xsut" ]; then
     stat_client
 elif [ "x$1" == "xstat" ]; then
     do_status
+elif [ "x$1" == "xrut" ]; then
+    repeat_ut
 elif [ "x$1" == "xclean" ]; then
     do_clean
 elif [ "x$1" == "xhelp" ]; then

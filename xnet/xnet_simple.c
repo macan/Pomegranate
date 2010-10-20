@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-14 17:26:14 macan>
+ * Time-stamp: <2010-10-20 17:58:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -242,7 +242,7 @@ int __xnet_handle_tx(int fd)
 #endif
     
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
+    if (unlikely(!msg)) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         /* FIXME: we should put this fd in the retry queue, we can retry the
          * receiving */
@@ -351,7 +351,7 @@ int __xnet_handle_tx(int fd)
 
     /* lookup the target xnet_context */
     xc = __find_xc(msg->tx.dsite_id);
-    if (!xc) {
+    if (unlikely(!xc)) {
         /* just return, nobody cares this msg */
         hvfs_err(xnet, "find xc %lx failed in fd %d\n", msg->tx.dsite_id, fd);
         /* note that we should tear down the connection! */
@@ -371,9 +371,10 @@ int __xnet_handle_tx(int fd)
             buf = xc->ops.buf_alloc(msg->tx.len, msg->tx.cmd);
         else {
             buf = xzalloc(msg->tx.len);
-            /* we should default to free all the resource from xnet. */
-            xnet_set_auto_free(msg);
         }
+        /* we should default to free all the resource from xnet. */
+        xnet_set_auto_free(msg);
+
         if (!buf) {
             hvfs_err(xnet, "xmalloc() buffer failed\n");
             ASSERT(0, xnet);
@@ -692,9 +693,8 @@ int st_del(struct site_table *st, u64 site_id)
  */
 int st_lookup(struct site_table *st, struct xnet_site **xs, u64 site_id)
 {
-    ASSERT(st, xnet);
     *xs = st->site[site_id];
-    if (!(*xs)) {
+    if (unlikely(!(*xs))) {
         hvfs_debug(xnet, "The site_id(%lx) is not mapped.\n", site_id);
         return -1;
     }
@@ -1548,7 +1548,7 @@ int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
     int lock_idx = 0;
     int __attribute__((unused))bw, bt;
 
-    if (msg->tx.ssite_id == msg->tx.dsite_id) {
+    if (unlikely(msg->tx.ssite_id == msg->tx.dsite_id)) {
         hvfs_err(xnet, "Warning: target site is the original site, BYPASS?\n");
     }
 
@@ -1566,14 +1566,14 @@ int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
     }
 
     err = st_lookup(&gst, &xs, msg->tx.dsite_id);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "Dest Site(%lx) unreachable.\n", msg->tx.dsite_id);
         return -EINVAL;
     }
 retry:
     err = 0;
     list_for_each_entry(xa, &xs->addr, list) {
-        if (!IS_CONNECTED(xa, xc)) {
+        if (unlikely(!IS_CONNECTED(xa, xc))) {
             /* not connected, dynamic connect */
             xlock_lock(&xa->clock);
             if (!csock) {

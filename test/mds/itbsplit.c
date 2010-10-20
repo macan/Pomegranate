@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-22 17:28:33 macan>
+ * Time-stamp: <2010-10-19 11:51:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -818,8 +818,10 @@ int main(int argc, char *argv[])
         goto out;
     }
     hmo.site_id = HVFS_MDS(0);
+    hmo.gossip_thread_stop = 1;
     hmi.gdt_salt = lib_random(0xfffffff);
     hmo.conf.itbid_check = 1;
+    CLR_TRACING_FLAG(mds, HVFS_WARN);
     hvfs_info(mds, "Select GDT salt to %ld\n", hmi.gdt_salt);
 
     if (csize) {

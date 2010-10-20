@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-06 09:11:18 macan>
+ * Time-stamp: <2010-10-20 17:15:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -64,7 +64,6 @@ struct hvfs_tx *mds_txc_alloc_tx(struct hvfs_txc *txc)
         ASSERT(l != &txc->lru, mds);
         list_del_init(l);
     }
-    xlock_unlock(&txc->lock);
 
     if (l) {
         /* remove from the TXC */
@@ -74,6 +73,8 @@ struct hvfs_tx *mds_txc_alloc_tx(struct hvfs_txc *txc)
             mds_txc_evict(txc, tx);
         }
     }
+    xlock_unlock(&txc->lock);
+
     return tx;
 }
 
@@ -142,8 +143,10 @@ void mds_pre_free_tx(int hint)
 {
     struct hvfs_tx *tx;
 
+#if 0
     if (lib_random(hint))       /* exec @ p = 1/HINT */
         return;
+#endif
     
     xlock_lock(&hmo.txc.lock);
     list_for_each_entry(tx, &hmo.txc.lru, lru) {
@@ -312,9 +315,11 @@ int mds_txc_evict(struct hvfs_txc *txc, struct hvfs_tx *tx)
     ASSERT(tx->state >= HVFS_TX_DONE, mds);
     if (tx->req) {
         xnet_free_msg(tx->req);
+        tx->req = NULL;
     }
     if (tx->rpy) {
         xnet_free_msg(tx->rpy);
+        tx->rpy = NULL;
     }
 
     return 0;
