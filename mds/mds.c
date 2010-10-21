@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-19 15:59:55 macan>
+ * Time-stamp: <2010-10-21 09:33:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -60,6 +60,10 @@ void mds_sigaction_default(int signo, siginfo_t *info, void *arg)
         mds_destroy();
         exit(0);
     }
+    if (signo == SIGUSR1) {
+        hvfs_info(lib, "Exit some threads ...\n");
+        pthread_exit(0);
+    }
     
     return;
 }
@@ -108,6 +112,11 @@ static int mds_init_signal(void)
         goto out;
     }
     err = sigaction(SIGQUIT, &ac, NULL);
+    if (err) {
+        err = errno;
+        goto out;
+    }
+    err = sigaction(SIGUSR1, &ac, NULL);
     if (err) {
         err = errno;
         goto out;
@@ -707,8 +716,18 @@ int mds_init(int bdepth)
 
     /* FIXME: waiting for the requests from client/mds/mdsl/r2 */
 
+    /* mask the SIGUSR1 signal for main thread */
+    {
+        sigset_t set;
+
+        sigemptyset(&set);
+        sigaddset(&set, SIGUSR1);
+        pthread_sigmask(SIG_BLOCK, &set, NULL);
+    }
+
     /* ok to run */
     hmo.state = HMO_STATE_RUNNING;
+    hmo.uptime = time(NULL);
 
 out_gossip:
 out_scrub:

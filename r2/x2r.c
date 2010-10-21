@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-15 23:04:53 macan>
+ * Time-stamp: <2010-10-21 17:47:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -615,9 +615,6 @@ int root_do_mkfs(struct xnet_msg *msg)
                  msg->tx.arg1, err);
         goto send_rpy;
     } else if (err > 0) {
-    create_it:
-        hvfs_err(root, "We just create fsid %ld\n", msg->tx.arg1);
-
         /* setup the bitmap region */
         err = root_bitmap_default(re);
         if (err) {
@@ -625,6 +622,9 @@ int root_do_mkfs(struct xnet_msg *msg)
                      "failed w/ %d\n", re->fsid, err);
             goto send_rpy;
         }
+
+    create_it:
+        hvfs_err(root, "We just create fsid %ld\n", msg->tx.arg1);
 
         /* we should create the root dir entry in the gdt w/ the selected
          * ring */

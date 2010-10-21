@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-30 11:17:52 macan>
+ * Time-stamp: <2010-10-21 16:48:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,19 +33,97 @@
  * info by this approach
  */
 
+static int __dconf_write(char *str, int fd)
+{
+    int len = strlen(str);
+    int bl = 0, bw, err = 0;
+
+    /* write the data length */
+    do {
+        bw = send(fd, (void *)&len + bl, sizeof(len) - bl, 0);
+        if (bw == -1) {
+            hvfs_err(mds, "send to fd %d failed w/ %s(%d)\n",
+                     fd, strerror(errno), errno);
+            err = -errno;
+            goto out;
+        }
+        bl += bw;
+    } while (bl < sizeof(len));
+
+    /* write the string now */
+    bl = 0;
+    do {
+        bw = send(fd, str + bl, len - bl, 0);
+        if (bw == -1) {
+            hvfs_err(mds, "send to fd %d failed w/ %s(%d)\n",
+                     fd, strerror(errno), errno);
+            err = -errno;
+            goto out;
+        }
+        bl += bw;
+    } while (bl < sizeof(len));
+
+out:
+    return err;
+}
+
 static void __dconf_cmd_action(struct dconf_req *dcr, int fd)
 {
+    char str[1024];
+
     hvfs_verbose(mds, "ACTION on CMD %ld %ld...\n", dcr->cmd, dcr->arg0);
     switch (dcr->cmd) {
     case DCONF_ECHO_CONF:
+    {
+        struct rusage ru;
+
+        if (getrusage(RUSAGE_SELF, &ru) < 0) {
+            hvfs_err(mds, "getrusage() failed w/ %s(%d)\n",
+                     strerror(errno), errno);
+        }
+        
         /* reply the configuration */
+        snprintf(str, 1023, "MDS Server %lx Uptime %lds State %s, "
+                 "register w/ R2 server %lx fsid %ld.\n"
+                 "Total OP [lookup %ld, modify %ld]\n"
+                 "Resource Usage: \n"
+                 "\tutime %fs stime %fs \n"
+                 "\tRSS %ldK Shared Text %ldK Unshared Data %ldK Unshared Stack %ldK\n"
+                 "\tPage Reclaims %ld Page Faults %ld\n"
+                 "\tSwaps %ld InBlock %ld OutBlock %ld\n"
+                 "\tMsgSnd %ld MsgRcv %ld\n"
+                 "\tSignals %ld Voluntary CS %ld Involuntary CS %ld\n",
+                 hmo.site_id,
+                 (u64)(time(NULL) - hmo.uptime),
+                 (hmo.state == HMO_STATE_INIT ? "INIT" :
+                  (hmo.state == HMO_STATE_LAUNCH ? "LAUNCH" :
+                   (hmo.state == HMO_STATE_RUNNING ? "RUNNING" :
+                    (hmo.state == HMO_STATE_PAUSE ? "PAUSE" :
+                     (hmo.state == HMO_STATE_RDONLY ? "RDONLY" :
+                      "unknown"))))),
+                 (hmo.ring_site == 0 ? HVFS_ROOT(0) : hmo.ring_site), 
+                 hmo.fsid,
+                 atomic64_read(&hmo.prof.cbht.lookup), 
+                 atomic64_read(&hmo.prof.cbht.modify),
+                 /* rusage */
+                 ru.ru_utime.tv_sec + (float)ru.ru_utime.tv_usec / 1000000,
+                 ru.ru_stime.tv_sec + (float)ru.ru_stime.tv_usec / 1000000,
+                 ru.ru_maxrss, ru.ru_ixrss, ru.ru_idrss, ru.ru_isrss,
+                 ru.ru_minflt, ru.ru_majflt,
+                 ru.ru_nswap, ru.ru_inblock, ru.ru_oublock,
+                 ru.ru_msgsnd, ru.ru_msgrcv,
+                 ru.ru_nsignals, ru.ru_nvcsw, ru.ru_nivcsw);
+        __dconf_write(str, fd);
         break;
+    }
     case DCONF_SET_TXG_INTV:
         if (dcr->arg0 >= 0) {
             hvfs_info(mds, "Changing TXG  Interval to %ld\n", dcr->arg0);
             hmo.conf.txg_interval = dcr->arg0;
         }
         mds_reset_itimer();
+        snprintf(str, 1023, "Changing TXG  Interval to %ld\n", dcr->arg0);
+        __dconf_write(str, fd);
         break;
     case DCONF_SET_PROF_INTV:
         if (dcr->arg0 >= 0) {
@@ -53,22 +131,41 @@ static void __dconf_cmd_action(struct dconf_req *dcr, int fd)
             hmo.conf.profiling_thread_interval = dcr->arg0;
         }
         mds_reset_itimer();
+        snprintf(str, 1023, "Changing Prof Interval to %ld\n", dcr->arg0);
+        __dconf_write(str, fd);
         break;
     case DCONF_SET_UNLINK_INTV:
         if (dcr->arg0 >= 0) {
             hvfs_info(mds, "Changing UNLK Interval to %ld\n", dcr->arg0);
             hmo.conf.unlink_interval = dcr->arg0;
         }
+        snprintf(str, 1023, "Changing UNLK Interval to %ld\n", dcr->arg0);
+        __dconf_write(str, fd);
         mds_reset_itimer();
         break;
     case DCONF_SET_MDS_FLAG:
+    {
+        u32 sflag = hvfs_mds_tracing_flags;
+        
         mds_reset_tracing_flags(dcr->arg0);
+        snprintf(str, 1023, "Change MDS tracing flag from %08x to %08x\n",
+                 sflag, hvfs_mds_tracing_flags);
+        __dconf_write(str, fd);
         break;
+    }
     case DCONF_SET_XNET_FLAG:
+    {
+        u32 sflag = hvfs_xnet_tracing_flags;
+        
         xnet_reset_tracing_flags(dcr->arg0);
+        snprintf(str, 1023, "Change XNET tracing flag from %08x to %08x\n",
+                 sflag, hvfs_xnet_tracing_flags);
+        __dconf_write(str, fd);
         break;
+    }
     default:
-        ;
+        snprintf(str, 1023, "Unknown commands %ld\n", dcr->cmd);
+        __dconf_write(str, fd);
     }
 }
 
@@ -112,8 +209,36 @@ static void *mds_dconf_thread_main(void *arg)
             hvfs_err(mds, "epoll wait failed %d\n", errno);
             continue;
         }
-        if (err) {
-            __dconf_read_and_reply(ev.data.fd);
+
+        if (ev.data.fd == hmo.conf.dcfd) {
+            int nfd;
+            
+            /* accept the new connection and add to the epoll pool */
+            nfd = accept(hmo.conf.dcfd, NULL, NULL);
+            if (nfd < 0) {
+                hvfs_err(mds, "accept() failed %s\n", strerror(errno));
+                continue;
+            }
+            ev.events = EPOLLIN | EPOLLPRI | EPOLLERR | EPOLLHUP | EPOLLET;
+            ev.data.fd = nfd;
+            err = epoll_ctl(hmo.conf.dcepfd, EPOLL_CTL_ADD, nfd, &ev);
+            if (err < 0) {
+                hvfs_err(mds, "epoll_ctl() add fd %d failed %d\n",
+                         nfd, errno);
+                continue;
+            }
+            hvfs_warning(mds, "Accept dconf connection %d\n", nfd);
+        } else if (err) {
+            if (ev.events & EPOLLERR || ev.events & EPOLLHUP) {
+                hvfs_err(mds, "Hoo, the connection %d is broken\n",
+                         ev.data.fd);
+                epoll_ctl(hmo.conf.dcepfd, EPOLL_CTL_DEL, ev.data.fd, &ev);
+                close(ev.data.fd);
+                continue;
+            }
+            if (ev.events & EPOLLIN) {
+                __dconf_read_and_reply(ev.data.fd);
+            }
         }
     }
     pthread_exit(0);
@@ -125,10 +250,10 @@ int dconf_init(void)
     struct sockaddr_un addr = {.sun_family = AF_UNIX,};
     struct epoll_event ev;
 
-    snprintf(hmo.conf.dcaddr, MDS_DCONF_MAX_NAME_LEN, "/tmp/.MDS.DCONF");
+    snprintf(hmo.conf.dcaddr, MDS_DCONF_MAX_NAME_LEN, "/tmp/.MDS.DCONF.%d", getpid());
     unlink(hmo.conf.dcaddr);
 
-    hmo.conf.dcfd = socket(AF_UNIX, SOCK_DGRAM, AF_UNIX);
+    hmo.conf.dcfd = socket(AF_UNIX, SOCK_STREAM, AF_UNIX);
     if (hmo.conf.dcfd == -1) {
         hvfs_err(mds, "create unix socket failed %d\n", errno);
         err = errno;
@@ -140,6 +265,12 @@ int dconf_init(void)
         err = errno;
         goto out;
     }
+    if (listen(hmo.conf.dcfd, 10) == -1) {
+        hvfs_err(mds, "listen on unix socked failed %d\n", errno);
+        err = errno;
+        goto out;
+    }
+    
     /* then, create the epoll fd */
     hmo.conf.dcepfd = epoll_create(10);
     if (hmo.conf.dcepfd == -1) {
@@ -184,8 +315,14 @@ out:
 
 void dconf_destroy(void)
 {
+    int err;
+    
     if (hmo.conf.dcfd) {
         close(hmo.conf.dcfd);
-        unlink(hmo.conf.dcaddr);
+        err = unlink(hmo.conf.dcaddr);
+        if (err < 0) {
+            hvfs_err(mds, "unlink %s failed %s\n", hmo.conf.dcaddr,
+                     strerror(errno));
+        }
     }
 }

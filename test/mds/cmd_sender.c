@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-28 09:13:12 macan>
+ * Time-stamp: <2010-10-20 23:44:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,18 +30,28 @@ int main(int argc, char *argv[])
 {
     struct sockaddr_un addr = {.sun_family = AF_UNIX,};
     char data[256] = {0,};
+    char *str;
     char *line = NULL;
     struct dconf_req *dcr = (struct dconf_req *)data;
     size_t len = 0;
+    pid_t pid;
     int bs, cmd, arg0, bl = 0;
     int fd, err;
 
-    fd = socket(AF_UNIX, SOCK_DGRAM, AF_UNIX);
+    fd = socket(AF_UNIX, SOCK_STREAM, AF_UNIX);
     if (fd == -1) {
         hvfs_err(cs, "create unix socket failed %d\n", errno);
         goto out;
     }
-    sprintf(addr.sun_path, "/tmp/.MDS.DCONF");
+    if (argc < 2) {
+        hvfs_err(cs, "Usage: %s pid\n", argv[0]);
+        err = -EINVAL;
+        goto out;
+    } else {
+        pid = atoi(argv[1]);
+    }
+    
+    sprintf(addr.sun_path, "/tmp/.MDS.DCONF.%d", pid);
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         hvfs_err(cs, "connect to unix socket %s failed '%s'\n", 
                  addr.sun_path, strerror(errno));
@@ -102,12 +112,47 @@ int main(int argc, char *argv[])
             bs = send(fd, data + bl, 256 - bl, 0);
             if (bs == -1) {
                 hvfs_err(cs, "send error %d\n", errno);
-                break;
+                goto out;
             }
             bl += bs;
         } while (bl < 256);
+        /* try to read in the reply, the format is: len(4B) + string */
+        bl = 0;
+        do {
+            bs = recv(fd, (void *)&len + bl, sizeof(int) - bl,
+                      MSG_WAITALL);
+            if (bs == -1) {
+                if (errno == EINTR || errno == EAGAIN) {
+                    continue;
+                }
+                hvfs_err(cs, "recv error %s(%d)\n", strerror(errno), errno);
+                goto out;
+            }
+            bl += bs;
+        } while (bl < sizeof(int));
+
+        str = xzalloc(len + 1);
+        if (!str) {
+            hvfs_err(cs, "xzalloc result buffer failed\n");
+            goto out;
+        }
+
+        bl = 0;
+        do {
+            bs = recv(fd, str + bl, len - bl, MSG_WAITALL);
+            if (bs == -1) {
+                if (errno == EINTR || errno == EAGAIN) {
+                    continue;
+                }
+                hvfs_err(cs, "recv errno %s(%d)\n", strerror(errno), errno);
+                goto out;
+            }
+            bl += bs;
+        } while (bl < len);
+        hvfs_plain(cs, "%s", str);
     }
 out:
+    close(fd);
     free(line);
     return 0;
 }

@@ -331,6 +331,7 @@ function do_clean() {
         $SSH $UN$ip "rm -rf /tmp/hvfs/6*"
         $SSH $UN$ip "rm -rf /tmp/hvfs/*_store"
         $SSH $UN$ip "rm -rf /tmp/hvfs/txg"
+        $SSH $UN$ip "rm -rf /tmp/.MDS.DCONF.*"
     done
 }
 
@@ -394,6 +395,43 @@ function stat_client() {
     done
 }
 
+function gather_rps() {
+    ARGS=`cat $HVFS_HOME/conf/ut.conf | grep -v "^ *#" | grep -v "^$"`
+    NR=`cat $HVFS_HOME/conf/ut.conf | grep -v "^ *#" | grep -v "^$" | grep 'nr=' | sed -e 's/nr=//g'`
+    TOTAL=`cat $HVFS_HOME/conf/hvfs.conf | grep "client:" | wc -l`
+    if [ "x$NR" == 'x-1' ]; then
+        NR=$TOTAL
+    elif [ "x$NR" == "x" ]; then
+        NR=0
+    fi
+    ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
+
+    # issue cmd to clients now
+    I=0
+    RPS_TOTAL=0
+    for x in $ipnr; do
+        if [ $I -ge $NR ]; then
+            break
+        fi
+        ip=`echo $x | awk -F: '{print $1}'`
+        id=`echo $x | awk -F: '{print $2}'`
+        port=`echo $x | awk -F: '{print $3}'`
+        RES=`$SSH $UN$ip "grep \"Aggr IOPS\" $LOG_DIR/client.$id.log"`
+
+        OP=`echo $RES | sed -e 's/.*op=\(.*\)].*/\1/g'`
+        RPS=`echo $RES | awk '{print $5}'`
+        if [ $OP -eq 100 ]; then
+            RPS_TOTAL=`echo "$RPS_TOTAL + $RPS * 3" | bc -l`
+        elif [ $OP -eq 200 ]; then
+            RPS_TOTAL=`echo "$RPS_TOTAL + $RPS * 5" | bc -l`
+        else
+            RPS_TOTAL=`echo "$RPS_TOTAL + $RPS" | bc -l`
+        fi
+        let I+=1
+    done
+    echo "Aggr RPS: $RPS_TOTAL OP/s"
+}
+
 function repeat_ut() {
     RND=1
     while true;
@@ -401,12 +439,17 @@ function repeat_ut() {
         stat_client > rut.log
         RES=`cat rut.log | grep running`
         if [ "x$RES" == "x" ]; then
+            # dump the Aggr RPS
+            if [ $RND -gt 1 ]; then
+                gather_rps
+            fi
             echo "Repeat unit test, round $RND start ..."
             let RND+=1
             do_ut
         fi
         sleep 5
     done
+    rm -rf rut.log
 }
 
 function do_status() {
@@ -441,7 +484,7 @@ function do_ut() {
         $SSH $UN$ip "$CLIENT_CMD $HVFS_HOME/test/xnet/client.ut $id $R2IP $port > $LOG_DIR/client.$id.log" &
         let I+=1
     done
-    echo "Start $NR UT client(s) done."
+    echo "Start $NR UT client(s) running."
 }
 
 function do_kut() {
@@ -560,6 +603,17 @@ elif [ "x$1" == "xut" ]; then
     do_ut_conf_check
     echo "There are many unit test parameters, please see the config file in 'conf/ut.conf'."
     do_ut
+    while true;
+    do
+        stat_client > ut.log
+        RES=`cat ut.log | grep running`
+        if [ "x$RES" == "x" ]; then
+            gather_rps
+            break;
+        fi
+        sleep 5
+    done
+    rm -rf ut.log
 elif [ "x$1" == "xkut" ]; then
     do_ut_conf_check
     do_kut

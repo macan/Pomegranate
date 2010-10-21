@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-18 11:51:10 macan>
+ * Time-stamp: <2010-10-20 22:16:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1892,6 +1892,8 @@ void itb_dump(struct itb *i)
  */
 void async_unlink(time_t t)
 {
+    if (!hmo.conf.async_unlink)
+        return;
     if (!hmo.conf.unlink_interval)
         return;
     if (t < hmo.unlink_ts + hmo.conf.unlink_interval) {
@@ -2071,6 +2073,9 @@ void *async_unlink_local(void *arg)
 int unlink_thread_init(void)
 {
     int err = 0;
+
+    if (!hmo.conf.async_unlink)
+        return 0;
     
     sem_init(&hmo.unlink_sem, 0, 0);
     hmo.unlink_thread_stop = 0;
@@ -2090,6 +2095,8 @@ out:
  */
 void unlink_thread_destroy()
 {
+    if (!hmo.conf.async_unlink)
+        return;
     hmo.unlink_thread_stop = 1;
     sem_post(&hmo.unlink_sem);
     if (hmo.unlink_thread)

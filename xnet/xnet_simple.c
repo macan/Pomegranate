@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-20 17:58:11 macan>
+ * Time-stamp: <2010-10-21 10:12:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1097,11 +1097,12 @@ int xnet_unregister_type(struct xnet_context *xc)
 {
     /* waiting for the disconnections */
     pollin_thread_stop = 1;
-    pthread_kill(pollin_thread, SIGINT);
+    pthread_kill(pollin_thread, SIGUSR1);
     pthread_join(pollin_thread, NULL);
     resend_thread_stop = 1;
-    pthread_kill(resend_thread, SIGINT);
-    pthread_join(resend_thread, NULL);
+    pthread_kill(resend_thread, SIGUSR1);
+    /* FIXME: if we do join, there is glibc memory corruption */
+    /* pthread_join(resend_thread, NULL); */
     
     sem_destroy(&xc->wait);
 

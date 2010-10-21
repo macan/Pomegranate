@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-28 16:41:04 macan>
+ * Time-stamp: <2010-10-20 19:41:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -155,6 +155,7 @@ struct hvfs_mds_object
     time_t unlink_ts;
     time_t mp_ts;               /* begin time of modify pause */
     time_t scrub_ts;            /* last scrub time */
+    time_t uptime;              /* startup time */
 
     sem_t timer_sem;            /* for timer thread wakeup */
     sem_t commit_sem;           /* for commit thread wakeup */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-18 20:40:26 macan>
+ * Time-stamp: <2010-10-21 18:25:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,6 +36,18 @@
  */
 #define HVFS_R2_DEFAULT_PORT    8710
 #define HVFS_AMC_DEFAULT_PORT   9001
+#define HVFS_CLT_DEFAULT_PORT   8412
+
+static inline char *__toupper(char *str)
+{
+    int i;
+    
+    for (i = 0; str[i]; i++) {
+        str[i] = toupper(str[i]);
+    }
+
+    return str;
+}
 
 int __hvfs_list(u64 duuid, int op, struct list_result *lr);
 
@@ -621,7 +633,7 @@ void amc_cb_exit(void *arg)
 {
     int err = 0;
 
-    err = r2cli_do_unreg(hmo.xc->site_id, HVFS_RING(0), 1, 0);
+    err = r2cli_do_unreg(hmo.xc->site_id, HVFS_RING(0), hmo.fsid, 0);
     if (err) {
         hvfs_err(xnet, "unreg self %lx w/ r2 %x failed w/ %d\n",
                  hmo.xc->site_id, HVFS_RING(0), err);
@@ -840,14 +852,18 @@ int __core_main(int argc, char *argv[])
     int err = 0;
     int self = -1, sport = -1;
     int thread = 1;
+    int fsid = 1;               /* default to fsid 1 for kv store */
     char *r2_ip = NULL;
+    char *type = NULL;
     short r2_port = HVFS_R2_DEFAULT_PORT;
-    char *shortflags = "d:p:t:h?r:";
+    char *shortflags = "d:p:t:h?r:y:f:";
     struct option longflags[] = {
         {"id", required_argument, 0, 'd'},
         {"port", required_argument, 0, 'p'},
         {"thread", required_argument, 0, 't'},
         {"root", required_argument, 0, 'r'},
+        {"type", required_argument, 0, 'y'},
+        {"fsid", required_argument, 0, 'f'},
         {"help", no_argument, 0, '?'},
     };
     char profiling_fname[256];
@@ -870,13 +886,20 @@ int __core_main(int argc, char *argv[])
         case 'r':
             r2_ip = strdup(optarg);
             break;
+        case 'y':
+            type = strdup(optarg);
+            break;
+        case 'f':
+            fsid = atoi(optarg);
+            break;
         case 'h':
         case '?':
             hvfs_info(xnet, "help menu:\n");
-            hvfs_info(xnet, "    -d,--id      self AMC id.\n");
-            hvfs_info(xnet, "    -p,--port    self AMC port.\n");
+            hvfs_info(xnet, "    -d,--id      self CLT/AMC id.\n");
+            hvfs_info(xnet, "    -p,--port    self CLT/AMC port.\n");
             hvfs_info(xnet, "    -t,--thread  thread number.\n");
             hvfs_info(xnet, "    -r,--root    root server.\n");
+            hvfs_info(xnet, "    -y,--type    client type: client/amc.\n");
             hvfs_info(xnet, "    -h,--help    print this menu.\n");
             return 0;
             break;
@@ -886,13 +909,26 @@ int __core_main(int argc, char *argv[])
     }
 
     /* ok, check the arguments */
+    if (!type)
+        type = "amc";
+    
+    if (strncmp("client", type, 6) == 0) {
+        type = "client";
+    } else if (strncmp("amc", type, 3) == 0) {
+        type = "amc";
+    } else
+        return EINVAL;
+    
     if (self == -1) {
         hvfs_err(xnet, "Please set the AMC id w/ '-d' option\n");
         return EINVAL;
     }
 
     if (sport == -1) {
-        sport = HVFS_AMC_DEFAULT_PORT;
+        if (strncmp("client", type, 6) == 0) {
+            sport = HVFS_CLT_DEFAULT_PORT;
+        } else 
+            sport = HVFS_AMC_DEFAULT_PORT;
     }
     
     if (!r2_ip) {
@@ -900,7 +936,7 @@ int __core_main(int argc, char *argv[])
         return EINVAL;
     }
 
-    hvfs_info(xnet, "AMC Self id %d port %d\n", self, sport);
+    hvfs_info(xnet, "%s Self id %d port %d\n", __toupper(type), self, sport);
 
     /* it is ok to init the MDS core function now */
     st_init();
@@ -915,7 +951,7 @@ int __core_main(int argc, char *argv[])
 
     /* setup the profiling file */
     memset(profiling_fname, 0, sizeof(profiling_fname));
-    sprintf(profiling_fname, "./CP-BACK-amc.%d", self);
+    sprintf(profiling_fname, "./CP-BACK-%s.%d", type, self);
     hmo.conf.pf_file = fopen(profiling_fname, "w+");
     if (!hmo.conf.pf_file) {
         hvfs_err(xnet, "fopen() profiling file %s failed %d\n",
@@ -925,7 +961,13 @@ int __core_main(int argc, char *argv[])
 
     /* setup the address of root server */
     xnet_update_ipaddr(HVFS_RING(0), 1, &r2_ip, &r2_port);
-    self = HVFS_AMC(self);
+    if (strcmp(type, "amc") == 0) {
+        self = HVFS_AMC(self);
+    } else if (strcmp(type, "client") == 0) {
+        self = HVFS_CLIENT(self);
+    } else {
+        return EINVAL;
+    }
 
     hmo.xc = xnet_register_type(0, sport, self, &ops);
     if (IS_ERR(hmo.xc)) {
@@ -934,10 +976,11 @@ int __core_main(int argc, char *argv[])
     }
 
     hmo.site_id = self;
-
+    hmo.fsid = fsid;
+    
     hmo.cb_exit = amc_cb_exit;
     hmo.cb_ring_update = amc_cb_ring_update;
-    err = r2cli_do_reg(self, HVFS_RING(0), 1, 0);
+    err = r2cli_do_reg(self, HVFS_RING(0), fsid, 0);
     if (err) {
         hvfs_err(xnet, "ref self %x w/ r2 %x failed w/ %d\n",
                  self, HVFS_RING(0), err);
