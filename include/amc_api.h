@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-15 15:34:40 macan>
+ * Time-stamp: <2010-10-24 22:38:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,5 +95,53 @@ int hvfs_get_cluster(char *type);
 char *hvfs_active_site(char *type);
 int hvfs_online(char *type, int id, char *ip);
 int hvfs_offline(char *type, int id);
+
+/* APIs for Client */
+struct hstat
+{
+    char *name;
+    u64 puuid;                  /* parent uuid */
+    union 
+    {
+        u64 psalt;              /* parent salt */
+        u64 ssalt;              /* self salt */
+    };
+    u64 uuid;                   /* self uuid */
+    u64 hash;                   /* self hash */
+    struct mdu mdu;             /* self mdu */
+    struct mu_column mc;
+};
+
+/* @data_back: It is a string return back to caller.
+ *
+ * The format of data_back is:
+ * F1: puuid # for dir it is the self uuid
+ * F2: psalt # for dir it is the self salt
+ * F3: uuid # self uuid
+ * F4: mdu.flags # mdu flags
+ * F5: mdu.uid # mdu user id
+ * F6: mdu.gid # mdu group id
+ * F7: mdu.mode # mdu mode
+ * F8: mdu.nlink # mdu nlink
+ * F9: mdu.size # mdu saved file length
+ * F10: mdu.dev # mdu saved dev
+ * F11: mdu.atime # mdu saved access time
+ * F12: mdu.ctime # mdu saved change time
+ * F13: mdu.mtime # mdu saved modify time
+ * F14: mdu.dtime # mdu saved delete time
+ * F15: mdu.version # mdu saved version
+ * F16: mdu.symname or llfs_ref # $REF_COLUMN$ or $fsid$rfino$ or symname
+ * F17: column_no
+ * F18: c->saved_itbid
+ * F19: c->len
+ * F20: c->offset
+ */
+int hvfs_stat(char *path, char *name, void **data_back);
+int hvfs_create(char *path, char *name, void **data_back, u32 is_dir);
+int hvfs_fupdate(char *path, char *name, void **data);
+int hvfs_fdel(char *path, char *name, void **data, u32 is_dir);
+int hvfs_readdir(char *path, char *name, void **data);
+int hvfs_fcommit(int id);
+void hvfs_free(void *p);
 
 #endif

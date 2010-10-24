@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-10-18 17:04:18 macan>
+# Time-stamp: <2010-10-21 18:53:03 macan>
 #
 # Armed with EMACS.
 
@@ -172,7 +172,8 @@ class pamc_shell(cmd.Cmd):
     clock_stop = 0.0
     keywords = ["EOF", "create", "drop", "put", "get", "del", "update",
                 "quit", "list", "ls", "set", "commit", "getcluster",
-                "getactivesite"]
+                "getactivesite", "online", "offline", "sput", 
+                "sget", "supdate"]
 
     def __init__(self):
         cmd.Cmd.__init__(self)

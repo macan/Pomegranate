@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-21 09:33:47 macan>
+ * Time-stamp: <2010-10-23 20:29:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,10 +49,11 @@ void mds_sigaction_default(int signo, siginfo_t *info, void *arg)
     }
 #endif
     if (signo == SIGSEGV || signo == SIGBUS) {
-        hvfs_info(lib, "Recv %sSIGSEGV%s %s\n",
+        hvfs_info(lib, "Recv %sSIGSEGV%s %s @ addr %p\n",
                   HVFS_COLOR_RED,
                   HVFS_COLOR_END,
-                  SIGCODES(info->si_code));
+                  SIGCODES(info->si_code),
+                  info->si_addr);
         lib_segv(signo, info, arg);
     }
     if (signo == SIGHUP) {
@@ -81,6 +82,7 @@ static int mds_init_signal(void)
         err = errno;
         goto out;
     }
+    ac.sa_flags = SA_SIGINFO;
 
 #ifndef UNIT_TEST
     err = sigaction(SIGTERM, &ac, NULL);
@@ -576,7 +578,8 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(gto, value);
     HVFS_MDS_GET_ENV_atoi(dati, value);
 
-    HVFS_MDS_GET_ENV_atol(memlimit, value);
+    HVFS_MDS_GET_kmg(memlimit, value);
+    hvfs_info(mds, "memlimit %ld\n", hmo.conf.memlimit);
 
     HVFS_MDS_GET_ENV_option(opt_chrechk, CHRECHK, value);
     HVFS_MDS_GET_ENV_option(opt_itb_rwlock, ITB_RWLOCK, value);

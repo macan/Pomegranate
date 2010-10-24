@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-20 22:16:59 macan>
+ * Time-stamp: <2010-10-24 23:30:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -772,18 +772,23 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
          * :(  The caller now must set the puuid and psalt themself. */
         if (unlikely(hi->flag & INDEX_CREATE_DIR)) {
             e->s.mdu.nlink = 2;
-            e->s.mdu.mode |= S_IFDIR;
+            e->s.mdu.mode = HVFS_DIR_UMASK | S_IFDIR;
 #if 0
             e->g.puuid = hi->puuid;
             e->g.psalt = hi->psalt;
 #endif
         } else {
             e->s.mdu.nlink = 1;
+            e->s.mdu.mode = HVFS_DEFAULT_UMASK | S_IFREG;
         }
 
-        if (!mu || !mu->valid)
-            return;
         gettimeofday(&tv, NULL);
+        if (!mu || !mu->valid) {
+            e->s.mdu.atime = tv.tv_sec;
+            e->s.mdu.ctime = tv.tv_sec;
+            e->s.mdu.mtime = tv.tv_sec;
+            return;
+        }
 
         if (mu->valid & MU_MODE)
             e->s.mdu.mode = mu->mode;
@@ -1825,6 +1830,56 @@ int itb_readdir(struct hvfs_index *hi, struct itb *i,
                 } else {
                     *(u32 *)p = i->ite[idx].namelen;
                     p += sizeof(u32);
+                    memcpy(p, i->ite[idx].s.name, i->ite[idx].namelen);
+                    p += i->ite[idx].namelen;
+                }
+            }
+        }
+    } else {
+        void *p;
+        int idx;
+        
+        /* Step 1: we calculate the buffer length */
+        hmr->len = atomic_read(&i->h.entries) * sizeof(struct dentry_info);
+        if (!hmr->len) {
+            /* no active entries in this ITB */
+            goto out;
+        }
+        for (idx = 0; idx < (1 << i->h.adepth); idx++) {
+            if (test_bit(idx, (void *)i->bitmap)) {
+                if (((i->ite[idx].flag & ITE_STATE_MASK) != 
+                     ITE_ACTIVE) || 
+                    (i->ite[idx].flag & ITE_FLAG_KV)) {
+                    continue;
+                } else {
+                    hmr->len += i->ite[idx].namelen;
+                }
+            }
+        }
+        /* Step 2: alloc the space now */
+        hmr->data = xzalloc(hmr->len);
+        if (!hmr->data) {
+            hvfs_err(mds, "xzalloc hmr->data len %d failed.\n",
+                     hmr->len);
+            hmr->len = 0;
+            err = -ENOMEM;
+            goto out;
+        }
+        /* Step 3: copy dentry_info and the names */
+        p = hmr->data;
+        for (idx = 0; idx < (1 << i->h.adepth); idx++) {
+            if (test_bit(idx, (void *)i->bitmap)) {
+                if (((i->ite[idx].flag & ITE_STATE_MASK) !=
+                     ITE_ACTIVE) ||
+                    (i->ite[idx].flag & ITE_FLAG_KV)) {
+                    continue;
+                } else {
+                    struct dentry_info *di = p;
+
+                    di->uuid = i->ite[idx].uuid;
+                    di->mode = i->ite[idx].s.mdu.mode;
+                    di->namelen = i->ite[idx].namelen;
+                    p += sizeof(*di);
                     memcpy(p, i->ite[idx].s.name, i->ite[idx].namelen);
                     p += i->ite[idx].namelen;
                 }

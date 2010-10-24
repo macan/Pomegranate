@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-27 10:58:57 macan>
+ * Time-stamp: <2010-10-24 23:31:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,6 +33,7 @@
 #define HVFS_GDT_BITMAP_COLUMN  0 /* default bitmap data column in GDT dir */
 
 #define HVFS_DEFAULT_UMASK      0644
+#define HVFS_DIR_UMASK          0755
 
 /* UUID bits
  *

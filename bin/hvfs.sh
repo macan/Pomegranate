@@ -626,6 +626,9 @@ elif [ "x$1" == "xrut" ]; then
     repeat_ut
 elif [ "x$1" == "xclean" ]; then
     do_clean
+elif [ "x$1" == "xrestart" ]; then
+    stop_all
+    start_all
 elif [ "x$1" == "xhelp" ]; then
     do_help
 else

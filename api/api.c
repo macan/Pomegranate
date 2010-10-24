@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-21 18:25:50 macan>
+ * Time-stamp: <2010-10-24 23:47:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,6 +30,12 @@
 #include "amc_api.h"
 #include <getopt.h>
 
+/* global variables */
+atomic64_t split_retry = {.counter = 0,};
+atomic64_t create_failed = {.counter = 0,};
+atomic64_t lookup_failed = {.counter = 0,};
+atomic64_t unlink_failed = {.counter = 0,};
+
 /* Note that the AMC client just wrapper the mds core functions to act as a
  * standalone program. The API exported by this file can be called by the
  * python program.
@@ -40,13 +46,12 @@
 
 static inline char *__toupper(char *str)
 {
-    int i;
+    if (strcmp(str, "client") == 0)
+        return "Client";
+    else if (strcmp(str, "amc") == 0)
+        return "AMC";
     
-    for (i = 0; str[i]; i++) {
-        str[i] = toupper(str[i]);
-    }
-
-    return str;
+    return "Unknown";
 }
 
 int __hvfs_list(u64 duuid, int op, struct list_result *lr);
@@ -986,8 +991,10 @@ int __core_main(int argc, char *argv[])
                  self, HVFS_RING(0), err);
         goto out;
     }
-    hvfs_info(xnet, "AMI gdt uuid %ld salt %lx\n",
-              hmi.gdt_uuid, hmi.gdt_salt);
+    hvfs_info(xnet, "AMI gdt uuid %ld salt %lx root uuid %ld "
+              "salt %lx for site %s %x\n",
+              hmi.gdt_uuid, hmi.gdt_salt, hmi.root_uuid,
+              hmi.root_salt, type, self);
 
     err = mds_verify();
     if (err) {
@@ -3463,4 +3470,1587 @@ out_msg:
 out:
     
     return err;
+}
+
+int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs, 
+                  u32 flag, struct mdu_update *imu)
+{
+    size_t dpayload = sizeof(struct hvfs_index);
+    struct xnet_msg *msg;
+    struct hvfs_index *hi;
+    struct hvfs_md_reply *hmr;
+    struct mdu_update *mu;
+    struct gdt_md gm;
+    u64 dsite;
+    u32 vid;
+    int err = 0;
+
+    if (hs->uuid == 0) {
+        dpayload += strlen(hs->name);
+    }
+    
+    if (flag & INDEX_SYMLINK) {
+        /* ignore the column argument */
+        if (!imu || !imu->namelen) {
+            hvfs_err(xnet, "Create symlink need the mdu_update "
+                     "argument and non-zero symlink name\n");
+            return -EINVAL;
+        }
+        dpayload += sizeof(struct mdu_update) +
+            imu->namelen;
+    } else if (flag & INDEX_CREATE_GDT) {
+        /* just copy the mdu from hstat, ignore mdu_update */
+        dpayload += HVFS_MDU_SIZE;
+        gm.mdu = hs->mdu;
+        gm.puuid = hs->puuid;
+        gm.psalt = hs->psalt;
+    } else if (flag & INDEX_CREATE_DIR) {
+        /* want to create the dir SDT entry */
+        if (imu) {
+            dpayload += sizeof(struct mdu_update);
+            if (imu->valid & MU_LLFS)
+                dpayload += sizeof(struct llfs_ref);
+            if (imu->valid & MU_COLUMN)
+                dpayload += imu->column_no * sizeof(struct mu_column);
+        }
+    } else if (flag & INDEX_CREATE_LINK) {
+        /* imu is actually a link_source struct */
+        if (!imu) {
+            hvfs_err(xnet, "do link w/o link_souce?\n");
+            return -EINVAL;
+        }
+        dpayload += sizeof(struct link_source);
+    } else {
+        /* normal file create */
+        if (imu) {
+            dpayload += sizeof(struct mdu_update);
+            if (imu->valid & MU_LLFS)
+                dpayload += sizeof(struct llfs_ref);
+            if (imu->valid & MU_COLUMN)
+                dpayload += imu->column_no * sizeof(struct mu_column);
+        }
+    }
+
+    hi = (struct hvfs_index *)xzalloc(dpayload);
+    if (!hi) {
+        hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
+        return -ENOMEM;
+    }
+
+    if (flag & INDEX_SYMLINK) {
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+                             HASH_SEL_EH);
+        hi->puuid = puuid;
+        hi->psalt = psalt;
+        hi->flag = INDEX_SYMLINK;
+        if (imu) {
+            mu = (struct mdu_update *)((void *)hi + sizeof(*hi) + 
+                                       sizeof(hs->name));
+            memcpy(mu, imu, sizeof(*mu));
+            memcpy((void *)mu + sizeof(*mu), (void *)imu + sizeof(*imu),
+                   mu->namelen);
+            hi->dlen = sizeof(*mu) + mu->namelen;
+        }
+    } else if (flag & INDEX_CREATE_GDT) {
+        hi->hash = hvfs_hash(hs->uuid, hmi.gdt_salt, 0, HASH_SEL_GDT);
+        hi->uuid = hs->uuid;
+        hi->puuid = hmi.gdt_uuid;
+        hi->psalt = hmi.gdt_salt;
+        hi->flag = INDEX_BY_UUID | INDEX_CREATE | INDEX_CREATE_COPY |
+            INDEX_CREATE_GDT;
+        memcpy((void *)hi + sizeof(*hi), &gm, HVFS_MDU_SIZE);
+        hi->dlen = HVFS_MDU_SIZE;
+    } else if (flag & INDEX_CREATE_DIR) {
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+                             HASH_SEL_EH);
+        hi->puuid = puuid;
+        hi->psalt = psalt;
+        hi->flag = INDEX_CREATE | INDEX_CREATE_DIR;
+        if (imu) {
+            off_t offset = sizeof(*mu);
+            
+            mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
+                                       sizeof(hs->name));
+            memcpy(mu, imu, sizeof(*mu));
+            if (imu->valid & MU_LLFS) {
+                memcpy((void *)mu + offset, (void *)imu + offset,
+                       sizeof(struct llfs_ref));
+                offset += sizeof(struct llfs_ref);
+            }
+            if (imu->valid & MU_COLUMN) {
+                memcpy((void *)mu + offset, (void *)imu + offset,
+                       imu->column_no * sizeof(struct mu_column));
+                offset += imu->column_no * sizeof(struct mu_column);
+            }
+            hi->dlen = offset;
+        }
+    } else if (flag & INDEX_CREATE_LINK) {
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+                             HASH_SEL_EH);
+        hi->puuid = puuid;
+        hi->psalt = psalt;
+        hi->flag = INDEX_CREATE | INDEX_CREATE_LINK;
+        if (imu) {
+            /* ugly code, you can't learn anything correct from the typo :( */
+            mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
+                                       sizeof(hs->name));
+            
+            memcpy(mu, imu, sizeof(struct link_source));
+            hi->dlen = sizeof(struct link_source);
+        }
+    } else {
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+                             HASH_SEL_EH);
+        hi->puuid = puuid;
+        hi->psalt = psalt;
+        hi->flag = INDEX_CREATE;
+        if (imu) {
+            off_t offset = sizeof(*mu);
+            
+            mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
+                                       sizeof(hs->name));
+            memcpy(mu, imu, sizeof(*mu));
+            if (imu->valid & MU_LLFS) {
+                memcpy((void *)mu + offset, (void *)imu + offset,
+                       sizeof(struct llfs_ref));
+                offset += sizeof(struct llfs_ref);
+            }
+            if (imu->valid & MU_COLUMN) {
+                memcpy((void *)mu + offset, (void *)imu + offset,
+                       imu->column_no + sizeof(struct mu_column));
+                offset += imu->column_no + sizeof(struct mu_column);
+            }
+            hi->dlen = offset;
+        }
+    }
+
+    if (hs->uuid == 0) {
+        hi->flag |= INDEX_BY_NAME;
+        memcpy(hi->name, hs->name, strlen(hs->name));
+        hi->namelen = strlen(hs->name);
+    }
+
+    err = SET_ITBID(hi);
+    if (err)
+        goto out_free;
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
+
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE |
+                     XNET_NEED_REPLY, hmo.xc->site_id, dsite);
+    if (hi->flag & INDEX_SYMLINK)
+        xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_SYMLINK, 0, 0);
+    else
+        xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_CREATE, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, hi, dpayload);
+
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out;
+    }
+    /* this means we have got the reply, parse it */
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        atomic64_inc(&split_retry);
+        sched_yield();
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "CREATE failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        atomic64_inc(&create_failed);
+        goto out;
+    }
+    if (msg->pair->xm_datacheck)
+        hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
+    else {
+        hvfs_err(xnet, "Invalid CREATE reply from site %lx.\n",
+                 msg->pair->tx.ssite_id);
+        err = -EFAULT;
+        goto out;
+    }
+    /* now, checking the hmr err */
+    if (hmr->err) {
+        /* hoo, something wrong on the MDS */
+        hvfs_err(xnet, "MDS site %lx reply w/ %d\n",
+                 msg->pair->tx.ssite_id, hmr->err);
+        xnet_set_auto_free(msg->pair);
+        err = hmr->err;
+        goto out;
+    } else if (hmr->len) {
+        struct hvfs_index *rhi;
+        struct gdt_md *m;
+        int no = 0;
+
+        hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+        rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+            err = -EFAULT;
+            goto out;
+        }
+        m = hmr_extract(hmr, EXTRACT_MDU, &no);
+        if (!m) {
+            hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
+            err = -EFAULT;
+            goto out;
+        }
+        if (hmr->flag & MD_REPLY_WITH_BFLIP) {
+            mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid,
+                                 MDS_BITMAP_SET);
+        }
+        /* setup the output values */
+        if (hs) {
+            memset(hs, 0, sizeof(*hs));
+            hs->puuid = rhi->puuid;
+            hs->psalt = rhi->psalt;
+            hs->uuid = rhi->uuid;
+            memcpy(&hs->mdu, m, sizeof(hs->mdu));
+        }
+    }
+    
+out:
+    xnet_free_msg(msg);
+    return err;
+out_free:
+    xfree(hi);
+    return err;
+}
+
+int __hvfs_update(u64 puuid, u64 psalt, struct hstat *hs,
+                  struct mdu_update *imu)
+{
+    struct xnet_msg *msg;
+    size_t dpayload;
+    struct hvfs_index *hi;
+    struct hvfs_md_reply *hmr;
+    u64 dsite;
+    u32 vid;
+    int err = 0;
+
+    dpayload = sizeof(struct hvfs_index);
+    if (!hs->uuid) {
+        dpayload += strlen(hs->name);
+    }
+    if (imu) {
+        dpayload += sizeof(struct mdu_update);
+        if (imu->valid & MU_LLFS)
+            dpayload += sizeof(struct llfs_ref);
+        if (imu->valid & MU_COLUMN)
+            dpayload += imu->column_no * sizeof(struct mu_column);
+    } else {
+        hvfs_err(xnet, "do update w/o mdu_update argument?\n");
+        return -EINVAL;
+    }
+    hi = xzalloc(dpayload);
+    if (!hi) {
+        hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
+        return -ENOMEM;
+    }
+    if (!hs->uuid) {
+        hi->flag = INDEX_BY_NAME;
+        hi->namelen = strlen(hs->name);
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, hi->namelen, HASH_SEL_EH);
+    } else {
+        hi->flag = INDEX_BY_UUID;
+        hi->uuid = hs->uuid;
+        if (!hs->hash)
+            hi->hash = hvfs_hash(hs->uuid, psalt, 0, HASH_SEL_GDT);
+        else
+            hi->hash = hs->hash;
+    }
+    hi->puuid = puuid;
+    hi->psalt = psalt;
+    /* calculate the itbid now */
+    err = SET_ITBID(hi);
+    if (err)
+        goto out_free;
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
+
+    if (imu) {
+        off_t offset = sizeof(*hi) + hi->namelen;
+
+        memcpy((void *)hi + offset, imu, sizeof(*imu));
+        offset += sizeof(*imu);
+        if (imu->valid & MU_LLFS) {
+            memcpy((void *)hi + offset, (void *)imu + offset,
+                   sizeof(struct llfs_ref));
+            offset += sizeof(struct llfs_ref);
+        }
+        if (imu->valid & MU_COLUMN) {
+            /* you know, the column is saved in hstat */
+            memcpy((void *)hi + offset, &hs->mc,
+                   imu->column_no * sizeof(struct mu_column));
+        }
+    }
+
+    hi->flag |= INDEX_MDU_UPDATE;
+    hi->dlen = dpayload - sizeof(*hi) - hi->namelen;
+
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+    
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY |
+                     XNET_NEED_DATA_FREE,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_UPDATE, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, hi, dpayload);
+
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* this means we have got he reply, parse it */
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT) {
+        xnet_free_msg(msg);
+        msg->pair = NULL;
+        sched_yield();
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
+        xnet_free_msg(msg);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "UPDATE failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out;
+    }
+    if (msg->pair->xm_datacheck)
+        hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
+    else {
+        hvfs_err(xnet, "Invalid UPDATE reply from site %lx\n",
+                 msg->pair->tx.ssite_id);
+        err = -EFAULT;
+        goto out;
+    }
+    /* now, checking the hmr err */
+    if (hmr->err) {
+        /* hoo, something wrong on the MDS */
+        hvfs_err(xnet, "MDS site %lx reply w/ %d\n",
+                 msg->pair->tx.ssite_id, hmr->err);
+        err = hmr->err;
+        goto out;
+    } else if (hmr->len) {
+        struct hvfs_index *rhi;
+        struct gdt_md *m;
+        int no = 0;
+
+        hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+        rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+            err = -EFAULT;
+            goto out;
+        }
+        m = hmr_extract(hmr, EXTRACT_MDU, &no);
+        if (!m) {
+            hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
+            err = -EFAULT;
+            goto out;
+        }
+        if (hmr->flag & MD_REPLY_WITH_BFLIP) {
+            mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid,
+                                 MDS_BITMAP_SET);
+        }
+        /* setup the output values */
+        if (hs) {
+            memset(hs, 0, sizeof(*hs));
+            hs->puuid = rhi->puuid;
+            hs->psalt = rhi->psalt;
+            hs->uuid = rhi->uuid;
+            hs->hash = rhi->hash;
+            memcpy(&hs->mdu, m, sizeof(hs->mdu));
+        }
+    }
+    
+out_msg:
+    xnet_free_msg(msg);
+out:
+    return err;
+out_free:
+    xfree(hi);
+    return err;
+}
+
+int __hvfs_unlink(u64 puuid, u64 psalt, struct hstat *hs)
+{
+    struct xnet_msg *msg;
+    size_t dpayload;
+    struct hvfs_index *hi;
+    struct hvfs_md_reply *hmr;
+    u64 dsite;
+    u32 vid;
+    int err = 0;
+
+    dpayload = sizeof(struct hvfs_index) + 
+        (hs->uuid == 0 ? strlen(hs->name) : 0);
+    hi = (struct hvfs_index *)xzalloc(dpayload);
+    if (!hi) {
+        hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
+        return -ENOMEM;
+    }
+    if (!hs->uuid) {
+        hi->flag = INDEX_BY_NAME;
+        hi->namelen = strlen(hs->name);
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, hi->namelen, HASH_SEL_EH);
+        memcpy(hi->name, hs->name, hi->namelen);
+    } else {
+        hi->flag = INDEX_BY_UUID;
+        hi->uuid = hs->uuid;
+        if (!hs->hash)
+            hi->hash = hvfs_hash(hs->uuid, psalt, 0, HASH_SEL_GDT);
+        else
+            hi->hash = hs->hash;
+    }
+    hi->puuid = puuid;
+    hi->psalt = psalt;
+    /* calculate the itbid now */
+    err = SET_ITBID(hi);
+    if (err)
+        goto out_free;
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
+
+    hi->flag |= INDEX_UNLINK | INDEX_ITE_ACTIVE;
+
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE |
+                     XNET_NEED_REPLY, hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_UNLINK, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, hi, dpayload);
+
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out;
+    }
+
+    /* this means we have got the reply, parse it! */
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT) {
+        xnet_free_msg(msg);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART) {
+        xnet_free_msg(msg);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "UNLINK failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        atomic64_inc(&unlink_failed);
+        goto out;
+    }
+    if (msg->pair->xm_datacheck)
+        hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
+    else {
+        hvfs_err(xnet, "Invalid UNLINK reply from site %lx.\n",
+                 msg->pair->tx.ssite_id);
+        err = -EFAULT;
+        goto out;
+    }
+    /* now, checking the hmr err */
+    if (hmr->err) {
+        /* hoo, sth wrong on the MDS */
+        hvfs_err(xnet, "MDS site %lx reply w/ %d\n",
+                 msg->pair->tx.ssite_id, hmr->err);
+        err = hmr->err;
+        goto out;
+    } else if (hmr->len) {
+        struct hvfs_index *rhi;
+        struct gdt_md *m;
+        int no = 0;
+
+        hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+        rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+        }
+        m = hmr_extract(hmr, EXTRACT_MDU, &no);
+        if (!m) {
+            hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
+            err = -EFAULT;
+            goto out;
+        }
+        if (hmr->flag & MD_REPLY_WITH_BFLIP) {
+            mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid,
+                                 MDS_BITMAP_SET);
+        }
+        /* setup the output values */
+        if (hs) {
+            memset(hs, 0, sizeof(*hs));
+            hs->puuid = rhi->puuid;
+            if (hmr->flag & MD_REPLY_DIR) {
+                hs->ssalt = m->salt;
+            } else
+                hs->psalt = rhi->psalt;
+            hs->uuid = rhi->uuid;
+            hs->hash = rhi->hash;
+            memcpy(&hs->mdu, m, sizeof(hs->mdu));
+        }
+    }
+
+out:
+    xnet_free_msg(msg);
+    return err;
+out_free:
+    xfree(hi);
+    return err;
+}
+
+int __hvfs_stat(u64 puuid, u64 psalt, int column, struct hstat *hs)
+{
+    struct xnet_msg *msg;
+    size_t dpayload;
+    struct hvfs_index *hi;
+    struct hvfs_md_reply *hmr;
+    u64 dsite;
+    u32 vid;
+    int err = 0;
+
+    dpayload = sizeof(struct hvfs_index) + 
+        (hs->uuid == 0 ? strlen(hs->name) : 0);
+    hi = (struct hvfs_index *)xzalloc(dpayload);
+    if (!hi) {
+        hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
+        return -ENOMEM;
+    }
+    if (!hs->uuid) {
+        hi->flag = INDEX_BY_NAME;
+        hi->namelen = strlen(hs->name);
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, hi->namelen, HASH_SEL_EH);
+        memcpy(hi->name, hs->name, hi->namelen);
+    } else {
+        hi->flag = INDEX_BY_UUID;
+        hi->uuid = hs->uuid;
+        if (!hs->hash)
+            hi->hash = hvfs_hash(hs->uuid, psalt, 0, HASH_SEL_GDT);
+        else
+            hi->hash = hs->hash;
+    }
+    hi->puuid = puuid;
+    hi->psalt = psalt;
+    /* calculate the itbid now */
+    err = SET_ITBID(hi);
+    if (err)
+        goto out_free;
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
+
+    if (column < 0)
+        hi->flag |= INDEX_LOOKUP | INDEX_ITE_ACTIVE;
+    else {
+        hi->column = column;
+        hi->flag |= INDEX_LOOKUP | INDEX_ITE_ACTIVE | INDEX_COLUMN;
+    }
+
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE |
+                     XNET_NEED_REPLY, hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_LOOKUP, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, hi, dpayload);
+
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() lookup to %lx failed w/ %d\n",
+                 msg->tx.dsite_id, err);
+        goto out;
+    }
+
+    /* this means we have got the reply, parse it */
+    ASSERT(msg->pair, xnet);
+    if (msg->pair->tx.err == -ESPLIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        sched_yield();
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        atomic64_inc(&lookup_failed);
+        goto out;
+    }
+    if (msg->pair->xm_datacheck)
+        hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
+    else {
+        hvfs_err(xnet, "Invalid LOOKUP reply from site %lx\n",
+                 msg->pair->tx.ssite_id);
+        err = -EFAULT;
+        goto out;
+    }
+    /* now, checking the hmr err */
+    if (hmr->err) {
+        /* hoo, something wrong on the MDS */
+        hvfs_err(xnet, "MDS site %lx reply w/ %d\n",
+                 msg->pair->tx.ssite_id, hmr->err);
+        xnet_set_auto_free(msg->pair);
+        err = hmr->err;
+        goto out;
+    } else if (hmr->len) {
+        struct hvfs_index *rhi;
+        struct column *c = NULL;
+        struct gdt_md *m;
+        int no = 0;
+
+        hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+        rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+            err = -EFAULT;
+            goto out;
+        }
+        m = hmr_extract(hmr, EXTRACT_MDU, &no);
+        if (!m) {
+            hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
+            err = -EFAULT;
+            goto out;
+        }
+        if (hmr->flag & MD_REPLY_WITH_BFLIP) {
+            mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid,
+                                 MDS_BITMAP_SET);
+        }
+        if (hmr->flag & MD_REPLY_WITH_DC) {
+            c = hmr_extract(hmr, EXTRACT_DC, &no);
+            if (!c) {
+                hvfs_err(xnet, "extract DC failed, not found.\n");
+            }
+        }
+        /* setup the output values */
+        if (hs) {
+            memset(hs, 0, sizeof(*hs));
+            hs->puuid = rhi->puuid;
+            if (hmr->flag & MD_REPLY_DIR) {
+                hs->ssalt = m->salt;
+            } else 
+                hs->psalt = rhi->psalt;
+            hs->uuid = rhi->uuid;
+            hs->hash = rhi->hash;
+            memcpy(&hs->mdu, m, sizeof(hs->mdu));
+            if (c) {
+                hs->mc.cno = column;
+                hs->mc.c = *c;
+            }
+        }
+    }
+
+out:
+    xnet_free_msg(msg);
+    return err;
+out_free:
+    xfree(hi);
+    return err;
+}
+
+int __hvfs_readdir(u64 duuid, u64 salt, char **buf)
+{
+    struct xnet_msg *msg;
+    struct hvfs_index hi;
+    u64 dsite, itbid = 0;
+    off_t offset = 0;
+    size_t len = 0;
+    u32 vid;
+    int err = 0;
+
+    /* Step 1: we should refresh the bitmap of the directory */
+    mds_bitmap_refresh_all(duuid);
+
+    /* Step 2: we send the INDEX_BY_ITB requests to each MDS in serial or
+     * parallel mode */
+    do {
+        err = mds_bitmap_find_next(duuid, &itbid);
+        if (err < 0) {
+            hvfs_err(xnet, "mds_bitmap_find_next() failed @ %ld w/ %d\n",
+                     itbid, err);
+            break;
+        } else if (err > 0) {
+            /* this means we can safely stop now */
+            break;
+        } else {
+            /* ok, we can issue the request to the dest site now */
+            hvfs_debug(xnet, "Issue request %ld to site ...\n",
+                       itbid);
+            /* Step 3: we print the results to the console */
+            memset(&hi, 0, sizeof(hi));
+            hi.puuid = duuid;
+            hi.psalt = salt;
+            hi.hash = -1UL;
+            hi.itbid = itbid;
+            hi.flag = INDEX_BY_ITB;
+
+            dsite = SELECT_SITE(itbid, hi.psalt, CH_RING_MDS, &vid);
+            msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+            if (!msg) {
+                hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+                err = -ENOMEM;
+                goto out;
+            }
+            xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                             hmo.xc->site_id, dsite);
+            xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_LIST, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+            xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+            xnet_msg_add_sdata(msg, &hi, sizeof(hi));
+
+            err = xnet_send(hmo.xc, msg);
+            if (err) {
+                hvfs_err(xnet, "xnet_send() failed\n");
+                xnet_free_msg(msg);
+                goto out;
+            }
+
+            ASSERT(msg->pair, xnet);
+            if (msg->pair->tx.err) {
+                /* Note that, if the itbid is less than 8, then we ignore the
+                 * ENOENT error */
+                if (itbid < 8 && msg->pair->tx.err == -ENOENT) {
+                    xnet_free_msg(msg);
+                    itbid++;
+                    continue;
+                }
+                hvfs_err(mds, "list dir %lx slice %ld failed w/ %d\n",
+                         duuid, itbid, msg->pair->tx.err);
+                err = msg->pair->tx.err;
+                xnet_free_msg(msg);
+                goto out;
+            }
+            if (msg->pair->xm_datacheck) {
+                /* ok, dump the entries */
+                char kbuf[260];
+                char *p = (char *)(msg->pair->xm_data +
+                                   sizeof(struct hvfs_md_reply)),
+                    *np = NULL;
+                struct dentry_info *tdi;
+                int idx = 0;
+
+                /* alloc the buffer */
+                if (msg->pair->tx.len - sizeof(struct hvfs_md_reply) == 0) {
+                    xnet_free_msg(msg);
+                    itbid++;
+                    continue;
+                }
+                
+                *buf = xrealloc(*buf, len + (msg->pair->tx.len - 
+                                             sizeof(struct hvfs_md_reply)) /
+                                sizeof(struct dentry_info) * 300);
+                if (!*buf) {
+                    hvfs_err(mds, "xzalloc() result buffer failed\n");
+                    err = -ENOMEM;
+                    xnet_free_msg(msg);
+                    goto out;
+                }
+                len += (msg->pair->tx.len - sizeof(struct hvfs_md_reply)) /
+                    sizeof(struct dentry_info) * 300;
+                np = *buf + offset;
+
+                while (idx < msg->pair->tx.len - 
+                       sizeof(struct hvfs_md_reply)) {
+                    tdi = (struct dentry_info *)p;
+                    p += sizeof(*tdi);
+                    if (tdi->namelen) {
+                        memcpy(kbuf, p, tdi->namelen);
+                        kbuf[tdi->namelen] = '\0';
+                    } else {
+                        kbuf[0] = '?';
+                        kbuf[1] = '\0';
+                    }
+                    p += tdi->namelen;
+                    idx += tdi->namelen + sizeof(*tdi);
+                    offset += sprintf(np, "%s %lx %o %s\n", kbuf,
+                                      tdi->uuid, tdi->mode,
+                                      S_ISDIR(tdi->mode) ? "d" : "-");
+                    np = *buf + offset;
+                }
+            } else {
+                hvfs_err(xnet, "Invalid LIST reply from site %lx.\n",
+                         msg->pair->tx.ssite_id);
+                err = -EFAULT;
+                xnet_free_msg(msg);
+                goto out;
+            }
+            xnet_free_msg(msg);
+        }
+        itbid += 1;
+    } while (1);
+
+    err = 0;
+out:
+    return err;
+}
+
+int __hvfs_pack_result(struct hstat *hs, void **data)
+{
+    char *p, *n;
+    
+    p = xzalloc(1024);
+    if (!p) {
+        hvfs_err(xnet, "xzalloc() result string failed\n");
+        return -ENOMEM;
+    }
+    n = p;
+    p += snprintf(p, 1023, "%lx %lx %lx %x "
+                  "%d %d %o %d %ld %ld %ld %ld %ld %ld "
+                  "%d ",
+                  hs->puuid, hs->psalt, hs->uuid, hs->mdu.flags,
+                  hs->mdu.uid, hs->mdu.gid, hs->mdu.mode,
+                  hs->mdu.nlink, hs->mdu.size, hs->mdu.dev,
+                  hs->mdu.atime, hs->mdu.ctime, hs->mdu.mtime,
+                  hs->mdu.dtime, hs->mdu.version);
+    if (hs->mdu.flags & HVFS_MDU_IF_SYMLINK) {
+        if (hs->mdu.size > 16) {
+            /* the refer name is saved in column 0, client can just read
+             * in the data content */
+            p += snprintf(p, 16, "$REF_COLUMN$ ");
+        } else {
+            strncpy(p, hs->mdu.symname, 16);
+            p += hs->mdu.size;
+            p[0] = ' ';
+            p++;
+        }
+    } else {
+        p += snprintf(p, 128, "$%ld$%ld$ ", hs->mdu.lr.fsid,
+                      hs->mdu.lr.rfino);
+    }
+    p += snprintf(p, 256, "%ld %ld %ld %ld\n",
+                  hs->mc.cno, hs->mc.c.stored_itbid,
+                  hs->mc.c.len, hs->mc.c.offset);
+
+    *data = n;
+
+    return 0;
+}
+
+int __hvfs_fill_root(struct hstat *hs)
+{
+    int err = 0;
+    
+    memset(hs, 0, sizeof(*hs));
+    hs->uuid = hmi.root_uuid;
+    err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, hs);
+    if (err) {
+        hvfs_err(xnet, "do internal ROOT stat (GDT) failed w/ %d\n",
+                 err);
+    }
+
+    return err;
+}
+
+/* @path: the dir path to the last directory
+ * @name: the file name
+ *
+ * Note, if name is NULL or "", it means that we want to stat the last
+ * directory in path.
+ */
+int hvfs_stat(char *path, char *name, void **data)
+{
+    struct hstat hs = {0,};
+    char *p = NULL, *n = path, *s = NULL;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0;
+
+    if (!path || !data)
+        return -EINVAL;
+
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hvfs_debug(xnet, "token: %s\n", p);
+        /* ok, we should do stat on this directory based on the puuid, psalt
+         * we got */
+        /* Step 1: find in the SDT, zero uuid means using name to lookup */
+        hs.name = p;
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err)
+        goto out;
+
+    /* lookup the file in the parent directory now */
+    if (name && strlen(name) > 0) {
+        /* eh, we have to lookup this file now. Otherwise, what we want to
+         * lookup is the last directory, just return a result string now */
+        hs.name = name;
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal file stat (SDT) on '%s' failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
+    } else {
+        /* check if it the root directory */
+        if (puuid == hmi.root_uuid) {
+            /* stat root w/o any file name, it is ROOT we want to state */
+            err = __hvfs_fill_root(&hs);
+            if (err) {
+                hvfs_err(xnet, "fill root entry failed w/ %d\n", err);
+                goto out;
+            }
+        }
+    }
+
+    hs.puuid = puuid;
+    hs.psalt = psalt;
+
+    err = __hvfs_pack_result(&hs, data);
+    if (err) {
+        hvfs_err(xnet, "pack result failed for '%s' w/ %d\n",
+                 name, err);
+        goto out;
+    }
+
+out:    
+    return err;
+}
+
+/* hvfs_create() create a file or directory named 'name' in the path 'path'
+ */
+int hvfs_create(char *path, char *name, void **data, u32 is_dir)
+{
+    struct hstat hs;
+    char *p = NULL, *n = path, *s = NULL;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0;
+
+    if (!path || !name || !data)
+        return -EINVAL;
+
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hs.name = p;
+        hs.uuid = 0;
+        /* Step 1: find in the SDT */
+        err = __hvfs_stat(puuid, psalt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err)
+        goto out;
+
+    /* create the file or dir in the parent directory now */
+    if (strlen(name) == 0) {
+        hvfs_err(xnet, "Create zero-length named file?\n");
+        err = -EINVAL;
+        goto out;
+    }
+    hs.name = name;
+    hs.uuid = 0;
+    err = __hvfs_create(puuid, psalt, &hs, 
+                        (is_dir ? INDEX_CREATE_DIR : 0), NULL);
+    if (err) {
+        hvfs_err(xnet, "do internal create (SDT) on '%s' failed w/ %d\n",
+                 name, err);
+        goto out;
+    }
+    if (is_dir) {
+        /* create the gdt entry now */
+        err = __hvfs_create(hmi.gdt_uuid, hmi.gdt_salt, &hs, 
+                            INDEX_CREATE_GDT, NULL);
+        if (err) {
+            hvfs_err(xnet, "do internal create (GDT) on '%s' faild w/ %d\n",
+                     name, err);
+            goto out;
+        }
+    }
+    hs.puuid = puuid;
+    hs.psalt = psalt;
+
+    err = __hvfs_pack_result(&hs, data);
+    if (err) {
+        hvfs_err(xnet, "pack result failed for '%s' w/ %d\n",
+                 name, err);
+        goto out;
+    }
+    
+out:
+    return err;
+}
+
+/* parse the 'key=value' token to a mdu_update struct 
+ */
+void __kv2mu(char *kv, struct mdu_update *mu)
+{
+    char *p, *n = kv, *s = NULL;
+    time_t t = time(NULL);
+
+#define NEXT_TOKEN ({                           \
+        p = strtok_r(n, "=, ", &s);             \
+        if (!p)                                 \
+            break;                              \
+        })
+
+    do {
+        p = strtok_r(n, "=, ", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        if (strncmp(p, "mode", 4) == 0) {
+            NEXT_TOKEN;
+            mu->valid |= MU_MODE;
+            mu->mode = atoi(p);
+        } else if (strncmp(p, "uid", 3) == 0) {
+            NEXT_TOKEN;
+            mu->valid |= MU_UID;
+            mu->uid = atoi(p);
+        } else if (strncmp(p, "gid", 3) == 0) {
+            NEXT_TOKEN;
+            mu->valid |= MU_GID;
+            mu->gid = atoi(p);
+        } else if (strncmp(p, "flag_add", 8) == 0) {
+            NEXT_TOKEN;
+            mu->valid |= MU_FLAG_ADD;
+            mu->flags = atoi(p);
+        } else if (strncmp(p, "flag_clr", 8) == 0) {
+            NEXT_TOKEN;
+            mu->valid |= MU_FLAG_CLR;
+            mu->flags = atoi(p);
+        } else if (strncmp(p, "atime", 5) == 0) {
+            NEXT_TOKEN;
+            mu->valid |= MU_ATIME;
+            mu->atime = atol(p);
+            if (!mu->atime || mu->atime > t)
+                mu->atime = t;
+        } else if (strncmp(p, "ctime", 5) == 0) {
+            NEXT_TOKEN;
+            mu->valid |= MU_CTIME;
+            mu->ctime = atol(p);
+            if (!mu->ctime || mu->ctime > t)
+                mu->ctime = t;
+        } else if (strncmp(p, "mtime", 5) == 0) {
+            NEXT_TOKEN;
+            mu->valid |= MU_MTIME;
+            mu->mtime = atol(p);
+            if (!mu->mtime || mu->mtime > t)
+                mu->mtime = t;
+        } else if (strncmp(p, "version", 7) == 0) {
+            NEXT_TOKEN;
+            mu->valid |= MU_VERSION;
+            mu->version = atoi(p);
+        } else if (strncmp(p, "size", 4) == 0) {
+            NEXT_TOKEN;
+            mu->valid |= MU_SIZE;
+            mu->size = atol(p);
+        } else if (strncmp(p, "nlink", 5) == 0) {
+            NEXT_TOKEN;
+            mu->valid |= MU_NLINK;
+            mu->nlink = atoi(p);
+        } else if (strncmp(p, "llfs:fsid", 9) == 0) {
+            struct llfs_ref *lr = (void *)mu + sizeof(*mu);
+            
+            NEXT_TOKEN;
+            mu->valid |= MU_LLFS;
+            lr->fsid = atol(p);
+        } else if (strncmp(p, "llfs:rfino", 10) == 0) {
+            struct llfs_ref *lr = (void *)mu + sizeof(*mu);
+            
+            NEXT_TOKEN;
+            mu->valid |= MU_LLFS;
+            lr->rfino = atol(p);
+        } else if (strncmp(p, "mu:cno", 6) == 0) {
+            struct mu_column *mc = (void *)mu + sizeof(*mu) + 
+                sizeof(struct llfs_ref);
+
+            NEXT_TOKEN;
+            mu->valid |= MU_COLUMN;
+            mu->column_no = 1;
+            mc->cno = atol(p);
+        } else if (strncmp(p, "mu:c:sitb", 9) == 0) {
+            struct mu_column *mc = (void *)mu + sizeof(*mu) + 
+                sizeof(struct llfs_ref);
+
+            NEXT_TOKEN;
+            mu->valid |= MU_COLUMN;
+            mu->column_no = 1;
+            mc->c.stored_itbid = atol(p);
+        } else if (strncmp(p, "mu:c:len", 8) == 0) {
+            struct mu_column *mc = (void *)mu + sizeof(*mu) + 
+                sizeof(struct llfs_ref);
+
+            NEXT_TOKEN;
+            mu->valid |= MU_COLUMN;
+            mu->column_no = 1;
+            mc->c.len = atol(p);
+        } else if (strncmp(p, "mu:c:offset", 11) == 0) {
+            struct mu_column *mc = (void *)mu + sizeof(*mu) + 
+                sizeof(struct llfs_ref);
+
+            NEXT_TOKEN;
+            mu->valid |= MU_COLUMN;
+            mu->column_no = 1;
+            mc->c.offset = atol(p);
+        }
+    } while (!(n = NULL));
+#undef NEXT_TOKEN
+}
+
+/* hvfs_update() update a file or directory named 'name'
+ */
+int hvfs_fupdate(char *path, char *name, void **data)
+{
+    struct hstat hs;
+    struct mdu_update *mu = NULL;
+    char *p = NULL, *n = path, *s = NULL;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0;
+
+    if (!path || !data)
+        return -EINVAL;
+
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hs.name = p;
+        hs.uuid = 0;
+        /* Step 1: find in the SDT */
+        err = __hvfs_stat(puuid, psalt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        /* got current directory's salt in hs.ssalt */
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err)
+        goto out;
+    
+    /* parse the mdu_update string now, note that we can't modify the string
+     * passed in */
+    p = (char *)(*data);
+    if (!p) {
+        hvfs_err(xnet, "you try to update what?\n");
+        err = -EINVAL;
+        goto out;
+    }
+    n = strdup(p);
+    if (!n) {
+        hvfs_err(xnet, "strdup argument failed, no memory\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    /* alloc the mdu_update now */
+    mu = xzalloc(sizeof(*mu) + sizeof(struct llfs_ref) +
+                 sizeof(struct mu_column));
+    if (!mu) {
+        hvfs_err(xnet, "alloc mdu_update failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    
+    do {
+        p = strtok_r(n, ",", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        __kv2mu(p, mu);
+    } while (!(n = NULL));
+    
+    if (!mu->valid) {
+        hvfs_warning(xnet, "Nothing to update, just return\n");
+        goto out_free;
+    }
+    if (mu->valid & MU_COLUMN) {
+        if (!(mu->valid & MU_LLFS)) {
+            /* move mdu_update to the position of llfs */
+            memcpy((void *)mu + sizeof(*mu),
+                   (void *)mu + sizeof(*mu) + sizeof(struct llfs_ref),
+                   sizeof(struct mu_column));
+        }
+    }
+    
+    /* finally, do update now */
+    if (!name) {
+        /* update the final directory by uuid */
+        hs.name = NULL;
+        hs.hash = 0;
+        err = __hvfs_update(hmi.gdt_uuid, hmi.gdt_salt, &hs, mu);
+        if (err) {
+            hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
+                     name, err);
+            goto out_free;
+        }
+    } else {
+        /* update the final file by name */
+        hs.name = name;
+        hs.uuid = 0;
+        err = __hvfs_update(puuid, psalt, &hs, mu);
+        if (err) {
+            hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
+                     name, err);
+            goto out_free;
+        }
+    }
+
+    hs.puuid = puuid;
+    hs.psalt = psalt;
+
+    err = __hvfs_pack_result(&hs, data);
+    if (err) {
+        hvfs_err(xnet, "pack result failed for '%s' w/ %d\n",
+                 name, err);
+        goto out;
+    }
+
+out_free:
+    xfree(mu);
+out:
+    return err;
+}
+
+/* hvfs_fdel() delete a file or directory named 'name'
+ */
+int hvfs_fdel(char *path, char *name, void **data, u32 is_dir)
+{
+    struct hstat hs;
+    char *p = NULL, *n = path, *s = NULL;
+    u64 saved_puuid = hmi.root_uuid, saved_psalt = hmi.root_salt;
+    u64 saved_hash = 0;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0;
+
+    if (!path || !data)
+        return -EINVAL;
+
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hs.name = p;
+        hs.uuid = 0;
+        /* Step 1: find in the SDT */
+        saved_psalt = psalt;
+        saved_puuid = puuid;
+        err = __hvfs_stat(puuid, psalt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        saved_hash = hs.hash;
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        /* got current directory's salt in hs.ssalt */
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err)
+        goto out;
+
+    /* finally, do delete now */
+    if (!name) {
+        /* what we want to delete is a directory, double check it */
+        if (!S_ISDIR(hs.mdu.mode) || !is_dir) {
+            hvfs_err(xnet, "It is a dir you want to delete, isn't it?\n");
+            err = -EINVAL;
+            goto out;
+        }
+        /* FIXME: check if it is a empty directory? Yup, but how? */
+        hs.name = NULL;
+        /* Step 1: delete the SDT entry by UUID */
+        hs.uuid = puuid;
+        hs.hash = saved_hash;
+        err = __hvfs_unlink(saved_puuid, saved_psalt, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal delete on '?%lx' failed w/ %d\n",
+                     puuid, err);
+            goto out;
+        }
+        /* Step 2: delete the GDT entry */
+        hs.uuid = puuid;
+        hs.hash = 0;
+        err = __hvfs_unlink(hmi.gdt_uuid, hmi.gdt_salt, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal delete on '?%lx' failed w/ %d\n",
+                     puuid, err);
+            goto out;
+        }
+    } else {
+        /* delete a normal file or dir, it is easy */
+        hs.name = name;
+        hs.uuid = 0;
+        err = __hvfs_unlink(puuid, psalt, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal delete on '%s' failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
+        if (is_dir) {
+            /* ok, delete the GDT entry */
+            hs.hash = 0;
+            err = __hvfs_unlink(hmi.gdt_uuid, hmi.gdt_salt, &hs);
+            if (err) {
+                hvfs_err(xnet, "do internal delete on '%s' failed w/ %d\n",
+                         name, err);
+                goto out;
+            }
+        }
+    }
+
+    hs.puuid = puuid;
+    hs.psalt = psalt;
+
+    err = __hvfs_pack_result(&hs, data);
+    if (err) {
+        hvfs_err(xnet, "pack result failed for '%s' w/ %d\n",
+                 name, err);
+        goto out;
+    }
+
+out:
+    return err;
+}
+
+/* @path: the dir path to the last directory
+ * @name, the file name (if exists, should be a directory either)
+ */
+int hvfs_readdir(char *path, char *name, void **data)
+{
+    struct hstat hs = {0,};
+    char *p = NULL, *n = path, *s = NULL;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0;
+
+    if (!path || !data)
+        return -EINVAL;
+
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        /* Step 1: find in the SDT */
+        hs.name = p;
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err)
+        goto out;
+
+    if (name && strlen(name) > 0) {
+        /* stat the last dir */
+        hs.name = name;
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do last dir stat (SDT) on '%s' failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do last dir stat (GDT) on '%s' failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
+        psalt = hs.ssalt;
+    }
+
+    err = __hvfs_readdir(puuid, psalt, (char **)data);
+    if (err) {
+        hvfs_err(xnet, "do internal readdir on '%s' failed w/ %d\n",
+                 (name ? name : p), err);
+        goto out;
+    }
+
+out:
+    return err;
+}
+
+int hvfs_fcommit(int id)
+{
+    struct xnet_msg *msg;
+    struct hvfs_index hi;
+    u64 site_id;
+    int err = 0;
+
+    memset(&hi, 0, sizeof(hi));
+
+    /* check the arguments */
+    if (id < 0) {
+        hvfs_err(xnet, "Invalid MDS id %d\n", id);
+        err = -EINVAL;
+        goto out;
+    }
+    site_id = HVFS_MDS(id);
+    
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, site_id);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_COMMIT, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &hi, sizeof(hi));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    xnet_set_auto_free(msg->pair);
+
+out_msg:
+    xnet_free_msg(msg);
+out:
+    return err;
+}
+
+void hvfs_free(void *p)
+{
+    xfree(p);
 }

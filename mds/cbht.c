@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-13 10:21:50 macan>
+ * Time-stamp: <2010-10-24 16:53:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -896,6 +896,8 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     if (unlikely(hi->flag & INDEX_BY_ITB)) {
         /* readdir, read-only */
         err = itb_readdir(hi, i, hmr);
+        /* piggyback the ITB depth in h8 of flag */
+        hmr->flag |= ((u32)i->h.depth << 24);
         goto out;
     }
     err = itb_search(hi, i, mdu_rpy, txg, &oi, otxg);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-13 08:49:00 macan>
+ * Time-stamp: <2010-10-24 18:34:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -130,6 +130,7 @@ struct hvfs_md_reply
     /* Layout of data region
      *
      * |---HI---|---MDU---/---LS---|---BITMAP---|---DC---|
+     * |---dentry array---|
      */
     /*
      * Layout of the data region: low->high, selected by flags
@@ -140,6 +141,15 @@ struct hvfs_md_reply
      * struct itbitmap + 128KB;
      * struct column
      */
+};
+
+struct dentry_info
+{
+    u64 uuid;                   /* dentry uuid */
+    u16 mode;
+    u16 namelen;
+    u32 __padding;
+    char name[0];               /* the dentry name */
 };
 
 /*

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-09 14:54:42 macan>
+ * Time-stamp: <2010-10-23 20:28:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@
 #include <dlfcn.h>
 
 #define BT_SIZE 50
+#define BT_FLEN 512
 
 struct backtrace_info
 {
@@ -40,6 +41,9 @@ static struct backtrace_info bi;
 void lib_segv(int signum, siginfo_t *info, void *ptr)
 {
     char **bts;
+    char cmd[BT_FLEN] = "addr2line -e ";
+    char str[BT_FLEN];
+    FILE *fp;
     int i;
 
     memset(&bi, 0, sizeof(bi));
@@ -47,8 +51,17 @@ void lib_segv(int signum, siginfo_t *info, void *ptr)
     if (bi.size > 0) {
         bts = backtrace_symbols(bi.bt, bi.size);
         if (bts) {
-            for (i = 0; i < bi.size; i++) {
-                hvfs_info(lib, "%s\n", bts[i]);
+            for (i = 1; i < bi.size; i++) {
+                sprintf(str, "%s %p", cmd, bi.bt[i]);
+                fp = popen(str, "r");
+                if (!fp) {
+                    hvfs_info(lib, "%s\n", bts[i]);
+                    continue;
+                } else {
+                    fscanf(fp, "%s", str);
+                    hvfs_info(lib, "%s %s\n", bts[i], str);
+                }
+                pclose(fp);
             }
             free(bts);
         }
