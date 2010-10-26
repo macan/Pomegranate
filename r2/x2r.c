@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-21 17:47:57 macan>
+ * Time-stamp: <2010-10-25 15:12:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -683,17 +683,19 @@ out:
  */
 int root_do_hb(struct xnet_msg *msg)
 {
+    union hvfs_x_info *hxi;
     struct site_entry *se;
-    int err = 0;
+    int err = 0, contain_hxi = 0;
 
     /* sanity checking */
-    if (msg->tx.len != 0) {
-        hvfs_err(root, "Invalid HB message %d received from %lx\n",
-                 msg->tx.reqno, msg->tx.ssite_id);
+    if (msg->tx.len >= sizeof(*hxi)) {
+        contain_hxi = 1;
     }
 
     /* ABI:
      * tx.arg0: site_id
+     * tx.arg1: fsid
+     * xm_data: hxi
      */
     if (msg->tx.arg0 != msg->tx.ssite_id) {
         hvfs_warning(root, "Warning: site_id mismatch %lx vs %lx\n",
@@ -709,7 +711,57 @@ int root_do_hb(struct xnet_msg *msg)
     }
     /* clear the lost_hb */
     se->hb_lost = 0;
-    se->state = SE_STATE_NORMAL;
+    /* check whether we can change the state */
+    xlock_lock(&se->lock);
+    if (se->state != SE_STATE_SHUTDOWN &&
+        se->state != SE_STATE_INIT) {
+        se->state = SE_STATE_NORMAL;
+    }
+    xlock_unlock(&se->lock);
+
+    /* update the hxi info */
+    if (contain_hxi) {
+        if (msg->xm_datacheck) {
+            hxi = msg->xm_data;
+        } else {
+            hvfs_err(root, "Internal error, data lossing ...\n");
+            err = -EFAULT;
+            goto out;
+        }
+        /* update the hxi to the site entry */
+        xlock_lock(&se->lock);
+        if (se->fsid != msg->tx.arg1 ||
+            se->gid != msg->tx.reserved) {
+            hvfs_err(root, "fsid mismatch %ld vs %ld or gid mismatch "
+                     "%d vs %ld on site %lx\n",
+                     se->fsid, msg->tx.arg1, se->gid, msg->tx.reserved,
+                     msg->tx.arg0);
+            err = -EINVAL;
+            goto out_unlock;
+        }
+        switch (se->state) {
+        case SE_STATE_INIT:
+        case SE_STATE_TRANSIENT:
+        case SE_STATE_ERROR:
+            hvfs_err(root, "site entry %lx in state %x, check whether "
+                     "we can update it.\n", msg->tx.arg0,
+                     se->state);
+            se->hb_lost = 0;
+            /* fall-through */
+        case SE_STATE_NORMAL:
+            memcpy(&se->hxi, hxi, sizeof(*hxi));
+            break;
+        case SE_STATE_SHUTDOWN:
+            hvfs_err(root, "the site %lx is already shutdown.\n",
+                     se->site_id);
+            break;
+        default:
+            hvfs_err(root, "site entry %lx in wrong state %x\n",
+                     se->site_id, se->state);
+        }
+    out_unlock:
+        xlock_unlock(&se->lock);
+    }
 
 out:
     xnet_free_msg(msg);

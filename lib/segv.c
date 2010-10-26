@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-23 20:28:48 macan>
+ * Time-stamp: <2010-10-25 19:28:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,9 +42,13 @@ void lib_segv(int signum, siginfo_t *info, void *ptr)
 {
     char **bts;
     char cmd[BT_FLEN] = "addr2line -e ";
+    char *prog = cmd + strlen(cmd);
     char str[BT_FLEN];
     FILE *fp;
     int i;
+
+    int r = readlink("/proc/self/exe", prog, sizeof(cmd) -
+                     (prog - cmd) - 1);
 
     memset(&bi, 0, sizeof(bi));
     bi.size = backtrace(bi.bt, BT_SIZE);
@@ -52,16 +56,20 @@ void lib_segv(int signum, siginfo_t *info, void *ptr)
         bts = backtrace_symbols(bi.bt, bi.size);
         if (bts) {
             for (i = 1; i < bi.size; i++) {
-                sprintf(str, "%s %p", cmd, bi.bt[i]);
-                fp = popen(str, "r");
-                if (!fp) {
-                    hvfs_info(lib, "%s\n", bts[i]);
-                    continue;
+                if (!r) {
+                    sprintf(str, "%s %p", cmd, bi.bt[i]);
+                    fp = popen(str, "r");
+                    if (!fp) {
+                        hvfs_info(lib, "%s\n", bts[i]);
+                        continue;
+                    } else {
+                        fscanf(fp, "%s", str);
+                        hvfs_info(lib, "%s %s\n", bts[i], str);
+                    }
+                    pclose(fp);
                 } else {
-                    fscanf(fp, "%s", str);
-                    hvfs_info(lib, "%s %s\n", bts[i], str);
+                    hvfs_info(lib, "%s\n", bts[i]);
                 }
-                pclose(fp);
             }
             free(bts);
         }

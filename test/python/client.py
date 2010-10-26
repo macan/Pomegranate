@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-10-24 23:59:30 macan>
+# Time-stamp: <2010-10-26 14:38:00 macan>
 #
 # Armed with EMACS.
 
@@ -24,6 +24,10 @@ try:
 except OSError, oe:
     print "Can not load shared library: %s" % oe
     sys.exit()
+
+def errcheck(res, func, args):
+    if not res: raise IOError
+    return res
 
 use_readline = True
 try:
@@ -127,7 +131,7 @@ class pamc_shell(cmd.Cmd):
     clock_stop = 0.0
     keywords = ["EOF", "touch", "delete", "stat", "mkdir",
                 "rmdir", "cpin", "cpout", "online", "offline",
-                "quit", "ls", "commit", "getcluster",
+                "quit", "ls", "commit", "getcluster", "cat", 
                 "getactivesite"]
 
     def __init__(self):
@@ -365,9 +369,40 @@ class pamc_shell(cmd.Cmd):
         l[0] = os.path.normpath(l[0])
         l[1] = os.path.normpath(l[1])
 
+        path, file = os.path.split(l[1])
+        if path == "" or path[0] != '/':
+            print "Relative path name is not supported yet."
+            return
+
         # read in the local file 
-        # write to hvfs
-        # commit metadata (create or update)
+        try:
+            f = open(l[0], 'r')
+            content = f.read()
+            dlen = f.tell()
+        except IOError, ioe:
+            print "IOError %s" % ioe
+            return
+
+        # write to hvfs and commit metadata (create or update)
+        try:
+            c_path = c_char_p(path)
+            c_file = c_char_p(file)
+            c_column = c_int(0)
+            c_content = c_char_p(content)
+            c_len = c_long(dlen)
+            self.start_clock()
+            err = api.hvfs_fwrite(c_path, c_file, c_column, c_content, c_len)
+            self.stop_clock()
+            if err != 0:
+                print "api.hvfs_fwrite() failed w/ %d" % err
+                return
+            else:
+                print "+OK"
+            self.echo_clock("Time elasped:")
+        except IOError, ioe:
+            print "IOError %s" % ioe
+        except ValueError, ve:
+            print "ValueError %s" % ve
 
     def do_cpout(self, line):
         '''Copy a Pomegranate file to local file system.
@@ -380,9 +415,92 @@ class pamc_shell(cmd.Cmd):
         l[0] = os.path.normpath(l[0])
         l[1] = os.path.normpath(l[1])
 
-        # read the metadata to find file offset
-        # read in the file content
+        path, file = os.path.split(l[0])
+        if path == "" or path[0] != '/':
+            print "Relative path name is not supported yet."
+            return
+
+        # read the metadata to find file offset and read in the file content
+        try:
+            c_path = c_char_p(path)
+            c_file = c_char_p(file)
+            c_column = c_int(0)
+            c_content = c_void_p(None)
+            c_len = c_long(0)
+            self.start_clock()
+            err = api.hvfs_fread(c_path, c_file, c_column, byref(c_content), byref(c_len))
+            self.stop_clock()
+            if err != 0:
+                print "api.hvfs_fread() failed w/ %d" % err
+                return
+            self.echo_clock("Time elasped:")
+        except IOError, ioe:
+            print "IOError %s" % ioe
+            return
+
         # write to the local file
+        try:
+            if l[1] == "$STDOUT$":
+                c_str = c_char_p(c_content.value)
+                print c_str.value
+            else:
+                libc.fopen.restype = c_void_p
+                libc.fopen.errcheck = errcheck
+
+                f = open(l[1], "wb")
+                f.truncate(0)
+                f.close
+
+                f = libc.fopen(l[1], 'wb')
+                sizeof_item = c_int(1)
+                nr = libc.fwrite(c_content, sizeof_item, c_len, f)
+                err = libc.fclose(f)
+                if nr != c_len.value:
+                    print "Incomplete write ..."
+                if err != 0:
+                    pass
+        except IOError, ioe:
+            print "IOError %s" % ioe
+
+        api.hvfs_free(c_content)
+
+    def do_cat(self, line):
+        '''Cat a Pomegranate file's content.
+        Usage: cat /path/to/hvfs'''
+        l = shlex.split(line)
+        if len(l) < 1:
+            print "Invalid argument. See help cat."
+            return
+
+        l[0] = os.path.normpath(l[0])
+
+        path, file = os.path.split(l[0])
+        if path == "" or path[0] != '/':
+            print "Relative path name is not supported yet."
+            return
+
+        # read the metadata to find file offset and read in the file content
+        try:
+            c_path = c_char_p(path)
+            c_file = c_char_p(file)
+            c_column = c_int(0)
+            c_content = c_char_p(None)
+            c_len = c_long(0)
+            self.start_clock()
+            err = api.hvfs_fread(c_path, c_file, c_column, byref(c_content), byref(c_len))
+            self.stop_clock()
+            if err != 0:
+                print "api.hvfs_fread() failed w/ %d" % err
+                return
+
+            # dump to stdout now
+            print c_content.value
+            api.hvfs_free(c_content)
+
+            self.echo_clock("Time elasped:")
+        except IOError, ioe:
+            print "IOError %s" % ioe
+            return
 
     def do_commit(self, line):
         '''Trigger a memory snapshot on the remote MDS.

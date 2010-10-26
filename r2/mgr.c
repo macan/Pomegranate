@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-29 15:03:38 macan>
+ * Time-stamp: <2010-10-25 15:31:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2049,16 +2049,24 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
         if (hci->gdt_salt != root->gdt_salt ||
             hci->root_salt != root->root_salt) {
             hvfs_err(root, "Internal error, salt mismatch in hci and root\n");
-            hvfs_err(root, "hci gdt  salt %lx root salt %lx\n",
+            hvfs_err(root, "hci gdt  salt %lx root gdt salt %lx\n",
                      hci->gdt_salt, root->gdt_salt);
             hvfs_err(root, "hci root salt %lx root salt %lx\n",
                      hci->root_salt, root->root_salt);
-            if (hci->root_salt == -1UL) {
+            if (hci->root_salt == -1UL ||
+                !hci->gdt_salt) {
                 hci->gdt_salt = root->gdt_salt;
                 hci->root_salt = root->root_salt;
             } else {
+                /* Now policy, we ignore any client site info saved on R2
+                 * server, it is useless! */
+#if 1
+                hci->gdt_salt = root->gdt_salt;
+                hci->root_salt = root->root_salt;
+#else
                 err = -EFAULT;
                 goto out;
+#endif
             }
         }
     } else if (HVFS_IS_MDS(site_id)) {
@@ -2068,10 +2076,16 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
         if (hmi->gdt_salt != root->gdt_salt ||
             hmi->root_salt != root->root_salt) {
             hvfs_err(root, "Internal error, salt mismatch in hmi and root\n");
-            hvfs_err(root, "hmi salt %lx root salt %lx\n",
+            hvfs_err(root, "hmi gdt salt %lx root gdt salt %lx\n",
                      hmi->gdt_salt, root->gdt_salt);
-            if (hmi->root_salt == -1UL) {
+            hvfs_err(root, "hmi root salt %lx root salt %lx\n",
+                     hmi->root_salt, root->root_salt);
+            if (hmi->root_salt == -1UL ||
+                !hmi->gdt_salt) {
                 hmi->gdt_salt = root->gdt_salt;
+                hmi->root_salt = root->root_salt;
+            } else if (hmi->gdt_salt == root->gdt_salt) {
+                /* it means root changing, it is ok */
                 hmi->root_salt = root->root_salt;
             } else {
                 err = -EFAULT;
@@ -2085,8 +2099,12 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
         if (hmli->gdt_salt != root->gdt_salt ||
             hmli->root_salt != root->root_salt) {
             hvfs_err(root, "Internal error, salt mismatch in hmli and root\n");
-            if (hmli->root_salt == -1UL) {
+            if (hmli->root_salt == -1UL ||
+                !hmli->gdt_salt) {
                 hmli->gdt_salt = root->gdt_salt;
+                hmli->root_salt = root->root_salt;
+            } else if (hmli->gdt_salt == root->gdt_salt) {
+                /* it means root changing, it is ok */
                 hmli->root_salt = root->root_salt;
             } else {
                 err = -EFAULT;
@@ -2100,12 +2118,19 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
         if (ami->gdt_salt != root->gdt_salt||
             ami->root_salt != root->root_salt) {
             hvfs_err(root, "Internal error, salt mismatc in ami and root\n");
-            if (ami->root_salt == -1UL) {
+            if (ami->root_salt == -1UL ||
+                !ami->gdt_salt) {
                 ami->gdt_salt = root->gdt_salt;
                 ami->root_salt = root->root_salt;
             } else {
+                /* the same reason as CLIENT */
+#if 1
+                ami->gdt_salt = root->gdt_salt;
+                ami->root_salt = root->root_salt;
+#else
                 err = -EFAULT;
                 goto out;
+#endif
             }
         }
     }

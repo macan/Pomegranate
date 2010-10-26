@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-11 15:15:58 macan>
+ * Time-stamp: <2010-10-25 08:08:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -895,8 +895,11 @@ out_nofree:
 int r2cli_do_hb(u64 request_site, u64 root_site, u64 fsid, u32 gid)
 {
     struct xnet_msg *msg;
+    union hvfs_x_info *hxi;
     int err = 0;
 
+    hxi = (union hvfs_x_info *)&hmi;
+    
     /* alloc one msg and send it to the peer site */
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!msg) {
@@ -911,6 +914,9 @@ int r2cli_do_hb(u64 request_site, u64 root_site, u64 fsid, u32 gid)
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
+    xnet_msg_add_sdata(msg, hxi, sizeof(*hxi));
+
+    msg->tx.reserved = gid;
 
     err = xnet_send(hmo.xc, msg);
     if (err) {

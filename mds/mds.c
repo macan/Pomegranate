@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-23 20:29:31 macan>
+ * Time-stamp: <2010-10-25 15:09:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -675,7 +675,7 @@ int mds_init(int bdepth)
         goto out_dh;
     
     /* FIXME: init the TX subsystem, init the commit threads' pool */
-    err = mds_init_tx(0);
+    err = mds_init_tx(atomic64_read(&hmi.mi_txg));
     if (err)
         goto out_tx;
 

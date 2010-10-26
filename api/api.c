@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-24 23:47:00 macan>
+ * Time-stamp: <2010-10-26 11:33:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1559,7 +1559,7 @@ int __hvfs_read(struct amc_index *ai, char **value, struct column *c)
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!msg) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
-        err= -ENOMEM;
+        err = -ENOMEM;
         goto out_free;
     }
 
@@ -1567,7 +1567,7 @@ int __hvfs_read(struct amc_index *ai, char **value, struct column *c)
     si->sic.arg0 = c->stored_itbid;
     si->scd.cnr = 1;
     si->scd.cr[0].cno = ai->column;
-    si->scd.cr[0].stored_itbid = ai->sid;
+    si->scd.cr[0].stored_itbid = c->stored_itbid;
     si->scd.cr[0].file_offset = c->offset;
     si->scd.cr[0].req_offset = 0;
     si->scd.cr[0].req_len = c->len;
@@ -3771,6 +3771,7 @@ int __hvfs_update(u64 puuid, u64 psalt, struct hstat *hs,
         hi->flag = INDEX_BY_NAME;
         hi->namelen = strlen(hs->name);
         hi->hash = hvfs_hash(puuid, (u64)hs->name, hi->namelen, HASH_SEL_EH);
+        memcpy(hi->name, hs->name, hi->namelen);
     } else {
         hi->flag = INDEX_BY_UUID;
         hi->uuid = hs->uuid;
@@ -4318,9 +4319,10 @@ int __hvfs_readdir(u64 duuid, u64 salt, char **buf)
                     }
                     p += tdi->namelen;
                     idx += tdi->namelen + sizeof(*tdi);
-                    offset += sprintf(np, "%s %lx %o %s\n", kbuf,
-                                      tdi->uuid, tdi->mode,
-                                      S_ISDIR(tdi->mode) ? "d" : "-");
+                    offset += sprintf(np, "%s %06o %20lx %s\n",
+                                      S_ISDIR(tdi->mode) ? "d" : "-",
+                                      tdi->mode, tdi->uuid, 
+                                      kbuf);
                     np = *buf + offset;
                 }
             } else {
@@ -4373,7 +4375,7 @@ int __hvfs_pack_result(struct hstat *hs, void **data)
         p += snprintf(p, 128, "$%ld$%ld$ ", hs->mdu.lr.fsid,
                       hs->mdu.lr.rfino);
     }
-    p += snprintf(p, 256, "%ld %ld %ld %ld\n",
+    p += snprintf(p, 256, "[%ld %ld %ld %ld]\n",
                   hs->mc.cno, hs->mc.c.stored_itbid,
                   hs->mc.c.len, hs->mc.c.offset);
 
@@ -5053,4 +5055,374 @@ out:
 void hvfs_free(void *p)
 {
     xfree(p);
+}
+
+int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c)
+{
+    struct storage_index *si;
+    struct xnet_msg *msg;
+    u64 dsite;
+    u32 vid = 0;
+    int err = 0;
+
+    hvfs_debug(xnet, "Read column itbid %ld len %ld offset %ld\n",
+               c->stored_itbid, c->len, c->offset);
+
+    si = xzalloc(sizeof(*si) + sizeof(struct column_req));
+    if (!si) {
+        hvfs_err(xnet, "xzalloc() storage index failed\n");
+        return -ENOMEM;
+    }
+
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+
+    /* fill the parent (dir) uuid to sic.uuid */
+    si->sic.uuid = hs->puuid;
+    si->sic.arg0 = c->stored_itbid;
+    si->scd.cnr = 1;
+    si->scd.cr[0].cno = column;
+    si->scd.cr[0].stored_itbid = c->stored_itbid;
+    si->scd.cr[0].file_offset = c->offset;
+    si->scd.cr[0].req_offset = 0;
+    si->scd.cr[0].req_len = c->len;
+
+    /* select the MDSL site by itbid */
+    dsite = SELECT_SITE(c->stored_itbid, hs->psalt, CH_RING_MDSL, &vid);
+
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDSL_READ, 0, 0);
+    msg->tx.reserved = vid;
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, si, sizeof(*si) +
+                       sizeof(struct column_req));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply, parse the data now */
+    ASSERT(msg->pair->tx.len == c->len, xnet);
+    if (msg->pair->xm_datacheck) {
+        *data = xmalloc(c->len);
+        if (!*data) {
+            hvfs_err(xnet, "xmalloc value region failed.\n");
+            err = -ENOMEM;
+            goto out_msg;
+        }
+        memcpy(*data, msg->pair->xm_data, c->len);
+    } else {
+        hvfs_err(xnet, "recv data read reply ERROR %d\n",
+                 msg->pair->tx.err);
+        xnet_set_auto_free(msg->pair);
+        goto out_msg;
+    }
+
+out_msg:
+    xnet_free_msg(msg);
+out_free:
+    xfree(si);
+
+    return err;
+}
+
+/* Ugly! hs->hash saves the user provided stored_itbid!
+ */
+int __hvfs_fwrite(struct hstat *hs, int column, void *data, size_t len, struct column *c)
+{
+    struct storage_index *si;
+    struct xnet_msg *msg;
+    u64 dsite;
+    u64 location;
+    u32 vid = 0;
+    int err = 0;
+
+    hvfs_debug(xnet, "To write column %d target len %ld itbid %ld\n",
+               column, len, hs->hash);
+
+    si = xzalloc(sizeof(*si) + sizeof(struct column_req));
+    if (!si) {
+        hvfs_err(xnet, "xzalloc() stroage index failed\n");
+        return -ENOMEM;
+    }
+
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+
+    si->sic.uuid = hs->puuid;
+    /* hs->hash saved the itbid */
+    si->sic.arg0 = hs->hash;
+    si->scd.cnr = 1;
+    si->scd.cr[0].cno = column;
+    si->scd.cr[0].stored_itbid = hs->hash;
+    si->scd.cr[0].req_len = len;
+
+    /* select the MDSL site by itbid */
+    dsite = SELECT_SITE(hs->hash, hs->psalt, CH_RING_MDSL, &vid);
+
+    /* construct the request messagexo */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDSL_WRITE, 0, 0);
+    msg->tx.reserved = vid;
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, si, sizeof(*si) +
+                       sizeof(struct column_req));
+    xnet_msg_add_sdata(msg, data, len);
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply, parse the offset now */
+    if (msg->pair->xm_datacheck) {
+        location = *((u64 *)msg->pair->xm_data);
+    } else {
+        hvfs_err(xnet, "recv data write reply ERROR!\n");
+        goto out_free;
+    }
+
+    if (location == 0) {
+        hvfs_warning(xnet, "puuid %lx uuid %lx to %lx C %d L @ %ld len %ld\n",
+                     hs->puuid, hs->uuid, dsite, column, location, len);
+    }
+
+    c->stored_itbid = hs->hash;
+    c->len = len;
+    c->offset = location;
+
+out_msg:
+    xnet_free_msg(msg);
+
+out_free:
+    xfree(si);
+
+    return err;
+}
+
+int hvfs_fread(char *path, char *name, int column, void **data, u64 *len)
+{
+    struct hstat hs;
+    char *p = NULL, *n = path, *s = NULL;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0;
+
+    if (!path || !name || !data || !strlen(name))
+        return -EINVAL;
+
+    /* FIXME: column check */
+    if (column >= 6) {
+        hvfs_err(xnet, "Pomegranate FS lib does not support indirect"
+                 " column at this moment.\n");
+        return -ENOSYS;
+    }
+
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hs.name = p;
+        hs.uuid = 0;
+        /* Step 1: find in the SDT */
+        err = __hvfs_stat(puuid, psalt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err)
+        goto out;
+
+    /* stat the file now to get the file info */
+    hs.name = name;
+    hs.uuid = 0;
+    err = __hvfs_stat(puuid, psalt, column, &hs);
+    if (err) {
+        hvfs_err(xnet, "do file stat (SDT) on '%s' failed w/ %d\n",
+                 name, err);
+        goto out;
+    }
+    
+    /* calculate which itbid we should stored it in */
+    {
+        struct dhe *e;
+
+        e = mds_dh_search(&hmo.dh, puuid);
+        if (IS_ERR(e)) {
+            hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
+            err = PTR_ERR(e);
+            goto out;
+        }
+        hs.hash = mds_get_itbid(e, hs.hash);
+    }
+    
+    /* read in the data now */
+    
+    err = __hvfs_fread(&hs, column, data, &hs.mc.c);
+    if (err) {
+        hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
+                 name, err);
+        goto out;
+    }
+
+    *len = hs.mc.c.len;
+
+out:
+    return err;
+}
+
+int hvfs_fwrite(char *path, char *name, int column, void *data, u64 len)
+{
+    struct hstat hs;
+    char *p = NULL, *n = path, *s = NULL;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0;
+
+    if (!path || !name || !data | !strlen(name))
+        return -EINVAL;
+
+    /* FIXME: column check */
+    if (column >= 6) {
+        hvfs_err(xnet, "Pomegranate FS lib does not support indirect"
+                 " column at this moment.\n");
+        return -ENOSYS;
+    }
+
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hs.name = p;
+        hs.uuid = 0;
+        /* Step 1: find in the SDT */
+        err = __hvfs_stat(puuid, psalt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err)
+        goto out;
+
+    /* stat the file now to get the file info */
+    hs.name = name;
+    hs.uuid = 0;
+    err = __hvfs_stat(puuid, psalt, column, &hs);
+    if (err == -ENOENT) {
+        /* ok, we should create the file now */
+        err = __hvfs_create(puuid, psalt, &hs, 0, NULL);
+        if (err) {
+            hvfs_err(xnet, "do internal create (SDT) on '%s' failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
+    } else if (err) {
+        hvfs_err(xnet, "do file stat (SDT) on '%s' failed w/ %d\n",
+                 name, err);
+        goto out;
+    }
+
+    /* calculate which itbid we should stored it in */
+    {
+        struct dhe *e;
+
+        e = mds_dh_search(&hmo.dh, puuid);
+        if (IS_ERR(e)) {
+            hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
+            err = PTR_ERR(e);
+            goto out;
+        }
+        hs.hash = mds_get_itbid(e, hs.hash);
+    }
+
+    /* write out the data now */
+    err = __hvfs_fwrite(&hs, column, data, len, &hs.mc.c);
+    if (err) {
+        hvfs_err(xnet, "do internal fwrite on '%s' failed w/ %d\n",
+                 name, err);
+        goto out;
+    }
+
+    /* update the file attributes */
+    {
+        struct mdu_update *mu;
+        struct mu_column *mc;
+
+        mu = xzalloc(sizeof(*mu) + sizeof(struct mu_column));
+        if (!mu) {
+            hvfs_err(xnet, "xzalloc() mdu_update failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        mc = (void *)mu + sizeof(*mu);
+        mu->valid = MU_COLUMN | MU_SIZE;
+        mu->size = len;
+        mu->column_no = 1;
+        mc->cno = column;
+        mc->c = hs.mc.c;
+
+        hs.name = name;
+        hs.uuid = 0;
+        err = __hvfs_update(puuid, psalt, &hs, mu);
+        if (err) {
+            hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
+                     name, err);
+            xfree(mu);
+            goto out;
+        }
+        xfree(mu);
+    }
+    
+out:
+    return err;
 }
