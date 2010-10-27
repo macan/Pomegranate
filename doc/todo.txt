@@ -27,3 +27,7 @@ Pomegranate TODOs:
    have provide a API to parse, add, delete columns. Enjoy it:)
 
    Scheduled from 10/15/2010 to 10/20/2010.
+
+5. Add stat info about which hash ring range got max accesses.
+
+   Is there a need to add vsite links for each ITB?

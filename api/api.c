@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-26 11:33:44 macan>
+ * Time-stamp: <2010-10-27 22:09:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -551,6 +551,11 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
                   "root_uuid %ld root_salt %lx\n",
                   rt->fsid, rt->gdt_uuid, rt->gdt_salt, 
                   rt->root_uuid, rt->root_salt);
+        if (rt->root_salt == -1UL) {
+            hvfs_err(xnet, "root_salt is not valid, please mkfs first!\n");
+            err = -EINVAL;
+            goto out;
+        }
         dh_insert(hmi.gdt_uuid, hmi.gdt_uuid, hmi.gdt_salt);
 
         /* parse bitmap */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-13 10:40:07 macan>
+ * Time-stamp: <2010-10-27 18:09:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,6 +44,10 @@ void root_sigaction_default(int signo, siginfo_t *info, void *arg)
         root_destroy();
         exit(0);
     }
+    if (signo == SIGUSR1) {
+        hvfs_info(lib, "Exit some thread ...\n");
+        pthread_exit(0);
+    }
 
     return;
 }
@@ -61,6 +65,7 @@ static int root_init_signal(void)
         err = errno;
         goto out;
     }
+    ac.sa_flags = SA_SIGINFO;
 
 #ifndef UNIT_TEST
     err = sigaction(SIGTERM, &ac, NULL);
@@ -92,6 +97,11 @@ static int root_init_signal(void)
         goto out;
     }
     err = sigaction(SIGQUIT, &ac, NULL);
+    if (err) {
+        err = errno;
+        goto out;
+    }
+    err = sigaction(SIGUSR1, &ac, NULL);
     if (err) {
         err = errno;
         goto out;
@@ -450,6 +460,15 @@ int root_init(void)
     err = root_setup_timers();
     if (err)
         goto out_timers;
+
+    /* maks the SIGUSR1 signal for main thread */
+    {
+        sigset_t set;
+
+        sigemptyset(&set);
+        sigaddset(&set, SIGUSR1);
+        pthread_sigmask(SIG_BLOCK, &set, NULL);
+    }
 
     /* ok to run */
     hro.state = HRO_STATE_RUNNING;

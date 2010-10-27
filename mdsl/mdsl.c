@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-04 19:11:50 macan>
+ * Time-stamp: <2010-10-27 22:24:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,6 +52,9 @@ void mdsl_sigaction_default(int signo, siginfo_t *info, void *arg)
         hvfs_info(lib, "Exit MDSL Server ...\n");
         mdsl_destroy();
         exit(0);
+    } else if (signo == SIGUSR1) {
+        hvfs_info(lib, "Exit some threads ...\n");
+        pthread_exit(0);
     }
     
     return;
@@ -70,6 +73,7 @@ static int mdsl_init_signal(void)
         err = errno;
         goto out;
     }
+    ac.sa_flags = SA_SIGINFO;
 
 #ifndef UNIT_TEST
     err = sigaction(SIGTERM, &ac, NULL);
@@ -101,6 +105,11 @@ static int mdsl_init_signal(void)
         goto out;
     }
     err = sigaction(SIGQUIT, &ac, NULL);
+    if (err) {
+        err = errno;
+        goto out;
+    }
+    err = sigaction(SIGUSR1, &ac, NULL);
     if (err) {
         err = errno;
         goto out;
@@ -416,6 +425,15 @@ int mdsl_init(void)
     err = mdsl_storage_init();
     if (err)
         goto out_storage;
+
+    /* mask the SIGUSR1 signal for main thread */
+    {
+        sigset_t set;
+
+        sigemptyset(&set);
+        sigaddset(&set, SIGUSR1);
+        pthread_sigmask(SIG_BLOCK, &set, NULL);
+    }
 
     /* ok to run */
     hmo.state = HMO_STATE_RUNNING;

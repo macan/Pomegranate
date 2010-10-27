@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-10-18 17:13:17 macan>
+# Time-stamp: <2010-10-27 19:21:16 macan>
 #
 # Armed with EMACS.
 
@@ -17,7 +17,8 @@ set ipaddr [lrange $argv 1 1]
 set cmd [lrange $argv 2 end]
 set timeout -1
 
-spawn ssh -x $ipaddr $cmd
+#spawn ssh -x $ipaddr $cmd
+eval spawn ssh -x $ipaddr [lrange $cmd 0 end]
 match_max 100000
 
 expect "*?assword:*"
