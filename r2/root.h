@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-11 14:58:34 macan>
+ * Time-stamp: <2010-10-28 19:32:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -162,6 +162,7 @@ int root_do_lgdt(struct xnet_msg *);
 int root_do_lbgdt(struct xnet_msg *);
 int root_do_online(struct xnet_msg *);
 int root_do_offline(struct xnet_msg *);
+int root_do_ftreport(struct xnet_msg *);
 
 int bparse_hxi(void *, union hvfs_x_info **);
 int bparse_ring(void *, struct chring_tx **);

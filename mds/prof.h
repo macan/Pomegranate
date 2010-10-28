@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-11 10:52:25 macan>
+ * Time-stamp: <2010-10-28 18:51:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -60,6 +60,7 @@ struct mds_mds_prof
     atomic64_t ausplit;         /* # of ausplit */
     atomic64_t paused_mreq;     /* # of paused modify requests */
     atomic64_t gossip_bitmap;   /* # of gossip bitmaps */
+    atomic64_t gossip_ft;       /* # of gossip ft info */
 };
 
 struct mds_mdsl_prof

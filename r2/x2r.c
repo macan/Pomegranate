@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-25 15:12:18 macan>
+ * Time-stamp: <2010-10-28 19:21:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1095,3 +1095,13 @@ out:
     return err;
 }
 
+int root_do_ftreport(struct xnet_msg *msg)
+{
+    /* If a site_A report site_B is FAILED, we should check if it is realy
+     * down by scan the site_mgr. If site_B is really failed, we mask it out
+     * of our cluster. Otherwise, we just ignore the report and return a OK
+     * update to site_A! */
+    int err = 0;
+
+    return err;
+}

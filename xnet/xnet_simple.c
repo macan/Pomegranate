@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-21 10:12:46 macan>
+ * Time-stamp: <2010-10-29 00:27:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,6 +43,7 @@ struct xnet_conf g_xnet_conf = {
     .resend_timeout = RESEND_TIMEOUT,
     .send_timeout = SEND_TIMEOUT,
     .siov_nr = SIOV_NR,
+    .pause = 0,
 };
 
 /* First, how do we handle the site_id to ip address translation?

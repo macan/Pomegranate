@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-10-04 21:28:34 macan>
+# Time-stamp: <2010-10-28 16:50:22 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -56,7 +56,7 @@ TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c client.c \
 
 MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \
 				dispatch.c c2m.c fe.c async.c m2m.c spool.c bitmapc.c \
-                ddc.c scrub.c gossip.c capi.c
+                ddc.c scrub.c gossip.c capi.c ft.c
 MDSL_AR_SOURCE = mdsl.c spool.c tcc.c dispatch.c m2ml.c prof.c storage.c \
 				 aio.c c2ml.c
 LIB_AR_SOURCE = lib.c ring.c time.c bitmap.c xlock.c segv.c conf.c md5.c
@@ -68,7 +68,7 @@ INC_H_SOURCE = atomic.h err.h hvfs.h hvfs_common.h hvfs_const.h hvfs_k.h \
 				hvfs_u.h ite.h mds_api.h mdsl_api.h memory.h site.h tx.h \
 				tracing.h txg.h xhash.h xlist.h xlock.h xnet.h xtable.h \
 				xprof.h hvfs_addr.h
-MDS_H_SOURCE = mds.h cbht.h dh.h itb.h prof.h async.h bitmapc.h mds_config.h
+MDS_H_SOURCE = mds.h cbht.h dh.h itb.h prof.h async.h bitmapc.h mds_config.h ft.h
 MDSL_H_SOURCE = mdsl.h lprof.h mdsl_config.h
 R2_H_SOURCE = root.h mgr.h root_config.h rprof.h
 LIB_H_SOURCE = lib.h ring.h

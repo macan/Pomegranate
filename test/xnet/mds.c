@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-25 08:08:30 macan>
+ * Time-stamp: <2010-10-28 18:36:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -827,6 +827,9 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
         if (err) {
             hvfs_err(root, "hst to xsst failed w/ %d\n", err);
         }
+
+        /* add to the ft module */
+        ft_update_active_site(hmo.chring[CH_RING_MDS]);
     }
     
 out:
@@ -984,6 +987,9 @@ void mds_cb_ring_update(void *arg)
         hvfs_err(xnet, "chring_tx 2 chring failed w/ %d\n", err);
         goto out;
     }
+    /* add mds new rings to ft module */
+    ft_update_active_site(hmo.chring[CH_RING_MDS]);
+    
 out:
     return;
 }

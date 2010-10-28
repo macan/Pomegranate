@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-20 19:41:34 macan>
+ * Time-stamp: <2010-10-28 18:42:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -521,5 +521,13 @@ void gossip_destroy(void);
 
 /* capi.c */
 void xtable_handle_req(struct xnet_msg *);
+
+/* ft.c */
+int ft_init(int);
+void ft_destroy(void);
+void ft_report(u64 site_id, u64 state);
+void ft_update_active_site(struct chring *r);
+void ft_gossip_send(void);
+void ft_gossip_recv(struct xnet_msg *);
 
 #endif

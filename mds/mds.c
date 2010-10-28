@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-25 15:09:43 macan>
+ * Time-stamp: <2010-10-28 18:42:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -710,6 +710,11 @@ int mds_init(int bdepth)
     if (err)
         goto out_scrub;
 
+    /* FIXME: init the ft gossip module */
+    err = ft_init(1);
+    if (err)
+        goto out_ft;
+    
     /* FIXME: init the gossip thread */
     err = gossip_init();
     if (err)
@@ -733,6 +738,7 @@ int mds_init(int bdepth)
     hmo.uptime = time(NULL);
 
 out_gossip:
+out_ft:
 out_scrub:
 out_spool:
 out_unlink:
@@ -767,6 +773,8 @@ void mds_destroy(void)
     /* stop the gossip thread */
     gossip_destroy();
     
+    ft_destroy();
+
     /* stop the scrub thread */
     mds_scrub_destroy();
 

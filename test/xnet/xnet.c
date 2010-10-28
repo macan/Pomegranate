@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-28 03:22:00 macan>
+ * Time-stamp: <2010-10-28 09:55:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,6 +30,8 @@
 #define TYPE_CLIENT     1
 #define TYPE_MDSL       2
 #define TYPE_RING       3
+
+#define TEST_LEN        (100)
 
 char *ipaddr[] = {
     "10.10.111.9",              /* server */
@@ -118,7 +120,7 @@ struct xnet_context *xc = NULL;
 int xnet_test_handler(struct xnet_msg *msg)
 {
     struct xnet_msg *rpy;
-    char data[100];
+    char data[TEST_LEN];
 
     if (msg->tx.flag & XNET_NEED_REPLY) {
         rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
@@ -162,6 +164,7 @@ int main(int argc, char *argv[])
     int loop;
     int mode = 0;               /* default to client mode */
     int target = 0;             /* default to server 0 */
+    char data[TEST_LEN];
 
     hvfs_info(xnet, "XNET Simple UNIT TESTing ...\n");
     hvfs_info(xnet, "type 0/1/2/3 => MDS/CLIENT/MDSL/RING\n");
@@ -253,7 +256,7 @@ int main(int argc, char *argv[])
     }
 
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
-    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE |
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 
                      XNET_NEED_REPLY, site, HVFS_TYPE_SEL(TYPE_MDS, target));
 /*     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE,  */
 /*                      site, HVFS_TYPE_SEL(TYPE_MDS, target)); */
@@ -261,6 +264,7 @@ int main(int argc, char *argv[])
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
+    xnet_msg_add_sdata(msg, data, sizeof(data));
 
     if (!mode) {
         int i;

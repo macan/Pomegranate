@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-21 09:35:04 macan>
+ * Time-stamp: <2010-10-28 16:57:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,6 +63,8 @@ void *gossip_thread_main(void *arg)
         }
         /* send the gossip message now */
         mds_dh_gossip(&hmo.dh);
+        /* ft gossip */
+        ft_gossip_send();
 
         cur_ts = time(NULL);
         if (cur_ts > last_ts) {

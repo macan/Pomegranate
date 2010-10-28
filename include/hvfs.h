@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-11 14:40:38 macan>
+ * Time-stamp: <2010-10-28 19:31:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -90,6 +90,7 @@
 #define HVFS_MDS2MDS_AUDIRDELTA_R 0x0000000080000009 /* async dir delta update
                                                       * confirm */
 #define HVFS_MDS2MDS_GB         0x000000008000000a /* gossip bitmap */
+#define HVFS_MDS2MDS_GF         0x000000008000000b /* gossip ft info */
 
 /* MDSL to MDS */
 /* RING/ROOT to MDS */
@@ -136,6 +137,7 @@
 #define HVFS_R2_LBGDT           0x0000000040000011 /* load gdt bitmap */
 #define HVFS_R2_ONLINE          0x0000000040000012 /* online a site */
 #define HVFS_R2_OFFLINE         0x0000000040000014 /* offline a site */
+#define HVFS_R2_FTREPORT        0x0000000040000018 /* ft report */
 
 /* ROOT/RING to * */
 #define HVFS_FR2_RU             0x0000000041000000 /* ring updates to all
