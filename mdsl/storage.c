@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-12 08:55:30 macan>
+ * Time-stamp: <2010-10-29 15:28:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -213,8 +213,8 @@ int append_buf_flush_remap(struct fdhash_entry *fde)
                 goto out;
             }
             fde->abuf.falloc_offset += fde->abuf.falloc_size;
-            hvfs_err(mdsl, "ftruncate offset %lx len %ld\n", 
-                     fde->abuf.falloc_offset, fde->abuf.falloc_size);
+            hvfs_warning(mdsl, "ftruncate offset %lx len %ld\n", 
+                         fde->abuf.falloc_offset, fde->abuf.falloc_size);
         }
         mdsl_aio_start();
         fde->abuf.addr = mmap(NULL, fde->abuf.len, PROT_WRITE | PROT_READ,
@@ -241,6 +241,9 @@ out:
 
 int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 {
+    void *base;
+    size_t len, wlen;
+    off_t woffset = 0;
     int err = 0;
 
     if (!msa->iov_nr || !msa->iov || fde->state == FDE_FREE ||
@@ -248,32 +251,51 @@ int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
         return -EINVAL;
     }
 
+    if (msa->iov_nr != 1) {
+        hvfs_err(mdsl, "Append buffer do not support vary IOV write.\n");
+        return -EINVAL;
+    }
+
+    base = msa->iov->iov_base;
+    len = msa->iov->iov_len;
+    
     xlock_lock(&fde->lock);
     /* check the remained length of the Append Buffer */
-    if (fde->abuf.offset + msa->iov->iov_len > fde->abuf.len) {
-        /* we should mmap another region */
-        err = append_buf_flush_remap(fde);
-        if (err) {
-            hvfs_err(mdsl, "ABUFF flush remap failed w/ %d\n", err);
-            goto out_unlock;
+    do {
+        wlen = min(fde->abuf.len - fde->abuf.offset, len);
+
+        /* ok, we can copy the region to the abuf now */
+        memcpy(fde->abuf.addr + fde->abuf.offset, 
+               base + woffset, wlen);
+
+        if (!woffset) {
+            if (fde->type == MDSL_STORAGE_ITB) {
+                ((struct itb_info *)msa->arg)->location = 
+                    fde->abuf.file_offset + fde->abuf.offset;
+            } else if (fde->type == MDSL_STORAGE_DATA) {
+                *((u64 *)msa->arg) = fde->abuf.file_offset +
+                    fde->abuf.offset;
+            } else {
+                hvfs_err(mdsl, "WHAT type? fde %d abuf (%d,%ld,%ld) @ L %ld\n",
+                         fde->fd, fde->type, fde->abuf.file_offset,
+                         fde->abuf.offset, msa->iov->iov_len);
+            }
         }
-    }
-    /* ok, we can copy the region to the abuf now */
-    memcpy(fde->abuf.addr + fde->abuf.offset, msa->iov->iov_base, 
-           msa->iov->iov_len);
-    if (fde->type == MDSL_STORAGE_ITB) {
-        ((struct itb_info *)msa->arg)->location = fde->abuf.file_offset + 
-            fde->abuf.offset;
-    } else if (fde->type == MDSL_STORAGE_DATA) {
-        *((u64 *)msa->arg) = fde->abuf.file_offset +
-            fde->abuf.offset;
-    } else {
-        hvfs_err(mdsl, "WHAT type? fde %d abuf (%d,%ld,%ld) @ L %ld\n",
-                 fde->fd, fde->type, fde->abuf.file_offset,
-                 fde->abuf.offset, msa->iov->iov_len);
-    }
-    fde->abuf.offset += msa->iov->iov_len;
-    atomic64_add(msa->iov->iov_len, &hmo.prof.storage.cpbytes);
+        
+        len -= wlen;
+        woffset += wlen;
+        fde->abuf.offset += wlen;
+        atomic64_add(wlen, &hmo.prof.storage.cpbytes);
+        
+        if (fde->abuf.offset >= fde->abuf.len) {
+            /* we should mmap another region */
+            err = append_buf_flush_remap(fde);
+            if (err) {
+                hvfs_err(mdsl, "ABUFF flush remap failed w/ %d\n", err);
+                goto out_unlock;
+            }
+        }
+    } while (len > 0);
 
 out_unlock:
     xlock_unlock(&fde->lock);
@@ -391,31 +413,52 @@ out:
 
 int odirect_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 {
+    void *base;
+    size_t len, wlen;
+    off_t woffset = 0;
     int err = 0;
 
     if (!msa->iov_nr || !msa->iov || fde->state == FDE_FREE) {
         return -EINVAL;
     }
+    if (msa->iov_nr != 1) {
+        hvfs_err(mdsl, "Odirect do not support vary IOV write.\n");
+        return -EINVAL;
+    }
 
+    base = msa->iov->iov_base;
+    len = msa->iov->iov_len;
+    
     xlock_lock(&fde->lock);
     /* check the remained length of the ODIRECT buffer */
-    if (fde->odirect.offset + msa->iov->iov_len > fde->odirect.len) {
-        /* we should submit the region to disk */
-        err = odirect_flush_reget(fde);
-        if (err) {
-            hvfs_err(mdsl, "odirect region flush remap failed w/ %d\n", err);
-            goto out_unlock;
+    do {
+        wlen = min(fde->abuf.len - fde->abuf.offset, len);
+
+        /* ok, we can copy the region to the odirect buffer now */
+        memcpy(fde->odirect.addr + fde->odirect.offset, 
+               base + woffset, wlen);
+
+        if (!woffset) {
+            if (fde->type == MDSL_STORAGE_ITB_ODIRECT) {
+                ((struct itb_info *)msa->arg)->location = 
+                    fde->odirect.file_offset + fde->odirect.offset;
+            }
         }
-    }
-    /* ok, we can copy the region to the odirect buffer now */
-    memcpy(fde->odirect.addr + fde->odirect.offset, msa->iov->iov_base, 
-           msa->iov->iov_len);
-    if (fde->type == MDSL_STORAGE_ITB_ODIRECT) {
-        ((struct itb_info *)msa->arg)->location = fde->odirect.file_offset +
-            fde->odirect.offset;
-    }
-    fde->odirect.offset += msa->iov->iov_len;
-    atomic64_add(msa->iov->iov_len, &hmo.prof.storage.cpbytes);
+        len -= wlen;
+        woffset += wlen;
+        fde->odirect.offset += wlen;
+        atomic64_add(wlen, &hmo.prof.storage.cpbytes);
+
+        if (fde->odirect.offset >= fde->odirect.len) {
+            /* we should submit the region to disk */
+            err = odirect_flush_reget(fde);
+            if (err) {
+                hvfs_err(mdsl, "odirect region flush remap failed w/ %d\n", 
+                         err);
+                goto out_unlock;
+            }
+        }
+    } while (len > 0);
 
 out_unlock:
     xlock_unlock(&fde->lock);

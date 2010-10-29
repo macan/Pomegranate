@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-28 18:42:07 macan>
+ * Time-stamp: <2010-10-29 15:05:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,6 +97,7 @@ struct mds_conf
     u8 prof_plot;               /* do we dump profilings for gnuplot? */
     u8 dati;                    /* enable or disable DATI (dynamic adjust txg
                                  * interval */
+    u8 active_ft;               /* active ft module */
 
     /* intervals */
     int profiling_thread_interval;

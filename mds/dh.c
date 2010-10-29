@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-29 15:08:43 macan>
+ * Time-stamp: <2010-10-29 16:16:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -454,8 +454,12 @@ void mds_dh_gossip(struct dh *dh)
     struct itbitmap *b;
     struct regular_hash *rh;
     struct hlist_node *l;
-    int i, j, stop = lib_random(atomic_read(&dh->asize)) + 1;
+    int i, j, stop = atomic_read(&dh->asize);
 
+    if (!stop)
+        return;
+    stop = lib_random(stop) + 1;
+    
     for (i = 0, j = 0; i < dh->hsize; i++) {
         rh = dh->ht + i;
         xlock_lock(&rh->lock);

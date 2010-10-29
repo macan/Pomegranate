@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-10-26 14:38:00 macan>
+# Time-stamp: <2010-10-29 15:04:09 macan>
 #
 # Armed with EMACS.
 
@@ -456,13 +456,14 @@ class pamc_shell(cmd.Cmd):
                 nr = libc.fwrite(c_content, sizeof_item, c_len, f)
                 err = libc.fclose(f)
                 if nr != c_len.value:
-                    print "Incomplete write ..."
+                    print "Incomplete write, written %d bytes..." % (int(nr))
                 if err != 0:
                     pass
         except IOError, ioe:
             print "IOError %s" % ioe
 
         api.hvfs_free(c_content)
+        print "+OK"
 
     def do_cat(self, line):
         '''Cat a Pomegranate file's content.
@@ -533,6 +534,7 @@ class pamc_shell(cmd.Cmd):
                     return
             except ValueError, ve:
                 print "ValueError %s" % ve
+        print "+OK"
 
     def do_getcluster(self, line):
         '''Get the MDS/MDSL cluster status.
@@ -549,6 +551,7 @@ class pamc_shell(cmd.Cmd):
                 return
         except ValueError, ve:
             print "ValueError %s" % ve
+        print "+OK"
 
     def do_getactivesite(self, line):
         '''Get the active sites.
@@ -586,6 +589,7 @@ class pamc_shell(cmd.Cmd):
             print "TypeError %s" % te
         except ValueError, ve:
             print "ValueError %s" % ve
+        print "+OK"
 
     def do_online(self, line):
         '''Online a site or a group sites.
@@ -607,6 +611,7 @@ class pamc_shell(cmd.Cmd):
             print "TypeError %s" % te
         except ValueError, ve:
             print "ValueError %s" % ve
+        print "+OK"
 
     def do_quit(self, line):
         print "Quiting ..."

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-29 00:27:05 macan>
+ * Time-stamp: <2010-10-29 12:08:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1789,7 +1789,7 @@ reselect_conn:
                     } else if (errno == EINTR || errno == EAGAIN) {
                         continue;
                     }
-                    hvfs_err(xnet, "sendmsg(%d[%lx],%d,%d) err %d, "
+                    hvfs_err(xnet, "sendmsg(%d[%lx],%d,%x) err %d, "
                              "for now we do support redo:)\n", 
                              ssock, msg->tx.dsite_id, bt,
                              msg->tx.len, 
@@ -1850,6 +1850,8 @@ reselect_conn:
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_sec += g_xnet_conf.send_timeout;
+        /* adding the length judgement here, refer to 64MB/s */
+        ts.tv_sec += msg->tx.len >> 26;
     rewait:
         err = sem_timedwait(&msg->event, &ts);
         if (err < 0) {

@@ -421,6 +421,11 @@ function gather_rps() {
 
         OP=`echo $RES | sed -e 's/.*op=\(.*\)].*/\1/g'`
         RPS=`echo $RES | awk '{print $5}'`
+        # prepare the arguments
+        if [ "x$OP" == "x" ]; then
+            OP=0
+            RPS=0
+        fi
         if [ $OP -eq 100 ]; then
             RPS_TOTAL=`echo "$RPS_TOTAL + $RPS * 3" | bc -l`
         elif [ $OP -eq 200 ]; then

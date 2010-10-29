@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-28 18:42:11 macan>
+ * Time-stamp: <2010-10-29 16:17:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -577,9 +577,9 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(scrub_interval, value);
     HVFS_MDS_GET_ENV_atoi(gto, value);
     HVFS_MDS_GET_ENV_atoi(dati, value);
+    HVFS_MDS_GET_ENV_atoi(active_ft, value);
 
     HVFS_MDS_GET_kmg(memlimit, value);
-    hvfs_info(mds, "memlimit %ld\n", hmo.conf.memlimit);
 
     HVFS_MDS_GET_ENV_option(opt_chrechk, CHRECHK, value);
     HVFS_MDS_GET_ENV_option(opt_itb_rwlock, ITB_RWLOCK, value);
