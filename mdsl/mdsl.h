@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-04 17:59:24 macan>
+ * Time-stamp: <2010-11-01 22:55:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -138,6 +138,7 @@ union bmmap_disk
 struct fdhash_entry
 {
     struct hlist_node list;
+    struct list_head lru;
     xlock_t lock;
     u64 uuid;
     u64 arg;
@@ -212,10 +213,13 @@ struct mdsl_storage
 {
 #define MDSL_STORAGE_FDHASH_SIZE        2048
     struct regular_hash *fdhash;
+    struct list_head lru;
+    xlock_t lru_lock;
     xlock_t txg_fd_lock;
     xlock_t tmp_fd_lock;
     /* global fds */
     int txg_fd, tmp_fd, tmp_txg_fd, log_fd, split_log_fd;
+    atomic_t active;
 };
 
 struct mdsl_conf
@@ -241,6 +245,7 @@ struct mdsl_conf
 
     /* misc configs */
     u64 memlimit;               /* memlimit of the TCC */
+    u64 fdlimit;                /* fd limit of the fd hash table */
     int itb_falloc;             /* # of itb file chunk to pre-alloc */
     int ring_vid_max;           /* max # of vid in the ring(AUTO) */
     int tcc_size;               /* # of tcc cache size */
@@ -391,6 +396,8 @@ void mdsl_storage_fd_put(struct fdhash_entry *fde)
 {
     atomic_dec(&fde->ref);
 }
+void mdsl_storage_fd_limit_check(void);
+int mdsl_storage_fd_cleanup(struct fdhash_entry *fde);
 int append_buf_create(struct fdhash_entry *, char *, int);
 int mdsl_storage_fd_write(struct fdhash_entry *fde, 
                           struct mdsl_storage_access *msa);

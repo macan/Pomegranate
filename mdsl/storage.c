@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-29 15:28:53 macan>
+ * Time-stamp: <2010-11-01 23:58:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -150,7 +150,8 @@ int append_buf_flush(struct fdhash_entry *fde, int flag)
                     err = -errno;
                 }
             }
-            hvfs_info(mdsl, "sync flush offset %lx\n", fde->abuf.file_offset);
+            hvfs_warning(mdsl, "sync flush fd %d offset %lx\n", 
+                         fde->fd, fde->abuf.file_offset);
         }
         if (flag & ABUF_UNMAP)
             fde->state = FDE_ABUF_UNMAPPED;
@@ -165,17 +166,28 @@ void append_buf_destroy(struct fdhash_entry *fde)
     
     /* munmap the region */
     if (fde->state == FDE_ABUF) {
-        hvfs_err(mdsl, "begin SYNC .\n");
+        hvfs_debug(mdsl, "begin destroy SYNC on fd %d.\n", 
+                   fde->fd);
         append_buf_flush(fde, ABUF_SYNC);
-        hvfs_err(mdsl, "end SYNC .\n");
+        hvfs_debug(mdsl, "end destroy SYNC on fd %d.\n",
+                   fde->fd);
         err = munmap(fde->abuf.addr, fde->abuf.len);
-        hvfs_err(mdsl, "end munmap.\n");
         if (err) {
             hvfs_err(mdsl, "munmap fd %d failed w/ %d\n", 
                      fde->fd, err);
         }
-        fde->state = FDE_OPEN;
+        /* close the backend file and truncate the file length (page
+         * boundary) */
+        err = ftruncate(fde->fd, PAGE_ROUNDUP(fde->abuf.file_offset +
+                                              fde->abuf.offset,
+                                              getpagesize()));
+        if (err) {
+            hvfs_err(mdsl, "ftruncate fd %d failed w/ %d\n",
+                     fde->fd, err);
+        }
     }
+    memset(&fde->abuf, 0, sizeof(fde->abuf));
+    fde->state = FDE_OPEN;
 }
 
 /*
@@ -208,7 +220,7 @@ int append_buf_flush_remap(struct fdhash_entry *fde)
             err = ftruncate(fde->fd, fde->abuf.falloc_offset + 
                             (fde->abuf.falloc_size << 1));
             if (err) {
-                hvfs_err(mdsl, "fallocate fd %d failed w/ %d\n",
+                hvfs_err(mdsl, "ftruncate fd %d failed w/ %d\n",
                          fde->fd, err);
                 goto out;
             }
@@ -504,16 +516,21 @@ void odirect_destroy(struct fdhash_entry *fde)
     int err;
     
     if (fde->state == FDE_ODIRECT) {
-        hvfs_err(mdsl, "begin SYNC.\n");
+        hvfs_err(mdsl, "begin odirect destroy SYNC on fd %d.\n",
+                 fde->fd);
         err = mdsl_aio_submit_request(fde->odirect.addr, fde->odirect.offset,
                                       fde->odirect.len, fde->odirect.file_offset,
                                       MDSL_AIO_ODIRECT, fde->odirect.wfd);
         if (err) {
             hvfs_err(mdsl, "Submit final ODIRECT aio request failed w/ %d\n", err);
+        } else {
+            mdsl_aio_start();
         }
-        hvfs_err(mdsl, "end SYNC.\n");
-        fde->state = FDE_OPEN;
+        hvfs_err(mdsl, "end odirect destroy SYNC on fd %d.\n",
+                 fde->fd);
     }
+    memset(&fde->odirect, 0, sizeof(fde->odirect));
+    fde->state = FDE_OPEN;
 }
 
 int mdsl_storage_init(void)
@@ -538,6 +555,10 @@ int mdsl_storage_init(void)
         INIT_HLIST_HEAD(&(hmo.storage.fdhash + i)->h);
         xlock_init(&(hmo.storage.fdhash + i)->lock);
     }
+    INIT_LIST_HEAD(&hmo.storage.lru);
+    xlock_init(&hmo.storage.lru_lock);
+    xlock_init(&hmo.storage.txg_fd_lock);
+    xlock_init(&hmo.storage.tmp_fd_lock);
 
     /* init the global fds */
     err = mdsl_storage_dir_make_exist(HVFS_MDSL_HOME);
@@ -596,6 +617,15 @@ void mdsl_storage_destroy(void)
 
 
 static inline
+void mdsl_storage_fd_lru_update(struct fdhash_entry *fde)
+{
+    xlock_lock(&hmo.storage.lru_lock);
+    list_del_init(&fde->lru);
+    list_add(&fde->lru, &hmo.storage.lru);
+    xlock_unlock(&hmo.storage.lru_lock);
+}
+
+static inline
 struct fdhash_entry *mdsl_storage_fd_lookup(u64 duuid, int ftype, u64 arg)
 {
     struct fdhash_entry *fde;
@@ -612,11 +642,15 @@ struct fdhash_entry *mdsl_storage_fd_lookup(u64 duuid, int ftype, u64 arg)
                 if (ma1->range_id == fde->mwin.arg) {
                     atomic_inc(&fde->ref);
                     xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
+                    /* lru update */
+                    mdsl_storage_fd_lru_update(fde);
                     return fde;
                 }
             } else if (arg == fde->arg) {
                 atomic_inc(&fde->ref);
                 xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
+                /* lru update */
+                mdsl_storage_fd_lru_update(fde);
                 return fde;
             }
         }
@@ -653,13 +687,20 @@ struct fdhash_entry *mdsl_storage_fd_insert(struct fdhash_entry *new)
     }
     if (!found) {
         hlist_add_head(&new->list, &(hmo.storage.fdhash + idx)->h);
+        atomic_inc(&hmo.storage.active);
     }
     xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
 
-    if (found)
+
+    if (found) {
+        /* lru update */
+        mdsl_storage_fd_lru_update(fde);
         return fde;
-    else
+    } else {
+        /* lru update */
+        mdsl_storage_fd_lru_update(new);
         return new;
+    }
 }
 
 void mdsl_storage_fd_remove(struct fdhash_entry *new)
@@ -669,7 +710,43 @@ void mdsl_storage_fd_remove(struct fdhash_entry *new)
     idx = hvfs_hash_fdht(new->uuid, new->type) % hmo.conf.storage_fdhash_size;
     xlock_lock(&(hmo.storage.fdhash + idx)->lock);
     hlist_del(&new->list);
+    list_del(&new->lru);
     xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
+    atomic_dec(&hmo.storage.active);
+}
+
+void mdsl_storage_fd_limit_check(void)
+{
+    struct fdhash_entry *fde;
+    int idx, remove;
+
+    if (atomic_read(&hmo.storage.active) > hmo.conf.fdlimit) {
+        /* try to evict some fd entry now */
+        xlock_lock(&hmo.storage.lru_lock);
+        if (list_empty(&hmo.storage.lru)) {
+            xlock_unlock(&hmo.storage.lru_lock);
+            return;
+        }
+        fde = list_entry(hmo.storage.lru.prev, struct fdhash_entry, lru);
+        list_del_init(&fde->lru);
+        xlock_unlock(&hmo.storage.lru_lock);
+        /* do destroy on the file w/ a lock */
+        idx = hvfs_hash_fdht(fde->uuid, fde->type) % 
+            hmo.conf.storage_fdhash_size;
+        xlock_lock(&(hmo.storage.fdhash + idx)->lock);
+        remove = mdsl_storage_fd_cleanup(fde);
+        if (remove) {
+            hlist_del_init(&fde->list);
+            close(fde->fd);
+            xfree(fde);
+        }
+        xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
+        if (remove) {
+            atomic_dec(&hmo.storage.active);
+        } else {
+            mdsl_storage_fd_lru_update(fde);
+        }
+    }
 }
 
 void __mdisk_range_sort(void *ranges, size_t size);
@@ -1571,6 +1648,7 @@ struct fdhash_entry *mdsl_storage_fd_lookup_create(u64 duuid, int fdtype,
         
         /* init it */
         INIT_HLIST_NODE(&fde->list);
+        INIT_LIST_HEAD(&fde->lru);
         xlock_init(&fde->lock);
         atomic_set(&fde->ref, 1);
         fde->uuid = duuid;
@@ -1610,7 +1688,7 @@ int mdsl_storage_fd_write(struct fdhash_entry *fde,
     int err = 0;
 
 retry:
-    if (fde->state == FDE_ABUF || fde->state == FDE_ABUF_UNMAPPED) {
+    if (fde->state == FDE_ABUF) {
         err = append_buf_write(fde, msa);
         if (err) {
             hvfs_err(mdsl, "append_buf_write failed w/ %d\n", err);
@@ -1669,8 +1747,7 @@ int mdsl_storage_fd_read(struct fdhash_entry *fde,
     int err = 0;
 
 retry:
-    if (fde->state == FDE_ABUF || fde->state == FDE_NORMAL || 
-        fde->state == FDE_ABUF_UNMAPPED) {
+    if (fde->state == FDE_ABUF || fde->state == FDE_NORMAL) {
         err = __normal_read(fde, msa);
         if (err) {
             hvfs_err(mdsl, "__normal_read failed w/ %d\n", err);
@@ -1710,6 +1787,49 @@ retry:
 
     atomic64_inc(&hmo.prof.storage.rreq);
 out_failed:
+    return err;
+}
+
+/* Return value:
+ *
+ * 1: means that we should remove the entry
+ * 0: means that we should leave the fd entry in hash table
+ */
+int mdsl_storage_fd_cleanup(struct fdhash_entry *fde)
+{
+    /* we do not release the fde entry, we just release the attached
+     * memory resources. Change the fde state to FDE_OPEN! */
+    int err = 0;
+
+    switch (fde->state) {
+    case FDE_ABUF:
+        append_buf_destroy(fde);
+        break;
+    case FDE_ODIRECT:
+        odirect_destroy(fde);
+        break;
+    case FDE_MDISK:
+        err = __mdisk_write(fde, NULL);
+        if (err)
+            err = 0;
+        else
+            err = 1;
+        break;
+    case FDE_MEMWIN:
+        err = munmap(fde->mwin.addr, fde->mwin.len);
+        if (err)
+            err = 0;
+        else {
+            fde->state = FDE_OPEN;
+            err = 1;
+        }
+    default:
+        err = 1;
+    }
+
+    hvfs_warning(mdsl, "cleanup fd %d to state %d w/ %d\n", 
+                 fde->fd, fde->state, err);
+    
     return err;
 }
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-27 22:24:44 macan>
+ * Time-stamp: <2010-11-01 23:52:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -175,6 +175,8 @@ static void *mdsl_timer_thread_main(void *arg)
         hvfs_debug(mdsl, "OK, we receive a SIGALRM event(remain %d).\n", v);
         /* should we work now */
         mdsl_dump_profiling(time(NULL));
+        /* check the fd hash table */
+        mdsl_storage_fd_limit_check();
     }
 
     hvfs_debug(mdsl, "Hooo, I am exiting...\n");
@@ -333,6 +335,7 @@ int mdsl_config(void)
     HVFS_MDSL_GET_ENV_atoi(aio_sync_len, value);
 
     HVFS_MDSL_GET_ENV_atol(memlimit, value);
+    HVFS_MDSL_GET_ENV_atol(fdlimit, value);
 
     HVFS_MDSL_GET_ENV_option(write_drop, WDROP, value);
     HVFS_MDSL_GET_ENV_option(memlimit, MEMLIMIT, value);
@@ -347,6 +350,11 @@ int mdsl_config(void)
         hmo.conf.itb_file_chunk = MDSL_STORAGE_ITB_DEFAULT_CHUNK;
     if (!hmo.conf.data_file_chunk)
         hmo.conf.data_file_chunk = MDSL_STORAGE_DATA_DEFAULT_CHUNK;
+
+    /* set default fd limit here, total 1 GB memory for it */
+    if (!hmo.conf.fdlimit)
+        hmo.conf.fdlimit = (1024 * 1024 * 1024 / 
+                            hmo.conf.data_file_chunk);
 
     /* FIXME: hmi should not be set at here actually */
     hmi.itb_depth = 3;
@@ -387,7 +395,7 @@ int mdsl_init(void)
     /* lib init */
     lib_init();
 
-
+    mdsl_pre_init();
     /* FIXME: decode the cmdline */
 
     /* FIXME: configurations */
