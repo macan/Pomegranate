@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-11 10:01:47 macan>
+ * Time-stamp: <2010-10-31 20:53:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -229,13 +229,15 @@ out:
      * NOTE: we add one sleep(0) to avoid the corner case clustering, can
      * anyone help me describe what actually should i do here?
      */
-    if (oi->h.state == ITB_STATE_COWED ||
-        oi->h.state == ITB_STATE_CLEAN) {
-        hvfs_debug(mds, "HIT Corner case ITB %p %ld, entries %d, flag %d\n",
-                 oi, oi->h.itbid, atomic_read(&oi->h.entries),
-                 oi->h.flag);
-        err = -ESPLIT;
-        sched_yield();
+    if (likely(!err)) {
+        if (oi->h.state == ITB_STATE_COWED ||
+            oi->h.state == ITB_STATE_CLEAN) {
+            hvfs_debug(mds, "HIT Corner case ITB %p %ld, entries %d, flag %d\n",
+                       oi, oi->h.itbid, atomic_read(&oi->h.entries),
+                       oi->h.flag);
+            err = -ESPLIT;
+            sched_yield();
+        }
     }
         
     return err;

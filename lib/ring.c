@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-15 17:29:48 macan>
+ * Time-stamp: <2010-10-29 19:22:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -164,7 +164,7 @@ struct chp *__ring_get_point2(u64 point, struct chring *r)
     u64 midval, midval1;
     struct chp *p;
     
-    if (!r || !r->used)
+    if (unlikely(!r || !r->used))
         return ERR_PTR(-EINVAL);
 
     highp = r->used;
@@ -196,6 +196,7 @@ struct chp *__ring_get_point2(u64 point, struct chring *r)
     }
 out:
     xrwlock_runlock(&r->rwlock);
+    
     return p;
 }
 

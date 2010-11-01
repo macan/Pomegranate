@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-12 21:22:48 macan>
+ * Time-stamp: <2010-10-31 23:11:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -157,8 +157,8 @@ void mdsl_itb(struct xnet_msg *msg)
         clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_sec += 60;
         xcond_lock(&toe->wcond);
-        if (!toe->state)
-            xcond_timedwait(&toe->wcond, &ts);
+        while (!toe->state && err == 0)
+            err = xcond_timedwait(&toe->wcond, &ts);
         xcond_unlock(&toe->wcond);
         toe_put(toe);
     }
@@ -1019,7 +1019,8 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         if (len < sizeof(struct txg_end)) {
             hvfs_err(mdsl, "Invalid WBTXG END request %d received from %lx\n",
                      msg->tx.reqno, msg->tx.ssite_id);
-            goto out;
+            err = -EINVAL;
+            goto out_reply;
         }
         if (data) {
             te = data;
@@ -1027,6 +1028,21 @@ void mdsl_wbtxg(struct xnet_msg *msg)
             hvfs_debug(mdsl, "Recv txg_end %ld from site %lx, abort %d\n",
                        te->txg, te->site_id, abort);
 
+            /* check previous toe */
+            toe = toe_lookup_recent(te->site_id);
+            if (toe && te->txg > toe->begin.txg) {
+                struct timespec ts;
+
+                /* we should wait here */
+                clock_gettime(CLOCK_REALTIME, &ts);
+                ts.tv_sec += 60;
+                xcond_lock(&toe->wcond);
+                while (!toe->state && err == 0)
+                    err = xcond_timedwait(&toe->wcond, &ts);
+                xcond_unlock(&toe->wcond);
+                toe_put(toe);
+            }
+            
             /* find the toe now */
             toe = toe_lookup(te->site_id, te->txg);
             if (!toe) {
@@ -1034,7 +1050,7 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                          te->site_id, te->txg);
                 toe_to_tmpfile(TXG_OPEN_ENTRY_DISK_END,
                                te->site_id, te->txg, te);
-                goto out;
+                goto out_complete;
             }
 
             /* ok, check the itb_nr now */
@@ -1043,10 +1059,10 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                 /* Step 2: if we can find the missing ITBs in the tmp file, we
                  * should just waiting for the  */
                 toe_wait(toe, te->itb_nr);
-                hvfs_err(mdsl, "itb <%lx,%lx> nr may mismatch: "
-                         "recv %d vs say %d\n", toe->begin.site_id,
-                         toe->begin.txg,
-                         atomic_read(&toe->itb_nr), te->itb_nr);
+                hvfs_warning(mdsl, "itb <%lx,%lx> nr may mismatch: "
+                             "recv %d vs say %d\n", toe->begin.site_id,
+                             toe->begin.txg,
+                             atomic_read(&toe->itb_nr), te->itb_nr);
             }
             
             /* it is ok to commit the TOE--TE to disk now */
@@ -1056,7 +1072,7 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                 hvfs_err(mdsl, "Commit the toe[%lx,%ld] to disk failed"
                          "w/ %d.\n",
                          toe->begin.site_id, toe->begin.txg, err);
-                goto out;
+                goto out_complete;
             }
             toe_deactive(toe);
             /* ok, we commit the itb modifications to disk after we logged
@@ -1072,12 +1088,16 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                 hvfs_err(mdsl, "TXG %ld wb aborted by %d from site %lx\n",
                          te->txg, abort, te->site_id);
             }
+        out_complete:
             xcond_lock(&toe->wcond);
             toe->state = 1;
             xcond_unlock(&toe->wcond);
             xcond_broadcast(&toe->wcond);
             toe_put(toe);
         }
+    out_reply:
+        __mdsl_send_err_rpy(msg, err);
+
     }
 
 out:

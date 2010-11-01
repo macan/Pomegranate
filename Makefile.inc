@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-10-28 16:50:22 macan>
+# Time-stamp: <2010-10-31 15:23:28 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -52,7 +52,7 @@ TEST_MDS_SOURCE = cbht.c tx.c dh.c cmd_sender.c misc.c itbsplit.c \
                   itb_analyzer.c bitmapc.c
 TEST_MDSL_SOURCE = mdsl.c storage.c
 TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c client.c \
-					root.c r2cli.c amc.c cr.c
+					root.c r2cli.c amc.c cr.c client_lat.c
 
 MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \
 				dispatch.c c2m.c fe.c async.c m2m.c spool.c bitmapc.c \

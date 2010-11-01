@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-24 23:30:42 macan>
+ * Time-stamp: <2010-11-01 14:10:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -119,6 +119,9 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
 
         /* checking the ITB */
         ASSERT(msg->pair->tx.len == atomic_read(&i->h.len), mds);
+
+        hvfs_debug(mds, "Load ITB %ld w/ txg %ld\n", 
+                   i->h.itbid, i->h.txg);
 
         /* changing the dirty info */
         t = mds_get_open_txg(&hmo);

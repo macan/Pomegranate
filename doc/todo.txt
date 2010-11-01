@@ -26,8 +26,67 @@ Pomegranate TODOs:
    info. The internal structure of the indirect column is a sorted list. We
    have provide a API to parse, add, delete columns. Enjoy it:)
 
-   Scheduled from 10/15/2010 to 10/20/2010.
+   Scheduled from 10/15/2010 to 10/20/2010. Done!
 
 5. Add stat info about which hash ring range got max accesses.
 
-   Is there a need to add vsite links for each ITB?
+   I have tried to add such info, however, it seems useless. Each server only
+   have their own counter beep to a large value. 
+
+   Done! But need some review.
+
+6. Is there a need to add vsite links for each ITB? (Priority: Low?)
+
+7. Proxy file read/write, it should be a basepoint for index support. 
+   (Priority: High)
+
+8. Report the latency distribution for each test. (Priority: High).
+
+   Scheduled from 10/29/2010 to 10/31/2010. Done!
+
+   New client unit test program in 'test/xnet/client_lat.ut'. 
+   I found that Pomegranate is a little slower than Redis. Here is 
+   a report:
+
+   Test on Xeon E5335 2x4 core 2.5GHz CPU, with internal xTable API
+
+   
+
+9. User level file system library. Done @ 10/27/2010. High.
+
+10. Check all the MDS request handling path, reply an UNACK to source site if
+there is an error. Low.
+
+11. MDS replication, howto?
+
+    1. hot stand-by, primary-slave mode. (Resource inefficient?)
+
+    2. asynchronize replicate modify request to the slave site.
+
+       2.1 snapshot the master site;
+
+       2.2 setup a forwarder for all the modify request on ITBs,
+           including MODIFY, SPLIT and so on; transfer the 
+           following requests to slave;
+
+       2.3 slave execute all the modify requests in its memory but
+           do not commit any modifications to storage layer;
+
+       2.4 other logices worked as a normal MDS;
+
+       2.5 on master failures, slave is promoted to be master by 
+           R2 server and writeback is enabled;
+
+12. MDSL replication, howto?
+
+    We want to change MDSL layer to a customized data flow tree. 
+    There are at lease 3 virtual (or logical) nodes: replicator, 
+    striper, erasure_coder;
+
+    A data flow tree is built by have a root node (virtual or 
+    physical) with some leaf nodes. Data is flowing in the tree to 
+    the leaf nodes (physical nodes).
+
+13. Trigger interface
+
+14. Index support

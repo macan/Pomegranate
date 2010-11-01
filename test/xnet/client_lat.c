@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-31 19:36:58 macan>
+ * Time-stamp: <2010-10-31 16:03:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,6 +48,9 @@ u64 __attribute__((unused)) split_retry = 0;
 u64 __attribute__((unused)) create_failed = 0;
 u64 __attribute__((unused)) lookup_failed = 0;
 u64 __attribute__((unused)) unlink_failed = 0;
+
+#define RESOLUTION      (500)   /* us */
+#define MAX_LATENCY     (2000)  /* 1 second */
 
 char *ipaddr[] = {
     "127.0.0.1",              /* mds */
@@ -292,7 +295,7 @@ resend:
         /* hoo, sth wrong on the MDS. IMPOSSIBLE code path! */
         hvfs_err(xnet, "MDS Site %lx reply w/ %d\n",
                  msg->pair->tx.ssite_id, hmr->err);
-        create_failed++;
+        xnet_set_auto_free(msg->pair);
         goto out_msg;
     } else if (hmr->len) {
         hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
@@ -1503,86 +1506,125 @@ out_free:
     return err;
 }
 
-int msg_send(int entry, int op, int base)
+struct msg_send_args
+{
+    int tid, thread;
+    int entry, op;
+    pthread_barrier_t *pb;
+    int latency[MAX_LATENCY];
+};
+
+int msg_send(int entry, int op, int base, struct msg_send_args *msa)
 {
     lib_timer_def();
+    double acc = 0.0;
     u8 data[HVFS_MDU_SIZE];
-    int i, err = 0;
+    int i, err = 0, idx;
 
     switch (op) {
     case OP_CREATE:
-        lib_timer_B();
         for (i = 0; i < entry; i++) {
+            lib_timer_B();
             err = get_send_msg_create(i + base, hmi.root_uuid, hmo.site_id, 
                                       NULL, (void *)data);
+            lib_timer_E();
+            lib_timer_A(&acc);
             if (err) {
                 hvfs_err(xnet, "create 'client-xnet-test-%ld-%ld-%d' failed\n",
                          hmi.root_uuid, hmo.site_id, i + base);
             }
+            idx = ((end.tv_sec - begin.tv_sec) * 1000000 + 
+                   (end.tv_usec - begin.tv_usec)) / RESOLUTION;
+            msa->latency[idx >= MAX_LATENCY ? MAX_LATENCY - 1 : idx]++;
         }
-        lib_timer_E();
-        lib_timer_O(entry, "Create Latency: ");
+        hvfs_info(xnet, "Create Latency: \t %lf us\n",
+                  acc / (double)entry);
         break;
     case OP_LOOKUP:
-        lib_timer_B();
         for (i = 0; i < entry; i++) {
+            lib_timer_B();
             err = get_send_msg_lookup(i + base, hmi.root_uuid, hmo.site_id);
+            lib_timer_E();
+            lib_timer_A(&acc);
             if (err) {
                 hvfs_err(xnet, "lookup 'client-xnet-test-%ld-%ld-%d' failed\n",
                          hmi.root_uuid, hmo.site_id, i + base);
             }
+            idx = ((end.tv_sec - begin.tv_sec) * 1000000 + 
+                   (end.tv_usec - begin.tv_usec)) / RESOLUTION;
+            msa->latency[idx >= MAX_LATENCY ? MAX_LATENCY - 1 : idx]++;
         }
-        lib_timer_E();
-        lib_timer_O(entry, "Lookup Latency: ");
+        hvfs_info(xnet, "Lookup Latency: \t %lf us\n",
+                  acc / (double)entry);
         break;
     case OP_UNLINK:
-        lib_timer_B();
         for (i = 0; i < entry; i++) {
+            lib_timer_B();
             err = get_send_msg_unlink(i + base, hmi.root_uuid, hmo.site_id);
+            lib_timer_E();
+            lib_timer_A(&acc);
             if (err) {
                 hvfs_err(xnet, "unlink 'client-xnet-test-%ld-%ld-%d' failed\n",
                          hmi.root_uuid, hmo.site_id, i + base);
             }
+            idx = ((end.tv_sec - begin.tv_sec) * 1000000 + 
+                   (end.tv_usec - begin.tv_usec)) / RESOLUTION;
+            msa->latency[idx >= MAX_LATENCY ? MAX_LATENCY - 1 : idx]++;
         }
-        lib_timer_E();
-        lib_timer_O(entry, "Unlink Latency: ");
+        hvfs_info(xnet, "Unlink Latency: \t %lf us\n",
+                  acc / (double)entry);
         break;
     case OP_CREATE_DIR:
-        lib_timer_B();
         for (i = 0; i < entry; i++) {
+            lib_timer_B();
             err = get_send_msg_create_dir(i + base, hmi.root_uuid, hmo.site_id, 
                                           NULL, (void *)data);
+            lib_timer_E();
+            lib_timer_A(&acc);
             if (err) {
                 hvfs_err(xnet, "create 'client-xnet-test-%ld-%ld-%d' failed\n",
                          hmi.root_uuid, hmo.site_id, i + base);
             }
+            err = ((end.tv_sec - begin.tv_sec) * 1000000 + 
+                   (end.tv_usec - begin.tv_usec)) / RESOLUTION;
+            msa->latency[err >= MAX_LATENCY ? MAX_LATENCY - 1 : err]++;
         }
-        lib_timer_E();
-        lib_timer_O(entry, "Create DIR Latency: ");
+        hvfs_info(xnet, "Create DIR Latency: \t %lf us\n",
+                  acc / (double)entry);
         break;
     case OP_WDATA:
-        lib_timer_B();
         for (i = 0; i < entry; i++) {
+            lib_timer_B();
             err = get_send_msg_wdata(i + base, hmi.root_uuid, hmo.site_id);
+            lib_timer_E();
+            lib_timer_A(&acc);
             if (err) {
                 hvfs_err(xnet, "wdata 'client-xnet-test-%ld-%ld-%d' failed\n",
                          hmi.root_uuid, hmo.site_id, i + base);
             }
+            err = ((end.tv_sec - begin.tv_sec) * 1000000 + 
+                   (end.tv_usec - begin.tv_usec)) / RESOLUTION;
+            msa->latency[err >= MAX_LATENCY ? MAX_LATENCY - 1 : err]++;
         }
-        lib_timer_E();
-        lib_timer_O(entry, "WDATA Latency: ");
+        hvfs_info(xnet, "WDATA Latency: \t %lf us\n",
+                  acc / (double)entry);
         break;
     case OP_RDATA:
-        lib_timer_B();
         for (i = 0; i < entry; i++) {
+            lib_timer_B();
             err = get_send_msg_rdata(i + base, hmi.root_uuid, hmo.site_id);
+            lib_timer_E();
+            lib_timer_A(&acc);
             if (err) {
                 hvfs_err(xnet, "rdata 'client-xnet-test-%ld-%ld-%d' failed\n",
                          hmi.root_uuid, hmo.site_id, i + base);
             }
+            err = ((end.tv_sec - begin.tv_sec) * 1000000 + 
+                   (end.tv_usec - begin.tv_usec)) / RESOLUTION;
+            msa->latency[err >= MAX_LATENCY ? MAX_LATENCY - 1 : err]++;
         }
-        lib_timer_E();
-        lib_timer_O(entry, "RDATA Latency: ");
+        hvfs_info(xnet, "RDATA Latency: \t %lf \n",
+                  acc / (double)entry);
         break;
     case OP_TUPD:
         lib_timer_B();
@@ -1599,13 +1641,6 @@ int msg_send(int entry, int op, int base)
     return err;
 }
 
-struct msg_send_args
-{
-    int tid, thread;
-    int entry, op;
-    pthread_barrier_t *pb;
-};
-
 pthread_barrier_t barrier;
 
 void *__msg_send(void *arg)
@@ -1617,63 +1652,63 @@ void *__msg_send(void *arg)
     if (msa->tid == 0)
         lib_timer_B();
     if (msa->op == OP_ALL) {
-        msg_send(msa->entry, OP_CREATE, msa->tid * msa->entry);
+        msg_send(msa->entry, OP_CREATE, msa->tid * msa->entry, msa);
         pthread_barrier_wait(msa->pb);
         if (msa->tid == 0) {
             lib_timer_E();
             lib_timer_O(msa->entry * msa->thread, "Create Aggr Lt: ");
             lib_timer_B();
         }
-        msg_send(msa->entry, OP_LOOKUP, msa->tid * msa->entry);
+        msg_send(msa->entry, OP_LOOKUP, msa->tid * msa->entry, msa);
         pthread_barrier_wait(msa->pb);
         if (msa->tid == 0) {
             lib_timer_E();
             lib_timer_O(msa->entry * msa->thread, "Lookup Aggr Lt: ");
             lib_timer_B();
         }
-        msg_send(msa->entry, OP_UNLINK, msa->tid * msa->entry);
+        msg_send(msa->entry, OP_UNLINK, msa->tid * msa->entry, msa);
         pthread_barrier_wait(msa->pb);
         if (msa->tid == 0) {
             lib_timer_E();
             lib_timer_O(msa->entry * msa->thread, "Unlink Aggr Lt: ");
         }
     } else if (msa->op == OP_DATA_ALL) {
-        msg_send(msa->entry, OP_CREATE, msa->tid * msa->entry);
+        msg_send(msa->entry, OP_CREATE, msa->tid * msa->entry, msa);
         pthread_barrier_wait(msa->pb);
         if (msa->tid == 0) {
             lib_timer_E();
             lib_timer_O(msa->entry * msa->thread, "Create Aggr Lt: ");
             lib_timer_B();
         }
-        msg_send(msa->entry, OP_LOOKUP, msa->tid * msa->entry);
+        msg_send(msa->entry, OP_LOOKUP, msa->tid * msa->entry, msa);
         pthread_barrier_wait(msa->pb);
         if (msa->tid == 0) {
             lib_timer_E();
             lib_timer_O(msa->entry * msa->thread, "Lookup Aggr Lt: ");
             lib_timer_B();
         }
-        msg_send(msa->entry, OP_WDATA, msa->tid * msa->entry);
+        msg_send(msa->entry, OP_WDATA, msa->tid * msa->entry, msa);
         pthread_barrier_wait(msa->pb);
         if (msa->tid == 0) {
             lib_timer_E();
             lib_timer_O(msa->entry * msa->thread, "WDATA  Aggr Lt: ");
             lib_timer_B();
         }
-        msg_send(msa->entry, OP_RDATA, msa->tid * msa->entry);
+        msg_send(msa->entry, OP_RDATA, msa->tid * msa->entry, msa);
         pthread_barrier_wait(msa->pb);
         if (msa->tid == 0) {
             lib_timer_E();
             lib_timer_O(msa->entry * msa->thread, "RDATA  Aggr Lt: ");
             lib_timer_B();
         }
-        msg_send(msa->entry, OP_UNLINK, msa->tid * msa->entry);
+        msg_send(msa->entry, OP_UNLINK, msa->tid * msa->entry, msa);
         pthread_barrier_wait(msa->pb);
         if (msa->tid == 0) {
             lib_timer_E();
             lib_timer_O(msa->entry * msa->thread, "Unlink Aggr Lt: ");
         }
     } else {
-        msg_send(msa->entry, msa->op, msa->tid * msa->entry);
+        msg_send(msa->entry, msa->op, msa->tid * msa->entry, msa);
         pthread_barrier_wait(msa->pb);
         if (msa->tid == 0) {
             lib_timer_E();
@@ -1688,7 +1723,8 @@ int msg_send_mt(int entry, int op, int thread)
 {
     pthread_t pt[thread];
     struct msg_send_args msa[thread];
-    int i, err = 0;
+    u64 all = 0;
+    int i, j, err = 0;
 
     entry /= thread;
 
@@ -1698,14 +1734,37 @@ int msg_send_mt(int entry, int op, int thread)
         msa[i].entry = entry;
         msa[i].op = op;
         msa[i].pb = &barrier;
+        memset(msa[i].latency, 0, sizeof(msa[i].latency));
         err = pthread_create(&pt[i], NULL, __msg_send, &msa[i]);
         if (err)
             goto out;
     }
 
+    
     for (i = 0; i < thread; i++) {
         pthread_join(pt[i], NULL);
     }
+
+    for (i = 1; i < thread; i++) {
+        for (j = 0; j < MAX_LATENCY; j++) {
+            msa[0].latency[j] += msa[i].latency[j];
+        }
+    }
+    hvfs_info(xnet, "OP=%d Latency Distribution:\n", op);
+    entry *= thread;
+    if (op == OP_ALL)
+        entry *= 3;
+    else if (op == OP_DATA_ALL)
+        entry *= 7;
+    for (i = 0; i < MAX_LATENCY; i++) {
+        if (msa[0].latency[i]) {
+            all += msa[0].latency[i];
+            hvfs_info(xnet, "\t%03.2f%s <= %6.1f ms\n", 
+                      (double)all / entry * 100, "%",
+                      (double)((i + 1) * 500) / 1000);
+        }
+    }
+
 out:
     return err;
 }

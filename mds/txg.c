@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-18 09:30:24 macan>
+ * Time-stamp: <2010-10-31 21:20:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -143,8 +143,7 @@ int txg_switch(struct hvfs_mds_info *hmi, struct hvfs_mds_object *hmo)
     ASSERT(hmo->txg[TXG_WB] == NULL, mds);
 
     /* atomic inc the txg # */
-    atomic64_inc(&hmi->mi_txg);
-    nt->txg = atomic64_read(&hmi->mi_txg);
+    nt->txg = atomic64_inc_return(&hmi->mi_txg);
     
     /* the current opened txg is going into WB state */
     txg_get(hmo->txg[TXG_OPEN]);
@@ -211,13 +210,22 @@ void txg_changer(time_t t)
  */
 void txg_change_immediately(void)
 {
-    struct hvfs_txg *old = hmo.txg[TXG_OPEN];
-    u64 old_txg = old->txg;
-    u32 old_ti = hmo.conf.txg_interval;
-    u8 old_dati = hmo.conf.dati;
+    struct hvfs_txg *old;
+    u64 old_txg;
+    u32 old_ti;
+    u8 old_dati, dirty;
+
+    old = mds_get_open_txg(&hmo);
+    old_txg = old->txg;
+    dirty = old->dirty;
+    txg_put(old);
+
+    old_ti = hmo.conf.txg_interval;
+    old_dati = hmo.conf.dati;
+    
     
     /* if the current opened txg is clean, just return */
-    if (!TXG_IS_DIRTY(old))
+    if (!dirty)
         return;
 
     /* firstly, disable the DATI */
@@ -519,7 +527,8 @@ int __send_txg_end(struct txg_wb_slice *tws, struct commit_thread_arg *cta)
     }
 
     /* Step 2: fill the msg */
-    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE,
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE |
+                     XNET_NEED_REPLY,
                      hmo.site_id, tws->site_id);
     xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_WBTXG, HVFS_WBTXG_END, cta->wbt->txg);
 #ifdef XNET_EAGER_WRITEV
@@ -651,6 +660,7 @@ void *txg_commit(void *arg)
     /* first, let us block the SIGALRM */
     sigemptyset(&set);
     sigaddset(&set, SIGALRM);
+    sigaddset(&set, SIGUSR1);
     pthread_sigmask(SIG_BLOCK, &set, NULL); /* oh, we do not care about the
                                              * errs */
 
@@ -678,7 +688,8 @@ void *txg_commit(void *arg)
             clock_gettime(CLOCK_REALTIME, &ts);
             ts.tv_nsec += 2000;  /* 2000 ns */
             mcond_timedwait(&t->cond, &ts);
-            hvfs_debug(mds, "><--%ld--><\n", atomic64_read(&t->tx_pending));
+            hvfs_debug(mds, "%p><--%ld--><\n", 
+                       t, atomic64_read(&t->tx_pending));
             if (t != hmo.txg[TXG_WB]) {
                 goto retry;
             }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-28 17:07:23 macan>
+ * Time-stamp: <2010-11-01 14:14:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -273,8 +273,8 @@ void mds_ausplit(struct xnet_msg *msg)
     err = mds_cbht_insert_bbrlocked(&hmo.cbht, i, &nb, &nbe, &ti);
     if (err == -EEXIST) {
         /* someone has already create the new ITB, we just ignore ourself? */
-        hvfs_err(mds, "Someone create ITB %ld, maybe data lossing ...\n",
-                 i->h.itbid);
+        hvfs_err(mds, "Someone create ITB %ld, fatal failed w/ "
+                 "data loss @ txg %ld\n", i->h.itbid, i->h.txg);
         /* it is ok, we need to free the locks */
         xrwlock_runlock(&nbe->lock);
         xrwlock_runlock(&nb->lock);
@@ -298,7 +298,8 @@ void mds_ausplit(struct xnet_msg *msg)
     atomic64_inc(&hmo.prof.mds.ausplit);
     atomic64_add(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
 
-    hvfs_err(mds, "We update the bit of ITB %ld\n", i->h.itbid);
+    hvfs_warning(mds, "We update the bit of ITB %ld txg %ld\n", 
+                 i->h.itbid, i->h.txg);
     xnet_clear_auto_free(msg);
 
 send_rpy:

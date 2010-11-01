@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-11 14:53:55 macan>
+ * Time-stamp: <2010-10-31 21:46:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,6 +95,20 @@ void mds_spool_mp_check(time_t t)
         mds_spool_modify_resume();
         hvfs_err(mds, "resume modify operations\n");
     } else {
+        /* do commit? */
+        {
+            if (!TXG_IS_DIRTY(hmo.txg[TXG_OPEN]))
+                goto skip;
+            if (hmo.txg[TXG_WB] != NULL)
+                goto skip;
+            if (!txg_switch(&hmi, &hmo)) {
+                hvfs_info(mds, "Entering new txg %ld\n", 
+                          hmo.txg[TXG_OPEN]->txg);
+                sem_post(&hmo.commit_sem);
+            }
+        skip:;
+        }
+        
         /* we trigger the scrubbing thread to evict the clean ITBs */
         hmo.conf.option &= ~HVFS_MDS_NOSCRUB;
         hmo.conf.scrub_interval = 1;

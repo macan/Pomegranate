@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-21 14:29:04 macan>
+ * Time-stamp: <2010-10-31 18:18:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -820,8 +820,13 @@ void mds_snapshot(struct hvfs_tx *tx)
 {
     struct hvfs_md_reply *hmr;
     
+    /* Step 0: this is black magic */
+    txg_put(tx->txg);
+
     /* Step 1: do a snapshot and wait for the TXG to MDSL */
     txg_change_immediately();
+
+    tx->txg = mds_get_open_txg(&hmo);
 
     /* Step 2: reply the request */
     hmr = get_hmr();

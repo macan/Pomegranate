@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-29 16:17:30 macan>
+ * Time-stamp: <2010-10-31 20:59:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -384,7 +384,7 @@ int mds_cbht_evict_default(struct bucket *b, void *arg0, void *arg1)
                 ih->twin != 0 || 
                 atomic_read(&ih->ref) > 1 ||
                 !list_empty(&ih->list) ||
-                ih->txg >= t->txg - 1) {
+                ih->txg >= t->txg) {
                 /* we just failed to update the wlock, exit... */
                 txg_put(t);
                 goto out_unlock;
