@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-06-11 12:52:27 macan>
+ * Time-stamp: <2010-11-06 19:20:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -202,5 +202,19 @@ int conf_parse(char *, struct conf_site *, int *);
 u64 conf_site_id(char *, int);
 
 void lib_md5_print(void *addr, int len, char *str);
+
+static inline
+u64 lib_rdtsc(void)
+{
+    u32 hi, lo;
+    __asm__ __volatile__ ("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((u64)lo) | (((u64)hi) << 32);
+}
+
+extern u64 cpu_frequency;
+
+/* embedpy.c */
+int ebpy(u16 where, void *itb, void *ite, void *hi, int status,
+         void *dt);
 
 #endif

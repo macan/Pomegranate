@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-24 18:34:23 macan>
+ * Time-stamp: <2010-11-03 00:17:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -81,6 +81,7 @@ struct hvfs_index
 #define INDEX_BIT_FLIP          0x80000000 /* need flip the bit of itbid @
                                             * client side*/
 #define INDEX_KV                0x40000000 /* K/V mode access */
+#define INDEX_DTRIG             0x20000000 /* toggle the trigger mode */
     u32 flag;
     u64 uuid;                   /* self uuid */
     u64 hash;                   /* hash value of the name, or manual set */

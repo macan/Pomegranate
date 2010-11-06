@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-10-29 15:04:09 macan>
+# Time-stamp: <2010-11-04 19:10:41 macan>
 #
 # Armed with EMACS.
 
@@ -132,6 +132,7 @@ class pamc_shell(cmd.Cmd):
     keywords = ["EOF", "touch", "delete", "stat", "mkdir",
                 "rmdir", "cpin", "cpout", "online", "offline",
                 "quit", "ls", "commit", "getcluster", "cat", 
+                "regdtrigger", "catdtrigger",
                 "getactivesite"]
 
     def __init__(self):
@@ -536,6 +537,69 @@ class pamc_shell(cmd.Cmd):
                 print "ValueError %s" % ve
         print "+OK"
 
+    def do_regdtrigger(self, line):
+        '''Register a DTrigger on a directory.
+        Usage: regdtrigger /path/to/name type where priority'''
+        l = shlex.split(line)
+        if len(l) < 4:
+            print "Invalid argumment. Please see help regdtrigger."
+            return
+
+        l[0] = os.path.normpath(l[0])
+
+        path, file = os.path.split(l[0])
+        if path == "" or path[0] != '/':
+            print "Relative path name is not supported yet."
+            return
+
+        # ok
+        try:
+            content = "THIS IS A TEST DTRIGGER!"
+            c_path = c_char_p(path)
+            c_file = c_char_p(file)
+            c_type = c_int(int(l[1]))
+            c_where = c_short(int(l[2]))
+            c_priority = c_short(int(l[3]))
+            c_data = c_char_p(content)
+            c_len = c_long(len(content))
+            err = api.hvfs_reg_dtrigger(c_path, c_file, c_priority,
+                                        c_where, c_type, c_data,
+                                        c_len)
+            if err != 0:
+                print "api.hvfs_reg_dtrigger() failed w/ %d" % err
+                return
+        except ValueError, ve:
+            print "ValueError %s" % ve
+        print "+OK"
+
+    def do_catdtrigger(self, line):
+        '''Cat the DTriggers on a directory.
+        Usage: catdtrigger /path/to/name'''
+        l = shlex.split(line)
+        if len(l) < 1:
+            print "Invalid argument. Please see help catdtrigger."
+            return
+
+        l[0] = os.path.normpath(l[0])
+
+        path, file = os.path.split(l[0])
+        if path == "" or path[0] != '/':
+            print "Relative path name is not supported yet."
+            return
+
+        # ok
+        try:
+            c_path = c_char_p(path)
+            c_file = c_char_p(file)
+            c_data = c_void_p(None)
+            err = api.hvfs_cat_dtrigger(c_path, c_file, byref(c_data))
+            if err != 0:
+                print "api.hvfs_cat_dtrigger() failed w/ %d" % err
+                return
+        except ValueError, ve:
+            print "ValueError %s" % ve
+        print "+OK"
+
     def do_getcluster(self, line):
         '''Get the MDS/MDSL cluster status.
         Usage: getcluster 'mds/mdsl' '''
@@ -543,9 +607,11 @@ class pamc_shell(cmd.Cmd):
         if len(l) < 1:
             print "Invalid argument."
             return
+
         # ok
         try:
-            err = api.hvfs_get_cluster(l[0])
+            type = c_char_p(l[0])
+            err = api.hvfs_get_cluster(type)
             if err != 0:
                 print "api.hvfs_get_cluster() failed w/ %d" % err
                 return
@@ -562,7 +628,8 @@ class pamc_shell(cmd.Cmd):
             return
         # ok
         try:
-            err = api.hvfs_active_site(l[0])
+            type = c_char_p(l[0])
+            err = api.hvfs_active_site(type)
             if err == None:
                 print "api.hvfs_active_site() failed w/ %s" % err
                 return

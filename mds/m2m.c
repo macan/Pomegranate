@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-01 14:14:49 macan>
+ * Time-stamp: <2010-11-05 08:10:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -142,6 +142,7 @@ void mds_ldh(struct xnet_msg *msg)
         goto send_rpy;
     }
     itbid = mds_get_itbid(e, hi->hash);
+    mds_dh_put(e);
     if (itbid != hi->itbid || hmo.conf.option & HVFS_MDS_CHRECHK) {
         p = ring_get_point(itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
         if (IS_ERR(p)) {
@@ -172,7 +173,8 @@ void mds_ldh(struct xnet_msg *msg)
         /* do not retry myself */
         goto out;
     }
-    hi->flag |= INDEX_LOOKUP;
+    hi->flag |= INDEX_LOOKUP | INDEX_COLUMN;
+    hi->column = HVFS_TRIG_COLUMN;
     hi->puuid = hmi.gdt_uuid;
     hi->psalt = hmi.gdt_salt;
 
@@ -417,6 +419,7 @@ void mds_aubitmap(struct xnet_msg *msg)
     }
     hash = hvfs_hash_gdt(msg->tx.arg0, hmi.gdt_salt);
     itbid = mds_get_itbid(e, hash);
+    mds_dh_put(e);
     if (itbid != msg->tx.arg1 || hmo.conf.option & HVFS_MDS_CHRECHK) {
         p = ring_get_point(itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
         if (IS_ERR(p)) {
@@ -597,6 +600,7 @@ void mds_m2m_lb(struct xnet_msg *msg)
     hi.psalt = hmi.gdt_salt;
     hi.hash = hvfs_hash_gdt(hi.uuid, hmi.gdt_salt);
     hi.itbid = mds_get_itbid(gdte, hi.hash);
+    mds_dh_put(gdte);
 
     offset = msg->tx.arg1;
     offset = BITMAP_ROUNDDOWN(offset);
@@ -912,6 +916,7 @@ void mds_gossip_bitmap(struct xnet_msg *msg)
             xnet_clear_auto_free(msg);
         }
     }
+    mds_dh_put(e);
 
 out:
     xnet_free_msg(msg);

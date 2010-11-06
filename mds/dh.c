@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-29 16:16:19 macan>
+ * Time-stamp: <2010-11-06 16:17:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +26,102 @@
 #include "mds.h"
 #include "xnet.h"
 #include "ring.h"
+
+static inline
+u64 SELECT_SITE(u64 itbid, u64 psalt, int type, u32 *vid)
+{
+    struct chp *p;
+
+    p = ring_get_point(itbid, psalt, hmo.chring[type]);
+    if (IS_ERR(p)) {
+        hvfs_err(xnet, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
+        return -1UL;
+    }
+    *vid = p->vid;
+    return p->site_id;
+}
+
+/* mds_dh_data_read()
+ *
+ * try to read the column data from MDSL
+ */
+int __mds_dh_data_read(struct hvfs_index *hi, int column, 
+                       void **data, struct column *c)
+{
+    struct storage_index *si;
+    struct xnet_msg *msg;
+    u64 dsite;
+    u32 vid = 0;
+    int err = 0;
+
+    si = xzalloc(sizeof(*si) + sizeof(struct column_req));
+    if (!si) {
+        hvfs_err(xnet, "xzalloc() storage index failed\n");
+        return -ENOMEM;
+    }
+
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+
+    /* fill the parent (dir) uuid to si.uuid */
+    si->sic.uuid = hi->puuid;
+    si->sic.arg0 = c->stored_itbid;
+    si->scd.cnr = 1;
+    si->scd.cr[0].cno = column;
+    si->scd.cr[0].stored_itbid = c->stored_itbid;
+    si->scd.cr[0].file_offset = c->offset;
+    si->scd.cr[0].req_offset = 0;
+    si->scd.cr[0].req_len = c->len;
+
+    /* select the MDSL site by itbid */
+    dsite = SELECT_SITE(c->stored_itbid, hi->psalt, CH_RING_MDSL, &vid);
+
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDSL_READ, 0, 0);
+    msg->tx.reserved = vid;
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, si, sizeof(*si) +
+                       sizeof(struct column_req));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply, parse the data now */
+    ASSERT(msg->pair->tx.len == c->len, xnet);
+    if (msg->pair->xm_datacheck) {
+        *data = xmalloc(c->len);
+        if (!*data) {
+            hvfs_err(xnet, "xmalloc value region failed.\n");
+            err = -ENOMEM;
+            goto out_msg;
+        }
+        memcpy(*data, msg->pair->xm_data, c->len);
+    } else {
+        hvfs_err(xnet, "recv data read reply ERROR %d\n",
+                 msg->pair->tx.err);
+        xnet_set_auto_free(msg->pair);
+        goto out_msg;
+    }
+
+out_msg:
+    xnet_free_msg(msg);
+out_free:
+    xfree(si);
+
+    return err;
+}
 
 /* mds_dh_init()
  *
@@ -73,6 +169,9 @@ void mds_dh_evict(struct dh *dh)
         hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {
             if (tpos->uuid == hmi.gdt_uuid)
                 continue;
+            /* wait for the reference down to zero */
+            while (atomic_read(&tpos->ref) > 0)
+                xsleep(10);
             hlist_del_init(&tpos->hlist);
             /* we should iterate the bitmap list and release all the
              * bitmap slices */
@@ -90,10 +189,12 @@ void mds_dh_evict(struct dh *dh)
 static inline
 u32 mds_dh_hash(u64 uuid)
 {
-    return hvfs_hash(uuid, 0, 0, HASH_SEL_DH) % hmo.dh.hsize;
+    return hvfs_hash_dh(uuid) % hmo.dh.hsize;
 }
 
 /* mds_dh_insert()
+ *
+ * Return value: -EEXIST or new dhe w/ ref+1
  */
 struct dhe *mds_dh_insert(struct dh *dh, struct hvfs_index *hi)
 {
@@ -106,7 +207,7 @@ struct dhe *mds_dh_insert(struct dh *dh, struct hvfs_index *hi)
     rh = dh->ht + i;
 
     e = xzalloc(sizeof(struct dhe));
-    if (!e)
+    if (unlikely(!e))
         return ERR_PTR(-ENOMEM);
 
     INIT_HLIST_NODE(&e->hlist);
@@ -116,6 +217,8 @@ struct dhe *mds_dh_insert(struct dh *dh, struct hvfs_index *hi)
     e->puuid = hi->puuid;
     /* NOTE: this is the self salt! */
     e->salt = hi->ssalt;
+    e->life = lib_rdtsc();
+    atomic_set(&e->ref, 1);
 
     i = 0;
     xlock_lock(&rh->lock);
@@ -138,6 +241,46 @@ struct dhe *mds_dh_insert(struct dh *dh, struct hvfs_index *hi)
     return e;
 }
 
+/* mds_dh_dt_update() update the e->data pointer as needed
+ *
+ * Return value: 0: updated; 1: unused;
+ */
+int mds_dh_dt_update(struct dh *dh, u64 duuid, struct dir_trigger_mgr *dtm)
+{
+    struct dhe *e = ERR_PTR(-EINVAL);
+    struct regular_hash *rh;
+    struct hlist_node *l;
+    struct dir_trigger_mgr *tmp = NULL;
+    int i, found = 0;
+
+    if (!dtm)
+        return 1;
+    
+    i = mds_dh_hash(duuid);
+    rh = dh->ht + i;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry(e, l, &rh->h, hlist) {
+        if (e->uuid == duuid) {
+            /* wait for the referenct down to zero and update DTM */
+            while (atomic_read(&e->ref) > 0)
+                xsleep(10);
+            tmp = e->data;
+            e->data = dtm;
+            found = 1;
+            break;
+        }
+    }
+    xlock_unlock(&rh->lock);
+
+    if (tmp) {
+        mds_dt_destroy(tmp);
+        xfree(tmp);
+    }
+
+    return !found;
+}
+
 /* mds_dh_remove()
  */
 int mds_dh_remove(struct dh *dh, u64 uuid)
@@ -154,6 +297,9 @@ int mds_dh_remove(struct dh *dh, u64 uuid)
     xlock_lock(&rh->lock);
     hlist_for_each_entry_safe(e, pos, n, &rh->h, hlist) {
         if (e->uuid == uuid) {
+            /* wait on the reference */
+            while (atomic_read(&e->ref) > 0)
+                xsleep(10);
             hlist_del(&e->hlist);
             hvfs_debug(mds, "Remove dir:%8ld in DH w/  %p\n", uuid, e);
             /* free the bitmap list */
@@ -169,6 +315,75 @@ int mds_dh_remove(struct dh *dh, u64 uuid)
     xlock_unlock(&rh->lock);
 
     return 0;
+}
+
+/* check if a dh entry is long lived. If it is, then we evict it out!
+ */
+void mds_dh_check(time_t cur)
+{
+    struct dh *dh = &hmo.dh;
+    struct regular_hash *rh;
+    struct itbitmap *b, *m;
+    struct dhe *tpos;
+    struct hlist_node *pos, *n;
+    static time_t last_chk = 0;
+    static int last_idx = 0;
+    u64 tsc = lib_rdtsc(), gap;
+    int i;
+
+    /* we trigger the check every 60 seconds */
+    if (cur - last_chk < 60) {
+        last_chk = cur;
+        return;
+    }
+    
+    for (i = 0; i < dh->hsize; i++) {
+        rh = dh->ht + i;
+    retry:
+        xlock_lock(&rh->lock);
+        hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {
+            if (tpos->uuid == hmi.gdt_uuid)
+                continue;
+            /* check the life time, compare with invalidate interval */
+            gap = (tsc > tpos->life ? (tsc - tpos->life) : 
+                   (tpos->life - tsc));
+            if (gap > cpu_frequency * hmo.conf.dh_ii) {
+                hvfs_warning(mds, "Invalidate DH %lx start @ %lx w/ %d\n", 
+                             tpos->uuid, 
+                             gap,
+                             atomic_read(&tpos->ref));
+                /* wait for the reference down to zero */
+                while (atomic_read(&tpos->ref) > 0)
+                    xsleep(10);
+                hvfs_warning(mds, "Invalidate DH %lx end\n", tpos->uuid);
+                hlist_del_init(&tpos->hlist);
+                /* we should iterate the bitmap list and release all the
+                 * bitmap slices */
+                list_for_each_entry_safe(b, m, &tpos->bitmap, list) {
+                    xfree(b);
+                }
+                xfree(tpos);
+            } else if (last_idx == i && 
+                       (cur - tpos->update > hmo.conf.dhupdatei)) {
+                atomic_inc(&tpos->ref);
+                xlock_unlock(&rh->lock);
+                hvfs_debug(mds, "PREReload %lx @ %ld w/ %p ref %d\n", 
+                           tpos->uuid, cur, tpos->data, 
+                           atomic_read(&tpos->ref));
+                mds_dh_reload_nolock(tpos);
+                hvfs_debug(mds, "POSTReload %lx @ %ld w/ %p ref %d\n", 
+                           tpos->uuid, cur, tpos->data, 
+                           atomic_read(&tpos->ref));
+                mds_dh_put(tpos);
+                tpos->update = cur;
+                goto retry;
+            }
+        }
+        xlock_unlock(&rh->lock);
+
+        last_idx++;
+        last_idx %= dh->hsize;
+    }
 }
 
 void __dh_gossip_bitmap(struct itbitmap *bitmap, u64 duuid)
@@ -227,7 +442,7 @@ out_free:
     xnet_raw_free_msg(msg);
 }
 
-/* mds_dh_load()
+/* mds_dh_load() w/ ref+1
  *
  * NOTE: load the directory info from the GDT server
  *
@@ -240,6 +455,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     struct xnet_msg *msg;
     struct chp *p;
     struct dhe *e = ERR_PTR(-ENOTEXIST);
+    struct dir_trigger_mgr *dtm = NULL;
     u64 tsid;                   /* target site id */
     int err = 0, no;
 
@@ -256,7 +472,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     /* check if we are loading the GDT DH */
     if (unlikely(duuid == hmi.gdt_uuid)) {
         /* ok, we should send the request to the ROOT server */
-        tsid = HVFS_RING(0);
+        tsid = mds_select_ring(&hmo);
 
         /* prepare the msg */
         xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.xc->site_id,
@@ -277,7 +493,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     thi.hash = hvfs_hash(duuid, hmi.gdt_salt, 0, HASH_SEL_GDT);
 
     e = mds_dh_search(dh, hmi.gdt_uuid);
-    if (IS_ERR(e)) {
+    if (unlikely(IS_ERR(e))) {
         hvfs_err(mds, "Hoo, we can NOT find the GDT uuid %ld(%ld).\n",
                  hmi.gdt_uuid, duuid);
         hvfs_err(mds, "This is a fatal error %ld! We must die.\n", 
@@ -285,10 +501,11 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         ASSERT(0, mds);
     }
     thi.itbid = mds_get_itbid(e, thi.hash);
+    mds_dh_put(e);
 
     /* find the MDS server */
     p = ring_get_point(thi.itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
-    if (IS_ERR(p)) {
+    if (unlikely(IS_ERR(p))) {
         hvfs_err(mds, "ring_get_point(%ld) failed with %ld\n", 
                  thi.itbid, PTR_ERR(p));
         e = ERR_PTR(-ECHP);
@@ -297,8 +514,8 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     if (p->site_id == hmo.site_id) {
         struct hvfs_txg *txg;
         
-        hvfs_err(mds, "Load DH (self): uuid %lx itbid %ld, site %lx\n", 
-                 thi.uuid, thi.itbid, p->site_id);
+        hvfs_debug(mds, "Load DH (self): uuid %lx itbid %ld, site %lx\n", 
+                   thi.uuid, thi.itbid, p->site_id);
         /* the GDT service MDS server is myself, so we just lookup the entry
          * in my CBHT. */
         hmr = get_hmr();
@@ -308,11 +525,12 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
             goto out_free;
         }
         
-        thi.flag |= INDEX_LOOKUP;
+        thi.flag |= INDEX_LOOKUP | INDEX_COLUMN;
+        thi.column = HVFS_TRIG_COLUMN;
         txg = mds_get_open_txg(&hmo);
         err = mds_cbht_search(&thi, hmr, txg, &txg);
         txg_put(txg);
-        if (err) {
+        if (unlikely(err)) {
             hvfs_err(mds, "lookup uuid %lx failed w/ %d.\n",
                      thi.uuid, err);
             goto out_free_hmr;
@@ -321,26 +539,62 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         /* Note that we should set the salt manually */
         {
             struct gdt_md *m;
-            int nr = 0;
+            struct column *c = NULL;
+            void *data;
             
-            m = hmr_extract_local(hmr, EXTRACT_MDU, &nr);
+            m = hmr_extract_local(hmr, EXTRACT_MDU, &no);
             if (!m) {
                 hvfs_err(mds, "Extract MDU failed\n");
                 goto out_free_hmr;
+            }
+            if (hmr->flag & MD_REPLY_WITH_DC) {
+                c = hmr_extract_local(hmr, EXTRACT_DC, &no);
+            }
+            
+            if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c) {
+                /* load the trigger content from MDSL */
+                err = __mds_dh_data_read(&thi, HVFS_TRIG_COLUMN, &data, c);
+                if (err) {
+                    hvfs_err(mds, "mds_dh_data_read() failed w/ %d\n", err);
+                } else {
+                    /* construct the directory trigger now */
+                    dtm = mds_dtrigger_parse(data, c->len);
+                    if (IS_ERR(dtm)) {
+                        hvfs_err(mds, "mds_dtrigger_parse failed w/ %ld\n",
+                                 PTR_ERR(dtm));
+                        dtm = NULL;
+                    }
+                }
             }
             thi.ssalt = m->salt;
         }
         
         e = mds_dh_insert(dh, &thi);
-        if (IS_ERR(e) && e != ERR_PTR(-EEXIST)) {
-            hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
+        if (IS_ERR(e)) {
+            if (e != ERR_PTR(-EEXIST)) {
+                hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
+            } else {
+                /* already exist, update or free dtm if needed */
+                if (dtm) {
+                    err = mds_dh_dt_update(dh, thi.uuid, dtm);
+                    if (err) {
+                        hvfs_err(mds, "mds_dh_dt_update DTM "
+                                 "failed w/ %d\n", err);
+                        mds_dt_destroy(dtm);
+                        xfree(dtm);
+                    }
+                }
+            }
+        } else {
+            /* install the trigger now */
+            e->data = dtm;
         }
     out_free_hmr:
         xfree(hmr);
     } else {
         /* ok, we should send the request to the remote site now */
-        hvfs_err(mds, "Load DH (remote): uuid %lx itbid %ld, site %lx\n", 
-                 thi.uuid, thi.itbid, p->site_id);
+        hvfs_debug(mds, "Load DH (remote): uuid %lx itbid %ld, site %lx\n", 
+                   thi.uuid, thi.itbid, p->site_id);
 
         /* prepare the msg */
         xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.xc->site_id, 
@@ -368,6 +622,11 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                      tsid, msg->pair->tx.err);
             e = ERR_PTR(msg->pair->tx.err);
         } else {
+            struct gdt_md *m;
+            struct column *c = NULL;
+            u64 saved_salt;
+            void *data;
+
             hmr = (struct hvfs_md_reply *)(msg->pair->xm_data);
             if (!hmr || hmr->err) {
                 hvfs_err(mds, "dh_load request failed %d\n", 
@@ -381,15 +640,61 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                          "subregion.\n");
                 goto out_free;
             }
+            m = hmr_extract(hmr, EXTRACT_MDU, &no);
+            if (!m) {
+                hvfs_err(mds, "Extract MDU failed\n");
+            }
+            saved_salt = rhi->ssalt;
+            rhi->psalt = hmi.gdt_salt;
+            if (m) {
+                c = hmr_extract(hmr, EXTRACT_DC, &no);
+                if (!c) {
+                    hvfs_err(mds, "hmr_extract DC failed, do not found this "
+                             "subretion.\n");
+                }
+                if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c) {
+                    /* load the trigger content from MDSL */
+                    hvfs_err(mds, "Read in DT itbid %ld offset %ld len %ld\n",
+                             c->stored_itbid, c->offset, c->len);
+                    err = __mds_dh_data_read(rhi, HVFS_TRIG_COLUMN, &data, c);
+                    if (err) {
+                        hvfs_err(mds, "mds_dh_data_read() failed w/ %d\n", err);
+                    } else {
+                        dtm = mds_dtrigger_parse(data, c->len);
+                        if (IS_ERR(dtm)) {
+                            hvfs_err(mds, "mds_dtrigger_parse failed w/ %ld\n",
+                                     PTR_ERR(dtm));
+                            dtm = NULL;
+                        }
+                    }
+                }
+                rhi->ssalt = saved_salt;
+            }
             
             /* Note that, we know that the LDH will return the HI with ssalt
              * set. */
             
             /* key, we got the mdu, let us insert it to the dh table */
             e = mds_dh_insert(dh, rhi);
-            if (IS_ERR(e) && e != ERR_PTR(-EEXIST)) {
-                hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
-                goto out_free;
+            if (IS_ERR(e)) {
+                if(e != ERR_PTR(-EEXIST)) {
+                    hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
+                    goto out_free;
+                } else {
+                    /* already exist, update or free dtm if needed */
+                    if (dtm) {
+                        err = mds_dh_dt_update(dh, rhi->uuid, dtm);
+                        if (err) {
+                            hvfs_err(mds, "mds_dh_dt_update DTM "
+                                     "failed w/ %d\n", err);
+                            mds_dt_destroy(dtm);
+                            xfree(dtm);
+                        }
+                    }
+                }
+            } else {
+                /* install the trigger now */
+                e->data = dtm;
             }
         }
     }
@@ -397,6 +702,255 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
 out_free:
     xnet_free_msg(msg);
     return e;
+}
+
+/* mds_dh_reload_nolock() try to update the DH state
+ */
+void mds_dh_reload_nolock(struct dhe *ue)
+{
+    struct hvfs_md_reply *hmr = NULL;
+    struct hvfs_index thi, *rhi;
+    struct xnet_msg *msg;
+    struct chp *p;
+    struct dhe *e = ERR_PTR(-ENOTEXIST);
+    struct dir_trigger_mgr *dtm = NULL;
+    u64 tsid;
+    int err = 0, no, unreg = 0;
+
+    msg = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!msg) {
+        /* retry with slow method */
+        msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+        if (!msg) {
+            hvfs_debug(mds, "xnet_alloc_msg() in low memory.\n");
+            return;
+        }
+    }
+
+    /* check if we are loading the GDT DH */
+    if (unlikely(ue->uuid == hmi.gdt_uuid)) {
+        /* ok, we should send the request to the ROOT server */
+        tsid = mds_select_ring(&hmo);
+
+        /* prepare the msg */
+        xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.xc->site_id,
+                         tsid);
+        xnet_msg_fill_cmd(msg, HVFS_R2_LGDT, hmo.xc->site_id, hmo.fsid);
+#ifdef XNET_EAGER_WRITEV
+        xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+        goto send_msg;
+    }
+
+    /* prepare the hvfs_index */
+    memset(&thi, 0, sizeof(thi));
+    thi.flag = INDEX_BY_UUID;
+    thi.puuid = hmi.gdt_uuid;
+    thi.psalt = hmi.gdt_salt;
+    thi.uuid = ue->uuid;
+    thi.hash = hvfs_hash(ue->uuid, hmi.gdt_salt, 0, HASH_SEL_GDT);
+
+    e = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+    if (IS_ERR(e)) {
+        hvfs_err(mds, "Hoo, we can NOT find the GDT uuid %ld(%ld).\n",
+                 hmi.gdt_uuid, ue->uuid);
+        hvfs_err(mds, "This is a fatal error %ld! We must die.\n", 
+                 PTR_ERR(e));
+        ASSERT(0, mds);
+    }
+    thi.itbid = mds_get_itbid(e, thi.hash);
+    mds_dh_put(e);
+
+    /* find the MDS server */
+    p = ring_get_point(thi.itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
+    if (IS_ERR(p)) {
+        hvfs_err(mds, "ring_get_point(%ld) failed with %ld\n", 
+                 thi.itbid, PTR_ERR(p));
+        e = ERR_PTR(-ECHP);
+        goto out_free;
+    }
+    if (p->site_id == hmo.site_id) {
+        struct hvfs_txg *txg;
+        
+        hvfs_debug(mds, "Load DH (self): uuid %lx itbid %ld, site %lx\n", 
+                   thi.uuid, thi.itbid, p->site_id);
+        /* the GDT service MDS server is myself, so we just lookup the entry
+         * in my CBHT. */
+        hmr = get_hmr();
+        if (!hmr) {
+            hvfs_err(mds, "get_hmr() failed\n");
+            err = -ENOMEM;
+            goto out_free;
+        }
+        
+        thi.flag |= INDEX_LOOKUP | INDEX_COLUMN;
+        thi.column = HVFS_TRIG_COLUMN;
+        txg = mds_get_open_txg(&hmo);
+        err = mds_cbht_search(&thi, hmr, txg, &txg);
+        txg_put(txg);
+        if (err) {
+            hvfs_err(mds, "lookup uuid %lx failed w/ %d.\n",
+                     thi.uuid, err);
+            goto out_free_hmr;
+        }
+
+        /* Note that we should set the salt manually */
+        {
+            struct gdt_md *m;
+            struct column *c = NULL;
+            void *data;
+            
+            m = hmr_extract_local(hmr, EXTRACT_MDU, &no);
+            if (!m) {
+                hvfs_err(mds, "Extract MDU failed\n");
+                goto out_free_hmr;
+            }
+            if (hmr->flag & MD_REPLY_WITH_DC) {
+                c = hmr_extract_local(hmr, EXTRACT_DC, &no);
+            }
+            
+            if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c) {
+                /* load the trigger content from MDSL */
+                hvfs_err(mds, "Read in DT itbid %ld offset %ld len %ld\n",
+                         c->stored_itbid, c->offset, c->len);
+                err = __mds_dh_data_read(&thi, HVFS_TRIG_COLUMN, &data, c);
+                if (err) {
+                    hvfs_err(mds, "mds_dh_data_read() failed w/ %d\n", err);
+                } else {
+                    /* construct the directory trigger now */
+                    dtm = mds_dtrigger_parse(data, c->len);
+                    if (IS_ERR(dtm)) {
+                        hvfs_err(mds, "mds_dtrigger_parse failed w/ %ld\n",
+                                 PTR_ERR(dtm));
+                        dtm = NULL;
+                    }
+                }
+            } else {
+                unreg = 1;
+            }
+        }
+        
+        /* already exist, update or free dtm if needed */
+        if (dtm) {
+            while (atomic_read(&ue->ref) > 1)
+                xsleep(10);
+            if (ue->data) {
+                mds_dt_destroy(ue->data);
+                xfree(ue->data);
+            }
+            /* install the trigger now */
+            ue->data = dtm;
+        } else if (unreg) {
+            while (atomic_read(&ue->ref) > 1)
+                xsleep(10);
+            if (ue->data) {
+                mds_dt_destroy(ue->data);
+                xfree(ue->data);
+            }
+            ue->data = NULL;
+        }
+    out_free_hmr:
+        xfree(hmr);
+    } else {
+        /* ok, we should send the request to the remote site now */
+        hvfs_debug(mds, "Load DH (remote): uuid %lx itbid %ld, site %lx\n", 
+                   thi.uuid, thi.itbid, p->site_id);
+
+        /* prepare the msg */
+        xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.xc->site_id, 
+                         p->site_id);
+        xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_LD, ue->uuid, 0);
+#ifdef XNET_EAGER_WRITEV
+        xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+        xnet_msg_add_sdata(msg, &thi, sizeof(thi));
+
+        tsid = p->site_id;
+    send_msg:
+        err = xnet_send(hmo.xc, msg);
+        if (err) {
+            hvfs_err(mds, "xnet_send() failed with %d\n", err);
+            e = ERR_PTR(err);
+            goto out_free;
+        }
+
+        /* ok, we get the reply: have the mdu in the reply msg */
+        ASSERT(msg->pair, mds);
+
+        if (msg->pair->tx.err) {
+            hvfs_err(mds, "mds_dh_load() from site %lx failed w/ %d\n",
+                     tsid, msg->pair->tx.err);
+            e = ERR_PTR(msg->pair->tx.err);
+        } else {
+            struct gdt_md *m;
+            struct column *c = NULL;
+            void *data;
+
+            hmr = (struct hvfs_md_reply *)(msg->pair->xm_data);
+            if (!hmr || hmr->err) {
+                hvfs_err(mds, "dh_load request failed %d\n", 
+                         !hmr ? -ENOTEXIST : hmr->err);
+                e = !hmr ? ERR_PTR(-ENOTEXIST) : ERR_PTR(hmr->err);
+                goto out_free;
+            }
+            rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+            if (!rhi) {
+                hvfs_err(mds, "hmr_extract MDU failed, do not found this "
+                         "subregion.\n");
+                goto out_free;
+            }
+            m = hmr_extract(hmr, EXTRACT_MDU, &no);
+            if (!m) {
+                hvfs_err(mds, "Extract MDU failed\n");
+            }
+            rhi->psalt = hmi.gdt_salt;
+            if (m) {
+                c = hmr_extract(hmr, EXTRACT_DC, &no);
+                if (!c) {
+                    hvfs_err(mds, "hmr_extract DC failed, do not found this "
+                             "subretion.\n");
+                }
+                if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c) {
+                    /* load the trigger content from MDSL */
+                    err = __mds_dh_data_read(rhi, HVFS_TRIG_COLUMN, &data, c);
+                    if (err) {
+                        hvfs_err(mds, "mds_dh_data_read() failed w/ %d\n", err);
+                    } else {
+                        dtm = mds_dtrigger_parse(data, c->len);
+                        if (IS_ERR(dtm)) {
+                            hvfs_err(mds, "mds_dtrigger_parse failed w/ %ld\n",
+                                     PTR_ERR(dtm));
+                            dtm = NULL;
+                        }
+                    }
+                } else {
+                    unreg = 1;
+                }
+            }
+            
+            if (dtm) {
+                while (atomic_read(&ue->ref) > 1)
+                    xsleep(10);
+                if (ue->data) {
+                    mds_dt_destroy(ue->data);
+                    xfree(ue->data);
+                }
+                /* install the trigger now */
+                ue->data = dtm;
+            } else if (unreg) {
+                while (atomic_read(&ue->ref) > 1)
+                    xsleep(10);
+                if (ue->data) {
+                    mds_dt_destroy(ue->data);
+                    xfree(ue->data);
+                }
+                ue->data = NULL;
+            }
+        }
+    }
+    
+out_free:
+    xnet_free_msg(msg);
 }
 
 /* mds_dh_search() may block on dh_load
@@ -423,6 +977,8 @@ retry:
     xlock_lock(&rh->lock);
     hlist_for_each_entry(e, l, &rh->h, hlist) {
         if (e->uuid == duuid) {
+            atomic_inc(&e->ref);
+            e->life = lib_rdtsc();
             found = 1;
             break;
         }
@@ -465,8 +1021,10 @@ void mds_dh_gossip(struct dh *dh)
         xlock_lock(&rh->lock);
         hlist_for_each_entry(e, l, &rh->h, hlist) {
             j++;
-            if (j >= stop)
+            if (j >= stop) {
+                atomic_inc(&e->ref);
                 break;
+            }
         }
         xlock_unlock(&rh->lock);
         if (j >= stop)
@@ -479,6 +1037,7 @@ void mds_dh_gossip(struct dh *dh)
         list_for_each_entry(b, &e->bitmap, list) {
             __dh_gossip_bitmap(b, e->uuid);
         }
+        mds_dh_put(e);
     }
 }
 
@@ -644,6 +1203,8 @@ retry:
     }
     xlock_unlock(&e->lock);
 out:
+    mds_dh_put(e);
+    
     return err;
 }
 
@@ -743,6 +1304,8 @@ retry:
     }
     xlock_unlock(&e->lock);
 out:
+    mds_dh_put(e);
+    
     return err;
 }
 
@@ -771,4 +1334,5 @@ void mds_dh_bitmap_dump(struct dh *dh, u64 puuid)
         hvfs_plain(mds, "offset: %s\n", line);
     }
     xlock_unlock(&e->lock);
+    mds_dh_put(e);
 }

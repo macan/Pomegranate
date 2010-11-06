@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-31 20:53:40 macan>
+ * Time-stamp: <2010-11-05 20:33:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -310,13 +310,14 @@ void mds_bitmap_refresh(struct hvfs_index *hi)
     u64 offset;
     int err = 0;
     
+    hvfs_info(mds, "refresh uuid %lx bitmap slice offset %ld.\n",
+              hi->puuid, hi->itbid);
+
     e = mds_dh_search(&hmo.dh, hi->puuid);
     if (IS_ERR(e)) {
         err = PTR_ERR(e);
         goto out;
     }
-    hvfs_info(mds, "refresh uuid %lx bitmap slice offset %ld.\n",
-              hi->puuid, hi->itbid);
     /* try to load the bitmap slice @ hi->itbid */
     offset = BITMAP_ROUNDDOWN(hi->itbid);
     err = mds_bitmap_load(e, offset);
@@ -327,6 +328,7 @@ void mds_bitmap_refresh(struct hvfs_index *hi)
         hvfs_err(mds, "uuid %ld bitmap slice %ld load err w/ %d\n",
                  hi->puuid, offset, err);
     }
+    mds_dh_put(e);
     
 out:
     return;
@@ -347,6 +349,7 @@ void mds_bitmap_refresh_all(u64 duuid)
         err = PTR_ERR(e);
         return;
     }
+
     hvfs_info(mds, "refresh uuid %lx salt %ld bitmaps\n", duuid, e->salt);
 
     do {
@@ -373,6 +376,8 @@ void mds_bitmap_refresh_all(u64 duuid)
         xlock_unlock(&e->lock);
         offset += XTABLE_BITMAP_SIZE;
     } while (1);
+    mds_dh_put(e);
+    
     hvfs_debug(mds, "refresh_all w/ %d\n", err);
 }
 
@@ -431,6 +436,7 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
     }
     hash = hvfs_hash_gdt(e->uuid, hmi.gdt_salt);
     itbid = mds_get_itbid(gdte, hash);
+    mds_dh_put(gdte);
     
     /* find the MDS server */
     p = ring_get_point(itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
@@ -878,6 +884,7 @@ retry:
                 *itbid = b->offset + XTABLE_BITMAP_SIZE;
                 if (b->flag & BITMAP_END) {
                     xlock_unlock(&e->lock);
+                    mds_dh_put(e);
                     return 1;
                 } else 
                     continue;
@@ -888,6 +895,7 @@ retry:
             xlock_unlock(&e->lock);
             err = mds_bitmap_load(e, *itbid);
             if (err == -ENOTEXIST) {
+                mds_dh_put(e);
                 return 1;
             } else if (err) {
                 hvfs_err(mds, "Loading DHE %ld bitmap %ld failed w/ %d\n",
@@ -898,11 +906,13 @@ retry:
         } else if (*itbid >= b->offset + XTABLE_BITMAP_SIZE) {
             if (b->flag & BITMAP_END) {
                 xlock_unlock(&e->lock);
+                mds_dh_put(e);
                 return 1;
             }
         }
     }
     xlock_unlock(&e->lock);
+    mds_dh_put(e);
     
 out:
     return err;

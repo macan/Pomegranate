@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-27 14:30:34 macan>
+ * Time-stamp: <2010-11-04 23:34:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -350,6 +350,7 @@ int mds_bc_dir_check(struct xnet_msg *msg, struct hvfs_index *hi)
     }
     
     itbid = mds_get_itbid(e, hi->hash);
+    mds_dh_put(e);
     if (itbid != hi->itbid || hmo.conf.option & HVFS_MDS_CHRECHK) {
         p = ring_get_point(itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
         if (IS_ERR(p)) {
@@ -497,7 +498,7 @@ int mds_bc_backend_load(struct bc_entry *be, u64 itbid, u64 location)
 
     err = xnet_send(hmo.xc, msg);
     if (err) {
-        hvfs_err(mds, "Request to load bitmap of %ld location 0x%lx failed\n",
+        hvfs_err(mds, "Request to load bitmap of %lx location 0x%lx failed\n",
                  be->uuid, location + be->offset);
         goto out_free_msg;
     }
@@ -606,6 +607,7 @@ int __customized_send_request(struct bc_commit *commit)
         hi.uuid = commit->core.uuid;
         hi.hash = hvfs_hash_gdt(hi.uuid, hmi.gdt_salt);
         hi.itbid = mds_get_itbid(e, hi.hash);
+        mds_dh_put(e);
         hi.data = mu;
 
         /* update the size and the offset in ITE */
@@ -882,6 +884,7 @@ int mds_bc_backend_commit(void)
         }
         mds_bc_commit_put(bc);
     }
+    mds_dh_put(gdte);
 
     /* free hmr */
     xfree(hmr);

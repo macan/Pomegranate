@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-28 17:48:58 macan>
+ * Time-stamp: <2010-11-03 23:50:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,7 +44,7 @@ int mds_client_dispatch(struct xnet_msg *msg)
         op = HVFS_TX_FORGET;    /* no need to TXC, one-shot */
 
     tx = mds_alloc_tx(op, msg);
-    if (!tx) {
+    if (unlikely(!tx)) {
         /* do not retry myself */
         hvfs_err(mds, "mds_alloc_tx() failed");
         return -ENOMEM;

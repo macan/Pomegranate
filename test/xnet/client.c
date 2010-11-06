@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-31 19:36:58 macan>
+ * Time-stamp: <2010-11-02 18:15:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -140,6 +140,7 @@ int SET_ITBID(struct hvfs_index *hi)
         return PTR_ERR(e);
     }
     hi->itbid = mds_get_itbid(e, hi->hash);
+    mds_dh_put(e);
 
     return 0;
 }
@@ -1865,6 +1866,7 @@ int lookup_root()
     hi.uuid = hmi.root_uuid;
     hi.hash = hvfs_hash_gdt(hi.uuid, hmi.gdt_salt);
     hi.itbid = mds_get_itbid(gdte, hi.hash);
+    mds_dh_put(gdte);
     hi.flag = INDEX_LOOKUP | INDEX_BY_UUID;
 
     dsite = SELECT_SITE(hi.itbid, hi.psalt, CH_RING_MDS, &vid);
@@ -1947,7 +1949,8 @@ int create_root()
     hi.uuid = hmi.root_uuid;
     hi.hash = hvfs_hash(hi.uuid, hmi.gdt_salt, 0, HASH_SEL_GDT);
     hi.itbid = mds_get_itbid(gdte, hi.hash);
-
+    mds_dh_put(gdte);
+    
     /* find the GDT service MDS */
     p = ring_get_point(hi.itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
     if (IS_ERR(p)) {
@@ -2005,6 +2008,7 @@ int dh_insert(u64 uuid, u64 puuid, u64 ssalt)
         goto out;
     }
     hvfs_debug(xnet, "Insert dir:%lx in DH w/  %p\n", uuid, e);
+    mds_dh_put(e);
 out:
     return err;
 }
@@ -2021,6 +2025,8 @@ int dh_search(u64 uuid)
         goto out;
     }
     hvfs_debug(xnet, "Search dir:%lx in DH hit %p\n", uuid, e);
+    mds_dh_put(e);
+    
 out:
     return err;
 }
@@ -2058,10 +2064,12 @@ int bitmap_insert(u64 uuid, u64 offset)
     }
     err = __mds_bitmap_insert(e, b);
     if (err) {
+        mds_dh_put(e);
         hvfs_err(xnet, "__mds_bitmap_insert() failed %d\n", err);
         goto out_free;
     }
-
+    mds_dh_put(e);
+    
 out:
     return err;
 out_free:
@@ -2096,9 +2104,11 @@ int bitmap_insert2(u64 uuid, u64 offset, void *bitmap, int len)
     }
     err = __mds_bitmap_insert(e, b);
     if (err) {
+        mds_dh_put(e);
         hvfs_err(xnet, "__mds_bitmap_insert() failed %d\n", err);
         goto out_free;
     }
+    mds_dh_put(e);
 
 out:
     return err;

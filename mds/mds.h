@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-29 15:05:42 macan>
+ * Time-stamp: <2010-11-06 17:55:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -88,6 +88,8 @@ struct mds_conf
     int xnet_resend_to;         /* xnet resend timeout */
     int hb_interval;            /* heart beat interval */
     int scrub_interval;         /* scurb interval */
+    int dh_ii;                  /* dh invalidate interval */
+    int dhupdatei;              /* dh update interval */
     int gto;                    /* gossip timeout */
     s8 itbid_check;             /* should we do ITBID check? */
     u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
@@ -295,6 +297,9 @@ struct itb *itb_dirty(struct itb *, struct hvfs_txg *, struct itb_lock *,
                       struct hvfs_txg **);
 int itb_search(struct hvfs_index *, struct itb *, void *, struct hvfs_txg *,
                struct itb **, struct hvfs_txg **);
+int itb_search_dtriggered(struct hvfs_index *, struct itb *, void *,
+                          struct hvfs_txg *, struct  itb **,
+                          struct hvfs_txg **);
 int itb_readdir(struct hvfs_index *, struct itb *, struct hvfs_md_reply *);
 int itb_cache_init(struct itb_cache *, int);
 int itb_cache_destroy(struct itb_cache *);
@@ -377,10 +382,18 @@ int dconf_init(void);
 void dconf_destroy(void);
 
 /* for dh.c */
+static inline
+void mds_dh_put(struct dhe *e)
+{
+    atomic_dec(&e->ref);
+}
+void mds_dh_check(time_t cur);
 int mds_dh_init(struct dh *, int);
 void mds_dh_destroy(struct dh *);
 struct dhe *mds_dh_load(struct dh *, u64);
+void mds_dh_reload_nolock(struct dhe *e);
 struct dhe *mds_dh_insert(struct dh *, struct hvfs_index *);
+int mds_dh_dt_update(struct dh *, u64, struct dir_trigger_mgr *);
 struct dhe *mds_dh_search(struct dh *, u64);
 int mds_dh_remove(struct dh *, u64);
 u64 mds_get_itbid(struct dhe *, u64);
@@ -530,5 +543,31 @@ void ft_report(u64 site_id, u64 state);
 void ft_update_active_site(struct chring *r);
 void ft_gossip_send(void);
 void ft_gossip_recv(struct xnet_msg *);
+
+/* trigger.c */
+struct dhe *mds_prepare_dir_trigger(struct hvfs_index *hi);
+void mds_fina_dir_trigger(struct dhe *);
+int mds_dir_trigger(u16, struct itb *, struct ite *, struct hvfs_index *,
+                    int, struct dir_trigger_mgr *);
+struct dir_trigger_mgr *mds_dtrigger_parse(void *data, size_t len);
+void mds_dh_dt_destroy(struct dhe *);
+void mds_dt_destroy(struct dir_trigger_mgr *);
+
+/* Region for directory triggers */
+#define PREPARE_DIR_TRIGGER(dhe, hi) ({             \
+            (dhe) = mds_prepare_dir_trigger(hi);    \
+        })
+#define SETUP_DIR_TRIGGER(dhe, where, itb, ite, hi, err, exit) do {     \
+        int __err;                                                      \
+        if (likely(IS_ERR(dhe))) {                                      \
+            break;                                                      \
+        }                                                               \
+        __err = mds_dir_trigger(where, itb, ite, hi, ret, dhe->data);   \
+        if (__err == TRIG_ABORT) {                                      \
+            err = -EDTRIGSTOP;                                          \
+            goto exit;                                                  \
+        }                                                               \
+    } while (0)
+#define FINA_DIR_TRIGGER(dhe) ({mds_fina_dir_trigger(dhe);})
 
 #endif

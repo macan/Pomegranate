@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-31 20:59:21 macan>
+ * Time-stamp: <2010-11-03 23:11:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -262,6 +262,8 @@ static void *mds_timer_thread_main(void *arg)
         mds_hb_wrapper(cur);
         /* next, checking the scrub progress */
         mds_scrub(cur);
+        /* next, check the dh hash table */
+        mds_dh_check(cur);
         /* FIXME: */
     }
 
@@ -401,11 +403,11 @@ int mds_cbht_evict_default(struct bucket *b, void *arg0, void *arg1)
                 goto out_unlock;
             }
 
+            hvfs_warning(mds, "DO evict on clean ITB %ld txg %ld\n", 
+                         ih->itbid, ih->txg);
             itb_put((struct itb *)ih);
         }
         txg_put(t);
-        hvfs_err(mds, "DO evict on clean ITB %ld txg %ld\n", 
-                 ih->itbid, ih->txg);
         goto out;
     } else if (ih->state == ITB_STATE_DIRTY) {
         hvfs_debug(mds, "DO not evict dirty ITB %ld\n", ih->itbid);
@@ -569,6 +571,8 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(txg_interval, value);
     HVFS_MDS_GET_ENV_atoi(unlink_interval, value);
     HVFS_MDS_GET_ENV_atoi(bitmap_cache_interval, value);
+    HVFS_MDS_GET_ENV_atoi(dh_ii, value);
+    HVFS_MDS_GET_ENV_atoi(dhupdatei, value);
     HVFS_MDS_GET_ENV_atoi(txg_buf_len, value);
     HVFS_MDS_GET_ENV_atoi(bc_roof, value);
     HVFS_MDS_GET_ENV_atoi(txg_ddht_size, value);
@@ -599,6 +603,11 @@ int mds_config(void)
         hmo.conf.txg_interval = 30;
     if (!hmo.conf.bitmap_cache_interval)
         hmo.conf.bitmap_cache_interval = 5;
+    /* set default dh invalidate interval to ONE hour */
+    if (!hmo.conf.dh_ii)
+        hmo.conf.dh_ii = 3600;
+    if (!hmo.conf.dhupdatei)
+        hmo.conf.dhupdatei = 60;
     if (!hmo.conf.gto)
         hmo.conf.gto = 1;
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-16 18:31:00 macan>
+ * Time-stamp: <2010-11-06 17:55:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,6 +40,10 @@ struct dhe
     u64 uuid;                   /* UUID of this directory */
     u64 puuid;                  /* UUID of the parent directory */
     u64 salt;                   /* salt of this directory */
+    u64 life;                   /* when this dhe is loaded */
+    time_t update;              /* reload update time */
+    void *data;                 /* pointer to Trigger data (DTM) */
+    atomic_t ref;               /* the reference count */
 };
 
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-31 18:18:29 macan>
+ * Time-stamp: <2010-11-04 00:28:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -176,7 +176,7 @@ void mds_lookup(struct hvfs_tx *tx)
     int err;
 
     /* sanity checking */
-    if (tx->req->tx.len < sizeof(*hi)) {
+    if (unlikely(tx->req->tx.len < sizeof(*hi))) {
         hvfs_err(mds, "Invalid LOOKUP request %d received len %d\n", 
                  tx->req->tx.reqno, tx->req->tx.len);
         err = -EINVAL;
@@ -237,7 +237,7 @@ void mds_create(struct hvfs_tx *tx)
     lib_timer_B();
 #endif
     /* sanity checking */
-    if (tx->req->tx.len < sizeof(*hi)) {
+    if (unlikely(tx->req->tx.len < sizeof(*hi))) {
         hvfs_err(mds, "Invalid CREATE request %d received\n", 
                  tx->req->tx.reqno);
         err = -EINVAL;
@@ -259,7 +259,7 @@ void mds_create(struct hvfs_tx *tx)
 
     /* alloc hmr */
     hmr = get_hmr();
-    if (!hmr) {
+    if (unlikely(!hmr)) {
         hvfs_err(mds, "get_hmr() failed\n");
         /* do not retry myself */
         mds_free_tx(tx);
@@ -308,7 +308,7 @@ void mds_update(struct hvfs_tx *tx)
 
     /* sanity checking */
     if (tx->req->tx.len < sizeof(*hi)) {
-        hvfs_err(mds, "Invalid LOOKUP request %d received\n", 
+        hvfs_err(mds, "Invalid UPDATE request %d received\n", 
                  tx->req->tx.reqno);
         err = -EINVAL;
         goto send_rpy;

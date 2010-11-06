@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-01 14:10:34 macan>
+ * Time-stamp: <2010-11-02 23:15:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -405,6 +405,8 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
                      hi->puuid, err);
             /* FIXME: we should return the err and revoke the inserted ITE! */
         }
+    } else {
+        /* FIXME: we should update the parent directory's mtime and ctime */
     }
     err = 0;
     
@@ -1204,9 +1206,18 @@ void itb_free(struct itb *i)
 
     xrwlock_destroy(&i->h.lock);
     
-    xlock_lock(&hmo.ic.lock);
-    list_add_tail(&i->h.list, &hmo.ic.lru);
-    xlock_unlock(&hmo.ic.lock);
+    /* check if we should truely free this itb */
+    if (hlist_unhashed(&i->h.cbht) && hmo.conf.memlimit <= 
+        atomic_read(&hmo.ic.csize) *
+        (sizeof(struct itb) + ITB_SIZE * sizeof(struct ite))) {
+        xfree(i);
+        atomic_dec(&hmo.ic.csize);
+    } else {
+        /* add to the free list */
+        xlock_lock(&hmo.ic.lock);
+        list_add_tail(&i->h.list, &hmo.ic.lru);
+        xlock_unlock(&hmo.ic.lock);
+    }
     atomic64_dec(&hmo.prof.cbht.aitb);
 }
 
@@ -1710,6 +1721,281 @@ out:
     else
         itb_index_wunlock(l);
 out_nolock:
+    *oi = itb;
+    return ret;
+refresh:
+    /* already released index.lock */
+    if (unlikely((*oi) == ERR_PTR(-ERESTART))) {
+        ret = -ERESTART;
+        goto out_nolock;
+    } else {
+        itb = *oi;
+        goto retry;
+    }
+}
+
+/* itb_search_dtriggered() is a directory triggered version of itb_search()
+ */
+int itb_search_dtriggered(struct hvfs_index *hi, struct itb *itb, 
+                          void *data, struct hvfs_txg *txg, 
+                          struct itb **oi, struct hvfs_txg **otxg)
+{
+    u64 offset, pos;
+    u64 total = 1 << (ITB_DEPTH + 1);
+    atomic64_t *as;
+    struct itb_index *ii;
+    struct itb_lock *l;
+    struct dhe *e;
+    int ret = -ENOENT;
+
+    PREPARE_DIR_TRIGGER(e, hi);
+    
+    /* NOTE: if we are in retrying, we know that the ITB will not COW
+     * again! */
+retry:
+    if (likely(hmo.conf.itbid_check)) {
+        if (((hi->hash >> ITB_DEPTH) & ((1 << itb->h.depth) - 1)) !=
+            itb->h.itbid) {
+            /* This means the ITB we choose has completed one split, and it is
+             * not the target location we should resident in. We need restart
+             * our access. */
+            ret = -ESPLIT;
+            hvfs_debug(mds, "Under SPLIT, Location Changed.(%ld vs %ld)"
+                       " %s retry\n",
+                       ((hi->hash >> ITB_DEPTH) & ((1 << itb->h.depth) - 1)),
+                       itb->h.itbid,
+                       hi->name);
+            goto out_nolock;
+        }
+    }
+
+    pos = offset = hi->hash & ((1 << itb->h.adepth) - 1);
+    /* get the ITE lock */
+    l = &itb->lock[offset / ITB_LOCK_GRANULARITY];
+    if (hi->flag & INDEX_LOOKUP) {
+        itb_index_rlock(l);
+        as = &hmo.prof.itb.rsearch_depth;
+    } else {
+        itb_index_wlock(l);
+        as = &hmo.prof.itb.wsearch_depth;
+    }
+    
+    while (offset < total) {
+        ii = &itb->index[offset];
+        if (ii->flag == ITB_INDEX_FREE)
+            break;
+        atomic64_inc(as);
+        ret = ite_match(&itb->ite[ii->entry], hi);
+
+        if (ii->flag == ITB_INDEX_UNIQUE) {
+            if (ret == ITE_MATCH_MISS) {
+                break;
+            }
+        } else {
+            /* CONFLICT & OVERFLOW */
+            if (ret == ITE_MATCH_MISS) {
+                offset = ii->conflict;
+                continue;
+            }
+        }
+        /* OK, found it, already lock it then do xxx on it */
+        hvfs_verbose(mds, "OK, the ITE do exist in the ITB.\n");
+        if (hi->flag & INDEX_LOOKUP) {
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_PRE_LOOKUP, itb, 
+                              &itb->ite[ii->entry], hi, 
+                              ret, out);
+            /* read MDU to buffer */
+            hi->uuid = itb->ite[ii->entry].uuid;
+            if (hi->flag & INDEX_KV)
+                memcpy(data, &(itb->ite[ii->entry].v), sizeof(struct kv));
+            else
+                memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
+            /* FIXME: we should add symlink handling here! */
+            __data_column_hook(hi, itb, ii, data);
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_POST_LOOKUP, itb,
+                              &itb->ite[ii->entry], hi,
+                              ret, out);
+        } else if (unlikely(hi->flag & INDEX_CREATE)) {
+            /* already exist, so... */
+            if (!(hi->flag & INDEX_CREATE_FORCE)) {
+                /* should return -EEXIST */
+                ret = -EEXIST;
+                goto out;
+            }
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_PRE_FORCE, itb,
+                              &itb->ite[ii->entry], hi,
+                              ret, out);
+            /* FIXME: ok, forcely do it */
+            if (hi->flag & INDEX_CREATE_DIR) {
+                hvfs_debug(mds, "Forcely create dir now \n");
+                /* Forcely create dir? should not happen! */
+                ret = -EEXIST;
+                goto out;
+            } else if (hi->flag & INDEX_CREATE_COPY) {
+                hvfs_debug(mds, "Forcely create with MDU ...\n");
+                *oi = itb_dirty(itb, txg, l, otxg);
+                if (unlikely((*oi) != itb)) {
+                    if (!(*oi)) {
+                        ret = -EAGAIN;  /* w/ itb.rlocked */
+                        goto out_nolock;
+                    } else {
+                        /* this means the itb is cowed, we should refresh
+                         * ourself */
+                        /* w/ itb.runlocked and oi->rlocked */
+                        goto refresh;
+                    }
+                }
+                ite_update(hi, &itb->ite[ii->entry]);
+                hi->uuid = itb->ite[ii->entry].uuid;
+                memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
+            } else if (hi->flag & INDEX_CREATE_LINK) {
+                hvfs_verbose(mds, "Forcely create hard link ...\n");
+                *oi = itb_dirty(itb, txg, l, otxg);
+                if (!(*oi)) {
+                    ret = -EAGAIN;
+                    goto out_nolock;
+                } else if ((*oi) != itb) {
+                    /* this measn the itb is cowed, we should refresh ourself */
+                    goto refresh;
+                }
+                ite_update(hi, &itb->ite[ii->entry]);
+                hi->uuid = itb->ite[ii->entry].uuid;
+                memcpy(data, &(itb->ite[ii->entry].g), 
+                       sizeof(struct link_source));
+            }
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_POST_FORCE, itb,
+                              &itb->ite[ii->entry], hi,
+                              ret, out);
+        } else if (hi->flag & INDEX_MDU_UPDATE) {
+            /* setattr, no failure */
+            hvfs_verbose(mds, "Find the ITE and update the MDU.\n");
+            *oi = itb_dirty(itb, txg, l, otxg);
+            if (unlikely((*oi) != itb)) {
+                if (!(*oi)) {
+                    ret = -EAGAIN;  /* w/ itb.rlocked */
+                    goto out_nolock;
+                } else {
+                    /* this means the itb is cowed, we should refresh ourself */
+                    /* w/ itb.runlocked and oi->rlocked */
+                    goto refresh;
+                }
+            }
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_PRE_UPDATE, itb,
+                              &itb->ite[ii->entry], hi,
+                              ret, out);
+            ite_update(hi, &itb->ite[ii->entry]);
+            hi->uuid = itb->ite[ii->entry].uuid;
+            memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
+            __data_column_hook(hi, itb, ii, data);
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_POST_UPDATE, itb,
+                              &itb->ite[ii->entry], hi,
+                              ret, out);
+        } else if (hi->flag & INDEX_UNLINK) {
+            /* unlink */
+            hvfs_verbose(mds, "Find the ITE and unlink it.\n");
+            *oi = itb_dirty(itb, txg, l, otxg);
+            if (unlikely((*oi) != itb)) {
+                if (!(*oi)) {
+                    ret = -EAGAIN;  /* w/ itb.rlocked */
+                    goto out_nolock;
+                } else {
+                    /* this means the itb is cowed, we should refresh ourself */
+                    /* w/ itb.runlocked and oi->rlocked */
+                    goto refresh;
+                }
+            }
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_PRE_UNLINK, itb,
+                              &itb->ite[ii->entry], hi,
+                              ret, out);
+            ite_unlink(&itb->ite[ii->entry], itb, offset, pos);
+            hi->uuid = itb->ite[ii->entry].uuid;
+            memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_POST_UNLINK, itb,
+                              &itb->ite[ii->entry], hi,
+                              ret, out);
+        } else if (hi->flag & INDEX_LINK_ADD) {
+            /* hard link */
+            hvfs_verbose(mds, "Find the ITE and hard link it.\n");
+            /* check if this is a hard link ITE */
+            if (itb->ite[ii->entry].flag & ITE_FLAG_LS) {
+                ret = -EACCES;
+                goto out;
+            }
+            *oi = itb_dirty(itb, txg, l, otxg);
+            if (!(*oi)) {
+                ret = -EAGAIN;
+                goto out_nolock;
+            } else if ((*oi) != itb) {
+                /* this means the itb is cowed, we should refresh ourself */
+                goto refresh;
+            }
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_PRE_LINKADD, itb,
+                              &itb->ite[ii->entry], hi,
+                              ret, out);
+            /* ok, this is an ugly API, the client put the nlink delta in the
+             * msg->tx.arg0, and mds_linkadd() copy it to hi->dlen, because in
+             * this function we cant access the msg :( */
+            itb->ite[ii->entry].s.mdu.nlink += (int)hi->dlen;
+            if (unlikely(itb->ite[ii->entry].s.mdu.nlink == 0)) {
+                /* Hoo, we should unlink the entry now, make sure that you
+                 * must not unlink the directory entry */
+                itb_del_ite(itb, &itb->ite[ii->entry], offset, pos);
+            }
+            hi->uuid = itb->ite[ii->entry].uuid;
+            memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_POST_LINKADD, itb,
+                              &itb->ite[ii->entry], hi,
+                              ret, out);
+        } else if (hi->flag & INDEX_SYMLINK) {
+            /* symlink */
+            hvfs_err(mds, "Find the ITE and can NOT symlink it.\n");
+            ret = -EEXIST;
+            goto out;
+        } else {
+            hvfs_err(mds, "Hooo, what is your type: 0x%x\n", hi->flag);
+            ret = -EINVAL;
+            goto out;
+        }
+        ret = 0;
+        goto out;
+    }
+    /* OK, can not find it, so ... */
+    hvfs_verbose(mds, "OK, the ITE do NOT exist in the ITB.\n");
+    if (likely(hi->flag & INDEX_CREATE || hi->flag & INDEX_SYMLINK)) {
+        hvfs_verbose(mds, "Not find the ITE and create/symlink it.\n");
+        /* checking the split status */
+        *oi= itb_dirty(itb, txg, l, otxg);
+        if (unlikely((*oi) != itb)) {
+            if (!(*oi)) {
+                ret = -EAGAIN;  /* w/ itb.rlocked, index lock dropped */
+                goto out_nolock;
+            } else {
+                /* this means the itb is cowed, we should refresh ourself */
+                /* w/ itb.runlocked and oi->rlocked */
+                /* NOTE: maybe return -ERESTART to redo the access */
+                goto refresh;
+            }
+        }
+        SETUP_DIR_TRIGGER(e, DIR_TRIG_PRE_CREATE, itb,
+                          NULL, hi, ret, out);
+        ret = itb_add_ite(itb, hi, data, l, *otxg);
+        SETUP_DIR_TRIGGER(e, DIR_TRIG_POST_CREATE, itb,
+                          NULL, hi, ret, out);
+    } else {
+        /* other operations means ENOENT */
+        if (itb->h.flag == ITB_JUST_SPLIT)
+            ret = -ESPLIT;
+        else
+            ret = -ENOENT;
+    }
+out:
+    /* put the lock */
+    if (hi->flag & INDEX_LOOKUP)
+        itb_index_runlock(l);
+    else
+        itb_index_wunlock(l);
+out_nolock:
+    FINA_DIR_TRIGGER(e);
     *oi = itb;
     return ret;
 refresh:

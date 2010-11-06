@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-28 16:43:03 macan>
+ * Time-stamp: <2010-11-06 19:00:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -171,6 +171,71 @@ struct bitmap_delta
 
 #include "dh.h"
 #include "lib.h"
+
+/* region for dtrigger */
+#define TRIG_CONTINUE   0
+#define TRIG_ABORT      1
+
+typedef int (*DT_MAIN)(u16 where, struct itb *, struct ite *, 
+                       struct hvfs_index *, int status);
+
+struct dt_ccode
+{
+    char tmp_file[32];
+    void *dlhandle;
+    DT_MAIN dtmain;
+};
+
+struct dt_python
+{
+    char tmp_file[32];
+    char module[16];
+};
+
+struct dir_trigger
+{
+    /* preconditions
+     * Inputs:
+     * 1. this itb entry, this ite entry. (So you can get MDU, KV...)
+     * 2. the hi index for this operation. (So you can determine whether you
+     * should act on it.)
+     *
+     * Outputs:
+     * 1. ABORT or CONTINUE;
+     * 2. maybe modified hi index
+     * 3. RMU requests
+     */
+    void *code;
+
+#define DIR_TRIG_NATIVE         0 /* native language */
+#define DIR_TRIG_C              1 /* c dynamic binary lib (.so) */
+#define DIR_TRIG_PYTHON         2 /* python source code */
+    u16 type;
+
+#define DIR_TRIG_NONE           0
+#define DIR_TRIG_PRE_FORCE      1
+#define DIR_TRIG_POST_FORCE     2
+#define DIR_TRIG_PRE_CREATE     3
+#define DIR_TRIG_POST_CREATE    4
+#define DIR_TRIG_PRE_LOOKUP     5
+#define DIR_TRIG_POST_LOOKUP    6
+#define DIR_TRIG_PRE_UNLINK     7
+#define DIR_TRIG_POST_UNLINK    8
+#define DIR_TRIG_PRE_LINKADD    9
+#define DIR_TRIG_POST_LINKADD   10
+#define DIR_TRIG_PRE_UPDATE     11
+#define DIR_TRIG_POST_UPDATE    12
+#define DIR_TRIG_PRE_LIST       13
+#define DIR_TRIG_POST_LIST      14
+    u16 where;                  /* trigger at where */
+    int len;                    /* code length */
+};
+
+struct dir_trigger_mgr
+{
+    int nr;
+    struct dir_trigger dt[0];
+};
 
 /* APIs */
 /* int mds_bitmap_lookup(struct itbitmap *, u64); */

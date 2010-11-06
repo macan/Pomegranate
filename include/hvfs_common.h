@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-20 22:20:32 macan>
+ * Time-stamp: <2010-11-06 17:27:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,6 +40,8 @@ struct llfs_ref
 /* the HVFS metadata unit */
 struct mdu 
 {
+    /* NOTE THAT: this mdu.flags share the id space with kv.flags and
+     * ls.flags, we have pre-allocate the forth 4bits to kv flags!! */
     /* section for general info: 32B */
 #define HVFS_MDU_IF_DIRSYNC     0x00000010 /* dissync */
 #define HVFS_MDU_IF_IMMUTABLE   0x00000020 /* immutable file */
@@ -57,6 +59,11 @@ struct mdu
 
 #define HVFS_MDU_IF_LINKT       0x00800000 /* hard link target */
 #define HVFS_MDU_IF_KV          0x00400000 /* kv file */
+
+#define HVFS_MDU_IF_TRIG        0x00200000 /* trigger support based on
+                                            * directory, the default trigger
+                                            * column for HVFS files are
+                                            * HVFS_TRIG_COLUMN. */
     u32 flags;
 
     u32 uid;

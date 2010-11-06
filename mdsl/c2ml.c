@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 10:26:01 macan>
+ * Time-stamp: <2010-11-05 00:36:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -130,10 +130,11 @@ void mdsl_read(struct xnet_msg *msg)
         msa.iov_nr = 1;
         err = mdsl_storage_fd_read(fde, &msa);
         if (err) {
-            hvfs_err(mdsl, "read the dir %ld data column %ld offset %ld"
-                     "failed w/ %d\n",
-                     si->sic.uuid, si->scd.cr[i].cno, si->scd.cr[i].req_offset,
-                     err);
+            hvfs_err(mdsl, "read the dir %ld data column %ld "
+                     "offset %ld len %ld failed w/ %d\n",
+                     si->sic.uuid, si->scd.cr[i].cno, 
+                     si->scd.cr[i].req_offset,
+                     si->scd.cr[i].req_len, err);
             mdsl_storage_fd_put(fde);
             goto cleanup_send_rpy;
         }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-04 14:16:58 macan>
+ * Time-stamp: <2010-11-06 17:52:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,9 +34,27 @@ u32 hvfs_lib_tracing_flags = HVFS_DEFAULT_LEVEL;
 struct list_head glt;           /* global lock table */
 #endif
 
+u64 cpu_frequency = 0;
+
 void lib_init(void)
 {
+    FILE *fp;
+    
     srandom(time(NULL));
+    /* get the cpu frequency */
+    fp = popen("cat /proc/cpuinfo | grep 'cpu MHz' | "
+               "awk '{print $4}' | head -n1", "r");
+    if (!fp) {
+        hvfs_err(lib, "get cpu frequency failed w/ %s(%d)\n",
+                 strerror(errno), errno);
+        return;
+    }
+    fscanf(fp, "%ld", &cpu_frequency);
+    pclose(fp);
+    if (!cpu_frequency)
+        cpu_frequency = 2000;
+    hvfs_info(lib, "Detect CPU frequency: %ld MHz\n", cpu_frequency);
+    cpu_frequency *= 1024 * 1024;
 }
 
 /**

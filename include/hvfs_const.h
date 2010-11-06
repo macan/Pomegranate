@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-24 23:31:24 macan>
+ * Time-stamp: <2010-11-03 16:34:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,6 +31,8 @@
 #define HVFS_RING_VID_MAX       256
 
 #define HVFS_GDT_BITMAP_COLUMN  0 /* default bitmap data column in GDT dir */
+#define HVFS_TRIG_COLUMN        1 /* default trigger column for each
+                                   * directory */
 
 #define HVFS_DEFAULT_UMASK      0644
 #define HVFS_DIR_UMASK          0755
@@ -77,4 +79,6 @@ static char *hvfs_ccolor[] __attribute__((unused)) =
 #define EHWAIT          1033    /* wait a few seconds and retry */
 #define ERECOVER        1034    /* notify a recover process to the caller */
 #define EISEMPTY        1035    /* the bitmap slice is empty */
+#define EDTRIGSTOP      1036    /* operation stopped by dtrigger */
+#define ENOTRIG         1037    /* no trigger defined */
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-24 16:53:09 macan>
+ * Time-stamp: <2010-11-03 16:32:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -900,7 +900,10 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
         hmr->flag |= ((u32)i->h.depth << 24);
         goto out;
     }
-    err = itb_search(hi, i, mdu_rpy, txg, &oi, otxg);
+    if (unlikely(hi->flag & INDEX_DTRIG))
+        err = itb_search_dtriggered(hi, i, mdu_rpy, txg, &oi, otxg);
+    else
+        err = itb_search(hi, i, mdu_rpy, txg, &oi, otxg);
     /* NOTE: we should use the substituted ITB now */
     i = oi;
     if (unlikely(err)) {

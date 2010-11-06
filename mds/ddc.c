@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-29 17:27:27 macan>
+ * Time-stamp: <2010-11-02 18:28:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -135,6 +135,7 @@ int txg_ddc_update_cbht(struct dir_delta_au *dda)
 
     hmr = get_hmr();
     if (!hmr) {
+        mds_dh_put(gdte);
         hvfs_err(mds, "get_hmr() failed\n");
         err = -ENOMEM;
         goto out;
@@ -147,6 +148,7 @@ int txg_ddc_update_cbht(struct dir_delta_au *dda)
     hi.uuid = dda->dd.duuid;
     hi.hash = hvfs_hash_gdt(hi.uuid, hmi.gdt_salt);
     hi.itbid = mds_get_itbid(gdte, hi.hash);
+    mds_dh_put(gdte);
     hi.puuid = hmi.gdt_uuid;
     hi.psalt = hmi.gdt_salt;
     hi.data = &mu;

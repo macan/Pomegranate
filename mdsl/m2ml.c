@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-31 23:11:47 macan>
+ * Time-stamp: <2010-11-05 08:06:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -137,8 +137,8 @@ void mdsl_itb(struct xnet_msg *msg)
      * tx.arg0: puuid
      * tx.arg1: itbid
      */
-    hvfs_info(mdsl, "Recv ITB load requst <%ld,%ld> from site %lx\n",
-              msg->tx.arg0, msg->tx.arg1, msg->tx.ssite_id);
+    hvfs_debug(mdsl, "Recv ITB load requst <%ld,%ld> from site %lx\n",
+               msg->tx.arg0, msg->tx.arg1, msg->tx.ssite_id);
 
     itb = xmalloc(sizeof(*itb));
     if (!itb) {
@@ -214,7 +214,8 @@ void mdsl_itb(struct xnet_msg *msg)
         goto out_put2;
     }
 
-    hvfs_err(mdsl, "Read ITB %ld len %d\n", itb->h.itbid, atomic_read(&itb->h.len));
+    hvfs_warning(mdsl, "Read ITB %ld len %d to %lx\n", 
+                 itb->h.itbid, atomic_read(&itb->h.len), msg->tx.ssite_id);
     data_len = atomic_read(&itb->h.len) - sizeof(*itb);
     if (data_len > 0) {
         data = xmalloc(data_len);
@@ -968,8 +969,8 @@ void mdsl_wbtxg(struct xnet_msg *msg)
             struct itb_info *ii;
             
             i = data;
-            hvfs_debug(mdsl, "Recv ITB %ld from site %lx\n",
-                       i->h.itbid, msg->tx.ssite_id);
+            hvfs_warning(mdsl, "Recv commited ITB %ld from site %lx\n",
+                         i->h.itbid, msg->tx.ssite_id);
 
             /* find the toe now */
             toe = toe_lookup(msg->tx.ssite_id, msg->tx.arg1);

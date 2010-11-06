@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-19 11:51:45 macan>
+ * Time-stamp: <2010-11-02 17:47:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -127,6 +127,7 @@ retry:
                  puuid, itbid, name, err);
         create_failed++;
     }
+    mds_dh_put(e);
 /*     hmr_print(hmr); */
     if (!hmr->err) {
         xfree(hmr->data);
@@ -186,6 +187,7 @@ retry:
     } else if (err) {
         atomic64_inc(&miss);
     }
+    mds_dh_put(e);
     
 /*     hmr_print(hmr); */
     if (!hmr->err) {
@@ -245,6 +247,8 @@ retry:
         ASSERT(0, mds);
         unlink_failed++;
     }
+    mds_dh_put(e);
+    
 /*     hmr_print(hmr); */
     if (!hmr->err) {
         xfree(hmr->data);
@@ -270,6 +274,7 @@ int dh_insert(u64 uuid, u64 puuid, u64 psalt)
         goto out;
     }
     hvfs_info(mds, "Insert dir:%8ld in DH w/  %p\n", uuid, e);
+    mds_dh_put(e);
 out:
     return err;
 }
@@ -286,6 +291,7 @@ int dh_search(u64 uuid)
         goto out;
     }
     hvfs_info(mds, "Search dir:%8ld in DH hit %p\n", uuid, e);
+    mds_dh_put(e);
 out:
     return err;
 }
@@ -323,9 +329,11 @@ int bitmap_insert(u64 uuid, u64 offset)
     }
     err = __mds_bitmap_insert(e, b);
     if (err) {
+        mds_dh_put(e);
         hvfs_err(mds, "__mds_bitmap_insert() failed %d\n", err);
         goto out_free;
     }
+    mds_dh_put(e);
 
 out:
     return err;

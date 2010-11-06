@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-29 12:08:43 macan>
+ * Time-stamp: <2010-11-03 23:47:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,6 +34,7 @@
 
 void *mds_gwg;
 struct xnet_prof g_xnet_prof;
+u64 __attribute__((unused)) g_sc = 0;
 
 #define RESEND_TIMEOUT          (0x10)
 #define SEND_TIMEOUT            (120)
@@ -1151,7 +1152,11 @@ int SELECT_CONNECTION(struct xnet_addr *xa, int *idx)
         return ssock;
     }
 
+#if 0
     ssock = lib_random(xa->index);
+#else
+    ssock = (g_sc++) % xa->index;
+#endif
     *idx = ssock;
     xlock_lock(&xa->socklock[ssock]);
     ssock = xa->sockfd[ssock];
@@ -1723,7 +1728,7 @@ retry:
         }
     }
 
-    if (!found) {
+    if (unlikely(!found)) {
         hvfs_err(xnet, "Sorry, we can not find the target site %ld\n",
                  msg->tx.dsite_id);
         err = -EINVAL;
@@ -1742,7 +1747,7 @@ reselect_conn:
     hvfs_debug(xnet, "OK, select connection %d, we will send the msg "
                "site %lx -> %lx ...\n", ssock, 
                msg->tx.ssite_id, msg->tx.dsite_id);
-    if (ssock < 0) {
+    if (unlikely(ssock < 0)) {
         err = -EINVAL;
         goto out;
     }

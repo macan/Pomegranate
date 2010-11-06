@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-28 16:45:18 macan>
+ * Time-stamp: <2010-11-02 16:55:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,6 +97,7 @@ int __aur_itb_split(struct async_update_request *aur)
         goto out;
     }
     p = ring_get_point(i->h.itbid, e->salt, hmo.chring[CH_RING_MDS]);
+    mds_dh_put(e);
     if (IS_ERR(p)) {
         hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
         err = -ECHP;
@@ -147,9 +148,9 @@ int __aur_itb_split(struct async_update_request *aur)
         }
         /* Step 3.inf we should free the ITB */
         itb_put((struct itb *)i->h.twin);
-        itb_free(i);
         hvfs_warning(mds, "Receive the AU split %ld reply from %lx.\n", 
                      i->h.itbid, msg->pair->tx.ssite_id);
+        itb_free(i);
         atomic64_inc(&hmo.prof.mds.split);
     msg_free:
         xnet_free_msg(msg);
@@ -367,7 +368,8 @@ int __aur_itb_bitmap(struct async_update_request *aur)
     }
     xlock_unlock(&g_bitmap_deltas_lock);
     hvfs_err(mds, "local %d remote %d r2 %d skip %d\n", local, remote, r2, skip);
-
+    mds_dh_put(gdte);
+    
 out:
     return err;
 }
@@ -494,6 +496,7 @@ int __aur_dir_delta(struct async_update_request *aur)
     }
     xlock_unlock(&g_dir_deltas_lock);
     hvfs_err(mds, "new %d local %d remote %d\n", new, local, remote);
+    mds_dh_put(gdte);
 
 out:
     return err;

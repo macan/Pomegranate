@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-10-31 15:23:28 macan>
+# Time-stamp: <2010-11-06 22:11:42 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -11,6 +11,7 @@
 CC = gcc
 LD = gcc
 AR = ar
+PYTHON = /bin/env python
 
 INC_PATH = $(HOME_PATH)/include
 LIB_PATH = $(HOME_PATH)/lib
@@ -25,6 +26,9 @@ API = $(HOME_PATH)/api
 
 COMPILE_DATE = `date`
 COMPILE_HOST = `hostname`
+PYTHON_IX = /usr/include/python
+PYTHON_VERSION = $(shell /bin/env python -V 2>&1 | awk '{print $$2}' | sed -e 's/\.[0-9]$$//g')
+PYTHON_LIB = /usr/lib/
 
 # for now we know the number of cores of the target machines is 8, so just set
 # it manually.
@@ -32,7 +36,19 @@ COMPILE_HOST = `hostname`
 GET_CORE = 8
 
 ifeq ($(CPU_CORE),)
-	__CORES__=$(GET_CORE)
+__CORES__=$(GET_CORE)
+endif
+
+ifeq ($(PYTHON_INC),)
+PYTHON_INC = $(PYTHON_IX)$(PYTHON_VERSION)
+$(info ========================================================)
+$(info You should SET 'PYTHON_INC' as the Python include path!!)
+$(info HVFS supports directory trigger and you can write Python)
+$(info plugins now. Have a try!)
+$(info )
+$(info We GUESS the python include path @ $(PYTHON_INC).)
+$(info )
+$(info ========================================================)
 endif
 
 # Debuging the memory and locks
@@ -41,25 +57,32 @@ XCFLAGS = -O2 -rdynamic -g -pg -std=gnu99 -fPIC
 CFLAGS += $(XCFLAGS)
 CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" \
 			-DCHOST="\"$(COMPILE_HOST)\"" -I$(INC_PATH) \
+			-I$(PYTHON_INC) \
 			-I$(LIB_PATH) -I$(MDS) -I$(MDSL) -I$(R2) -D_GNU_SOURCE\
 			-DHVFS_TRACING -DHVFS_DEBUG_MEMORY -DHVFS_DEBUG_LOCK_ \
             -D_USE_SPINLOCK_ -DHVFS_DEBUG_LATENCY_ -DXNET_BLOCKING \
 			-DXNET_EAGER_WRITEV -DCPU_CORE=$(__CORES__)
-LFLAGS += -lrt -lpthread
+
+ifeq ($(DISABLE_PYTHON),)
+CFLAGS += -DUSE_DT_PYTHON
+LFLAGS += $(PYTHON_LIB)libpython$(PYTHON_VERSION).a -lm -lutil
+endif
+LFLAGS += -lrt -lpthread -ldl 
 
 # Region for depend files
 TEST_MDS_SOURCE = cbht.c tx.c dh.c cmd_sender.c misc.c itbsplit.c \
-                  itb_analyzer.c bitmapc.c
+                  itb_analyzer.c bitmapc.c embedpy.c
 TEST_MDSL_SOURCE = mdsl.c storage.c
 TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c client.c \
 					root.c r2cli.c amc.c cr.c client_lat.c
 
 MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \
 				dispatch.c c2m.c fe.c async.c m2m.c spool.c bitmapc.c \
-                ddc.c scrub.c gossip.c capi.c ft.c
+                ddc.c scrub.c gossip.c capi.c ft.c trigger.c
 MDSL_AR_SOURCE = mdsl.c spool.c tcc.c dispatch.c m2ml.c prof.c storage.c \
 				 aio.c c2ml.c
-LIB_AR_SOURCE = lib.c ring.c time.c bitmap.c xlock.c segv.c conf.c md5.c
+LIB_AR_SOURCE = lib.c ring.c time.c bitmap.c xlock.c segv.c conf.c md5.c \
+                embedpy.c
 XNET_AR_SOURCE = xnet.c xnet_simple.c
 R2_AR_SOURCE = mgr.c root.c spool.c x2r.c dispatch.c bparser.c cli.c
 API_AR_SOURCE = api.c

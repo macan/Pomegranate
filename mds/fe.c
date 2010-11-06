@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-16 20:59:28 macan>
+ * Time-stamp: <2010-11-03 23:49:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -343,7 +343,7 @@ int mds_fe_dispatch(struct xnet_msg *msg)
         }
 
         /* modify controller */
-        if (mds_modify_control(msg)) {
+        if (unlikely(mds_modify_control(msg))) {
             return 0;
         }
     dh_lookup:
@@ -358,6 +358,9 @@ int mds_fe_dispatch(struct xnet_msg *msg)
             err = PTR_ERR(e);
             goto out;
         }
+        /* do we need set trigger flag? */
+        if (unlikely(e->data))
+            hi->flag |= INDEX_DTRIG;
         /* search in the bitmap(optional) */
         /* FIXME: bitmap load blocking may happen */
         if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
@@ -369,9 +372,10 @@ int mds_fe_dispatch(struct xnet_msg *msg)
         /* recheck CH ring and forward the request on demand */
         if (itbid != hi->itbid || hmo.conf.option & HVFS_MDS_CHRECHK) {
             p = ring_get_point(itbid, hi->psalt, hmo.chring[CH_RING_MDS]);
-            if (IS_ERR(p)) {
+            if (unlikely(IS_ERR(p))) {
                 hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
                 err = -ECHP;
+                mds_dh_put(e);
                 goto out;
             }
             if (hmo.site_id != p->site_id) {
@@ -385,11 +389,13 @@ int mds_fe_dispatch(struct xnet_msg *msg)
                                    "(%lx vs %lx)\n",
                                    itbid, (msg->tx.flag & XNET_FWD), 
                                    hmo.site_id, p->site_id);
+                        mds_dh_put(e);
                         HVFS_BUG();
                         err = -ERINGCHG;
                         goto out;
                     }
                 }
+                mds_dh_put(e);
                 hvfs_debug(mds, "NEED FORWARD the request to Site %lx "
                            "(%ld vs %ld).\n",
                            p->site_id, itbid, hi->itbid);
@@ -401,6 +407,7 @@ int mds_fe_dispatch(struct xnet_msg *msg)
             }
             hi->itbid = itbid;
         }
+        mds_dh_put(e);
 #ifdef HVFS_DEBUG_LATENCY
         lib_timer_E();
         lib_timer_O(1, "DH and Bitmap search");
