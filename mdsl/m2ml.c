@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-05 08:06:01 macan>
+ * Time-stamp: <2010-11-11 15:39:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1003,7 +1003,9 @@ void mdsl_wbtxg(struct xnet_msg *msg)
             
             /* save the itb_info to open entry */
             if (ii) {
+                xlock_lock(&toe->itb_lock);
                 list_add_tail(&ii->list, &toe->itb);
+                xlock_unlock(&toe->itb_lock);
                 atomic_inc(&toe->itb_nr);
             }
         end_itb:
@@ -1041,8 +1043,9 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                 while (!toe->state && err == 0)
                     err = xcond_timedwait(&toe->wcond, &ts);
                 xcond_unlock(&toe->wcond);
-                toe_put(toe);
             }
+            if (toe)
+                toe_put(toe);
             
             /* find the toe now */
             toe = toe_lookup(te->site_id, te->txg);
@@ -1075,7 +1078,6 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                          toe->begin.site_id, toe->begin.txg, err);
                 goto out_complete;
             }
-            toe_deactive(toe);
             /* ok, we commit the itb modifications to disk after we logged
              * the infos to TXG file. */
             if (!abort) {
@@ -1090,6 +1092,7 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                          te->txg, abort, te->site_id);
             }
         out_complete:
+            toe_deactive(toe);
             xcond_lock(&toe->wcond);
             toe->state = 1;
             xcond_unlock(&toe->wcond);

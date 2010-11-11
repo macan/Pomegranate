@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-12 08:54:22 macan>
+ * Time-stamp: <2010-11-11 19:14:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -110,6 +110,7 @@ struct txg_open_entry *get_txg_open_entry(struct txg_compact_cache *tcc)
     toe->other_region = NULL;
     mcond_init(&toe->cond);
     xcond_init(&toe->wcond);
+    xlock_init(&toe->itb_lock);
     atomic_set(&toe->itb_nr, 0);
     atomic_set(&toe->ref, 1);
 
@@ -131,6 +132,7 @@ void put_txg_open_entry(struct txg_open_entry *toe)
     mcond_destroy(&toe->cond);
     xcond_broadcast(&toe->wcond);
     xcond_destroy(&toe->wcond);
+    xlock_destroy(&toe->itb_lock);
     atomic_dec(&hmo.tcc.used);
     atomic_dec(&hmo.prof.misc.tcc_used);
 }
@@ -260,6 +262,15 @@ int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
                    itb->h.itbid, itb->h.puuid, 
                    atomic_read(&itb->h.len), ii->location, 
                    fde->state);
+        /* FIXME: this should be assertion */
+        if (unlikely(ii->location == 0)) {
+            hvfs_err(mdsl, "Write ITB %ld[%lx] len %d to storage file off "
+                   "%ld fde ST %x.\n",
+                   itb->h.itbid, itb->h.puuid, 
+                   atomic_read(&itb->h.len), ii->location, 
+                   fde->state);
+            HVFS_BUGON("zero location!");
+        }
         mdsl_storage_fd_put(fde);
     } else {
     write_to_tmpfile:

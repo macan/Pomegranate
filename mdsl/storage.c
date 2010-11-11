@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-01 23:58:55 macan>
+ * Time-stamp: <2010-11-11 19:17:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1012,8 +1012,7 @@ int __mdisk_add_range(struct fdhash_entry *fde, u64 begin, u64 end,
 int __mdisk_lookup_nolock(struct fdhash_entry *fde, int op, u64 arg, 
                           range_t **out)
 {
-    int found = 0;
-    int i;
+    int i = 0, found = 0;
     int err = 0;
     
     if (fde->state != FDE_MDISK) {
@@ -1694,6 +1693,19 @@ retry:
             hvfs_err(mdsl, "append_buf_write failed w/ %d\n", err);
             goto out_failed;
         }
+    } else if (fde->state == FDE_ABUF_UNMAPPED) {
+        /* this is surely a transient state, we should try to remap the abuf,
+         * and retry */
+        xlock_lock(&fde->lock);
+        if (fde->state == FDE_ABUF_UNMAPPED) {
+            err = append_buf_flush_remap(fde);
+            if (err) {
+                hvfs_err(mdsl, "append_buf_flush_remap() failed w/ %d\n",
+                         err);
+            }
+        }
+        xlock_unlock(&fde->lock);
+        goto retry;
     } else if (fde->state == FDE_ODIRECT) {
         err = odirect_write(fde, msa);
         if (err) {
@@ -1747,7 +1759,8 @@ int mdsl_storage_fd_read(struct fdhash_entry *fde,
     int err = 0;
 
 retry:
-    if (fde->state == FDE_ABUF || fde->state == FDE_NORMAL) {
+    if (fde->state == FDE_ABUF || fde->state == FDE_NORMAL ||
+        fde->state == FDE_ABUF_UNMAPPED) {
         err = __normal_read(fde, msa);
         if (err) {
             hvfs_err(mdsl, "__normal_read failed w/ %d\n", err);
