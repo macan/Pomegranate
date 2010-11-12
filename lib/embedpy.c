@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-06 21:24:42 macan>
+ * Time-stamp: <2010-11-08 22:54:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -60,6 +60,8 @@ struct DT
     u64 mdu_mtime;
     u64 mdu_dtime;
     u32 mdu_version;
+    /* sdt specific */
+    void *name;
     /* link_source specific */
     u64 ls_hash;
     u64 ls_puuid;
@@ -91,6 +93,35 @@ struct DT
     /* DTM? do we really need it? */
 };
 
+#define C2PY_DICT_SET(dict, input, key, value, err, out) do {       \
+        value = PyLong_FromLong((input));                           \
+        if (!value) {                                               \
+            hvfs_err(lib, "Convert " #key " to PyLong failed.\n");  \
+            goto out;                                               \
+        }                                                           \
+        err = PyDict_SetItemString(dict, #key, value);              \
+        if (err) {                                                  \
+            hvfs_err(lib, "Set " #key " to dict failed.\n");        \
+            goto out;                                               \
+        }                                                           \
+    } while (0)
+
+#define PY2C_MGR_SET(dict, output, key, value, err, out) do {    \
+        long __tmp;                                              \
+                                                                 \
+        value = PyDict_GetItemString(dict, #key);                \
+        if (!value) {                                            \
+            hvfs_err(lib, "Get " #key " from dict failed.\n");   \
+            goto out;                                            \
+        }                                                        \
+        __tmp = PyLong_AsLong(value);                            \
+        if (__tmp == -1) {                                       \
+            hvfs_err(lib, "Convert " #key " to C long failed.\n");  \
+            goto out;                                               \
+        }                                                           \
+        output = __tmp;                                             \
+    } while (0)
+
 struct DT_mgr
 {
     int where;
@@ -107,40 +138,162 @@ int ebpy_c2py(struct DT_mgr *dt_mgr, PyObject **pArgs)
     int err = -EINVAL;
 
     pDict = PyDict_New();
-    /* general region */
-    value = PyInt_FromLong(dt_mgr->where);
-    if (!value) {
-        hvfs_err(lib, "Convert where to PyInt failed.\n");
-        goto out;
-    }
-    err = PyDict_SetItemString(pDict, "where", value);
-    if (err) {
-        hvfs_err(lib, "Set where to directory failed.\n");
-        goto out;
-    }
-    value = PyInt_FromLong(dt_mgr->status);
-    if (!value) {
-        hvfs_err(lib, "Convert status to PyInt failed.\n");
-        goto out;
-    }
-    err = PyDict_SetItemString(pDict, "status", value);
-    if (err) {
-        hvfs_err(lib, "Set status to directory failed.\n");
-        goto out;
-    }
     
-    /* region for itb */
-    value = PyInt_FromLong(dt_mgr->itb->h.puuid);
-    if (!value) {
-        hvfs_err(lib, "Convert itb_puuid to PyInt failed.\n");
-        goto out;
-    }
-    err = PyDict_SetItemString(pDict, "itb_puuid", value);
-    if (err) {
-        hvfs_err(lib, "Set itb_puuid to directory failed.\n");
-        goto out;
-    }
+    /* general region */
+    C2PY_DICT_SET(pDict, dt_mgr->where, where, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->status, status, value, err, out);
 
+    /* region for itb */
+    C2PY_DICT_SET(pDict, dt_mgr->itb->h.puuid, itb_puuid, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->itb->h.itbid, itb_itbid, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->itb->h.hash, itb_hash, value, err, out);
+    C2PY_DICT_SET(pDict, atomic_read(&dt_mgr->itb->h.len), 
+                  itb_len, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->itb->h.txg, itb_txg, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->itb->h.compress_algo, 
+                  itb_compress_algo, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->itb->h.inf, itb_inf, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->itb->h.itu, itb_itu, value, err, out);
+    C2PY_DICT_SET(pDict, atomic_read(&dt_mgr->itb->h.ref),
+                  itb_ref, value, err, out);
+
+    /* region for ite */
+    C2PY_DICT_SET(pDict, dt_mgr->ite->hash, ite_hash, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->uuid, ite_uuid, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->flag, ite_flag, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->namelen, ite_namelen, value, err, out);
+
+    /* region for column info */
+    {
+        PyObject *pList, *column;
+        int i, __err;
+
+        pList = PyList_New(6);
+        if (!pList) {
+            hvfs_err(lib, "create list object failed\n");
+            goto out;
+        }
+        for (i = 0; i < 6; i++) {
+            column = PyList_New(3);
+            if (!column) {
+                hvfs_err(lib, "create column list failed\n");
+                Py_DECREF(pList);
+                goto out;
+            }
+            value = PyLong_FromLong(dt_mgr->ite->column[i].stored_itbid);
+            if (!value) {
+                hvfs_err(lib, "Convert column %d stored_itbid failed.\n",
+                         i);
+                Py_DECREF(column);
+                Py_DECREF(pList);
+                goto out;
+            }
+            __err = PyList_Append(column, value);
+            if (__err) {
+                hvfs_err(lib, "Append stored_itbid to list failed\n");
+                Py_DECREF(value);
+                Py_DECREF(column);
+                Py_DECREF(pList);
+                goto out;
+            }
+            value = PyLong_FromLong(dt_mgr->ite->column[i].len);
+            if (!value) {
+                hvfs_err(lib, "Convert column %d len failed.\n", i);
+                Py_DECREF(column);
+                Py_DECREF(pList);
+                goto out;
+            }
+            __err = PyList_Append(column, value);
+            if (__err) {
+                hvfs_err(lib, "Append len to list failed\n");
+                Py_DECREF(value);
+                Py_DECREF(column);
+                Py_DECREF(pList);
+                goto out;
+            }
+            value = PyLong_FromLong(dt_mgr->ite->column[i].offset);
+            if (!value) {
+                hvfs_err(lib, "Convert column %d offset failed.\n", i);
+                Py_DECREF(column);
+                Py_DECREF(pList);
+                goto out;
+            }
+            __err = PyList_Append(column, value);
+            if (__err) {
+                hvfs_err(lib, "Append offset to list failed\n");
+                Py_DECREF(value);
+                Py_DECREF(column);
+                Py_DECREF(pList);
+                goto out;
+            }
+            /* append this column to the list */
+            __err = PyList_Append(pList, column);
+            if (__err) {
+                hvfs_err(lib, "Append column to list failed\n");
+                Py_DECREF(column);
+                Py_DECREF(pList);
+                goto out;
+            }
+        }
+        /* set plist to the dict */
+        err = PyDict_SetItemString(pDict, "columns", pList);
+        if (err) {
+            hvfs_err(lib, "Set columns to dict failed.\n");
+            goto out;
+        }
+    }
+    /* region for mdu/ls */
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.flags, mdu_flags, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.uid, mdu_uid, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.gid, mdu_gid, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.mode, mdu_mode, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.nlink, mdu_nlink, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.size, mdu_size, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.dev, mdu_dev, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.atime, mdu_atime, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.ctime, mdu_ctime, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.mtime, mdu_mtime, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.dtime, mdu_dtime, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.version, mdu_version, value, err, out);
+
+    /* region for sdt specific */
+    C2PY_DICT_SET(pDict, (u64)dt_mgr->ite->s.name, name, value, err, out);
+
+    /* region for link_source */
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.ls.s_hash, ls_hash, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.ls.s_puuid, ls_puuid, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.ls.s_uuid, ls_uuid, value, err, out);
+
+    /* region for llfs_ref */
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.lr.fsid, llfs_fsid, 
+                  value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->s.mdu.lr.rfino, llfs_rfino, 
+                  value, err, out);
+
+    /* region for gdt specific */
+    C2PY_DICT_SET(pDict, dt_mgr->ite->g.puuid, gdt_puuid, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->g.salt, gdt_salt, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->g.psalt, gdt_psalt, value, err, out);
+
+    /* region for kv specific */
+    C2PY_DICT_SET(pDict, dt_mgr->ite->v.flags, kv_flags, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->v.len, kv_len, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->v.key, kv_key, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->ite->v.klen, kv_klen, value, err, out);
+    C2PY_DICT_SET(pDict, (u64)dt_mgr->ite->v.value, kv_value, value, err, out);
+
+    /* region for hvfs_index */
+    C2PY_DICT_SET(pDict, dt_mgr->hi->namelen, hi_namelen, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->hi->column, hi_column, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->hi->flag, hi_flag, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->hi->uuid, hi_uuid, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->hi->hash, hi_hash, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->hi->itbid, hi_itbid, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->hi->puuid, hi_puuid, value, err, out);
+    C2PY_DICT_SET(pDict, dt_mgr->hi->psalt, hi_psalt, value, err, out);
+    C2PY_DICT_SET(pDict, (u64)dt_mgr->hi->data, hi_data, value, err, out);
+    C2PY_DICT_SET(pDict, (u64)dt_mgr->hi->name, hi_name, value, err, out);
+    
     pTuple = PyTuple_New(1);
     PyTuple_SetItem(pTuple, 0, pDict);
 
@@ -155,10 +308,20 @@ out:
     return err;
 }
 
-int ebpy_py2c(PyObject *pInstace, struct DT_mgr *dt_mgr)
+int ebpy_py2c(PyObject *pInstance, struct DT_mgr *dt_mgr)
 {
-    int err = 0;
+    PyObject *pDict, *value;
+    int err = -EINVAL;
+    
+    pDict = PyObject_GetAttrString(pInstance, "dt");
+    if (!pDict) {
+        hvfs_err(lib, "Get object attr:dt failed\n");
+        goto out;
+    }
+    /* try to get the values */
+    PY2C_MGR_SET(pDict, dt_mgr->ite->s.mdu.version, mdu_version, value, err ,out);
 
+out:
     return err;
 }
 
@@ -179,7 +342,7 @@ int ebpy(u16 where, void *i, void *e, void *hi, int status,
     struct dt_python *dp = ((struct dir_trigger *)dt)->code;
     PyObject *pName, *pModule, *pDict, *pFunc, *pDT, *pInstance;
     PyObject *pArgs, *pValue, *pIncModule;
-    int err = 0;
+    int err = TRIG_CONTINUE;
     
     Py_Initialize();
 
@@ -243,6 +406,9 @@ int ebpy(u16 where, void *i, void *e, void *hi, int status,
             Py_DECREF(pArgs);
             if (pValue != NULL) {
                 hvfs_debug(lib, "Result of call: %ld\n", PyInt_AsLong(pValue));
+                err = ebpy_py2c(pInstance, &dm);
+                /* ignore the errors */
+                err = PyInt_AsLong(pValue);
                 Py_DECREF(pValue);
             }
             else {
@@ -264,7 +430,7 @@ int ebpy(u16 where, void *i, void *e, void *hi, int status,
     else {
         PyErr_Print();
         hvfs_err(lib, "DT Python failed to load \"%s\"\n", dp->module);
-        return 1;
+        return TRIG_CONTINUE;
     }
 
     Py_DECREF(pInstance);
@@ -273,10 +439,10 @@ out:
     Py_DECREF(pIncModule);
     Py_Finalize();
 
-    return 0;
+    return err;
 }
 #else
 {
-    return 0;
+    return TRIG_CONTINUE;
 }
 #endif

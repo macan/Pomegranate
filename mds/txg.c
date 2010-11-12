@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-02 16:39:28 macan>
+ * Time-stamp: <2010-11-11 23:01:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -118,6 +118,26 @@ int txg_init(u64 txg)
     hmo.txg[TXG_WB] = NULL;
 
     return 0;
+}
+
+static inline
+void TXG_COMMITED(u64 txg)
+{
+retry:
+    if (atomic64_read(&hmo.ctxg) + 1 == txg)
+        atomic64_inc(&hmo.ctxg);
+    else {
+        xsleep(100);
+        goto retry;
+    }
+}
+
+int TXG_IS_COMMITED(u64 txg)
+{
+    if (txg <= atomic_read(&hmo.ctxg))
+        return 1;
+    else
+        return 0;
 }
 
 /* txg_switch()
@@ -566,7 +586,9 @@ int txg_wb_bcast_end(struct commit_thread_arg *cta, int err)
         list_del(&pos->list);
         tws_free(pos);
     }
-    
+
+    TXG_COMMITED(cta->wbt->txg);
+
     return err;
 }
 
@@ -829,6 +851,8 @@ int commit_tp_init()
         err = -ENOMEM;
         goto out_free;
     }
+
+    atomic64_set(&hmo.ctxg, 0);
     
     for (i = 0; i < hmo.conf.commit_threads; i++) {
         (cta + i)->tid = i;
@@ -1024,8 +1048,8 @@ int txg_ddht_compact(struct hvfs_txg *t)
     /* finally, add the ddb to the hvfs_txg */
     list_add_tail(&ddb->list, &t->ddb);
     /* FIXME: do we need lock here? */
-    hvfs_err(mds, "In txg %ld compact %d dir delta(s)\n",
-             t->txg, t->ddht_nr);
+    hvfs_warning(mds, "In txg %ld compact %d dir delta(s)\n",
+                 t->txg, t->ddht_nr);
 
 out:
     return err;

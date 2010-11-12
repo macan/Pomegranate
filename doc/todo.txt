@@ -89,4 +89,11 @@ there is an error. Low.
 
 13. Trigger interface
 
-14. Index support
+14. Index support (secondary index)
+
+15. Bugs
+
+    1. There are some entries left in the ITB. I can confirm that 
+       the in-ITB counter is incorrect. But I don't know why this 
+       happen. May be the frequent evicting trigger this bug? I 
+       should find the reason and correct it!

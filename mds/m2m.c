@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-05 08:10:46 macan>
+ * Time-stamp: <2010-11-10 18:26:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -179,6 +179,7 @@ void mds_ldh(struct xnet_msg *msg)
     hi->psalt = hmi.gdt_salt;
 
     /* search in the CBHT */
+retry:
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
@@ -204,6 +205,12 @@ void mds_ldh(struct xnet_msg *msg)
         }
         _hi->ssalt = m->salt;
     } else {
+        if (err == -EAGAIN || err == -ESPLIT ||
+            err == -ERESTART) {
+            /* have a breath */
+            sched_yield();
+            goto retry;
+        }
         hvfs_err(mds, "do_ldh() cbht search %lx failed w/ %d\n",
                  hi->uuid, err);
     }

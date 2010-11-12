@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-25 15:31:50 macan>
+ * Time-stamp: <2010-11-09 17:02:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2233,6 +2233,7 @@ int root_create_hxi(struct site_entry *se)
         hmi->group = se->gid;
         hmi->uuid_base = (se->site_id & HVFS_SITE_N_MASK) << 45;
         atomic64_set(&hmi->mi_uuid, 2); /* skip gdt/root entry */
+        atomic64_set(&hmi->mi_txg, 1);  /* skip the zero txg */
     } else if (HVFS_IS_MDSL(se->site_id)) {
         struct hvfs_mdsl_info *hmi = (struct hvfs_mdsl_info *)&se->hxi;
 
@@ -2246,6 +2247,7 @@ int root_create_hxi(struct site_entry *se)
         hmi->group = se->gid;
         hmi->uuid_base = (se->site_id & HVFS_SITE_N_MASK) << 45;
         atomic64_set(&hmi->mi_uuid, 2); /* skip gdt/root entry */
+        atomic64_set(&hmi->mi_txg, 1);  /* skip the zero txg */
     } else if (HVFS_IS_AMC(se->site_id)) {
         struct hvfs_amc_info *ami = (struct hvfs_amc_info *)&se->hxi;
 

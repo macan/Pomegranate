@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-31 21:46:26 macan>
+ * Time-stamp: <2010-11-11 23:02:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -76,10 +76,42 @@ void mds_spool_modify_resume(void)
     }
 }
 
+/* This function should be called BEFORE mp_check, we always check if there
+ * are too many ITBs in the cache. (Out Of Date)
+ */
+void mds_spool_itb_check(time_t t)
+{
+    static int memory_pressure = 0;
+    
+    if (!(hmo.conf.option & HVFS_MDS_MEMLIMIT))
+        return;
+    if (hmo.conf.memlimit < atomic64_read(&hmo.prof.cbht.aitb) *
+        (sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE)) {
+        /* we want to evict some clean ITBs */
+        if (++memory_pressure == hmo.conf.loadin_pressure) {
+            if (!TXG_IS_DIRTY(hmo.txg[TXG_OPEN]))
+                goto skip;
+            if (hmo.txg[TXG_WB] != NULL)
+                goto skip;
+            if (!txg_switch(&hmi, &hmo)) {
+                hvfs_info(mds, "Entering new txg %ld (loadin forced)\n", 
+                          hmo.txg[TXG_OPEN]->txg);
+                sem_post(&hmo.commit_sem);
+            }
+        skip:
+            memory_pressure = 0;
+        }
+        mds_scrub_trigger();
+    }
+}
+
 void mds_spool_mp_check(time_t t)
 {
-    if (!hmo.spool_modify_pause)
+    if (!hmo.spool_modify_pause) {
+        /* check if we are under memory pressure now */
+        mds_spool_itb_check(t);
         return;
+    }
     if (hmo.scrub_running)
         return;
     
@@ -93,7 +125,8 @@ void mds_spool_mp_check(time_t t)
 
         hmo.spool_modify_pause = 0;
         mds_spool_modify_resume();
-        hvfs_err(mds, "resume modify operations\n");
+
+        hvfs_warning(mds, "Resume modify operations\n");
     } else {
         /* do commit? */
         {
@@ -102,7 +135,7 @@ void mds_spool_mp_check(time_t t)
             if (hmo.txg[TXG_WB] != NULL)
                 goto skip;
             if (!txg_switch(&hmi, &hmo)) {
-                hvfs_info(mds, "Entering new txg %ld\n", 
+                hvfs_info(mds, "Entering new txg %ld (mp forced)\n", 
                           hmo.txg[TXG_OPEN]->txg);
                 sem_post(&hmo.commit_sem);
             }
@@ -111,14 +144,25 @@ void mds_spool_mp_check(time_t t)
         
         /* we trigger the scrubbing thread to evict the clean ITBs */
         hmo.conf.option &= ~HVFS_MDS_NOSCRUB;
-        hmo.conf.scrub_interval = 1;
-        mds_reset_itimer();
+        if (hmo.conf.scrub_interval > 1) {
+            hmo.conf.scrub_interval = 1;
+            mds_reset_itimer();
+        }
+        hvfs_debug(mds, "trigger scrub thread\n");
         mds_scrub_trigger();
 
-        hvfs_err(mds, "trigger scrub thread\n");
-        if (t > hmo.mp_ts + hmo.conf.mp_to) {
+        /* kick progressing in P=0.25 */
+        if (lib_random(4) == 0) {
+            hmo.spool_modify_pause = 0;
+            mds_spool_modify_resume();
+        }
+        
+        if (unlikely(t > hmo.mp_ts + hmo.conf.mp_to)) {
             hvfs_err(mds, "MDS pausing modification for a long time: %lds\n",
                      (u64)(t - hmo.mp_ts));
+            hmo.scrub_op = HVFS_MDS_OP_EVICT_ALL;
+            mds_scrub_trigger();
+            hmo.scrub_op = HVFS_MDS_OP_EVICT;
         }
     }
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-06 22:13:25 macan>
+ * Time-stamp: <2010-11-10 12:20:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -194,7 +194,8 @@ resend:
         msg->pair = NULL;
         recreate = 1;
         goto resend;
-    } else if (msg->pair->tx.err == -ERESTART) {
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -1109,7 +1110,8 @@ resend:
         msg->pair = NULL;
         recreate = 1;
         goto resend;
-    } else if (msg->pair->tx.err == -ERESTART) {
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -1274,7 +1276,8 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
-    } else if (msg->pair->tx.err == -ERESTART) {
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -1425,7 +1428,8 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
-    } else if (msg->pair->tx.err == -ERESTART) {
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT){
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -1529,7 +1533,8 @@ resend:
             xnet_free_msg(msg2->pair);
             msg2->pair = NULL;
             goto gdt_resend;
-        } else if (msg2->pair->tx.err == -ERESTART) {
+        } else if (msg2->pair->tx.err == -ERESTART ||
+                   msg2->pair->tx.err == -EHWAIT) {
             xnet_set_auto_free(msg2->pair);
             xnet_free_msg(msg2->pair);
             msg2->pair = NULL;
@@ -2022,7 +2027,8 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
-    } else if (msg->pair->tx.err == -ERESTART) {
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -2144,7 +2150,8 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
-    } else if (msg->pair->tx.err == -ERESTART) {
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -2296,7 +2303,8 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
-    } else if (msg->pair->tx.err == -ERESTART) {
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -2421,7 +2429,8 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
-    } else if (msg->pair->tx.err == -ERESTART) {
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -2627,7 +2636,8 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
-    } else if (msg->pair->tx.err == -ERESTART) {
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -2759,7 +2769,8 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
-    } else if (msg->pair->tx.err == -ERESTART) {
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -2925,7 +2936,8 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
-    } else if (msg->pair->tx.err == -ERESTART) {
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -3051,7 +3063,8 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
-    } else if (msg->pair->tx.err == -ERESTART) {
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -4001,7 +4014,8 @@ resend:
         xnet_free_msg(msg);
         msg->pair = NULL;
         goto resend;
-    } else if (msg->pair->tx.err == -ERESTART) {
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
         xnet_free_msg(msg);
         msg->pair = NULL;
         goto resend;

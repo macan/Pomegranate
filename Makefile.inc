@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-11-06 22:11:42 macan>
+# Time-stamp: <2010-11-09 17:31:16 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -39,8 +39,8 @@ ifeq ($(CPU_CORE),)
 __CORES__=$(GET_CORE)
 endif
 
-ifeq ($(PYTHON_INC),)
-PYTHON_INC = $(PYTHON_IX)$(PYTHON_VERSION)
+ifndef PYTHON_INC
+export PYTHON_INC = $(PYTHON_IX)$(PYTHON_VERSION)
 $(info ========================================================)
 $(info You should SET 'PYTHON_INC' as the Python include path!!)
 $(info HVFS supports directory trigger and you can write Python)

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-06 19:23:56 macan>
+ * Time-stamp: <2010-11-08 22:59:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,7 +35,10 @@ int main(int argc, char *argv[])
     int err = 0;
 
     snprintf(dp.module, 32, "dtdefault");
+    i.h.puuid = 900;
+    e.s.mdu.ctime = 10000;
     err = ebpy(10, &i, &e, &hi, 10, &dt);
+    printf("ITE.s.mdu.version = %d\n", e.s.mdu.version);
     
     return err;
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-02 17:47:08 macan>
+ * Time-stamp: <2010-11-10 15:15:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -120,7 +120,7 @@ retry:
         sched_yield();
         split_retry++;
         goto retry;
-    } else if (err == -ERESTART) {
+    } else if (err == -ERESTART || err == -EHWAIT) {
         goto retry;
     } else if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
@@ -175,7 +175,7 @@ retry:
     if (err == -ESPLIT) {
         sched_yield();
         goto retry;
-    } else if (err == -ERESTART) {
+    } else if (err == -ERESTART || err == -EHWAIT) {
         goto retry;
     } else if (err && (flag & ITE_ACTIVE)) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s, %lx) failed %d\n", 
@@ -238,7 +238,7 @@ retry:
     if (err == -ESPLIT) {
         sched_yield();
         goto retry;
-    } else if (err == -ERESTART) {
+    } else if (err == -ERESTART || err == -EHWAIT) {
         goto retry;
     } else if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 

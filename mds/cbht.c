@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-03 16:32:46 macan>
+ * Time-stamp: <2010-11-10 18:47:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -709,6 +709,7 @@ int __cbht mds_cbht_del(struct eh *eh, struct itb *i)
         return 0;
     }
     hlist_del_init(&i->h.cbht);
+    atomic_dec(&b->active);
     i->h.be = NULL;
     xrwlock_wunlock(&i->h.lock);
     xrwlock_wunlock(&be->lock);
@@ -1038,8 +1039,8 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
     i = mds_read_itb(hi->puuid, hi->psalt, hi->itbid);
     if (IS_ERR(i)) {
         /* read itb failed, for what? */
-        if (i == ERR_PTR(-EAGAIN))
-            return -EAGAIN;
+        if (i == ERR_PTR(-EAGAIN) || i == ERR_PTR(-EHWAIT))
+            return PTR_ERR(i);
 
         /* FIXME: why this happened? bitmap say this ITB exists! */
         /* FIXME: we should act on ENOENT, other errors should not handle */
@@ -1049,7 +1050,7 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
             i = get_free_itb(txg);
             if (unlikely(!i)) {
                 hvfs_debug(mds, "get_free_itb() failed\n");
-                err = -ENOMEM;
+                err = -EHWAIT;
                 goto out;
             }
             i->h.depth = fls64(hi->itbid) + 1;

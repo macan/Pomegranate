@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-01 19:44:52 macan>
+ * Time-stamp: <2010-11-11 18:46:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -102,7 +102,7 @@ int __test_fdht()
     char buf[1024] = {"hello, world!\n"};
     struct iovec test_iov = {
         .iov_base = buf,
-        .iov_len = 1024,
+        .iov_len = lib_random(1024),
     };
     struct itb_info ii = {{0,}, 0, };
     struct mdsl_storage_access msa = {
@@ -114,18 +114,21 @@ int __test_fdht()
     int err = 0, i;
     
     hvfs_info(mdsl, "begin create ...\n");
-    fde = mdsl_storage_fd_lookup_create(0, MDSL_STORAGE_ITB_ODIRECT, 0);
+    fde = mdsl_storage_fd_lookup_create(0, MDSL_STORAGE_ITB, 0);
     if (IS_ERR(fde)) {
         hvfs_err(mdsl, "lookup create failed w/ %ld\n", PTR_ERR(fde));
         return PTR_ERR(fde);
     }
     hvfs_info(mdsl, "begin write ...\n");
-    for (i = 0; i < (64 * 1024 * 16 * 10); i++) {
+    for (i = 0; i < (64 * 1024 * 16 * 20); i++) {
         err = mdsl_storage_fd_write(fde, &msa);
         if (err) {
             hvfs_err(mdsl, "fd_write failed w/ %d\n", err);
             mdsl_storage_fd_put(fde);
             goto out;
+        }
+        if (ii.location == 0) {
+            HVFS_BUGON("abuf bug.");
         }
     }
     hvfs_info(mdsl, "end write ...\n");
@@ -373,7 +376,7 @@ int main(int argc, char *argv[])
     hmo.site_id = HVFS_MDSL(0);
     mdsl_verify();
 
-#if 0
+#if 1
     err = __test_append_buf();
     if (err) {
         hvfs_err(mdsl, "append buf test failed w/ %d\n", err);
@@ -385,11 +388,13 @@ int main(int argc, char *argv[])
         goto out;
     }
 #endif
+#if 0
     err = __test_fd_cleanup();
     if (err) {
         hvfs_err(mdsl, "fd cleanup test failed w/ %d\n", err);
         goto out;
     }
+#endif
 #if 0
     err = __test_all();
     if (err) {

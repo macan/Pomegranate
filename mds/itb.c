@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-02 23:15:47 macan>
+ * Time-stamp: <2010-11-10 16:01:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,6 +31,27 @@
 
 void ite_create(struct hvfs_index *hi, struct ite *e);
 
+/* mds_loadin_control()
+ */
+int mds_loadin_control(void)
+{
+    if (unlikely(hmo.conf.option & HVFS_MDS_MEMLIMIT)) {
+        if (unlikely(hmo.conf.memlimit < atomic_read(&hmo.ic.csize) *
+                     (sizeof(struct itb) + ITB_SIZE * sizeof(struct ite)))) {
+            if (!hmo.spool_modify_pause) {
+                hmo.spool_modify_pause = 1;
+                hmo.mp_ts = time(NULL);
+                hvfs_warning(mds, "Pause modify operations "
+                             "(loadin control) @ %s", 
+                             ctime(&hmo.mp_ts));
+            }
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 /* mds_read_itb
  *
  * Err convention: Kernel err-ptr convention
@@ -46,6 +67,14 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
     if (unlikely(hmo.conf.option & HVFS_MDS_MEMONLY))
         return ERR_PTR(-EINVAL);
 
+    /* itb loadin control, we should balance the loadin ITB to not exhausted
+     * the memory. */
+    ret = mds_loadin_control();
+    if (unlikely(ret)) {
+        /* should return -EHWAIT */
+        return ERR_PTR(-EHWAIT);
+    }
+    
     si.sic.uuid = puuid;
     si.sic.arg0 = itbid;
     si.sm.cnr = 0;              /* no data */

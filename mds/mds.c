@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-03 23:11:38 macan>
+ * Time-stamp: <2010-11-10 11:57:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -386,17 +386,22 @@ int mds_cbht_evict_default(struct bucket *b, void *arg0, void *arg1)
                 ih->twin != 0 || 
                 atomic_read(&ih->ref) > 1 ||
                 !list_empty(&ih->list) ||
-                ih->txg >= t->txg) {
+                !TXG_IS_COMMITED(ih->txg)) {
+                if (ih->txg == t->txg && !TXG_IS_DIRTY(t))
+                    goto ok;
                 /* we just failed to update the wlock, exit... */
                 txg_put(t);
                 goto out_unlock;
             }
+        ok:
             /* try to release the ITB now */
             if (ih->be == obe) {
                 /* not moved, unhash it */
                 hlist_del_init(&ih->cbht);
                 ih->be = NULL;
                 atomic_dec(&b->active);
+                atomic64_sub(atomic_read(&ih->entries), 
+                             &hmo.prof.cbht.aentry);
             } else {
                 /* moved, not unhash */
                 txg_put(t);
@@ -423,7 +428,9 @@ out:
  *
  * Hold the bucket.rlock and be.rlock
  *
- * We should update to the be.wlock and check if we can free the ITB
+ * We should update to the be.wlock and check if we can free the ITB. This
+ * function is NOT the same as evict_default(). It will evict the clean ITBs
+ * in current txg if and only if current is not dirty.
  */
 int mds_cbht_evict_all_default(struct bucket *b, void *arg0, void *arg1)
 {
@@ -451,23 +458,26 @@ int mds_cbht_evict_all_default(struct bucket *b, void *arg0, void *arg1)
                 txg_put(t);
                 goto out_unlock;
             }
+
             /* try to release the ITB now */
             if (ih->be == obe) {
                 /* not moved, unhash it */
                 hlist_del_init(&ih->cbht);
                 ih->be = NULL;
                 atomic_dec(&b->active);
+                atomic64_sub(atomic_read(&ih->entries), 
+                             &hmo.prof.cbht.aentry);
             } else {
                 /* moved, not unhash */
                 txg_put(t);
                 goto out_unlock;
             }
 
+            hvfs_warning(mds, "DO evict on clean ITB %ld txg %ld success\n", 
+                         ih->itbid, ih->txg);
             itb_put((struct itb *)ih);
         }
         txg_put(t);
-        hvfs_warning(mds, "DO evict on clean ITB %ld txg %ld success\n", 
-                     ih->itbid, ih->txg);
         goto out;
     } else if (ih->state == ITB_STATE_DIRTY) {
         hvfs_warning(mds, "DO not evict dirty ITB %ld\n", ih->itbid);
@@ -518,8 +528,18 @@ int mds_verify(void)
         if (!hmo.xc || (hmo.xc->ops.recv_handler != mds_spool_dispatch)) {
             return -1;
         }
-        if (hmo.conf.memlimit == 0)
+        if (hmo.conf.memlimit == 0 || hmo.conf.memlimit <
+            (sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE))
             return -1;
+    }
+    /* reset the open txg */
+    {
+        struct hvfs_txg *t = mds_get_open_txg(&hmo);
+
+        /* this two lines is SO importent! */
+        atomic64_set(&hmo.ctxg, atomic64_read(&hmi.mi_txg) - 1);
+        t->txg = atomic64_read(&hmi.mi_txg);
+        txg_put(t);
     }
 
     return 0;
@@ -580,6 +600,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(hb_interval, value);
     HVFS_MDS_GET_ENV_atoi(scrub_interval, value);
     HVFS_MDS_GET_ENV_atoi(gto, value);
+    HVFS_MDS_GET_ENV_atoi(loadin_pressure, value);
     HVFS_MDS_GET_ENV_atoi(dati, value);
     HVFS_MDS_GET_ENV_atoi(active_ft, value);
 
@@ -610,6 +631,8 @@ int mds_config(void)
         hmo.conf.dhupdatei = 60;
     if (!hmo.conf.gto)
         hmo.conf.gto = 1;
+    if (!hmo.conf.loadin_pressure)
+        hmo.conf.loadin_pressure = 30;
 
     return 0;
 }

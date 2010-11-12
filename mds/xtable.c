@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-05 20:33:33 macan>
+ * Time-stamp: <2010-11-09 12:10:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,7 +52,7 @@ int itb_split_local(struct itb *oi, int odepth, struct itb_lock *l,
     ni = get_free_itb(NULL);
     if (unlikely(!ni)) {
         hvfs_debug(mds, "get_free_itb() failed\n");
-        err = -ENOMEM;
+        err = -EHWAIT;
         goto out;
     }
 

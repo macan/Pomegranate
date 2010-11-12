@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-06 16:17:00 macan>
+ * Time-stamp: <2010-11-10 16:23:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -527,10 +527,22 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         
         thi.flag |= INDEX_LOOKUP | INDEX_COLUMN;
         thi.column = HVFS_TRIG_COLUMN;
+    retry:
         txg = mds_get_open_txg(&hmo);
         err = mds_cbht_search(&thi, hmr, txg, &txg);
         txg_put(txg);
+
         if (unlikely(err)) {
+            if (err == -EAGAIN || err == -ESPLIT ||
+                err == -ERESTART) {
+                /* have a breath */
+                sched_yield();
+                goto retry;
+            } else if (err == -EHWAIT) {
+                /* deep wait now */
+                sleep(1);
+                goto retry;
+            }
             hvfs_err(mds, "lookup uuid %lx failed w/ %d.\n",
                      thi.uuid, err);
             goto out_free_hmr;
@@ -785,10 +797,18 @@ void mds_dh_reload_nolock(struct dhe *ue)
         
         thi.flag |= INDEX_LOOKUP | INDEX_COLUMN;
         thi.column = HVFS_TRIG_COLUMN;
+    retry:
         txg = mds_get_open_txg(&hmo);
         err = mds_cbht_search(&thi, hmr, txg, &txg);
         txg_put(txg);
+
         if (err) {
+            if (err == -EAGAIN || err == -ESPLIT ||
+                err == -ERESTART) {
+                /* have a breath */
+                sched_yield();
+                goto retry;
+            }
             hvfs_err(mds, "lookup uuid %lx failed w/ %d.\n",
                      thi.uuid, err);
             goto out_free_hmr;
@@ -878,8 +898,9 @@ void mds_dh_reload_nolock(struct dhe *ue)
         ASSERT(msg->pair, mds);
 
         if (msg->pair->tx.err) {
-            hvfs_err(mds, "mds_dh_load() from site %lx failed w/ %d\n",
-                     tsid, msg->pair->tx.err);
+            hvfs_err(mds, "mds_dh_load(%lx) from site %lx "
+                     "failed w/ %d\n",
+                     ue->uuid, tsid, msg->pair->tx.err);
             e = ERR_PTR(msg->pair->tx.err);
         } else {
             struct gdt_md *m;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-02 16:55:28 macan>
+ * Time-stamp: <2010-11-11 23:01:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -179,10 +179,12 @@ int __aur_itb_split(struct async_update_request *aur)
         err = mds_cbht_insert_bbrlocked(&hmo.cbht, i, &nb, &nbe, &ti);
         if (err == -EEXIST) {
             /* someone create the new ITB, we have data losing */
-            hvfs_err(mds, "Someone create ITB %ld(%ld), data losing ...\n",
+            hvfs_err(mds, "Someone create ITB %ld(%ld), data losing ... "
+                     "[failed fatal error]\n",
                      i->h.itbid, saved_oi->h.itbid);
         } else if (err) {
-            hvfs_err(mds, "Internal error %d, data losing.\n", err);
+            hvfs_err(mds, "Internal error %d, data losing. "
+                     "[failed fatal error]\n", err);
             /* FIXME: do not need to unlock */
             itb_put(saved_oi);
             goto out;
@@ -367,7 +369,8 @@ int __aur_itb_bitmap(struct async_update_request *aur)
         }
     }
     xlock_unlock(&g_bitmap_deltas_lock);
-    hvfs_err(mds, "local %d remote %d r2 %d skip %d\n", local, remote, r2, skip);
+    hvfs_warning(mds, "local %d remote %d r2 %d skip %d\n", 
+                 local, remote, r2, skip);
     mds_dh_put(gdte);
     
 out:
@@ -495,7 +498,7 @@ int __aur_dir_delta(struct async_update_request *aur)
         }
     }
     xlock_unlock(&g_dir_deltas_lock);
-    hvfs_err(mds, "new %d local %d remote %d\n", new, local, remote);
+    hvfs_warning(mds, "new %d local %d remote %d\n", new, local, remote);
     mds_dh_put(gdte);
 
 out:
@@ -580,8 +583,8 @@ int __aur_dir_delta_reply(struct async_update_request *aur)
         atomic64_add(pos->asize, &hmo.prof.misc.au_ddr);
         xfree(pos);
     }
-    hvfs_err(mds, "total = %d, skip = %d, acked = %d\n", 
-             total, skip, acked);
+    hvfs_warning(mds, "total = %d, skip = %d, acked = %d\n", 
+                 total, skip, acked);
 
     return err;
 }

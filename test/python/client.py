@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-11-04 19:10:41 macan>
+# Time-stamp: <2010-11-09 09:17:29 macan>
 #
 # Armed with EMACS.
 
@@ -539,22 +539,32 @@ class pamc_shell(cmd.Cmd):
 
     def do_regdtrigger(self, line):
         '''Register a DTrigger on a directory.
-        Usage: regdtrigger /path/to/name type where priority'''
+        Usage: regdtrigger /path/to/name type where priority /path/to/local/file'''
         l = shlex.split(line)
-        if len(l) < 4:
+        if len(l) < 5:
             print "Invalid argumment. Please see help regdtrigger."
             return
 
         l[0] = os.path.normpath(l[0])
+        l[4] = os.path.normpath(l[4])
 
         path, file = os.path.split(l[0])
         if path == "" or path[0] != '/':
             print "Relative path name is not supported yet."
             return
 
+        content = """def dtdefault(dt):
+        return TRIG_CONTINUE"""
+
+        try:
+            f = open(l[4], "r")
+            content = f.read()
+        except IOError, ie:
+            print "IOErrror %s" % ie
+            return
+
         # ok
         try:
-            content = "THIS IS A TEST DTRIGGER!"
             c_path = c_char_p(path)
             c_file = c_char_p(file)
             c_type = c_int(int(l[1]))

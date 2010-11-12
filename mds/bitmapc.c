@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-04 23:34:31 macan>
+ * Time-stamp: <2010-11-10 17:40:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -415,6 +415,10 @@ retry:
             /* have a breath */
             sched_yield();
             goto retry;
+        } else if (err == -EHWAIT) {
+            /* deep sleep */
+            sleep(1);
+            goto retry;
         }
         goto out_free;
     }
@@ -636,7 +640,7 @@ int __customized_send_request(struct bc_commit *commit)
                 err == -ERESTART) {
                 /* have a breath */
                 sched_yield();
-                if (retry_nr < 10000000) 
+                if (++retry_nr < 10000) 
                     goto retry;
             }
             hvfs_err(mds, "FATAL ERROR: update the ITE failed w/ %d\n", err);
@@ -897,7 +901,7 @@ int mds_bc_backend_commit(void)
         xlock_unlock(&hmo.bc.delta_lock);
         error++;
     }
-    hvfs_err(mds, "deal %d error %d\n", deal, error);
+    hvfs_warning(mds, "BC deltas deal %d error %d\n", deal, error);
     
 out:
     return err;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-02 18:28:11 macan>
+ * Time-stamp: <2010-11-10 16:30:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -192,6 +192,10 @@ retry:
             err == -ERESTART) {
             /* have a breath */
             sched_yield();
+            goto retry;
+        } else if (err == -EHWAIT) {
+            /* deep wait */
+            sleep(1);
             goto retry;
         }
         hvfs_err(mds, "Error for AU update the dir delta %ld flag %x "

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-06 17:55:27 macan>
+ * Time-stamp: <2010-11-10 11:57:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -91,6 +91,7 @@ struct mds_conf
     int dh_ii;                  /* dh invalidate interval */
     int dhupdatei;              /* dh update interval */
     int gto;                    /* gossip timeout */
+    int loadin_pressure;        /* loadin memory pressure */
     s8 itbid_check;             /* should we do ITBID check? */
     u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
                                  * conflicts */
@@ -188,6 +189,9 @@ struct hvfs_mds_object
     u8 scrub_running;           /* is scrub thread running */
     u8 reqin_drop;              /* drop the incoming client requests */
 
+    int scrub_op;               /* scrub operation */
+    atomic64_t ctxg;            /* last completed txg */
+    
     /* callback functions */
     void (*cb_exit)(void *);
     void (*cb_hb)(void *);
@@ -316,8 +320,9 @@ static inline void itb_get(struct itb *i)
 }
 static inline void itb_put(struct itb *i)
 {
-    if (atomic_dec_return(&i->h.ref) == 0)
+    if (atomic_dec_return(&i->h.ref) == 0) {
         itb_free(i);
+    }
 }
 
 /* for tx.c */
@@ -373,6 +378,7 @@ int txg_ddht_compact(struct hvfs_txg *);
 int txg_rddb_add(struct hvfs_txg *, struct dir_delta_au *, u32);
 void txg_change_immediately(void);
 void mds_snapshot_fr2(struct xnet_msg *);
+int TXG_IS_COMMITED(u64 txg);
 
 /* for prof.c */
 void dump_profiling(time_t);
@@ -448,6 +454,7 @@ int mds_spool_create(void);
 void mds_spool_destroy(void);
 int mds_spool_dispatch(struct xnet_msg *);
 int mds_spool_modify_pause(struct xnet_msg *);
+void mds_spool_itb_check(time_t);
 void mds_spool_mp_check(time_t);
 
 /* APIs */
