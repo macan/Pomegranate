@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-10 16:01:36 macan>
+ * Time-stamp: <2010-11-14 10:32:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1489,6 +1489,20 @@ struct itb *itb_dirty(struct itb *itb, struct hvfs_txg *t, struct itb_lock *l,
         /* FIXME: itb accessed in the next TXG, so it must be dirty! */
         ASSERT((itb->h.state == ITB_STATE_DIRTY || itb->h.state == ITB_STATE_CLEAN), mds);
         ASSERT(nt->txg == itb->h.txg, mds);
+        /* Bug github.com Issue 6: incorrect aentry count.
+         *
+         * We have a newly loaded in itb, but we had not set it to dirty! This
+         * means that we leak some entry in cbht.aentry:(
+         *
+         * What's more, the entries we addin or deletefrom this itb would be
+         * lost. I have observed this case in my test.
+         */
+        if (itb->h.state == ITB_STATE_CLEAN) {
+            /* this is a newly loadin itb, we dirty it and add it to the txg's
+             * dirty list */
+            itb->h.state = ITB_STATE_DIRTY;
+            txg_add_itb(nt, itb);
+        }
     }
 
     return itb;
