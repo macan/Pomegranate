@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-11-09 17:31:28 macan>
+# Time-stamp: <2010-11-16 00:54:58 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -15,7 +15,7 @@ include Makefile.inc
 RING_SOURCES = $(LIB_PATH)/ring.c $(LIB_PATH)/lib.c $(LIB_PATH)/hash.c \
 				$(LIB_PATH)/xlock.c
 
-all : unit_test lib
+all : unit_test lib $(TRIGGERS)/.triggers
 
 $(HVFS_LIB) : $(lib_depend_files)
 	@echo -e " " CD"\t" $(LIB_PATH)
@@ -47,6 +47,12 @@ $(API_LIB) : $(api_depend_files)
 	@echo -e " " MK"\t" $@
 	@$(MAKE) --no-print-directory -C $(API) -e "HOME_PATH=$(HOME_PATH)"
 
+$(TRIGGERS)/.triggers : $(triggers_depend_files)
+	@echo -e " " CD"\t" $(TRIGGERS)
+	@echo -e " " MK"\t" $@
+	@$(MAKE) --no-print-directory -C $(TRIGGERS) -e "HOME_PATH=$(HOME_PATH)"
+	@touch $(TRIGGERS)/.triggers
+
 clean :
 	@$(MAKE) --no-print-directory -C $(LIB_PATH) -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(MDS) -e "HOME_PATH=$(HOME_PATH)" clean
@@ -57,7 +63,8 @@ clean :
 	@$(MAKE) --no-print-directory -C $(TEST)/mds -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(TEST)/xnet -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(TEST)/result -e "HOME_PATH=$(HOME_PATH)" clean
-	-@rm -rf $(LIB_PATH)/ring
+	@$(MAKE) --no-print-directory -C $(TRIGGERS) -e "HOME_PATH=$(HOME_PATH)" clean
+	-@rm -rf $(LIB_PATH)/ring $(LIB_PATH)/a.out $(TRIGGERS)/.triggers
 
 # Note: the following region is only for UNIT TESTing
 # region for unit test
@@ -82,6 +89,7 @@ install: unit_test
 	@rsync -r $(TEST)/*.sh root@glnode09:~/hvfs/test/
 	@rsync -r $(CONF) root@glnode09:~/hvfs/
 	@rsync -r $(BIN) root@glnode09:~/hvfs/
+	@rsync -r $(TRIGGERS) root@glnode09:~/hvfs/
 	@rsync -r $(LIB_PATH)/*.so.1.0 root@glnode09:~/hvfs/lib/
 	@rsync -r $(TEST)/mds/*.ut root@glnode09:~/hvfs/test/mds/
 	@rsync -r $(TEST)/xnet/*.ut root@glnode09:~/hvfs/test/xnet/

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-04 00:28:20 macan>
+ * Time-stamp: <2010-11-15 23:21:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -791,6 +791,19 @@ void mds_list(struct hvfs_tx *tx)
         return;
     }
 
+    /* ok, should we set trigger flag? */
+    {
+        struct dhe *e;
+
+        e = mds_dh_search(&hmo.dh, hi->puuid);
+        /* ignore error, do not set the trigger flag */
+        if (!IS_ERR(e)) {
+            if (unlikely(e->data))
+                hi->flag |= INDEX_DTRIG;
+            mds_dh_put(e);
+        }
+    }
+    
     /* search in the CBHT */
     hi->flag |= INDEX_BY_ITB;
     err = mds_cbht_search(hi, hmr, tx->txg, &tx->txg);

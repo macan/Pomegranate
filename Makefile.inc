@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-11-09 17:31:16 macan>
+# Time-stamp: <2010-11-17 23:25:11 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -23,6 +23,7 @@ TEST = $(HOME_PATH)/test
 CONF = $(HOME_PATH)/conf
 BIN = $(HOME_PATH)/bin
 API = $(HOME_PATH)/api
+TRIGGERS = $(HOME_PATH)/triggers
 
 COMPILE_DATE = `date`
 COMPILE_HOST = `hostname`
@@ -67,14 +68,15 @@ ifeq ($(DISABLE_PYTHON),)
 CFLAGS += -DUSE_DT_PYTHON
 LFLAGS += $(PYTHON_LIB)libpython$(PYTHON_VERSION).a -lm -lutil
 endif
-LFLAGS += -lrt -lpthread -ldl 
+LFLAGS += -lrt -ldl -lpthread
 
 # Region for depend files
 TEST_MDS_SOURCE = cbht.c tx.c dh.c cmd_sender.c misc.c itbsplit.c \
-                  itb_analyzer.c bitmapc.c embedpy.c
+                  itb_analyzer.c bitmapc.c embedpy.c ctrigger.c
 TEST_MDSL_SOURCE = mdsl.c storage.c
 TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c client.c \
 					root.c r2cli.c amc.c cr.c client_lat.c
+TRIGGERS_SOURCE = example.c
 
 MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \
 				dispatch.c c2m.c fe.c async.c m2m.c spool.c bitmapc.c \
@@ -123,6 +125,9 @@ r2_depend_files = $(patsubst %.c, $(R2)/%.c, $(R2_AR_SOURCE)) \
 					$(header_depend_files)
 api_depend_files = $(patsubst %.c, $(API)/%.c, $(API_AR_SOURCE)) \
 					$(header_depend_files)
+triggers_depend_files = $(patsubst %.c, $(TRIGGERS)/%.c, $(TRIGGERS_SOURCE)) \
+					$(header_depend_files)
+triggers_target_files = $(patsubst %.c, $(TRIGGERS)/%.so, $(TRIGGERS_SOURCE))
 
 # shared libs
 LIB_SO = $(LIB_PATH)/libhvfs.so.1.0

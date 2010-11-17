@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-10 12:20:19 macan>
+ * Time-stamp: <2010-11-15 23:12:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3097,7 +3097,7 @@ int __hvfs_list(u64 duuid, int op, struct list_result *lr)
     u64 dsite, itbid = 0;
     u64 salt;
     u32 vid;
-    int err = 0;
+    int err = 0, retry_nr;
 
     /* Step 0: prepare the args */
     if (op == LIST_OP_COUNT) {
@@ -3183,6 +3183,8 @@ int __hvfs_list(u64 duuid, int op, struct list_result *lr)
             xnet_msg_add_sdata(msg, &hi, sizeof(hi));
             xnet_msg_add_sdata(msg, lr->arg, hi.namelen);
 
+            retry_nr = 0;
+        retry:
             err = xnet_send(hmo.xc, msg);
             if (err) {
                 hvfs_err(xnet, "xnet_send() failed\n");
@@ -3198,6 +3200,14 @@ int __hvfs_list(u64 duuid, int op, struct list_result *lr)
                     xnet_free_msg(msg);
                     itbid++;
                     continue;
+                }
+                if (msg->pair->tx.err == -EHWAIT) {
+                    /* we should wait and retry a few times */
+                    if (retry_nr < 60) {
+                        retry_nr++;
+                        sleep(1);
+                        goto retry;
+                    }
                 }
                 hvfs_err(mds, "list table %lx slice %ld failed w/ %d\n", 
                          duuid, itbid,
@@ -3837,9 +3847,15 @@ int __hvfs_update(u64 puuid, u64 psalt, struct hstat *hs,
             offset += sizeof(struct llfs_ref);
         }
         if (imu->valid & MU_COLUMN) {
-            /* you know, the column is saved in hstat */
-            memcpy((void *)hi + offset, &hs->mc,
-                   imu->column_no * sizeof(struct mu_column));
+            if (imu->column_no == 1) {
+                /* you know, the column is saved in hstat */
+                memcpy((void *)hi + offset, &hs->mc,
+                       imu->column_no * sizeof(struct mu_column));
+            } else {
+                memcpy((void *)hi + offset, (void *)imu +
+                       sizeof(struct mdu_update),
+                       imu->column_no * sizeof(struct mu_column));
+            }
         }
     }
 
@@ -4251,7 +4267,7 @@ int __hvfs_readdir(u64 duuid, u64 salt, char **buf)
     off_t offset = 0;
     size_t len = 0;
     u32 vid;
-    int err = 0;
+    int err = 0, retry_nr;
 
     /* Step 1: we should refresh the bitmap of the directory */
     mds_bitmap_refresh_all(duuid);
@@ -4294,6 +4310,8 @@ int __hvfs_readdir(u64 duuid, u64 salt, char **buf)
 #endif
             xnet_msg_add_sdata(msg, &hi, sizeof(hi));
 
+            retry_nr = 0;
+        retry:
             err = xnet_send(hmo.xc, msg);
             if (err) {
                 hvfs_err(xnet, "xnet_send() failed\n");
@@ -4309,6 +4327,13 @@ int __hvfs_readdir(u64 duuid, u64 salt, char **buf)
                     xnet_free_msg(msg);
                     itbid++;
                     continue;
+                }
+                if (msg->pair->tx.err == -EHWAIT) {
+                    if (retry_nr < 60) {
+                        retry_nr++;
+                        sleep(1);
+                        goto retry;
+                    }
                 }
                 hvfs_err(mds, "list dir %lx slice %ld failed w/ %d\n",
                          duuid, itbid, msg->pair->tx.err);
@@ -4330,6 +4355,11 @@ int __hvfs_readdir(u64 duuid, u64 salt, char **buf)
                     xnet_free_msg(msg);
                     itbid++;
                     continue;
+                } else {
+                    hvfs_debug(xnet, "From ITB %ld, len %ld\n", 
+                               itbid,
+                               msg->pair->tx.len - 
+                               sizeof(struct hvfs_md_reply));
                 }
                 
                 *buf = xrealloc(*buf, len + (msg->pair->tx.len - 
@@ -4429,7 +4459,7 @@ int __hvfs_fill_root(struct hstat *hs)
     
     memset(hs, 0, sizeof(*hs));
     hs->uuid = hmi.root_uuid;
-    err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, hs);
+    err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 1, hs);
     if (err) {
         hvfs_err(xnet, "do internal ROOT stat (GDT) failed w/ %d\n",
                  err);
@@ -5113,8 +5143,9 @@ int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c)
     u32 vid = 0;
     int err = 0;
 
-    hvfs_err(xnet, "Read column itbid %ld len %ld offset %ld\n",
-             c->stored_itbid, c->len, c->offset);
+    hvfs_warning(xnet, "Read column itbid %ld len %ld offset %ld "
+                 "puuid %lx psalt %lx\n",
+                 c->stored_itbid, c->len, c->offset, hs->puuid, hs->psalt);
 
     si = xzalloc(sizeof(*si) + sizeof(struct column_req));
     if (!si) {
@@ -5196,8 +5227,9 @@ int __hvfs_fwrite(struct hstat *hs, int column, void *data, size_t len, struct c
     u32 vid = 0;
     int err = 0;
 
-    hvfs_debug(xnet, "To write column %d target len %ld itbid %ld\n",
-               column, len, hs->hash);
+    hvfs_warning(xnet, "To write column %d target len %ld itbid %ld "
+                 "puuid %lx psalt %lx\n",
+                 column, len, hs->hash, hs->puuid, hs->psalt);
 
     si = xzalloc(sizeof(*si) + sizeof(struct column_req));
     if (!si) {
@@ -5637,6 +5669,18 @@ int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
             goto out;
         }
         psalt = hs.ssalt;
+    } else {
+        /* check if it is root directory */
+        if (puuid == hmi.root_uuid) {
+            err = __hvfs_fill_root(&hs);
+            if (err) {
+                hvfs_err(xnet, "fill root entry failed w/ %d\n", err);
+                goto out;
+            }
+            hs.psalt = hmi.gdt_salt;
+            hs.puuid = hmi.gdt_uuid;
+            hs.hash = hvfs_hash(hmi.root_uuid, hs.psalt, 0, HASH_SEL_GDT);
+        }
     }
 
     /* read in the dtrig content */
@@ -5751,7 +5795,6 @@ int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
     /* update the gdt column and file attributes */
     {
         struct mdu_update *mu;
-        struct mu_column *mc;
 
         mu = xzalloc(sizeof(*mu) + sizeof(struct mu_column));
         if (!mu) {
@@ -5759,12 +5802,10 @@ int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
             err = -ENOMEM;
             goto out;
         }
-        mc = (void *)mu + sizeof(*mu);
         mu->valid = MU_COLUMN | MU_FLAG_ADD;
         mu->flags = HVFS_MDU_IF_TRIG;
         mu->column_no = 1;
-        mc->cno = HVFS_TRIG_COLUMN;
-        mc->c = hs.mc.c;
+        hs.mc.cno = HVFS_TRIG_COLUMN;
 
         /* GDT update */
         hs.uuid = puuid;
@@ -5849,6 +5890,18 @@ int hvfs_cat_dtrigger(char *path, char *name, void **data)
             goto out;
         }
         psalt = hs.ssalt;
+    } else {
+        /* check if it is root directory */
+        if (puuid == hmi.root_uuid) {
+            err = __hvfs_fill_root(&hs);
+            if (err) {
+                hvfs_err(xnet, "fill root entry failed w/ %d\n", err);
+                goto out;
+            }
+            hs.psalt = hmi.gdt_salt;
+            hs.puuid = hmi.gdt_uuid;
+            hs.hash = hvfs_hash(hmi.root_uuid, hs.psalt, 0, HASH_SEL_GDT);
+        }
     }
 
     /* read in the dtrig content */

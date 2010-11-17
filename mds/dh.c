@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-10 16:23:16 macan>
+ * Time-stamp: <2010-11-18 00:28:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -514,7 +514,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     if (p->site_id == hmo.site_id) {
         struct hvfs_txg *txg;
         
-        hvfs_debug(mds, "Load DH (self): uuid %lx itbid %ld, site %lx\n", 
+        hvfs_err(mds, "Load DH (self): uuid %lx itbid %ld, site %lx\n", 
                    thi.uuid, thi.itbid, p->site_id);
         /* the GDT service MDS server is myself, so we just lookup the entry
          * in my CBHT. */
@@ -563,6 +563,9 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                 c = hmr_extract_local(hmr, EXTRACT_DC, &no);
             }
             
+            if (thi.uuid == hmi.root_uuid)
+                thi.puuid = hmi.gdt_uuid;
+            thi.psalt = hmi.gdt_salt;
             if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c) {
                 /* load the trigger content from MDSL */
                 err = __mds_dh_data_read(&thi, HVFS_TRIG_COLUMN, &data, c);
@@ -576,6 +579,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                                  PTR_ERR(dtm));
                         dtm = NULL;
                     }
+                    xfree(data);
                 }
             }
             thi.ssalt = m->salt;
@@ -605,7 +609,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         xfree(hmr);
     } else {
         /* ok, we should send the request to the remote site now */
-        hvfs_debug(mds, "Load DH (remote): uuid %lx itbid %ld, site %lx\n", 
+        hvfs_err(mds, "Load DH (remote): uuid %lx itbid %ld, site %lx\n", 
                    thi.uuid, thi.itbid, p->site_id);
 
         /* prepare the msg */
@@ -657,6 +661,8 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                 hvfs_err(mds, "Extract MDU failed\n");
             }
             saved_salt = rhi->ssalt;
+            if (rhi->uuid == hmi.root_uuid)
+                rhi->puuid = hmi.gdt_uuid;
             rhi->psalt = hmi.gdt_salt;
             if (m) {
                 c = hmr_extract(hmr, EXTRACT_DC, &no);
@@ -666,8 +672,8 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                 }
                 if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c) {
                     /* load the trigger content from MDSL */
-                    hvfs_err(mds, "Read in DT itbid %ld offset %ld len %ld\n",
-                             c->stored_itbid, c->offset, c->len);
+                    hvfs_debug(mds, "Read in DT itbid %ld offset %ld len %ld from %lx\n",
+                               c->stored_itbid, c->offset, c->len, tsid);
                     err = __mds_dh_data_read(rhi, HVFS_TRIG_COLUMN, &data, c);
                     if (err) {
                         hvfs_err(mds, "mds_dh_data_read() failed w/ %d\n", err);
@@ -678,6 +684,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                                      PTR_ERR(dtm));
                             dtm = NULL;
                         }
+                        xfree(data);
                     }
                 }
                 rhi->ssalt = saved_salt;
@@ -829,6 +836,9 @@ void mds_dh_reload_nolock(struct dhe *ue)
                 c = hmr_extract_local(hmr, EXTRACT_DC, &no);
             }
             
+            if (thi.uuid == hmi.root_uuid)
+                thi.puuid = hmi.gdt_uuid;
+            thi.psalt = hmi.gdt_salt;
             if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c) {
                 /* load the trigger content from MDSL */
                 hvfs_err(mds, "Read in DT itbid %ld offset %ld len %ld\n",
@@ -843,6 +853,7 @@ void mds_dh_reload_nolock(struct dhe *ue)
                         hvfs_err(mds, "mds_dtrigger_parse failed w/ %ld\n",
                                  PTR_ERR(dtm));
                         dtm = NULL;
+                        xfree(data);
                     }
                 }
             } else {
@@ -924,6 +935,8 @@ void mds_dh_reload_nolock(struct dhe *ue)
             if (!m) {
                 hvfs_err(mds, "Extract MDU failed\n");
             }
+            if (rhi->uuid == hmi.root_uuid)
+                rhi->puuid = hmi.gdt_uuid;
             rhi->psalt = hmi.gdt_salt;
             if (m) {
                 c = hmr_extract(hmr, EXTRACT_DC, &no);
@@ -943,6 +956,7 @@ void mds_dh_reload_nolock(struct dhe *ue)
                                      PTR_ERR(dtm));
                             dtm = NULL;
                         }
+                        xfree(data);
                     }
                 } else {
                     unreg = 1;

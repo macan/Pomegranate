@@ -97,3 +97,37 @@ there is an error. Low.
        the in-ITB counter is incorrect. But I don't know why this 
        happen. May be the frequent evicting trigger this bug? I 
        should find the reason and correct it!
+
+       RFC: Actually, this is a bug in itb_dirty. For a newly 
+       loaded in ITB, the operation txg is TXG_A, while the load
+       in txg is TXG_A + 1. In itb_dirty(), the original code did
+       not cope with this CLEAN state. The newly loadin ITB is 
+       still keep clean even called itb_dirty :(
+
+       RFC: There is also another corner case among loading itb, 
+       changin txg, writebacking txg and evicting itb. It is very
+       complicate to describe this case. However, I record it as 
+       following:
+
+       -------A-------                          -------B-------
+       cbht_itb_miss           txg:10
+       mds_itb_read            txg:10
+       loadin_set(10)          txg:10
+       --------------------------------------------------------
+                               txg:11
+                                                cbht_itb_miss
+                                                mds_itb_read
+                                                loadin_set(11)
+                                                 (load OLD itb)
+       --------------------------------------------------------
+       cbht_insert(10)
+       itb_dirty(10)
+       unlink(txg:10)
+       --------------------------------------------------------
+                               wb(txg:10)
+                               evict(new ITB)
+       --------------------------------------------------------
+                                                cbht_insert(11)
+                                                 (OLD itb)!!!
+
+    2. The cbht.aentry is not correct.

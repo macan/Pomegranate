@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-14 10:32:44 macan>
+ * Time-stamp: <2010-11-14 23:31:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2220,6 +2220,29 @@ int itb_readdir(struct hvfs_index *hi, struct itb *i,
     }
 
 out:
+    return err;
+}
+
+/* itb_readdir_dtriggered()
+ *
+ * NOTE: holding the bucket.rlock, be.rlock, itb.rlock
+ */
+int itb_readdir_dtriggered(struct hvfs_index *hi, struct itb *i, 
+                           struct hvfs_md_reply *hmr)
+{
+    struct dhe *e;
+    int err = 0;
+
+    PREPARE_DIR_TRIGGER(e, hi);
+    
+    SETUP_DIR_TRIGGER(e, DIR_TRIG_PRE_LIST, i, NULL, hi, err, out);
+    
+    err = itb_readdir(hi, i, hmr);
+
+    SETUP_DIR_TRIGGER(e, DIR_TRIG_POST_LIST, i, NULL, hi, err, out);
+out:
+    FINA_DIR_TRIGGER(e);
+    
     return err;
 }
 

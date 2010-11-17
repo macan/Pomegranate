@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-06 22:27:20 macan>
+ * Time-stamp: <2010-11-18 00:04:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -91,7 +91,13 @@ int mds_dir_trigger(u16 where, struct itb *i, struct ite *e,
         case DIR_TRIG_NATIVE:
             break;
         case DIR_TRIG_C:
+        {
+            struct dt_ccode *dc = (struct dt_ccode *)dtm->dt[idx].code;
+
+            hvfs_info(mds, "DC %p DTM %p\n", dc, dtm);
+            err = dc->dtmain(where, i, e, hi, status, &dtm->dt[idx]);
             break;
+        }
         case DIR_TRIG_PYTHON:
             err = ebpy(where, i, e, hi, status, &dtm->dt[idx]);
             break;
@@ -181,8 +187,8 @@ struct dir_trigger_mgr *mds_dtrigger_parse(void *data, size_t len)
         where = (char *)(data + li + 4);
         length = *((int *)(data + li + 16));
         li += length + 20;
-        hvfs_warning(mds, "Read to DT off %ld: type %s where %s length %d\n", 
-                     li, type, where, length);
+        hvfs_debug(mds, "Read to DT off %ld: type %s where %s length %d\n", 
+                   li, type, where, length);
         nr++;
     }
 
@@ -203,30 +209,32 @@ struct dir_trigger_mgr *mds_dtrigger_parse(void *data, size_t len)
         li += 20;
         err = __mds_trigger_parse_type(&dtm->dt[nr], type);
         if (err)
-            continue;
+            goto next;
         err = __mds_trigger_parse_where(&dtm->dt[nr], where);
         if (err)
-            continue;
+            goto next;
         dtm->dt[nr].len = length;
         if (dtm->dt[nr].type == DIR_TRIG_C) {
             /* we save the binary code to a tmp file and dlopen it */
             struct dt_ccode *dc;
             int fd;
 
-            dc = xmalloc(sizeof(*dc));
+            dc = xzalloc(sizeof(*dc));
             if (!dc) {
                 hvfs_err(mds, "xmalloc() dt_ccode failed\n");
                 err = -ENOMEM;
-                continue;
+                goto next;
             }
-            snprintf(dc->tmp_file, 32, "/tmp/%lx", lib_random(RAND_MAX));
+            snprintf(dc->tmp_file, 31, "/tmp/%lx-%lx", 
+                     hmo.site_id & HVFS_SITE_N_MASK,
+                     lib_random(RAND_MAX));
             fd = open(dc->tmp_file, O_CREAT | O_TRUNC | O_RDWR, 
                       S_IRUSR | S_IWUSR);
             if (fd < 0) {
                 hvfs_err(mds, "open to write DT file %s failed w/ %d\n",
                          dc->tmp_file, errno);
                 xfree(dc);
-                continue;
+                goto next;
             }
 
             bl = 0;
@@ -244,10 +252,12 @@ struct dir_trigger_mgr *mds_dtrigger_parse(void *data, size_t len)
             } while (bl < length);
 
             close(fd);
+            hvfs_debug(mds, "Have written file %s %p\n", dc->tmp_file, dc);
+
             if (err) {
                 unlink(dc->tmp_file);
                 xfree(dc);
-                continue;
+                goto next;
             }
 
             /* dlopen it */
@@ -257,20 +267,22 @@ struct dir_trigger_mgr *mds_dtrigger_parse(void *data, size_t len)
                          dc->tmp_file, dlerror());
                 unlink(dc->tmp_file);
                 xfree(dc);
-                continue;
+                goto next;
             }
             dlerror();
             /* get the dt_main function */
             dc->dtmain = dlsym(dc->dlhandle, "dt_main");
             if ((error = dlerror()) != NULL) {
-                hvfs_err(mds, "dlsym() dt_main failed w// %s\n",
+                hvfs_err(mds, "dlsym() dt_main failed w/ %s\n",
                          error);
                 dlclose(dc->dlhandle);
                 unlink(dc->tmp_file);
                 xfree(dc);
-                continue;
+                goto next;
             }
             dtm->dt[nr].code = dc;
+            hvfs_debug(mds, "DCCODE: %s dlhandle %p %p\n", 
+                       dc->tmp_file, dc->dlhandle, dc->dtmain);
         } else if (dtm->dt[nr].type == DIR_TRIG_PYTHON) {
             /* we save the python source code to a memory buffer */
             struct dt_python *dp;
@@ -280,7 +292,7 @@ struct dir_trigger_mgr *mds_dtrigger_parse(void *data, size_t len)
             if (!dp) {
                 hvfs_err(mds, "xmalloc() dt_python failed\n");
                 err = -ENOMEM;
-                continue;
+                goto next;
             }
             snprintf(dp->module, 15, "%lx", lib_random(RAND_MAX));
             snprintf(dp->tmp_file, 31, "/tmp/%s.py", dp->module);
@@ -291,7 +303,7 @@ struct dir_trigger_mgr *mds_dtrigger_parse(void *data, size_t len)
                 hvfs_err(mds, "open to write DT file %s failed w/ %d\n",
                          dp->tmp_file, errno);
                 xfree(dp);
-                continue;
+                goto next;
             }
 
             bl = 0;
@@ -308,18 +320,19 @@ struct dir_trigger_mgr *mds_dtrigger_parse(void *data, size_t len)
                 bl += bw;
             } while (bl < length);
 
-            close (fd);
+            close(fd);
 
             if (err) {
                 unlink(dp->tmp_file);
                 xfree(dp);
-                continue;
+                goto next;
             }
 
             dtm->dt[nr].code = dp;
         }
-        li += length;
         nr++;
+    next:
+        li += length;
     }
     dtm->nr = nr;
 
@@ -327,7 +340,9 @@ struct dir_trigger_mgr *mds_dtrigger_parse(void *data, size_t len)
         xfree(dtm);
         dtm = ERR_PTR(-EINVAL);
     }
-    
+
+    hvfs_debug(mds, "DTM nr %d %p %p\n", nr, dtm, dtm->dt[0].code);
+
     return dtm;
 }
 
@@ -355,6 +370,8 @@ void mds_dt_destroy(struct dir_trigger_mgr *dtm)
             struct dt_ccode *dc = dtm->dt[i].code;
 
             if (dc) {
+                hvfs_debug(mds, "Destroy %s dlhandle %p %p\n", 
+                           dc->tmp_file, dc->dlhandle, dc);
                 dlclose(dc->dlhandle);
                 unlink(dc->tmp_file);
                 xfree(dc);

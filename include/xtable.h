@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-06 19:00:12 macan>
+ * Time-stamp: <2010-11-16 00:05:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -177,7 +177,7 @@ struct bitmap_delta
 #define TRIG_ABORT      1
 
 typedef int (*DT_MAIN)(u16 where, struct itb *, struct ite *, 
-                       struct hvfs_index *, int status);
+                       struct hvfs_index *, int status, void *dt);
 
 struct dt_ccode
 {

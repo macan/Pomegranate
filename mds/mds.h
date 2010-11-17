@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-10 11:57:00 macan>
+ * Time-stamp: <2010-11-17 23:06:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -202,6 +202,7 @@ struct hvfs_mds_object
 extern struct hvfs_mds_info hmi;
 extern struct hvfs_mds_object hmo;
 extern u32 hvfs_mds_tracing_flags;
+
 void mds_reset_tracing_flags(u64);
 
 struct dconf_req
@@ -305,6 +306,8 @@ int itb_search_dtriggered(struct hvfs_index *, struct itb *, void *,
                           struct hvfs_txg *, struct  itb **,
                           struct hvfs_txg **);
 int itb_readdir(struct hvfs_index *, struct itb *, struct hvfs_md_reply *);
+int itb_readdir_dtriggered(struct hvfs_index *, struct itb *, 
+                           struct hvfs_md_reply *);
 int itb_cache_init(struct itb_cache *, int);
 int itb_cache_destroy(struct itb_cache *);
 void itb_dump(struct itb *);
@@ -569,7 +572,7 @@ void mds_dt_destroy(struct dir_trigger_mgr *);
         if (likely(IS_ERR(dhe))) {                                      \
             break;                                                      \
         }                                                               \
-        __err = mds_dir_trigger(where, itb, ite, hi, ret, dhe->data);   \
+        __err = mds_dir_trigger(where, itb, ite, hi, err, dhe->data);   \
         if (__err == TRIG_ABORT) {                                      \
             err = -EDTRIGSTOP;                                          \
             goto exit;                                                  \

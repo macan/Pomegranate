@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-11 15:39:43 macan>
+ * Time-stamp: <2010-11-13 21:47:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1028,8 +1028,8 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         if (data) {
             te = data;
             abort = te->err;
-            hvfs_debug(mdsl, "Recv txg_end %ld from site %lx, abort %d\n",
-                       te->txg, te->site_id, abort);
+            hvfs_warning(mdsl, "Recv txg_end %ld from site %lx, abort %d\n",
+                         te->txg, te->site_id, abort);
 
             /* check previous toe */
             toe = toe_lookup_recent(te->site_id);

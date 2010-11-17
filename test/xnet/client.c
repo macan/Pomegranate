@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-10 12:14:00 macan>
+ * Time-stamp: <2010-11-14 10:44:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -271,7 +271,7 @@ resend:
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
-        sleep(1);
+        xsleep(100);
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "CREATE failed @ MDS site %lx w/ %d\n",
@@ -415,6 +415,7 @@ resend:
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
+        xsleep(100);
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "CREATE failed @ MDS site %lx w/ %d\n",
@@ -563,6 +564,7 @@ resend:
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
+        xsleep(100);
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
@@ -696,6 +698,7 @@ resend:
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
+        xsleep(100);
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "UNLINK failed @ MDS site %lx w/ %d\n",
@@ -913,6 +916,7 @@ resend:
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
+        xsleep(100);
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
@@ -1185,6 +1189,7 @@ resend:
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
+        xsleep(100);
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
@@ -1330,7 +1335,7 @@ int test_update(u64 loop)
             xnet_set_auto_free(msg->pair);
             xnet_free_msg(msg->pair);
             msg->pair = NULL;
-            sleep(1);
+            xsleep(100);
             goto create_resend;
         } else if (msg->pair->tx.err) {
             hvfs_err(xnet, "CREATE failed @ MDS site %lx w/ %d\n",
@@ -1458,6 +1463,7 @@ int test_update(u64 loop)
             xnet_set_auto_free(msg->pair);
             xnet_free_msg(msg->pair);
             msg->pair = NULL;
+            xsleep(100);
             goto unlink_resend;
         } else if (msg->pair->tx.err) {
             hvfs_err(xnet, "UNLINK failed @ MDS site %lx w/ %d\n",
@@ -1784,6 +1790,7 @@ resend:
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
+        xsleep(100);
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "CREATE failed @ MDS site %ld w/ %d\n",
