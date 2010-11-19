@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-18 00:21:50 macan>
+ * Time-stamp: <2010-11-20 00:19:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -138,6 +138,7 @@ struct DT_mgr
 };
 
 int ebpy_c2py(struct DT_mgr *dt_mgr, PyObject **pArgs)
+#ifdef USE_DT_PYTHON
 {
     PyObject *pDict, *value, *pTuple;
     int err = -EINVAL;
@@ -339,8 +340,14 @@ out:
 
     return err;
 }
+#else
+{
+    return 0;
+}
+#endif
 
 int ebpy_py2c(PyObject *pInstance, struct DT_mgr *dt_mgr)
+#ifdef USE_DT_PYTHON
 {
     PyObject *pDict, *value;
     int err = -EINVAL;
@@ -359,6 +366,11 @@ int ebpy_py2c(PyObject *pInstance, struct DT_mgr *dt_mgr)
 out:
     return err;
 }
+#else
+{
+    return 0;
+}
+#endif
 
 /* ebpy() is the main function for calling python code
  */

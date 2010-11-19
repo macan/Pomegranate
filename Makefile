@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-11-16 00:54:58 macan>
+# Time-stamp: <2010-11-18 22:33:04 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -64,7 +64,7 @@ clean :
 	@$(MAKE) --no-print-directory -C $(TEST)/xnet -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(TEST)/result -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(TRIGGERS) -e "HOME_PATH=$(HOME_PATH)" clean
-	-@rm -rf $(LIB_PATH)/ring $(LIB_PATH)/a.out $(TRIGGERS)/.triggers
+	-@rm -rf $(LIB_PATH)/ring $(LIB_PATH)/a.out
 
 # Note: the following region is only for UNIT TESTing
 # region for unit test
@@ -85,7 +85,7 @@ unit_test : $(ut_depend_files) $(HVFS_LIB) $(MDS_LIB) $(XNET_LIB) \
 	@$(MAKE) --no-print-directory -C $(TEST)/mdsl -e "HOME_PATH=$(HOME_PATH)"
 	@echo "Targets for unit test are ready."
 
-install: unit_test
+install: unit_test $(TRIGGERS)/.triggers
 	@rsync -r $(TEST)/*.sh root@glnode09:~/hvfs/test/
 	@rsync -r $(CONF) root@glnode09:~/hvfs/
 	@rsync -r $(BIN) root@glnode09:~/hvfs/
