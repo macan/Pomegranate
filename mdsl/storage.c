@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-11 19:17:46 macan>
+ * Time-stamp: <2010-11-18 22:43:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -597,7 +597,8 @@ void mdsl_storage_destroy(void)
                                       &(hmo.storage.fdhash + i)->h, list) {
                 if (atomic_read(&fde->ref) == 0 || force_close) {
                     hvfs_debug(mdsl, "Final close fd %d.\n", fde->fd);
-                    if (fde->type == MDSL_STORAGE_ITB) {
+                    if (fde->type == MDSL_STORAGE_ITB ||
+                        fde->type == MDSL_STORAGE_DATA) {
                         append_buf_destroy(fde);
                     } else if (fde->type == MDSL_STORAGE_ITB_ODIRECT) {
                         odirect_destroy(fde);

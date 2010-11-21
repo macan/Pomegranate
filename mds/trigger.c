@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-18 00:04:47 macan>
+ * Time-stamp: <2010-11-18 22:34:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -94,7 +94,6 @@ int mds_dir_trigger(u16 where, struct itb *i, struct ite *e,
         {
             struct dt_ccode *dc = (struct dt_ccode *)dtm->dt[idx].code;
 
-            hvfs_info(mds, "DC %p DTM %p\n", dc, dtm);
             err = dc->dtmain(where, i, e, hi, status, &dtm->dt[idx]);
             break;
         }

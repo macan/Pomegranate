@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-15 23:12:26 macan>
+ * Time-stamp: <2010-11-22 00:15:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -5218,7 +5218,8 @@ out_free:
 
 /* Ugly! hs->hash saves the user provided stored_itbid!
  */
-int __hvfs_fwrite(struct hstat *hs, int column, void *data, size_t len, struct column *c)
+int __hvfs_fwrite(struct hstat *hs, int column, void *data, 
+                  size_t len, struct column *c)
 {
     struct storage_index *si;
     struct xnet_msg *msg;

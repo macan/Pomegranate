@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-11-18 22:33:04 macan>
+# Time-stamp: <2010-11-22 00:42:04 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -15,7 +15,7 @@ include Makefile.inc
 RING_SOURCES = $(LIB_PATH)/ring.c $(LIB_PATH)/lib.c $(LIB_PATH)/hash.c \
 				$(LIB_PATH)/xlock.c
 
-all : unit_test lib $(TRIGGERS)/.triggers
+all : unit_test lib triggers
 
 $(HVFS_LIB) : $(lib_depend_files)
 	@echo -e " " CD"\t" $(LIB_PATH)
@@ -47,11 +47,13 @@ $(API_LIB) : $(api_depend_files)
 	@echo -e " " MK"\t" $@
 	@$(MAKE) --no-print-directory -C $(API) -e "HOME_PATH=$(HOME_PATH)"
 
-$(TRIGGERS)/.triggers : $(triggers_depend_files)
+triggers : $(triggers_depend_files) build_triggers
+	@echo "Triggers' dynamic library are ready."
+
+build_triggers : 
 	@echo -e " " CD"\t" $(TRIGGERS)
 	@echo -e " " MK"\t" $@
 	@$(MAKE) --no-print-directory -C $(TRIGGERS) -e "HOME_PATH=$(HOME_PATH)"
-	@touch $(TRIGGERS)/.triggers
 
 clean :
 	@$(MAKE) --no-print-directory -C $(LIB_PATH) -e "HOME_PATH=$(HOME_PATH)" clean
@@ -85,7 +87,7 @@ unit_test : $(ut_depend_files) $(HVFS_LIB) $(MDS_LIB) $(XNET_LIB) \
 	@$(MAKE) --no-print-directory -C $(TEST)/mdsl -e "HOME_PATH=$(HOME_PATH)"
 	@echo "Targets for unit test are ready."
 
-install: unit_test $(TRIGGERS)/.triggers
+install: unit_test triggers
 	@rsync -r $(TEST)/*.sh root@glnode09:~/hvfs/test/
 	@rsync -r $(CONF) root@glnode09:~/hvfs/
 	@rsync -r $(BIN) root@glnode09:~/hvfs/

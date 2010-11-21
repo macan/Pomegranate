@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-28 16:30:02 macan>
+ * Time-stamp: <2010-11-18 22:47:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,6 +38,9 @@ struct async_update_request
 #define AU_TXG_WB               0x03    /* w/ txg pointer in arg */
 #define AU_DIR_DELTA            0x04    /* w/ hvfs_dir_delta pointer in arg */
 #define AU_DIR_DELTA_REPLY      0x05    /* w/ rddb list pointer in arg */
+
+#define AU_BRANCH_REGION_BEGIN  0xf0000000
+#define AU_BRANCH_REGION_END    0xffffffff
     u64 op;
     u64 arg;
     struct list_head list;

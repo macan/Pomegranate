@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-18 00:28:32 macan>
+ * Time-stamp: <2010-11-19 01:06:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -841,8 +841,8 @@ void mds_dh_reload_nolock(struct dhe *ue)
             thi.psalt = hmi.gdt_salt;
             if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c) {
                 /* load the trigger content from MDSL */
-                hvfs_err(mds, "Read in DT itbid %ld offset %ld len %ld\n",
-                         c->stored_itbid, c->offset, c->len);
+                hvfs_debug(mds, "Read in DT itbid %ld offset %ld len %ld\n",
+                           c->stored_itbid, c->offset, c->len);
                 err = __mds_dh_data_read(&thi, HVFS_TRIG_COLUMN, &data, c);
                 if (err) {
                     hvfs_err(mds, "mds_dh_data_read() failed w/ %d\n", err);

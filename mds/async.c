@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-11 23:01:38 macan>
+ * Time-stamp: <2010-11-18 22:45:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -614,6 +614,7 @@ int __au_req_handle(void)
     
     /* ok, deal with it */
     switch (aur->op) {
+        /* the following is the MDS used async operations */
     case AU_ITB_SPLIT:
         err = __aur_itb_split(aur);
         break;
@@ -629,6 +630,7 @@ int __au_req_handle(void)
     case AU_DIR_DELTA_REPLY:
         err = __aur_dir_delta_reply(aur);
         break;
+        /* the following is the BRANCH used async operations */
     default:
         hvfs_err(mds, "Invalid AU Request: op %ld arg 0x%lx\n",
                      aur->op, aur->arg);

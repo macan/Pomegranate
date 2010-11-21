@@ -1,0 +1,33 @@
+Document of DTrigger File:
+
+There are 3 different types of Dir Trigger:
+
+1. Native DTrigger
+
+   Native DTrigger is a list of operations described in plain text. There are
+   two keywords 'if', 'and', 'or', 'with', and 'update'.
+
+   'if' can check whether a expression is true or false.
+
+   'update' can update a memory location.
+
+   Every operation rule must resident in ONE line. Each line header have to be
+   a keywork in 'if' or 'update'.
+
+   For example, the following trigger log user macan's each file create
+   operations w/ the file name. 
+
+   $ cat log_macan_creation.dt
+   if (mdu.user=macan and op=create) update log=log_name with (ite.name)
+
+2. C DTrigger
+
+   C DTrigger is executable binary C code, compiled as a shared library, with
+   a entry point (as the main function) dtrigger_main(). Our DTrigger
+   framework will call this function on a trigger event.
+
+3. Python DTrigger
+
+   Python DTrigger is the python source code with a function named
+   dtrigger_main(). Our DTrigger framework will call this function on a
+   trigger event.

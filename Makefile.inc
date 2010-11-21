@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-11-17 23:25:11 macan>
+# Time-stamp: <2010-11-21 20:20:44 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -87,7 +87,7 @@ LIB_AR_SOURCE = lib.c ring.c time.c bitmap.c xlock.c segv.c conf.c md5.c \
                 embedpy.c
 XNET_AR_SOURCE = xnet.c xnet_simple.c
 R2_AR_SOURCE = mgr.c root.c spool.c x2r.c dispatch.c bparser.c cli.c
-API_AR_SOURCE = api.c
+API_AR_SOURCE = api.c branch.c
 
 INC_H_SOURCE = atomic.h err.h hvfs.h hvfs_common.h hvfs_const.h hvfs_k.h \
 				hvfs_u.h ite.h mds_api.h mdsl_api.h memory.h site.h tx.h \
@@ -97,7 +97,7 @@ MDS_H_SOURCE = mds.h cbht.h dh.h itb.h prof.h async.h bitmapc.h mds_config.h ft.
 MDSL_H_SOURCE = mdsl.h lprof.h mdsl_config.h
 R2_H_SOURCE = root.h mgr.h root_config.h rprof.h
 LIB_H_SOURCE = lib.h ring.h
-API_H_SOURCE = 
+API_H_SOURCE = branch.h
 
 inc_h_depend_files = $(patsubst %.h, $(INC_PATH)/%.h, $(INC_H_SOURCE)) \
 						$(LIB_PATH)/hash.c
@@ -108,7 +108,7 @@ r2_h_depend_files = $(patsubst %.h, $(R2)/%.h, $(R2_H_SOURCE))
 api_h_depend_files = $(patsubst %.h, $(API)/%.h, $(API_H_SOURCE))
 header_depend_files = $(inc_h_depend_files) $(mds_h_depend_files) \
 						$(lib_h_depend_files) $(mdsl_h_depend_files) \
-						$(r2_h_depend_files)
+						$(r2_h_depend_files) $(api_h_depend_files)
 
 ut_depend_files = $(patsubst %.c, $(TEST)/mds/%.c, $(TEST_MDS_SOURCE)) \
 					$(patsubst %.c, $(TEST)/xnet/%.c, $(TEST_XNET_SOURCE)) \
