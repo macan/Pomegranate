@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-22 00:15:47 macan>
+ * Time-stamp: <2010-11-27 23:56:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
  */
 
 #include "mds.h"
+#include "amc_api.h"
 
 /* BRANCH is a async, non-cycle data flow system. 
  */
@@ -40,6 +41,7 @@
  * FAST: means that we just return on coping the data to self's memory.
  */
 #define BRANCH_LEVEL_MASK       0xf0
+#define BRANCH_NR_MASK          0x0f
 #define BRANCH_SAFE             0x10
 #define BRANCH_FAST             0x20
 
@@ -67,21 +69,27 @@ struct branch_ops
 
 struct branch_header
 {
+    /* who created this branch? */
     u64 puuid;
     u64 uuid;
+    /* init tag attached w/ this branch */
     char tag[35];
+    /* init level attached w/ this branch */
     u8 level;
     struct branch_ops ops;
 };
 
+typedef void *(*branch_callback_t)(void *);
+
 /* APIs */
 int branch_create(u64 puuid, u64 uuid, char *brach_name, char *tag,
                   u8 level, struct branch_ops *ops);
-int branch_load(char *branch_name, char *tag, struct branch_ops **ops);
+int branch_load(char *branch_name, char *tag);
 int branch_publish(u64 puuid, u64 uuid, char *branch_name, char *tag,
-                   u8 level);
+                   u8 level, void *data, size_t data_len);
 int branch_subscribe(u64 puuid, u64 uuid, char *branch_name, char *tag,
-                     u8 level);
+                     u8 level, branch_callback_t bc);
+int branch_dispatch(void *arg);
 
 /* APIs we nneed from api.c */
 int __hvfs_stat(u64 puuid, u64 psalt, int column, struct hstat *);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-03 23:50:48 macan>
+ * Time-stamp: <2010-11-24 22:55:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -105,37 +105,61 @@ int mds_client_dispatch(struct xnet_msg *msg)
 
 int mds_mds_dispatch(struct xnet_msg *msg)
 {
-    if (msg->tx.cmd == HVFS_MDS2MDS_FWREQ) {
+    switch (msg->tx.cmd) {
+    case HVFS_MDS2MDS_FWREQ:
         /* FIXME: forward request */
         mds_forward(msg);
-    } else if (msg->tx.cmd == HVFS_MDS2MDS_SPITB) {
+        break;
+    case HVFS_MDS2MDS_SPITB:
         /* FIXME: split itb */
         mds_ausplit(msg);
-    } else if (msg->tx.cmd == HVFS_MDS2MDS_AUBITMAP) {
+        break;
+    case HVFS_MDS2MDS_AUBITMAP:
         mds_aubitmap(msg);
         xnet_free_msg(msg);
-    } else if (msg->tx.cmd == HVFS_MDS2MDS_AUBITMAP_R) {
+        break;
+    case HVFS_MDS2MDS_AUBITMAP_R:
         mds_aubitmap_r(msg);
         xnet_free_msg(msg);
-    } else if (msg->tx.cmd == HVFS_MDS2MDS_AUDIRDELTA) {
+        break;
+    case HVFS_MDS2MDS_AUDIRDELTA:
         mds_audirdelta(msg);
-    } else if (msg->tx.cmd == HVFS_MDS2MDS_AUDIRDELTA_R) {
+        break;
+    case HVFS_MDS2MDS_AUDIRDELTA_R:
         mds_audirdelta_r(msg);
-    } else if (msg->tx.cmd == HVFS_MDS2MDS_AUPDATE) {
+        break;
+    case HVFS_MDS2MDS_AUPDATE:
         /* FIXME: async update */
-    } else if (msg->tx.cmd == HVFS_MDS2MDS_REDODELTA) {
+        break;
+    case HVFS_MDS2MDS_REDODELTA:
         /* FIXME: redo delta */
-    } else if (msg->tx.cmd == HVFS_MDS2MDS_LB) {
-        /* FIXME: load bitmap */
+        break;
+    case HVFS_MDS2MDS_LB:
+        /* load bitmap */
         mds_m2m_lb(msg);
-    } else if (msg->tx.cmd == HVFS_MDS2MDS_LD) {
-        /* FIXME: load dir hash entry, just return the hvfs_index */
+        break;
+    case HVFS_MDS2MDS_LD:
+        /* load dir hash entry, just return the hvfs_index */
         mds_ldh(msg);
-    } else if (msg->tx.cmd == HVFS_MDS2MDS_GB) {
+        break;
+    case HVFS_MDS2MDS_GB:
         mds_gossip_bitmap(msg);
-    } else if (msg->tx.cmd == HVFS_MDS2MDS_GF) {
+        break;
+    case HVFS_MDS2MDS_GF:
         ft_gossip_recv(msg);
-    } else {
+        break;
+    case HVFS_MDS2MDS_BRANCH:
+        if (hmo.branch_dispatch)
+            hmo.branch_dispatch(msg);
+        else {
+            hvfs_err(mds, "No valid branch dispatcher, we just "
+                     "reject the caller.\n");
+            mds_do_reject(msg);
+        }
+        break;
+    default:
+        hvfs_err(mds, "Invalid MDS2MDS request %ld from %lx\n",
+                 msg->tx.cmd, msg->tx.ssite_id);
         xnet_free_msg(msg);
     }
 

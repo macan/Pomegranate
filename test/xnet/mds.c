@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-09 18:30:21 macan>
+ * Time-stamp: <2010-11-28 00:06:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@
 #include "lib.h"
 #include "mds.h"
 #include "root.h"
+#include "branch.h"
 
 #ifdef UNIT_TEST
 #define TYPE_MDS        0
@@ -106,6 +107,7 @@ int msg_wait()
 
 /* ring_add() add one site to the CH ring
  */
+static 
 int ring_add(struct chring **r, u64 site)
 {
     struct chp *p;
@@ -143,7 +145,8 @@ int ring_add(struct chring **r, u64 site)
     return 0;
 }
 
-void hmr_print(struct hvfs_md_reply *hmr)
+static
+void __UNUSED__ hmr_print(struct hvfs_md_reply *hmr)
 {
     struct hvfs_index *hi;
     struct mdu *m;
@@ -543,6 +546,7 @@ int msg_send(int dsite, int loop)
     return 0;
 }
 
+static
 int dh_insert(u64 uuid, u64 puuid, u64 ssalt)
 {
     struct hvfs_index hi;
@@ -565,7 +569,8 @@ out:
     return err;
 }
 
-int dh_search(u64 uuid)
+static
+int __UNUSED__ dh_search(u64 uuid)
 {
     struct dhe *e;
     int err = 0;
@@ -583,11 +588,13 @@ out:
     return err;
 }
 
-int dh_remove(u64 uuid)
+static
+int __UNUSED__ dh_remove(u64 uuid)
 {
     return mds_dh_remove(&hmo.dh, uuid);
 }
 
+static
 int bitmap_insert(u64 uuid, u64 offset)
 {
     struct dhe *e;
@@ -629,6 +636,7 @@ out_free:
     return err;
 }
 
+static
 int bitmap_insert2(u64 uuid, u64 offset, void *bitmap, int len)
 {
     struct dhe *e;
@@ -680,6 +688,7 @@ void *__mds_buf_alloc(size_t size, int aflag)
     }
 }
 
+static
 struct chring *chring_tx_to_chring(struct chring_tx *ct)
 {
     struct chring *ring;
@@ -716,6 +725,7 @@ out:
  *
  * @gid: already right shift 2 bits
  */
+static
 int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
 {
     struct xnet_msg *msg;
@@ -850,6 +860,7 @@ out_nofree:
  *
  * @gid: already right shift 2 bits
  */
+static
 int r2cli_do_unreg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
 {
     struct xnet_msg *msg;
@@ -902,6 +913,7 @@ out_nofree:
  *
  * @gid: already right shift 2 bits
  */
+static
 int r2cli_do_hb(u64 request_site, u64 root_site, u64 fsid, u32 gid)
 {
     struct xnet_msg *msg;
@@ -1064,6 +1076,7 @@ int main(int argc, char *argv[])
     hmo.conf.prof_plot = 1;
     hmo.conf.option |= HVFS_MDS_NOSCRUB;
     mds_init(11);
+    hmo.branch_dispatch = branch_dispatch;
 
     /* set the uuid base! */
     hmi.uuid_base = (u64)self << 45;

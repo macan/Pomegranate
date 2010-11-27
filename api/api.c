@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-22 00:15:38 macan>
+ * Time-stamp: <2010-11-28 00:04:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -56,7 +56,8 @@ static inline char *__toupper(char *str)
 
 int __hvfs_list(u64 duuid, int op, struct list_result *lr);
 
-int msg_wait()
+static
+int __UNUSED__ msg_wait()
 {
     while (1) {
         xnet_wait_any(hmo.xc);
@@ -94,7 +95,8 @@ int SET_ITBID(struct hvfs_index *hi)
     return 0;
 }
 
-void hmr_print(struct hvfs_md_reply *hmr)
+static
+void __UNUSED__ hmr_print(struct hvfs_md_reply *hmr)
 {
     struct hvfs_index *hi;
     struct mdu *m;

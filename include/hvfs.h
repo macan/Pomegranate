@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-01 19:27:11 macan>
+ * Time-stamp: <2010-11-28 00:04:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -91,6 +91,7 @@
                                                       * confirm */
 #define HVFS_MDS2MDS_GB         0x000000008000000a /* gossip bitmap */
 #define HVFS_MDS2MDS_GF         0x000000008000000b /* gossip ft info */
+#define HVFS_MDS2MDS_BRANCH     0x000000008000000f /* branch commands */
 
 /* MDSL to MDS */
 /* RING/ROOT to MDS */
@@ -155,6 +156,7 @@
 #include "hash.c"
 
 #define __cbht __attribute__((__section__(".cbht.text")))
+#define __UNUSED__ __attribute__((unused))
 
 struct itbitmap
 {

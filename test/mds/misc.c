@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-21 16:00:55 macan>
+ * Time-stamp: <2010-11-28 00:14:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -84,7 +84,8 @@ int main(int argc, char *argv[])
     /* test mds ev */
     mds_pre_init();
     mds_config();
-    mds_verify();
+    /* Note, mds_verify() call be called w/o mds_init() */
+    /* mds_verify(); */
     hvfs_info(mds, "memlimit is %ld\n", hmo.conf.memlimit);
 
     /* test bitmap delta */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-10 18:26:38 macan>
+ * Time-stamp: <2010-11-25 00:46:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -99,6 +99,39 @@ void __customized_send_bitmap(struct xnet_msg *msg, struct iovec iov[], int nr)
         /* do not retyr myself, client is forced to retry */
     }
     xnet_free_msg(rpy);
+}
+
+/* mds_do_reject() return the reject reply message to the caller
+ */
+void mds_do_reject(struct xnet_msg *msg)
+{
+    struct xnet_msg *rpy = xnet_alloc_msg(XNET_MSG_CACHE);
+
+    if (!rpy) {
+        hvfs_err(mds, "xnet_alloc_msg() failed\n");
+        /* do not retry myself */
+        xnet_free_msg(msg);
+        return;
+    }
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
+    xnet_msg_set_err(rpy, -EFAULT);
+
+    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0, hmo.site_id,
+                     msg->tx.ssite_id);
+    xnet_msg_fill_reqno(rpy, msg->tx.reqno);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, 0, 0);
+    /* match the original request at the source site */
+    rpy->tx.handle = msg->tx.handle;
+
+    if (xnet_send(hmo.xc, rpy)) {
+        hvfs_err(mds, "xnet_send() failed\n");
+        /* do not retry my self */
+    }
+    xnet_free_msg(rpy);
+    xnet_free_msg(msg);
 }
 
 /* mds_ldh() use the hvfs_index interface, so request forward is working.

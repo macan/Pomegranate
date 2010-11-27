@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-11-21 20:20:44 macan>
+# Time-stamp: <2010-11-27 23:44:35 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -58,7 +58,7 @@ XCFLAGS = -O2 -rdynamic -g -pg -std=gnu99 -fPIC
 CFLAGS += $(XCFLAGS)
 CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" \
 			-DCHOST="\"$(COMPILE_HOST)\"" -I$(INC_PATH) \
-			-I$(PYTHON_INC) \
+			-I$(PYTHON_INC) -I$(API) \
 			-I$(LIB_PATH) -I$(MDS) -I$(MDSL) -I$(R2) -D_GNU_SOURCE\
 			-DHVFS_TRACING -DHVFS_DEBUG_MEMORY -DHVFS_DEBUG_LOCK_ \
             -D_USE_SPINLOCK_ -DHVFS_DEBUG_LATENCY_ -DXNET_BLOCKING \

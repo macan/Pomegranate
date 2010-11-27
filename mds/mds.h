@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-17 23:06:47 macan>
+ * Time-stamp: <2010-11-27 23:28:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -191,6 +191,9 @@ struct hvfs_mds_object
 
     int scrub_op;               /* scrub operation */
     atomic64_t ctxg;            /* last completed txg */
+    
+    /* BRANCH dispatcher */
+    int (*branch_dispatch)(void *);
     
     /* callback functions */
     void (*cb_exit)(void *);
@@ -437,6 +440,7 @@ void mds_m2m_lb(struct xnet_msg *msg);
 void mds_audirdelta(struct xnet_msg *msg);
 void mds_audirdelta_r(struct xnet_msg *msg);
 void mds_gossip_bitmap(struct xnet_msg *msg);
+void mds_do_reject(struct xnet_msg *msg);
 
 /* for async.c */
 int async_tp_init(void);

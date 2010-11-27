@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-04 17:22:58 macan>
+ * Time-stamp: <2010-11-27 23:37:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -148,5 +148,16 @@ int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
                       u32 type, void *data, size_t len);
 int hvfs_cat_dtrigger(char *path, char *name, void **data);
 void hvfs_free(void *p);
+
+/* Region for BRANCH subsystem */
+
+/* BRANCH commands */
+#define BRANCH_CMD_NOPE         0x00
+#define BRANCH_CMD_PUSH         0x01
+#define BRANCH_CMD_PULL         0x02
+#define BRANCH_CMD_ACK          0x03
+#define BRANCH_CMD_REPLICA      0x04
+#define BRANCH_CMD_BULK_PUSH    0x05
+#define BRANCH_CMD_ACK_REPLICA  0x06
 
 #endif
