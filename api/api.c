@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-22 00:15:38 macan>
+ * Time-stamp: <2010-11-28 18:28:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -5280,7 +5280,8 @@ int __hvfs_fwrite(struct hstat *hs, int column, void *data,
         location = *((u64 *)msg->pair->xm_data);
     } else {
         hvfs_err(xnet, "recv data write reply ERROR!\n");
-        goto out_free;
+        err = -EFAULT;
+        goto out_msg;
     }
 
     if (location == 0) {
@@ -5947,6 +5948,111 @@ int hvfs_cat_dtrigger(char *path, char *name, void **data)
         hvfs_plain(xnet, "None\n");
     }
     
+out:
+    return err;
+}
+
+static
+int __hvfs_statfs(struct statfs *s, u64 dsite)
+{
+    struct statfs *ns;
+    struct xnet_msg *msg;
+    int err = 0;
+
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        return -ENOMEM;
+    }
+
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_STATFS, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    /* this is a trick to pass the sanity checking in MDS */
+    xnet_msg_add_sdata(msg, &err, sizeof(err));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply, parse the statfs structure */
+    if (msg->pair->xm_datacheck) {
+        ns = (struct statfs *)msg->pair->xm_data;
+    } else {
+        hvfs_err(xnet, "recv statfs reply ERROR!\n");
+        err = -EFAULT;
+        goto out_msg;
+    }
+
+    s->f_blocks += ns->f_blocks;
+    s->f_bfree += ns->f_bfree;
+    s->f_bavail += ns->f_bavail;
+    s->f_files += ns->f_files;
+    s->f_ffree += ns->f_ffree;
+    
+out_msg:
+    xnet_free_msg(msg);
+
+    return err;
+}
+
+/* hvfs_statfs() stat the HMIs from all the MDSs.
+ */
+int hvfs_statfs(void **data)
+{
+    struct statfs s;
+    struct xnet_group *xg = NULL;
+    char *p = NULL;
+    int err = 0, i;
+
+    memset(&s, 0, sizeof(s));
+    p = xzalloc(512);
+    if (!p) {
+        hvfs_err(xnet, "xzalloc() result buffer failed\n");
+        return -ENOMEM;
+    }
+    
+    xg = cli_get_active_site(hmo.chring[CH_RING_MDS]);
+    if (!xg) {
+        hvfs_err(xnet, "cli_get_active_site() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    for (i = 0; i < xg->asize; i++) {
+        err = __hvfs_statfs(&s, xg->sites[i].site_id);
+        if (err) {
+            hvfs_err(xnet, "Statfs from %lx failed /w %d\n",
+                     xg->sites[i].site_id, err);
+        }
+    }
+
+    s.f_type = HVFS_SUPER_MAGIC;
+    s.f_namelen = HVFS_MAX_NAME_LEN;
+    
+    /* construct the result buffer */
+    snprintf(p, 512, "FS STAT:\n"
+             "\tf_type\t\t0x%lx\n"
+             "\tf_bsize\t\t%ld\n"
+             "\tf_blocks\t%ld\n"
+             "\tf_bfree\t\t%ld\n"
+             "\tf_bavail\t%ld\n"
+             "\tf_files\t\t%ld\n"
+             "\tf_ffree\t\t%ld\n"
+             "\tf_fsid\t\t????\n"
+             "\tf_namelen\t%ld\n",
+             s.f_type, s.f_bsize, s.f_blocks, s.f_bfree,
+             s.f_bavail, s.f_files, s.f_ffree, 
+             s.f_namelen);
+    *data = p;
+
 out:
     return err;
 }

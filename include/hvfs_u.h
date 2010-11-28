@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-03 16:45:55 macan>
+ * Time-stamp: <2010-11-28 18:16:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,6 +35,7 @@
 #include <time.h>
 #include <sys/vfs.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
 #include <sys/uio.h>
 #include <sys/time.h>
 #include <signal.h>
