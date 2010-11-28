@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-11-09 09:17:29 macan>
+# Time-stamp: <2010-11-28 18:26:19 macan>
 #
 # Armed with EMACS.
 
@@ -132,7 +132,7 @@ class pamc_shell(cmd.Cmd):
     keywords = ["EOF", "touch", "delete", "stat", "mkdir",
                 "rmdir", "cpin", "cpout", "online", "offline",
                 "quit", "ls", "commit", "getcluster", "cat", 
-                "regdtrigger", "catdtrigger",
+                "regdtrigger", "catdtrigger", "statfs",
                 "getactivesite"]
 
     def __init__(self):
@@ -689,6 +689,26 @@ class pamc_shell(cmd.Cmd):
         except ValueError, ve:
             print "ValueError %s" % ve
         print "+OK"
+
+    def do_statfs(self, line):
+        '''Statfs to get the metadata of the file system.
+        Usage: statfs'''
+
+        try:
+            c_data = c_void_p(None)
+            self.start_clock()
+            err = api.hvfs_statfs(byref(c_data))
+            if err != 0:
+                print "api.hvfs_statfs() failed w/ %d" % err
+                return
+            self.stop_clock()
+            c_str = c_char_p(c_data.value)
+            print c_str.value
+            self.echo_clock("Time elasped:")
+            # free the region
+            api.hvfs_free(c_data)
+        except ValueError, ve:
+            print "ValueError %s" % ve
 
     def do_quit(self, line):
         print "Quiting ..."

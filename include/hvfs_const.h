@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-03 16:34:15 macan>
+ * Time-stamp: <2010-11-28 17:27:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,8 @@
 
 #ifndef __HVFS_CONST_H__
 #define __HVFS_CONST_H__
+
+#define HVFS_SUPER_MAGIC        (0x4af5)
 
 #define HVFS_MAX_NAME_LEN       256
 #define MDS_DCONF_MAX_NAME_LEN  64

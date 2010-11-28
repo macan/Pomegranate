@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-27 23:37:36 macan>
+ * Time-stamp: <2010-11-28 18:47:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -147,6 +147,7 @@ int hvfs_fcommit(int id);
 int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
                       u32 type, void *data, size_t len);
 int hvfs_cat_dtrigger(char *path, char *name, void **data);
+int hvfs_statfs(void **data);
 void hvfs_free(void *p);
 
 /* Region for BRANCH subsystem */
