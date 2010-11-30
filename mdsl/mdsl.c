@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-01 23:52:57 macan>
+ * Time-stamp: <2010-11-30 19:44:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -177,6 +177,8 @@ static void *mdsl_timer_thread_main(void *arg)
         mdsl_dump_profiling(time(NULL));
         /* check the fd hash table */
         mdsl_storage_fd_limit_check();
+        /* keep page cache clean if there are a lot of page cache entries */
+        mdsl_storage_fd_pagecache_cleanup();
     }
 
     hvfs_debug(mdsl, "Hooo, I am exiting...\n");
@@ -336,6 +338,7 @@ int mdsl_config(void)
 
     HVFS_MDSL_GET_ENV_atol(memlimit, value);
     HVFS_MDSL_GET_ENV_atol(fdlimit, value);
+    HVFS_MDSL_GET_ENV_atol(pcct, value);
 
     HVFS_MDSL_GET_ENV_option(write_drop, WDROP, value);
     HVFS_MDSL_GET_ENV_option(memlimit, MEMLIMIT, value);
@@ -355,6 +358,10 @@ int mdsl_config(void)
     if (!hmo.conf.fdlimit)
         hmo.conf.fdlimit = (1024 * 1024 * 1024 / 
                             hmo.conf.data_file_chunk);
+
+    /* set default pcct value to 1GB memory */
+    if (!hmo.conf.pcct)
+        hmo.conf.pcct = (1024 * 1024 * 1024);
 
     /* FIXME: hmi should not be set at here actually */
     hmi.itb_depth = 3;

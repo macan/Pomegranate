@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-18 22:43:31 macan>
+ * Time-stamp: <2010-11-30 23:06:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -747,6 +747,33 @@ void mdsl_storage_fd_limit_check(void)
         } else {
             mdsl_storage_fd_lru_update(fde);
         }
+    }
+}
+
+void mdsl_storage_fd_pagecache_cleanup(void)
+{
+    static u64 last_rbytes = 0;
+    struct fdhash_entry *fde;
+    struct hlist_node *pos;
+    int idx;
+
+    if (atomic64_read(&hmo.prof.storage.rbytes) - last_rbytes 
+        < hmo.conf.pcct) {
+        return;
+    }
+    last_rbytes = atomic64_read(&hmo.prof.storage.rbytes);
+
+    for (idx = 0; idx < hmo.conf.storage_fdhash_size; idx++) {
+        xlock_lock(&(hmo.storage.fdhash + idx)->lock);
+        hlist_for_each_entry(fde, pos, 
+                             &(hmo.storage.fdhash + idx)->h, 
+                             list) {
+            if (fde->type == MDSL_STORAGE_ITB ||
+                fde->type == MDSL_STORAGE_DATA) {
+                posix_fadvise(fde->fd, 0, 0, POSIX_FADV_DONTNEED);
+            }
+        }
+        xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
     }
 }
 
