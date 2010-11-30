@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-10 11:57:48 macan>
+ * Time-stamp: <2010-11-30 22:02:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -813,12 +813,6 @@ void mds_destroy(void)
     /* stop the unlink thread */
     unlink_thread_destroy();
 
-    /* itb */
-    itb_cache_destroy(&hmo.ic);
-    
-    /* cbht */
-    mds_cbht_destroy(&hmo.cbht);
-
     /* stop the async threads */
     async_tp_destroy();
 
@@ -840,6 +834,12 @@ void mds_destroy(void)
     /* destroy the service thread pool */
     mds_spool_destroy();
 
+    /* cbht */
+    mds_cbht_destroy(&hmo.cbht);
+
+    /* itb */
+    itb_cache_destroy(&hmo.ic);
+    
     /* close the files */
     if (hmo.conf.pf_file)
         fclose(hmo.conf.pf_file);
