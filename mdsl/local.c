@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-03 16:25:11 macan>
+ * Time-stamp: <2010-12-03 16:26:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,81 +26,23 @@
 #include "mdsl_api.h"
 #include "mdsl.h"
 
-static inline
-void __mdsl_send_rpy(struct xnet_msg *msg, struct iovec iov[], int nr,
-                     int err)
-{
-    struct xnet_msg *rpy;
-    int i;
-
-    rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!rpy) {
-        hvfs_err(mdsl, "xnet_alloc_msg() failed\n");
-        /* do not retry myself */
-        return;
-    }
-    
-#ifdef XNET_EAGER_WRITEV
-    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
-#endif
-    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, XNET_NEED_DATA_FREE,
-                     hmo.site_id, msg->tx.ssite_id);
-    xnet_msg_fill_reqno(rpy, msg->tx.reqno);
-    xnet_msg_fill_cmd(rpy, XNET_RPY_DATA, 0, 0);
-    /* match the original request at the source site */
-    rpy->tx.handle = msg->tx.handle;
-    
-    if (err) {
-        /* send err reply */
-        xnet_msg_set_err(rpy, err);
-    } else {
-        /* send normal or data reply */
-        for (i = 0; i < nr; i++) {
-            xnet_msg_add_sdata(rpy, iov[i].iov_base, iov[i].iov_len);
-        }
-    }
-
-    err = xnet_send(hmo.xc, rpy);
-    if (err) {
-        hvfs_err(mdsl, "xnet_send() failed w/ %d.\n", err);
-    }
-    xnet_free_msg(rpy);
-}
-
-void mdsl_read(struct xnet_msg *msg)
+int __mdsl_read_local(struct storage_index *si, 
+                      struct iovec **oiov)
 {
     struct fdhash_entry *fde;
     struct mdsl_storage_access msa;
-    struct storage_index *si;
     struct iovec *iov;
     int err = 0, i;
-    
-    /* sanity checking */
-    if (msg->tx.len < sizeof(struct storage_index)) {
-        hvfs_err(mdsl, "Invalid mdsl read request %d from %lx.\n",
-                 msg->tx.reqno, msg->tx.ssite_id);
-        err = -EINVAL;
-        goto send_rpy;
-    }
 
-    if (msg->xm_datacheck) {
-        si = msg->xm_data;
-    } else {
-        hvfs_err(mdsl, "Internal error, data lossing...\n");
-        err = -EFAULT;
-        goto send_rpy;
-    }
+    hvfs_debug(mdsl, "Recv read request %ld veclen %d from self\n",
+               si->sic.uuid, si->scd.cnr);
 
-    hvfs_debug(mdsl, "Recv read request %ld veclen %d from %lx\n",
-               si->sic.uuid, si->scd.cnr, msg->tx.ssite_id);
-
-    /* We should iterate on the client's column_req vector and read each entry
+    /* we should iterate on the client's column_req vector and read each entry
      * to the result buffer */
     iov = xzalloc(sizeof(struct iovec) * si->scd.cnr);
     if (!iov) {
         hvfs_err(mdsl, "xzalloc() iovec failed.\n");
-        err = -ENOMEM;
-        goto send_rpy;
+        return -ENOMEM;
     }
 
     for (i = 0; i < si->scd.cnr; i++) {
@@ -111,7 +53,7 @@ void mdsl_read(struct xnet_msg *msg)
             hvfs_err(mdsl, "lookup create %ld data column %ld failed w/ %ld\n",
                      si->sic.uuid, si->scd.cr[i].cno, PTR_ERR(fde));
             err = PTR_ERR(fde);
-            goto cleanup_send_rpy;
+            goto out_free;
         }
 
         /* prepare the data region */
@@ -119,9 +61,9 @@ void mdsl_read(struct xnet_msg *msg)
         if (!iov[i].iov_base) {
             hvfs_err(mdsl, "xmalloc data column %ld storage failed.\n",
                      si->scd.cr[i].cno);
-            err = -ENOMEM;
             mdsl_storage_fd_put(fde);
-            goto cleanup_send_rpy;
+            err = -ENOMEM;
+            goto out_free;
         }
         iov[i].iov_len = si->scd.cr[i].req_len;
 
@@ -137,75 +79,43 @@ void mdsl_read(struct xnet_msg *msg)
                      si->scd.cr[i].req_offset,
                      si->scd.cr[i].req_len, err);
             mdsl_storage_fd_put(fde);
-            goto cleanup_send_rpy;
+            goto out_free;
         }
         /* put the fde */
         mdsl_storage_fd_put(fde);
     }
 
-    /* we have got all the data in the iovec and now it is ok to send the data
-     * back :) */
-    __mdsl_send_rpy(msg, iov, si->scd.cnr, err);
-    
-    xnet_free_msg(msg);
-    xfree(iov);
+    *oiov = iov;
 
-    return;
-cleanup_send_rpy:
-    /* free the iov now */
+    return 0;
+out_free:
     for (i = 0; i < si->scd.cnr; i++) {
         if (iov[i].iov_base)
             xfree(iov[i].iov_base);
     }
     xfree(iov);
-send_rpy:
-    __mdsl_send_rpy(msg, NULL, 0, err);
-    
-    xnet_free_msg(msg);
-    
-    return;
+    return err;
 }
 
-void mdsl_write(struct xnet_msg *msg)
+int __mdsl_write_local(struct storage_index *si, void *data,
+                       u64 **olocation)
 {
     struct fdhash_entry *fde;
     struct mdsl_storage_access msa;
-    struct storage_index *si;
     struct iovec iov;
-    void *data;
     u64 offset = 0;
     u64 *location;
     int err = 0, i;
 
-    /* sanity checkint */
-    if (unlikely(msg->tx.len < sizeof(struct storage_index))) {
-        hvfs_err(mdsl, "Invalid mdsl read request %d from %lx.\n",
-                 msg->tx.reqno, msg->tx.ssite_id);
-        err = -EINVAL;
-        goto send_rpy;
-    }
-
-    if (likely(msg->xm_datacheck)) {
-        si = msg->xm_data;
-        /* adjust the data pointer */
-        data = msg->xm_data + sizeof(*si) + 
-            si->scd.cnr * sizeof(struct column_req);
-    } else {
-        hvfs_err(mdsl, "Internal error, data lossing...\n");
-        err = -EFAULT;
-        goto send_rpy;
-    }
-
-    hvfs_debug(mdsl, "Recv write request %ld veclen %d from %lx\n",
-               si->sic.uuid, si->scd.cnr, msg->tx.ssite_id);
+    hvfs_debug(mdsl, "Recv write request %ld veclen %d from self\n",
+               si->sic.uuid, si->scd.cnr);
 
     /* We should iterate on the client's column_req vector and write each
      * entry to the result buffer */
     location = xzalloc(sizeof(u64) * si->scd.cnr);
     if (!location) {
         hvfs_err(mdsl, "xzalloc() location failed.\n");
-        err = -ENOMEM;
-        goto send_rpy;
+        return -ENOMEM;
     }
     
     for (i = 0; i < si->scd.cnr; i++) {
@@ -216,7 +126,7 @@ void mdsl_write(struct xnet_msg *msg)
             hvfs_err(mdsl, "lookup create %ld data column %ld failed w/ %ld\n",
                      si->sic.uuid, si->scd.cr[i].cno, PTR_ERR(fde));
             err = PTR_ERR(fde);
-            goto cleanup_send_rpy;
+            goto out_free;
         }
 
         /* write the data now */
@@ -232,29 +142,19 @@ void mdsl_write(struct xnet_msg *msg)
             hvfs_err(mdsl, "write the dir %ld data column %ld failed w/ %d\n",
                      si->sic.uuid, si->scd.cr[i].cno, err);
             mdsl_storage_fd_put(fde);
-            goto cleanup_send_rpy;
+            goto out_free;
         }
 
         /* put the fde */
         mdsl_storage_fd_put(fde);
     }
 
-    /* we have written all the data region and now it is ok to send the
-     * location back :) */
-    iov.iov_base = location;
-    iov.iov_len = sizeof(u64) * si->scd.cnr;
-    __mdsl_send_rpy(msg, &iov, 1, err);
-
-    xnet_free_msg(msg);
+    *olocation = location;
     
-    return;
-cleanup_send_rpy:
+    return 0;
+out_free:
     /* free the location array */
     xfree(location);
-send_rpy:
-    __mdsl_send_rpy(msg, NULL, 0, err);
-
-    xnet_free_msg(msg);
     
-    return;
+    return err;
 }

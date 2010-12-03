@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-30 19:42:08 macan>
+ * Time-stamp: <2010-11-30 23:32:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -411,6 +411,8 @@ int __mdisk_lookup(struct fdhash_entry *, int, u64, range_t **);
 int __mdisk_add_range(struct fdhash_entry *, u64, u64, u64);
 int mdsl_storage_toe_commit(struct txg_open_entry *, struct txg_end *);
 int mdsl_storage_update_range(struct txg_open_entry *);
+void mdsl_storage_fd_pagecache_cleanup(void);
+
 /* defines for buf flush */
 #define ABUF_ASYNC      0x01
 #define ABUF_UNMAP      0x02

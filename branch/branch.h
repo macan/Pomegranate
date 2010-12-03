@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-27 23:56:27 macan>
+ * Time-stamp: <2010-12-03 16:34:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -101,3 +101,20 @@ int __hvfs_fwrite(struct hstat *hs, int column, void *data,
                   size_t len, struct column *c);
 int __hvfs_fread(struct hstat *hs, int column, void **data, 
                  struct column *c);
+
+int __hvfs_stat_local(u64 puuid, u64 psalt, int column, struct hstat *);
+int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *, u32 flag,
+                        struct mdu_update *);
+int __hvfs_update_local(u64 puuid, u64 psalt, struct hstat *,
+                        struct mdu_update *);
+
+/* enhanced APIs we export based the version from api.c */
+int hvfs_stat_eh(u64 puuid, u64 psalt, int column, struct hstat *);
+int hvfs_create_eh(u64 puuid, u64 psalt, struct hstat *, u32 flag,
+                   struct mdu_update *);
+int hvfs_update_eh(u64 puuid, u64 psalt, struct hstat *,
+                   struct mdu_update *);
+int hvfs_fwrite_eh(struct hstat *hs, int column, void *data, 
+                   size_t len, struct column *c);
+int hvfs_fread_eh(struct hstat *hs, int column, void **data, 
+                  struct column *c);

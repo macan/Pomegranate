@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-27 23:42:27 macan>
+ * Time-stamp: <2010-12-03 02:10:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -198,6 +198,48 @@ void branch_destroy(void)
 {
     if (bmgr.bht)
         xfree(bmgr.bht);
+}
+
+/* basic functions for reading and writing metadata and data */
+int hvfs_stat_eh(u64 puuid, u64 psalt, int column, 
+                 struct hstat *hs)
+{
+    struct dhe *e;
+    struct chp *p;
+    u64 hash, itbid;
+    
+    if (!hs->uuid) {
+        hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+                         HASH_SEL_EH);
+    } else {
+        if (!hs->hash)
+            hash = hvfs_hash(hs->uuid, psalt, 0, HASH_SEL_GDT);
+        else
+            hash = hs->hash;
+    }
+
+    e = mds_dh_search(&hmo.dh, puuid);
+    if (IS_ERR(e)) {
+        hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
+        return PTR_ERR(e);
+    }
+    itbid = mds_get_itbid(e, hash);
+    mds_dh_put(e);
+
+    /* check if we are in the local site */
+    p = ring_get_point(itbid, psalt, hmo.chring[CH_RING_MDS]);
+    if (IS_ERR(p)) {
+        hvfs_err(xnet, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
+        return -EINVAL;
+    }
+
+    if (p->site_id == hmo.site_id) {
+        /* oh, local access */
+        return __hvfs_stat_local(puuid, psalt, column, hs);
+    } else {
+        /* call api.c */
+        return __hvfs_stat(puuid, psalt, column, hs);
+    }
 }
 
 int __branch_insert(char *branch_name, struct branch_header *bh)
@@ -1091,7 +1133,7 @@ relookup:
     hs.puuid = hmi.root_uuid;
     hs.psalt = hmi.root_salt;
 
-    err = __hvfs_stat(hmi.root_uuid, hmi.root_salt, -1, &hs);
+    err = hvfs_stat_eh(hmi.root_uuid, hmi.root_salt, -1, &hs);
     if (err == -ENOENT) {
         void *data;
         
@@ -1111,7 +1153,7 @@ relookup:
 
     /* stat the GDT to find the salt */
     hs.hash = 0;
-    err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, &hs);
+    err = hvfs_stat_eh(hmi.gdt_uuid, hmi.gdt_salt, 0, &hs);
     if (err) {
         hvfs_err(xnet, "do internal dir stat (GDT) on root branch "
                  "failed w/ %d\n", err);
@@ -1255,14 +1297,14 @@ int branch_load(char *branch_name, char *tag)
     hs.puuid = hmi.root_uuid;
     hs.psalt = hmi.root_salt;
 
-    err = __hvfs_stat(hmi.root_uuid, hmi.root_salt, -1, &hs);
+    err = hvfs_stat_eh(hmi.root_uuid, hmi.root_salt, -1, &hs);
     if (err) {
         hvfs_err(xnet, "Root branche does not exist, w/ %d\n",
                  err);
         goto out;
     }
     hs.hash = 0;
-    err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, -1, &hs);
+    err = hvfs_stat_eh(hmi.gdt_uuid, hmi.gdt_salt, -1, &hs);
     if (err) {
         hvfs_err(xnet, "do internal dir stat (GDT) on root branch "
                  "failed w/ %d\n", err);
@@ -1276,7 +1318,7 @@ int branch_load(char *branch_name, char *tag)
     hs.puuid = buuid;
     hs.psalt = bsalt;
     hs.name = branch_name;
-    err = __hvfs_stat(buuid, bsalt, 0, &hs);
+    err = hvfs_stat_eh(buuid, bsalt, 0, &hs);
     if (err) {
         hvfs_err(xnet, "do internal file stat (SDT) on branch '%s'"
                  " failed w/ %d\n", branch_name, err);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-28 18:47:07 macan>
+ * Time-stamp: <2010-12-03 18:28:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,10 @@
 #include "root.h"
 #include "amc_api.h"
 #include <getopt.h>
+
+/* internal functions from c2ml.c */
+int __mdsl_read_local(struct storage_index *si, struct iovec **);
+int __mdsl_write_local(struct storage_index *si, void *, u64 **);
 
 /* global variables */
 atomic64_t split_retry = {.counter = 0,};
@@ -921,6 +925,7 @@ int __core_main(int argc, char *argv[])
             hvfs_info(xnet, "    -p,--port    self CLT/AMC port.\n");
             hvfs_info(xnet, "    -t,--thread  thread number.\n");
             hvfs_info(xnet, "    -r,--root    root server.\n");
+            hvfs_info(xnet, "    -f,--fsid    file system id.\n");
             hvfs_info(xnet, "    -y,--type    client type: client/amc.\n");
             hvfs_info(xnet, "    -h,--help    print this menu.\n");
             return 0;
@@ -6056,5 +6061,513 @@ int hvfs_statfs(void **data)
     *data = p;
 
 out:
+    return err;
+}
+
+int __hvfs_stat_local(u64 puuid, u64 psalt, int column, 
+                      struct hstat *hs)
+{
+    size_t dpayload;
+    struct hvfs_index *hi;
+    struct hvfs_md_reply *hmr;
+    struct hvfs_txg *txg;
+    u64 dsite;
+    u32 vid;
+    int err = 0;
+
+    dpayload = sizeof(struct hvfs_index) + 
+        (hs->uuid == 0 ? strlen(hs->name) : 0);
+    hi = (struct hvfs_index *)xzalloc(dpayload);
+    if (!hi) {
+        hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
+        return -ENOMEM;
+    }
+
+    /* alloc hmr */
+    hmr = get_hmr();
+    if (!hmr) {
+        hvfs_err(mds, "get_hmr() failed\n");
+        xfree(hi);
+        return -ENOMEM;
+    }
+
+    if (!hs->uuid) {
+        hi->flag = INDEX_BY_NAME;
+        hi->namelen = strlen(hs->name);
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, hi->namelen, HASH_SEL_EH);
+        memcpy(hi->name, hs->name, hi->namelen);
+    } else {
+        hi->flag = INDEX_BY_UUID;
+        hi->uuid = hs->uuid;
+        if (!hs->hash)
+            hi->hash = hvfs_hash(hs->uuid, psalt, 0, HASH_SEL_GDT);
+        else
+            hi->hash = hs->hash;
+    }
+    hi->puuid = puuid;
+    hi->psalt = psalt;
+    /* calculate the itbid now */
+    err = SET_ITBID(hi);
+    if (err)
+        goto out_free;
+    /* only for debug */
+    {
+        dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
+        ASSERT(dsite == hmo.site_id, xnet);
+    }
+
+    if (column < 0)
+        hi->flag |= INDEX_LOOKUP | INDEX_ITE_ACTIVE;
+    else {
+        hi->column = column;
+        hi->flag |= INDEX_LOOKUP | INDEX_ITE_ACTIVE | INDEX_COLUMN;
+    }
+retry:
+    txg = mds_get_open_txg(&hmo);
+    err = mds_cbht_search(hi, hmr, txg, &txg);
+    txg_put(txg);
+
+    /* now, checking the hmr err */
+    if (err) {
+        /* hoo, something wrong on the MDS */
+        if (err == -EAGAIN || err == -ESPLIT ||
+            err == -ERESTART) {
+            /* have a breath */
+            sched_yield();
+            goto retry;
+        } else if (err == -EHWAIT) {
+            /* deep sleep */
+            sleep(1);
+            goto retry;
+        }
+        goto out_free;
+    } else if (hmr->len) {
+        struct hvfs_index *rhi;
+        struct column *c = NULL;
+        struct gdt_md *m;
+        int no = 0;
+
+        rhi = hmr_extract_local(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+            err = -EFAULT;
+            goto out_free;
+        }
+        m = hmr_extract_local(hmr, EXTRACT_MDU, &no);
+        if (!m) {
+            hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
+            err = -EFAULT;
+            goto out_free;
+        }
+        if (hmr->flag & MD_REPLY_WITH_DC) {
+            c = hmr_extract_local(hmr, EXTRACT_DC, &no);
+            if (!c) {
+                hvfs_err(xnet, "extract DC failed, not found.\n");
+            }
+        }
+        /* setup the output values */
+        if (hs) {
+            memset(hs, 0, sizeof(*hs));
+            hs->puuid = rhi->puuid;
+            if (hmr->flag & MD_REPLY_DIR) {
+                hs->ssalt = m->salt;
+            } else 
+                hs->psalt = rhi->psalt;
+            hs->uuid = rhi->uuid;
+            hs->hash = rhi->hash;
+            memcpy(&hs->mdu, m, sizeof(hs->mdu));
+            if (c) {
+                hs->mc.cno = column;
+                hs->mc.c = *c;
+            }
+        }
+    }
+
+out_free:
+    xfree(hi);
+    if (hmr)
+        xfree(hmr->data);
+    xfree(hmr);
+    return err;
+}
+
+int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
+                        u32 flag, struct mdu_update *imu)
+{
+    size_t dpayload = sizeof(struct hvfs_index);
+    struct hvfs_index *hi;
+    struct hvfs_md_reply *hmr;
+    struct mdu_update *mu;
+    struct hvfs_txg *txg;
+    struct gdt_md gm;
+    u64 dsite;
+    u32 vid;
+    int err = 0;
+
+    if (hs->uuid == 0) {
+        dpayload += strlen(hs->name);
+    }
+    
+    if (flag & INDEX_SYMLINK) {
+        /* ignore the column argument */
+        if (!imu || !imu->namelen) {
+            hvfs_err(xnet, "Create symlink need the mdu_update "
+                     "argument and non-zero symlink name\n");
+            return -EINVAL;
+        }
+        dpayload += sizeof(struct mdu_update) +
+            imu->namelen;
+    } else if (flag & INDEX_CREATE_GDT) {
+        /* just copy the mdu from hstat, ignore mdu_update */
+        dpayload += HVFS_MDU_SIZE;
+        gm.mdu = hs->mdu;
+        gm.puuid = hs->puuid;
+        gm.psalt = hs->psalt;
+    } else if (flag & INDEX_CREATE_DIR) {
+        /* want to create the dir SDT entry */
+        if (imu) {
+            dpayload += sizeof(struct mdu_update);
+            if (imu->valid & MU_LLFS)
+                dpayload += sizeof(struct llfs_ref);
+            if (imu->valid & MU_COLUMN)
+                dpayload += imu->column_no * sizeof(struct mu_column);
+        }
+    } else if (flag & INDEX_CREATE_LINK) {
+        /* imu is actually a link_source struct */
+        if (!imu) {
+            hvfs_err(xnet, "do link w/o link_souce?\n");
+            return -EINVAL;
+        }
+        dpayload += sizeof(struct link_source);
+    } else {
+        /* normal file create */
+        if (imu) {
+            dpayload += sizeof(struct mdu_update);
+            if (imu->valid & MU_LLFS)
+                dpayload += sizeof(struct llfs_ref);
+            if (imu->valid & MU_COLUMN)
+                dpayload += imu->column_no * sizeof(struct mu_column);
+        }
+    }
+
+    hi = (struct hvfs_index *)xzalloc(dpayload);
+    if (!hi) {
+        hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
+        return -ENOMEM;
+    }
+
+    /* alloc hmr */
+    hmr = get_hmr();
+    if (!hmr) {
+        hvfs_err(xnet, "get_hmr() failed\n");
+        xfree(hi);
+        return -ENOMEM;
+    }
+
+    if (flag & INDEX_SYMLINK) {
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+                             HASH_SEL_EH);
+        hi->puuid = puuid;
+        hi->psalt = psalt;
+        hi->flag = INDEX_SYMLINK;
+        if (imu) {
+            mu = (struct mdu_update *)((void *)hi + sizeof(*hi) + 
+                                       sizeof(hs->name));
+            memcpy(mu, imu, sizeof(*mu));
+            memcpy((void *)mu + sizeof(*mu), (void *)imu + sizeof(*imu),
+                   mu->namelen);
+            hi->dlen = sizeof(*mu) + mu->namelen;
+        }
+    } else if (flag & INDEX_CREATE_GDT) {
+        hi->hash = hvfs_hash(hs->uuid, hmi.gdt_salt, 0, HASH_SEL_GDT);
+        hi->uuid = hs->uuid;
+        hi->puuid = hmi.gdt_uuid;
+        hi->psalt = hmi.gdt_salt;
+        hi->flag = INDEX_BY_UUID | INDEX_CREATE | INDEX_CREATE_COPY |
+            INDEX_CREATE_GDT;
+        memcpy((void *)hi + sizeof(*hi), &gm, HVFS_MDU_SIZE);
+        hi->dlen = HVFS_MDU_SIZE;
+    } else if (flag & INDEX_CREATE_DIR) {
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+                             HASH_SEL_EH);
+        hi->puuid = puuid;
+        hi->psalt = psalt;
+        hi->flag = INDEX_CREATE | INDEX_CREATE_DIR;
+        if (imu) {
+            off_t offset = sizeof(*mu);
+            
+            mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
+                                       sizeof(hs->name));
+            memcpy(mu, imu, sizeof(*mu));
+            if (imu->valid & MU_LLFS) {
+                memcpy((void *)mu + offset, (void *)imu + offset,
+                       sizeof(struct llfs_ref));
+                offset += sizeof(struct llfs_ref);
+            }
+            if (imu->valid & MU_COLUMN) {
+                memcpy((void *)mu + offset, (void *)imu + offset,
+                       imu->column_no * sizeof(struct mu_column));
+                offset += imu->column_no * sizeof(struct mu_column);
+            }
+            hi->dlen = offset;
+        }
+    } else if (flag & INDEX_CREATE_LINK) {
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+                             HASH_SEL_EH);
+        hi->puuid = puuid;
+        hi->psalt = psalt;
+        hi->flag = INDEX_CREATE | INDEX_CREATE_LINK;
+        if (imu) {
+            /* ugly code, you can't learn anything correct from the typo :( */
+            mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
+                                       sizeof(hs->name));
+            
+            memcpy(mu, imu, sizeof(struct link_source));
+            hi->dlen = sizeof(struct link_source);
+        }
+    } else {
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+                             HASH_SEL_EH);
+        hi->puuid = puuid;
+        hi->psalt = psalt;
+        hi->flag = INDEX_CREATE;
+        if (imu) {
+            off_t offset = sizeof(*mu);
+            
+            mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
+                                       sizeof(hs->name));
+            memcpy(mu, imu, sizeof(*mu));
+            if (imu->valid & MU_LLFS) {
+                memcpy((void *)mu + offset, (void *)imu + offset,
+                       sizeof(struct llfs_ref));
+                offset += sizeof(struct llfs_ref);
+            }
+            if (imu->valid & MU_COLUMN) {
+                memcpy((void *)mu + offset, (void *)imu + offset,
+                       imu->column_no + sizeof(struct mu_column));
+                offset += imu->column_no + sizeof(struct mu_column);
+            }
+            hi->dlen = offset;
+        }
+    }
+
+    if (hs->uuid == 0) {
+        hi->flag |= INDEX_BY_NAME;
+        memcpy(hi->name, hs->name, strlen(hs->name));
+        hi->namelen = strlen(hs->name);
+    }
+
+    err = SET_ITBID(hi);
+    if (err)
+        goto out;
+
+    /* only for debug */
+    {
+        dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
+        ASSERT(dsite == hmo.site_id, xnet);
+    }
+
+retry:
+    txg = mds_get_open_txg(&hmo);
+    err = mds_cbht_search(hi, hmr, txg, &txg);
+    txg_put(txg);
+
+    /* now, checking the hmr err */
+    if (err) {
+        /* hoo, something wrong on the MDS */
+        if (err == -EAGAIN || err == -ESPLIT ||
+            err == -ERESTART) {
+            /* have a breath */
+            sched_yield();
+            goto retry;
+        } else if (err == -EHWAIT) {
+            /* deep sleep */
+            sleep(1);
+            goto retry;
+        }
+        goto out;
+    } else if (hmr->len) {
+        struct hvfs_index *rhi;
+        struct gdt_md *m;
+        int no = 0;
+
+        rhi = hmr_extract_local(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+            err = -EFAULT;
+            goto out;
+        }
+        m = hmr_extract_local(hmr, EXTRACT_MDU, &no);
+        if (!m) {
+            hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
+            err = -EFAULT;
+            goto out;
+        }
+        /* setup the output values */
+        if (hs) {
+            memset(hs, 0, sizeof(*hs));
+            hs->puuid = rhi->puuid;
+            hs->psalt = rhi->psalt;
+            hs->uuid = rhi->uuid;
+            memcpy(&hs->mdu, m, sizeof(hs->mdu));
+        }
+    }
+
+out:
+    if (hmr)
+        xfree(hmr->data);
+    xfree(hmr);
+    xfree(hi);
+    
+    return err;
+}
+
+int __hvfs_update_local(u64 puuid, u64 psalt, struct hstat *hs,
+                        struct mdu_update *imu)
+{
+    size_t dpayload;
+    struct hvfs_index *hi;
+    struct hvfs_md_reply *hmr;
+    struct hvfs_txg *txg;
+    u64 dsite;
+    u32 vid;
+    int err = 0;
+
+    dpayload = sizeof(struct hvfs_index);
+    if (!hs->uuid) {
+        dpayload += strlen(hs->name);
+    }
+    if (imu) {
+        dpayload += sizeof(struct mdu_update);
+        if (imu->valid & MU_LLFS)
+            dpayload += sizeof(struct llfs_ref);
+        if (imu->valid & MU_COLUMN)
+            dpayload += imu->column_no * sizeof(struct mu_column);
+    } else {
+        hvfs_err(xnet, "do update w/o mdu_update argument?\n");
+        return -EINVAL;
+    }
+    hi = xzalloc(dpayload);
+    if (!hi) {
+        hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
+        return -ENOMEM;
+    }
+    /* alloc hmr */
+    hmr = get_hmr();
+    if (!hmr) {
+        hvfs_err(xnet, "get_hmr() failed\n");
+        xfree(hi);
+        return -ENOMEM;
+    }
+    
+    if (!hs->uuid) {
+        hi->flag = INDEX_BY_NAME;
+        hi->namelen = strlen(hs->name);
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, hi->namelen,
+                             HASH_SEL_EH);
+        memcpy(hi->name, hs->name, hi->namelen);
+    } else {
+        hi->flag = INDEX_BY_UUID;
+        hi->uuid = hs->uuid;
+        if (!hs->hash)
+            hi->hash = hvfs_hash(hs->uuid, psalt, 0, HASH_SEL_GDT);
+        else
+            hi->hash = hs->hash;
+    }
+    hi->puuid = puuid;
+    hi->psalt = psalt;
+    /* calculate the ibid now */
+    err = SET_ITBID(hi);
+    if (err)
+        goto out;
+
+    /* only for debug */
+    {
+        dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
+        ASSERT(dsite == hmo.site_id, xnet);
+    }
+
+    if (imu) {
+        off_t offset = sizeof(*hi) + hi->namelen;
+
+        memcpy((void *)hi + offset, imu, sizeof(*imu));
+        offset += sizeof(*imu);
+        if (imu->valid & MU_LLFS) {
+            memcpy((void *)hi + offset, (void *)imu + offset,
+                   sizeof(struct llfs_ref));
+            offset += sizeof(struct llfs_ref);
+        }
+        if (imu->valid & MU_COLUMN) {
+            if (imu->column_no == 1) {
+                /* you know, the column is saved in hstat */
+                memcpy((void *)hi + offset, &hs->mc,
+                       imu->column_no * sizeof(struct mu_column));
+            } else {
+                memcpy((void *)hi + offset, (void *)imu +
+                       sizeof(struct mdu_update),
+                       imu->column_no * sizeof(struct mu_column));
+            }
+        }
+    }
+
+    hi->flag |= INDEX_MDU_UPDATE;
+    hi->dlen = dpayload - sizeof(*hi) - hi->namelen;
+
+retry:
+    txg = mds_get_open_txg(&hmo);
+    err = mds_cbht_search(hi, hmr, txg, &txg);
+    txg_put(txg);
+
+    /* now, checking the hmr err */
+    if (err) {
+        /* hoo, something wrong on the MDS */
+        if (err == -EAGAIN || err == -ESPLIT ||
+            err == -ERESTART) {
+            /* have a breath */
+            sched_yield();
+            goto retry;
+        } else if (err == -EHWAIT) {
+            /* deep sleep */
+            sleep(1);
+            goto retry;
+        }
+        goto out;
+    } else if (hmr->len) {
+        struct hvfs_index *rhi;
+        struct gdt_md *m;
+        int no = 0;
+
+        hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+        rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+            err = -EFAULT;
+            goto out;
+        }
+        m = hmr_extract(hmr, EXTRACT_MDU, &no);
+        if (!m) {
+            hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
+            err = -EFAULT;
+            goto out;
+        }
+        if (hmr->flag & MD_REPLY_WITH_BFLIP) {
+            mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid,
+                                 MDS_BITMAP_SET);
+        }
+        /* setup the output values */
+        if (hs) {
+            memset(hs, 0, sizeof(*hs));
+            hs->puuid = rhi->puuid;
+            hs->psalt = rhi->psalt;
+            hs->uuid = rhi->uuid;
+            hs->hash = rhi->hash;
+            memcpy(&hs->mdu, m, sizeof(hs->mdu));
+        }
+    }
+    
+out:
+    xfree(hi);
+    xfree(hmr);
+    
     return err;
 }
