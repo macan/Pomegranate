@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-03 16:34:18 macan>
+ * Time-stamp: <2010-12-12 00:54:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,8 +21,13 @@
  *
  */
 
+#ifndef __BRANCH_H__
+#define __BRANCH_H__
+
 #include "mds.h"
+#include "mdsl_api.h"
 #include "amc_api.h"
+#include "bp.h"
 
 /* BRANCH is a async, non-cycle data flow system. 
  */
@@ -54,10 +59,12 @@ struct branch_op
 #define BRANCH_OP_TOPN          0x0005
 #define BRANCH_OP_GROUPBY       0x0006
 #define BRANCH_OP_RANK          0x0007
+#define BRANCH_OP_INDEXER       0x0008
 
 #define BRANCH_OP_CODEC         0x0010
     u32 op;
-    u32 len;
+    u32 len;                    /* length of data */
+    u64 id;                     /* unique id of this OP */
     void *data;
 };
 
@@ -79,12 +86,66 @@ struct branch_header
     struct branch_ops ops;
 };
 
+struct branch_line
+{
+    struct list_head list;
+    u64 sites[16];              /* we support at most 16 replicas */
+    time_t life;                /* when this bl comes in */
+    u64 id;                     /* howto get a unique id? I think hmi.mi_tx is
+                                 * a monotonous increasing value */
+    char *tag;
+    void *data;
+    size_t data_len;
+
+#define BL_NEW          0x00
+#define BL_SENT         0x01
+#define BL_ACKED        0x02
+#define BL_STATE_MASK   0x0f
+#define BL_CKPTED       0x80
+    u8 state;
+
+#define BL_PRIMARY      0x00
+#define BL_REPLICA      0x01
+    u8 position;
+    u8 replica_nr;
+#define BL_SELF_SITE(bl)    (bl)->sites[0]
+};
+
+struct branch_line_disk
+{
+    /* branch line must be the first field */
+    struct branch_line bl;
+    int tag_len;
+    int name_len;
+    u8 data[0];
+};
+
+struct branch_entry
+{
+    struct hlist_node hlist;
+    struct branch_header *bh;
+    char *branch_name;
+    time_t update;
+    atomic_t ref;
+    xlock_t lock;
+    struct branch_processor *bp;
+    u64 last_ack;
+    /* region for branch lines */
+    struct list_head primary_lines;
+    struct list_head replica_lines;
+    off_t ckpt_foffset;         /* checkpoint file offset */
+    int ckpt_nr;                /* # of ckpted BL */
+#define BE_FREE         0x00
+#define BE_SENDING      0x01    /* only one thread can sending */
+    u32 state;                  /* state protected by lock */
+};
+
 typedef void *(*branch_callback_t)(void *);
 
 /* APIs */
 int branch_create(u64 puuid, u64 uuid, char *brach_name, char *tag,
                   u8 level, struct branch_ops *ops);
-int branch_load(char *branch_name, char *tag);
+int branch_load(char *branch_name, char *tag, int mode);
 int branch_publish(u64 puuid, u64 uuid, char *branch_name, char *tag,
                    u8 level, void *data, size_t data_len);
 int branch_subscribe(u64 puuid, u64 uuid, char *branch_name, char *tag,
@@ -97,16 +158,34 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *, u32 flag,
                   struct mdu_update *);
 int __hvfs_update(u64 puuid, u64 psalt, struct hstat *,
                   struct mdu_update *);
-int __hvfs_fwrite(struct hstat *hs, int column, void *data, 
-                  size_t len, struct column *c);
+int __hvfs_fwrite(struct hstat *hs, int column, u32 flag, 
+                  void *data, size_t len, struct column *c);
 int __hvfs_fread(struct hstat *hs, int column, void **data, 
                  struct column *c);
 
-int __hvfs_stat_local(u64 puuid, u64 psalt, int column, struct hstat *);
-int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *, u32 flag,
-                        struct mdu_update *);
-int __hvfs_update_local(u64 puuid, u64 psalt, struct hstat *,
-                        struct mdu_update *);
+typedef int (*stat_local_t)(u64 puuid, u64 psalt, int column, struct hstat *);
+typedef int (*create_local_t)(u64 puuid, u64 psalt, struct hstat *, u32 flag,
+                              struct mdu_update *);
+typedef int (*update_local_t)(u64 puuid, u64 psalt, struct hstat *,
+                              struct mdu_update *);
+typedef int (*fread_local_t)(struct storage_index *, struct iovec**);
+typedef int (*fwrite_local_t)(struct storage_index *, void *,
+                              u64 **);
+
+extern stat_local_t __hvfs_stat_local;
+extern create_local_t __hvfs_create_local;
+extern update_local_t __hvfs_update_local;
+extern fread_local_t __hvfs_fread_local, __mdsl_read_local;
+extern fwrite_local_t __hvfs_fwrite_loca, __mdsl_write_local;
+
+struct branch_local_op
+{
+    stat_local_t stat;
+    create_local_t create;
+    update_local_t update;
+    fread_local_t read;
+    fwrite_local_t write;
+};
 
 /* enhanced APIs we export based the version from api.c */
 int hvfs_stat_eh(u64 puuid, u64 psalt, int column, struct hstat *);
@@ -114,7 +193,9 @@ int hvfs_create_eh(u64 puuid, u64 psalt, struct hstat *, u32 flag,
                    struct mdu_update *);
 int hvfs_update_eh(u64 puuid, u64 psalt, struct hstat *,
                    struct mdu_update *);
-int hvfs_fwrite_eh(struct hstat *hs, int column, void *data, 
-                   size_t len, struct column *c);
+int hvfs_fwrite_eh(struct hstat *hs, int column, u32 flag, 
+                   void *data, size_t len, struct column *c);
 int hvfs_fread_eh(struct hstat *hs, int column, void **data, 
                   struct column *c);
+
+#endif

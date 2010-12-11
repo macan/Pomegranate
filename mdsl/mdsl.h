@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-30 23:32:59 macan>
+ * Time-stamp: <2010-12-11 16:22:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -135,6 +135,17 @@ union bmmap_disk
     u8 __array[4096];
 };
 
+struct proxy_args
+{
+    u64 uuid;                   /* uuid of this file */
+    u64 cno;                    /* column number of this file */
+};
+
+struct proxy
+{
+    u64 foffset;                /* current file offset */
+};
+
 struct fdhash_entry
 {
     struct hlist_node list;
@@ -162,6 +173,7 @@ struct fdhash_entry
         struct append_buf abuf;
         struct odirect odirect;
         struct bmmap bmmap;
+        struct proxy proxy;
     };
 };
 
@@ -377,6 +389,7 @@ void toe_wait(struct txg_open_entry *, int);
 #define MDSL_STORAGE_DIRECTW    0x0004
 #define MDSL_STORAGE_ITB_ODIRECT        0x0005
 #define MDSL_STORAGE_BITMAP     0x0006
+#define MDSL_STORAGE_NORMAL     0x0007
 
 #define MDSL_STORAGE_LOG        0x0100
 #define MDSL_STORAGE_SPLIT_LOG  0x0200

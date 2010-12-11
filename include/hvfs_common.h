@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-06 17:27:49 macan>
+ * Time-stamp: <2010-12-10 23:36:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,6 +48,7 @@ struct mdu
 #define HVFS_MDU_IF_APPEND      0x00000040 /* append only */
 #define HVFS_MDU_IF_SYNC        0x00000080 /* sync update */
 #define HVFS_MDU_IF_NOATIME     0x00000100 /* no atime */
+#define HVFS_MDU_IF_PROXY       0x00000200 /* proxy read/write */
 
 #define HVFS_MDU_IF_DA          0x80000000 /* delay allocation */
 #define HVFS_MDU_IF_COMPR       0x40000000 /* compress */

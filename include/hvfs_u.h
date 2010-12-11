@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-28 18:16:14 macan>
+ * Time-stamp: <2010-12-12 01:31:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,7 +54,9 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <ucontext.h>
+#include <regex.h>
 #include <dlfcn.h>
+#include <libgen.h>
 
 typedef unsigned long u64;
 typedef signed long s64;

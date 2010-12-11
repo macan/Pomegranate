@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-03 02:10:41 macan>
+ * Time-stamp: <2010-12-12 00:57:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,54 +37,14 @@ struct branch_mgr
     struct regular_hash *bht;
     int hsize;
     atomic_t asize;
+    struct branch_local_op op;
+    struct branch_processor *bp;
+    
 #define BRANCH_MGR_DEFAULT_BTO          (600) /* ten minutes */
     int bto;                    /* branch entry timeout value */
     /* the following region is the branch memory table */
 #define BRANCH_MGR_DEFAULT_MEMLIMIT     (64 * 1024 * 1024)
     u64 memlimit;
-};
-
-struct branch_entry
-{
-    struct hlist_node hlist;
-    struct branch_header *bh;
-    char *branch_name;
-    time_t update;
-    atomic_t ref;
-    xlock_t lock;
-    /* region for branch lines */
-    struct list_head primary_lines;
-    struct list_head replica_lines;
-    off_t ckpt_foffset;         /* checkpoint file offset */
-    int ckpt_nr;                /* # of ckpted BL */
-#define BE_FREE         0x00
-#define BE_SENDING      0x01    /* only one thread can sending */
-    u32 state;                  /* state protected by lock */
-};
-
-struct branch_line
-{
-    struct list_head list;
-    u64 sites[16];              /* we support at most 16 replicas */
-    time_t life;                /* when this bl comes in */
-    u64 id;                     /* howto get a unique id? I think hmi.mi_tx is
-                                 * a monotonous increasing value */
-    char *tag;
-    void *data;
-    size_t data_len;
-
-#define BL_NEW          0x00
-#define BL_SENT         0x01
-#define BL_ACKED        0x02
-#define BL_STATE_MASK   0x0f
-#define BL_CKPTED       0x80
-    u8 state;
-
-#define BL_PRIMARY      0x00
-#define BL_REPLICA      0x01
-    u8 position;
-    u8 replica_nr;
-#define BL_SELF_SITE(bl)    (bl)->sites[0]
 };
 
 static inline
@@ -102,15 +62,6 @@ int BL_IS_CKPTED(struct branch_line *bl)
 #define BL_SET_CKPTED(bl) do {                  \
         (bl)->state |= BL_CKPTED;               \
     } while (0)
-
-struct branch_line_disk
-{
-    /* branch line must be the first field */
-    struct branch_line bl;
-    int tag_len;
-    int name_len;
-    u8 data[0];
-};
 
 struct branch_line_push_header
 {
@@ -162,9 +113,13 @@ void __branch_err_reply(struct xnet_msg *msg, int err)
     xnet_free_msg(rpy);
 }
 
-int branch_init(int hsize, int bto, u64 memlimit)
+int branch_init(int hsize, int bto, u64 memlimit, 
+                struct branch_local_op *op)
 {
     int err = 0, i;
+
+    /* local operations */
+    bmgr.op = *op;
 
     /* regular hash init */
     hsize = (hsize == 0) ? BRANCH_HT_DEFAULT_SIZE : hsize;
@@ -198,6 +153,13 @@ void branch_destroy(void)
 {
     if (bmgr.bht)
         xfree(bmgr.bht);
+}
+
+void branch_install_bp(struct branch_entry *be,
+                       struct branch_processor *bp)
+{
+    be->bp = bp;
+    bp->be = be;
 }
 
 /* basic functions for reading and writing metadata and data */
@@ -240,6 +202,181 @@ int hvfs_stat_eh(u64 puuid, u64 psalt, int column,
         /* call api.c */
         return __hvfs_stat(puuid, psalt, column, hs);
     }
+}
+
+int hvfs_create_eh(u64 puuid, u64 psalt, struct hstat *hs,
+                   u32 flag, struct mdu_update *imu)
+{
+    struct dhe *e;
+    struct chp *p;
+    u64 hash, itbid;
+
+    if (flag & INDEX_CREATE_GDT) {
+        hash = hvfs_hash(hs->uuid, hmi.gdt_salt, 0, HASH_SEL_GDT);
+    } else {
+        /* SYMLINK, LINK, DIR, OTHERWISE */
+        hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+                         HASH_SEL_EH);
+    }
+
+    e = mds_dh_search(&hmo.dh, puuid);
+    if (IS_ERR(e)) {
+        hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
+        return PTR_ERR(e);
+    }
+    itbid = mds_get_itbid(e, hash);
+    mds_dh_put(e);
+
+    /* check if we are in the local site */
+    p = ring_get_point(itbid, psalt, hmo.chring[CH_RING_MDS]);
+    if (IS_ERR(p)) {
+        hvfs_err(xnet, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
+        return -EINVAL;
+    }
+
+    if (p->site_id == hmo.site_id) {
+        /* oh, local access */
+        return __hvfs_create_local(puuid, psalt, hs, flag, imu);
+    } else {
+        /* call api.c */
+        return __hvfs_create(puuid, psalt, hs, flag, imu);
+    }
+}
+
+int hvfs_update_eh(u64 puuid, u64 psalt, struct hstat *hs,
+                   struct mdu_update *imu)
+{
+    struct dhe *e;
+    struct chp *p;
+    u64 hash, itbid;
+
+    if (!hs->uuid)
+        hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+                         HASH_SEL_EH);
+    else {
+        if (!hs->hash)
+            hash = hvfs_hash(hs->uuid, psalt, 0, HASH_SEL_GDT);
+        else
+            hash = hs->hash;
+    }
+
+    e = mds_dh_search(&hmo.dh, puuid);
+    if (IS_ERR(e)) {
+        hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
+        return PTR_ERR(e);
+    }
+    itbid = mds_get_itbid(e, hash);
+    mds_dh_put(e);
+
+    /* check if we are in the local site */
+    p = ring_get_point(itbid, psalt, hmo.chring[CH_RING_MDS]);
+    if (IS_ERR(p)) {
+        hvfs_err(xnet, "ring_get_point() failed w/ %ld\n", PTR_ERR(e));
+        return -EINVAL;
+    }
+
+    if (p->site_id == hmo.site_id) {
+        /* oh, local access */
+        return __hvfs_update_local(puuid, psalt, hs, imu);
+    } else {
+        /* call api.c */
+        return __hvfs_update(puuid, psalt, hs, imu);
+    }
+}
+
+int hvfs_fread_eh(struct hstat *hs, int column, void **data, 
+                  struct column *c)
+{
+    struct chp *p;
+    int err = 0;
+
+    p = ring_get_point(c->stored_itbid, hs->psalt, 
+                       hmo.chring[CH_RING_MDSL]);
+    if (IS_ERR(p)) {
+        hvfs_err(xnet, "ring_get_point() failed w/ %ld\n", 
+                 PTR_ERR(p));
+        return -EINVAL;
+    }
+
+    if (p->site_id == hmo.site_id) {
+        /* oh, local access */
+        struct storage_index si;
+        struct iovec *iov;
+
+        si.sic.uuid = hs->puuid;
+        si.sic.arg0 = c->stored_itbid;
+        if (hs->mdu.flags & HVFS_MDU_IF_PROXY)
+            si.scd.flag = SCD_PROXY;
+        si.scd.cnr = 1;
+        si.scd.cr[0].cno = column;
+        si.scd.cr[0].stored_itbid = c->stored_itbid;
+        si.scd.cr[0].file_offset = c->offset;
+        si.scd.cr[0].req_offset = 0;
+        si.scd.cr[0].req_len = c->len;
+
+        err = bmgr.op.read(&si, &iov);
+        if (err) {
+            hvfs_err(xnet, "local read failed w/ %d\n", err);
+            return err;
+        }
+        *data = iov->iov_base;
+        xfree(iov);
+    } else {
+        /* call api.c */
+        return __hvfs_fread(hs, column, data, c);
+    }
+
+    return err;
+}
+
+/* hvfs_fwrite_eh()
+ *
+ * It can recieve flags as described in mdsl_api.h (i.e. SCD_PROXY etc).
+ */
+int hvfs_fwrite_eh(struct hstat *hs, int column, u32 flag, 
+                   void *data, size_t len, struct column *c)
+{
+    struct chp *p;
+    int err = 0;
+
+    p = ring_get_point(c->stored_itbid, hs->psalt, 
+                       hmo.chring[CH_RING_MDSL]);
+    if (IS_ERR(p)) {
+        hvfs_err(xnet, "ring_get_point() failed w/ %ld\n", 
+                 PTR_ERR(p));
+        return -EINVAL;
+    }
+
+    if (p->site_id == hmo.site_id) {
+        /* oh, local access */
+        struct storage_index si;
+        u64 *location;
+
+        si.sic.uuid = hs->puuid;
+        if (flag & SCD_PROXY)
+            si.sic.arg0 = hs->uuid;
+        else
+            si.sic.arg0 = hs->hash;
+        si.scd.flag = flag;
+        si.scd.cnr = 1;
+        si.scd.cr[0].cno = column;
+        si.scd.cr[0].stored_itbid = hs->hash;
+        si.scd.cr[0].req_len = len;
+
+        location = &c->offset;
+        err = bmgr.op.write(&si, data, &location);
+        if (err) {
+            hvfs_err(xnet, "local write failed w/ %d\n", err);
+            return err;
+        }
+        c->stored_itbid = hs->hash;
+        c->len = len;
+    } else {
+        /* call api.c */
+        return __hvfs_fwrite(hs, column, flag, data, len, c);
+    }
+
+    return err;
 }
 
 int __branch_insert(char *branch_name, struct branch_header *bh)
@@ -295,7 +432,6 @@ int __branch_remove(char *branch_name)
     struct hlist_node *pos, *n;
     int i;
 
-    /* wait for the last reference */
     i = __branch_hash(branch_name, strlen(branch_name));
     rh = bmgr.bht + i;
 
@@ -305,6 +441,7 @@ retry:
         if (strlen(branch_name) == strlen(tpos->branch_name) &&
             memcmp(tpos->branch_name, branch_name,
                    strlen(branch_name))) {
+            /* wait for the last reference */
             if (atomic_read(&tpos->ref) > 1) {
                 xlock_unlock(&rh->lock);
                 /* not in the hot path, we can sleep longer */
@@ -362,13 +499,16 @@ void branch_put(struct branch_entry *be)
 struct branch_entry *branch_lookup_load(char *branch_name)
 {
     struct branch_entry *be;
-    int err = 0;
+    int err = 0, mode = 0;
 
+    if (HVFS_IS_MDSL(hmo.site_id) || HVFS_IS_BP(hmo.site_id))
+        mode = 1;
+    
 retry:
     be = __branch_lookup(branch_name);
     if (!be) {
         /* ok, we should load the bh now */
-        err = branch_load(branch_name, "");
+        err = branch_load(branch_name, "", mode);
         if (!err || err == -EEXIST) {
             goto retry;
         } else {
@@ -633,7 +773,7 @@ int __branch_push(struct branch_entry *be,
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hmo.xc->site_id, dsite);
     xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_BRANCH, BRANCH_CMD_PUSH,
-                      0);
+                      be->last_ack);
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -966,6 +1106,9 @@ retry:
             break;
         }
     }
+    /* update the last_ack value */
+    be->last_ack = *ack_id;
+    
     xlock_unlock(&be->lock);
     
     branch_put(be);
@@ -1013,7 +1156,27 @@ int branch_dispatch(void *arg)
     case BRANCH_CMD_PUSH:
     {
         /* oh, this must be the process node */
+        struct branch_line_disk *bld;
+
+        if (msg->xm_datacheck) {
+            bld = (struct branch_line_disk *)msg->xm_data;
+        } else {
+            hvfs_err(xnet, "Invalid PUSH request from %lx\n",
+                     msg->tx.ssite_id);
+            err = -EINVAL;
+            __branch_err_reply(msg, err);
+            goto out;
+        }
         
+        /* Step 1: call the branch processor to do actions */
+        err = bp_handle_push(bmgr.bp, msg, bld);
+        /* Step 2: send the reply message, arg1 is errno */
+        __branch_err_reply(msg, err);
+        
+        break;
+    }
+    case BRANCH_CMD_BULK_PUSH:
+    {
         break;
     }
     case BRANCH_CMD_PULL:
@@ -1110,7 +1273,7 @@ out:
  * operations. Thus, the primary server should co-located at a MDSL server.
  */
 int branch_create(u64 puuid, u64 uuid, char *branch_name, 
-                  char *tag, u8 level, struct branch_ops * ops)
+                  char *tag, u8 level, struct branch_ops *ops)
 {
     struct hstat hs;
     struct branch_header *bh;
@@ -1165,7 +1328,7 @@ relookup:
     bsalt = hs.ssalt;
     memset(&hs, 0, sizeof(hs));
     hs.name = branch_name;
-    err = __hvfs_create(buuid, bsalt, &hs, 0, NULL);
+    err = hvfs_create_eh(buuid, bsalt, &hs, 0, NULL);
     if (err) {
         hvfs_err(xnet, "Create branch '%s' failed w/ %s(%d)\n",
                  branch_name, strerror(-err), err);
@@ -1205,6 +1368,9 @@ relookup:
         nr * sizeof(struct branch_op);
     for (i = 0; i < nr; i++) {
         bh->ops.ops[i] = ops->ops[i];
+        /* setup the id now, if you update the branch ops, make sure do not
+         * overwrite the id! */
+        bh->ops.ops[i].id = i;
         memcpy(offset, ops->ops[i].data, ops->ops[i].len);
         offset += ops->ops[i].len;
     }
@@ -1228,9 +1394,9 @@ relookup:
     }
 
     /* do the write now! */
-    err = __hvfs_fwrite(&hs, 0, bh, sizeof(*bh) + 
-                        nr * sizeof(struct branch_op) + dlen, 
-                        &hs.mc.c);
+    err = hvfs_fwrite_eh(&hs, 0, 0, bh, sizeof(*bh) + 
+                         nr * sizeof(struct branch_op) + dlen, 
+                         &hs.mc.c);
     if (err) {
         hvfs_err(xnet, "write the branch file %s failed w/ %d\n",
                  branch_name, err);
@@ -1255,7 +1421,7 @@ relookup:
 
         hs.uuid = 0;
         hs.name = branch_name;
-        err = __hvfs_update(hs.puuid, hs.psalt, &hs, mu);
+        err = hvfs_update_eh(hs.puuid, hs.psalt, &hs, mu);
         if (err) {
             hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
                      branch_name, err);
@@ -1267,6 +1433,25 @@ relookup:
 
 out:
     return err;
+}
+
+/* branch_adjust_bid() is used to sync the self hmi.mi_bid to acked value. Get
+ * the max value :)
+ */
+int branch_adjust_bid(struct branch_ack_cache_disk *bacd, int nr)
+{
+    int i;
+
+    for (i = 0; i < nr; i++) {
+        if (bacd[i].site_id == hmo.site_id) {
+            atomic64_set(&hmi.mi_bid, 
+                         max(bacd[i].last_ack,
+                             (u64)atomic64_read(&hmi.mi_bid)) + 1);
+            break;
+        }
+    }
+
+    return 0;
 }
 
 /* branch_load()
@@ -1281,12 +1466,17 @@ out:
  * Note, the new BH is inserted to the hash table w/ a BE, you have to do one
  * more lookup to find it.
  */
-int branch_load(char *branch_name, char *tag)
+
+/* @mode: 0 => non-bp mode; 1 => bp mode (for mdsl);
+ */
+int branch_load(char *branch_name, char *tag, int mode)
 {
     struct hstat hs;
     struct branch_header *bh;
+    struct branch_ack_cache_disk *bacd = NULL;
+    struct branch_op_result *result = NULL;
     u64 buuid, bsalt;
-    int err = 0;
+    int err = 0, nr;
 
     if (!branch_name)
         return -EINVAL;
@@ -1326,9 +1516,9 @@ int branch_load(char *branch_name, char *tag)
     }
 
     /* Step 3: read in the branch data content */
-    err = __hvfs_fread(&hs, 0, (void *)&bh, &hs.mc.c);
+    err = hvfs_fread_eh(&hs, 0, (void **)&bh, &hs.mc.c);
     if (err) {
-        hvfs_err(xnet, "read the branch '%s' failed w/ %d\n",
+        hvfs_err(xnet, "read the branch '%s' c[0] failed w/ %d\n",
                  branch_name, err);
         goto out;
     }
@@ -1342,6 +1532,59 @@ int branch_load(char *branch_name, char *tag)
             offset += bh->ops.ops[i].len;
         }
     }
+
+    /* Step 3.1 read in the branch cache data */
+    {
+        memset(&hs, 0, sizeof(hs));
+        hs.puuid = buuid;
+        hs.psalt = bsalt;
+        hs.name = branch_name;
+        err = hvfs_stat_eh(buuid, bsalt, 1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal file stat (SDT) on "
+                     "branch '%s' failed w/ %d\n", 
+                     branch_name, err);
+            xfree(bh);
+            goto out;
+        }
+        nr = hs.mc.c.len / sizeof(*bacd);
+        if (nr > 0) {
+            err = hvfs_fread_eh(&hs, 1, (void **)&bacd, &hs.mc.c);
+            if (err) {
+                hvfs_err(xnet, "read the branch '%s' c[1] failed w/ %d\n",
+                         branch_name, err);
+                xfree(bh);
+                goto out;
+            }
+        }
+    }
+
+    /* Step 3.2 read in the branch operation result data */
+    if (mode == 1) {
+        memset(&hs, 0, sizeof(hs));
+        hs.puuid = buuid;
+        hs.psalt = bsalt;
+        hs.name = branch_name;
+        err = hvfs_stat_eh(buuid, bsalt, 1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal file stat (SDT) on "
+                     "branch '%s' failed w/ %d\n", 
+                     branch_name, err);
+            xfree(bh);
+            xfree(bacd);
+            goto out;
+        }
+        if (hs.mc.c.len > 0) {
+            err = hvfs_fread_eh(&hs, 2, (void **)&result, &hs.mc.c);
+            if (err) {
+                hvfs_err(xnet, "read the branch '%s' failed w/ %d\n",
+                         branch_name, err);
+                xfree(bh);
+                xfree(bacd);
+                goto out;
+            }
+        }
+    }
     
     /* Step 4: register the loaded-in branch to memory hash table */
     err = __branch_insert(branch_name, bh);
@@ -1349,7 +1592,56 @@ int branch_load(char *branch_name, char *tag)
         hvfs_err(xnet, "add branch to hash table failed w/ %d\n",
                  err);
         xfree(bh);
+        xfree(bacd);
+        xfree(result);
         goto out;
+    }
+
+    if (mode == 1) {
+        /* bp mode, we have to load the cache data to root operator */
+        struct branch_entry *be;
+        struct branch_processor *bp;
+
+        be = __branch_lookup(branch_name);
+        if (!be) {
+            hvfs_err(xnet, "lookup inserted branch '%s' failed\n",
+                     branch_name);
+            xfree(bacd);
+            xfree(result);
+            goto out;
+        }
+
+        /* install the bp now */
+        bp = bp_alloc_init(be, result);
+        if (!bp) {
+            hvfs_err(xnet, "alloc branch processor for '%s' failed\n",
+                     branch_name);
+            branch_put(be);
+            xfree(bacd);
+            xfree(result);
+            goto out;
+        }
+        
+        branch_install_bp(be, bp);
+        branch_put(be);
+        xfree(result);
+
+        /* call bac_load to init cache */
+        err = bac_load(&bp->bo_root, bacd, nr);
+        if (err) {
+            hvfs_err(xnet, "bac_load() failed w/ %d\n", err);
+            xfree(bacd);
+            goto out;
+        }
+    } else {
+        /* non bp mode, we should adjust the hmi. */
+        err = branch_adjust_bid(bacd, nr);
+        if (err) {
+            hvfs_err(xnet, "branch_adjust_bid failed w/ %d\n", err);
+            xfree(bacd);
+            goto out;
+        }
+        xfree(bacd);
     }
 
 out:

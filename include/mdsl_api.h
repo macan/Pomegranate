@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-11 15:39:15 macan>
+ * Time-stamp: <2010-12-10 23:36:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,7 +55,8 @@ struct si_mds
 struct si_client_data
 {
     u32 cnr;                    /* column number */
-    u32 padding;
+#define SCD_PROXY       0x01    /* proxy file I/O */
+    u32 flag;
     struct column_req cr[0];
 };
 

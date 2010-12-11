@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-28 17:27:23 macan>
+ * Time-stamp: <2010-12-11 18:25:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -83,4 +83,7 @@ static char *hvfs_ccolor[] __attribute__((unused)) =
 #define EISEMPTY        1035    /* the bitmap slice is empty */
 #define EDTRIGSTOP      1036    /* operation stopped by dtrigger */
 #define ENOTRIG         1037    /* no trigger defined */
+#define EIGNORE         1038    /* ignore something, i.e. ignore the branch
+                                 * line */
+#define EADJUST         1039    /* someone should adjust themself */
 #endif

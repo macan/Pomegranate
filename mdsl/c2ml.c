@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-03 16:25:11 macan>
+ * Time-stamp: <2010-12-11 16:24:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -172,6 +172,7 @@ void mdsl_write(struct xnet_msg *msg)
     struct mdsl_storage_access msa;
     struct storage_index *si;
     struct iovec iov;
+    struct proxy_args *pa;
     void *data;
     u64 offset = 0;
     u64 *location;
@@ -210,8 +211,25 @@ void mdsl_write(struct xnet_msg *msg)
     
     for (i = 0; i < si->scd.cnr; i++) {
         /* prepare to get the data file */
-        fde = mdsl_storage_fd_lookup_create(si->sic.uuid, MDSL_STORAGE_DATA,
-                                            si->scd.cr[i].cno);
+        if (unlikely(si->scd.flag & SCD_PROXY)) {
+            pa = xmalloc(sizeof(*pa));
+            if (!pa) {
+                hvfs_err(mdsl, "alloc proxy args failed\n");
+                err = -ENOMEM;
+                goto cleanup_send_rpy;
+            }
+            pa->uuid = si->sic.arg0;
+            pa->cno = si->scd.cr[i].cno;
+            fde = mdsl_storage_fd_lookup_create(si->sic.uuid,
+                                                MDSL_STORAGE_NORMAL,
+                                                (u64)pa);
+            msa.offset = si->scd.cr[i].file_offset;
+        } else {
+            fde = mdsl_storage_fd_lookup_create(si->sic.uuid, 
+                                                MDSL_STORAGE_DATA,
+                                                si->scd.cr[i].cno);
+        }
+        
         if (unlikely(IS_ERR(fde))) {
             hvfs_err(mdsl, "lookup create %ld data column %ld failed w/ %ld\n",
                      si->sic.uuid, si->scd.cr[i].cno, PTR_ERR(fde));

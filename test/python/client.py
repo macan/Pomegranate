@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-11-28 18:26:19 macan>
+# Time-stamp: <2010-12-12 01:49:00 macan>
 #
 # Armed with EMACS.
 
@@ -28,13 +28,6 @@ except OSError, oe:
 def errcheck(res, func, args):
     if not res: raise IOError
     return res
-
-use_readline = True
-try:
-    import readline
-except ImportError, ie:
-    print "Warning: import failed (%s)" % ie
-    use_readline = False
 
 class bcolors:
     HEADER = '\033[36m'
@@ -132,12 +125,14 @@ class pamc_shell(cmd.Cmd):
     keywords = ["EOF", "touch", "delete", "stat", "mkdir",
                 "rmdir", "cpin", "cpout", "online", "offline",
                 "quit", "ls", "commit", "getcluster", "cat", 
-                "regdtrigger", "catdtrigger", "statfs",
+                "regdtrigger", "catdtrigger", "statfs", "setattr",
                 "getactivesite"]
 
     def __init__(self):
         cmd.Cmd.__init__(self)
-        cmd.Cmd.use_rawinput = use_readline
+        # Issue reported by Nikhil Agrawal. On machines without readline
+        # module, use_rawinput should be True either.
+        cmd.Cmd.use_rawinput = True
         self.bc = bcolors()
 
     def emptyline(self):
@@ -359,6 +354,40 @@ class pamc_shell(cmd.Cmd):
         except ValueError, ve:
             print "ValueError %s" % ve
 
+    def do_setattr(self, line):
+        '''Set the attributes of a file in current pathname. 
+        Usage: setattr /path/to/name key1=value1,key2=value2
+        '''
+        l = shlex.split(line)
+        if len(l) < 1:
+            print "Invalid argument. See help setattr."
+            return
+
+        l[0] = os.path.normpath(l[0])
+        path, file = os.path.split(l[0])
+        if path == "" or path[0] != '/':
+            print "Relative path name is not supported yet."
+            return
+
+        # ok, call api.fupdate to update the file attributes
+        try:
+            c_path = c_char_p(path)
+            c_file = c_char_p(file)
+            c_data = cast(c_char_p(l[1]), c_void_p)
+            self.start_clock()
+            err = api.hvfs_fupdate(c_path, c_file, byref(c_data))
+            if err != 0:
+                print "api.hvfs_fupdate() failed w/ %d" % err
+                return
+            self.stop_clock()
+            c_str = c_char_p(c_data.value)
+            print c_str.value
+            self.echo_clock("Time elasped:")
+            # free the region
+            api.hvfs_free(c_data)
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
     def do_cpin(self, line):
         '''Copy a file from local file system to Pomegranate.
         Usage: cpin /path/to/local/file /path/to/hvfs'''
@@ -391,8 +420,10 @@ class pamc_shell(cmd.Cmd):
             c_column = c_int(0)
             c_content = c_char_p(content)
             c_len = c_long(dlen)
+            c_flag = c_int(0)
             self.start_clock()
-            err = api.hvfs_fwrite(c_path, c_file, c_column, c_content, c_len)
+            err = api.hvfs_fwrite(c_path, c_file, c_column, c_content, c_len, 
+                                  c_flag)
             self.stop_clock()
             if err != 0:
                 print "api.hvfs_fwrite() failed w/ %d" % err

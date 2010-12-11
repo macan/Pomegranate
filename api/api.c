@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-03 18:28:56 macan>
+ * Time-stamp: <2010-12-12 01:50:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -4820,6 +4820,7 @@ int hvfs_fupdate(char *path, char *name, void **data)
     /* parse the mdu_update string now, note that we can't modify the string
      * passed in */
     p = (char *)(*data);
+    *data = NULL;
     if (!p) {
         hvfs_err(xnet, "you try to update what?\n");
         err = -EINVAL;
@@ -4915,6 +4916,7 @@ int hvfs_fdel(char *path, char *name, void **data, u32 is_dir)
 
     if (!path || !data)
         return -EINVAL;
+    *data = NULL;
 
     /* parse the path and do __stat on each directory */
     do {
@@ -5027,6 +5029,7 @@ int hvfs_readdir(char *path, char *name, void **data)
 
     if (!path || !data)
         return -EINVAL;
+    *data = NULL;
 
     /* parse the path and do __stat on each directory */
     do {
@@ -5171,6 +5174,8 @@ int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c)
     /* fill the parent (dir) uuid to sic.uuid */
     si->sic.uuid = hs->puuid;
     si->sic.arg0 = c->stored_itbid;
+    if (hs->mdu.flags & HVFS_MDU_IF_PROXY)
+        si->scd.flag = SCD_PROXY;
     si->scd.cnr = 1;
     si->scd.cr[0].cno = column;
     si->scd.cr[0].stored_itbid = c->stored_itbid;
@@ -5225,8 +5230,8 @@ out_free:
 
 /* Ugly! hs->hash saves the user provided stored_itbid!
  */
-int __hvfs_fwrite(struct hstat *hs, int column, void *data, 
-                  size_t len, struct column *c)
+int __hvfs_fwrite(struct hstat *hs, int column, u32 flag,
+                  void *data, size_t len, struct column *c)
 {
     struct storage_index *si;
     struct xnet_msg *msg;
@@ -5254,8 +5259,13 @@ int __hvfs_fwrite(struct hstat *hs, int column, void *data,
     }
 
     si->sic.uuid = hs->puuid;
-    /* hs->hash saved the itbid */
-    si->sic.arg0 = hs->hash;
+    if (flag & SCD_PROXY)
+        si->sic.arg0 = hs->uuid;
+    else {
+        /* hs->hash saved the itbid */
+        si->sic.arg0 = hs->hash;
+    }
+    si->scd.flag = flag;
     si->scd.cnr = 1;
     si->scd.cr[0].cno = column;
     si->scd.cr[0].stored_itbid = hs->hash;
@@ -5396,7 +5406,8 @@ out:
     return err;
 }
 
-int hvfs_fwrite(char *path, char *name, int column, void *data, u64 len)
+int hvfs_fwrite(char *path, char *name, int column, void *data, 
+                u64 len, u32 flag)
 {
     struct hstat hs;
     char *p = NULL, *n = path, *s = NULL;
@@ -5477,7 +5488,7 @@ int hvfs_fwrite(char *path, char *name, int column, void *data, u64 len)
     }
 
     /* write out the data now */
-    err = __hvfs_fwrite(&hs, column, data, len, &hs.mc.c);
+    err = __hvfs_fwrite(&hs, column, flag, data, len, &hs.mc.c);
     if (err) {
         hvfs_err(xnet, "do internal fwrite on '%s' failed w/ %d\n",
                  name, err);
@@ -5497,6 +5508,15 @@ int hvfs_fwrite(char *path, char *name, int column, void *data, u64 len)
         }
         mc = (void *)mu + sizeof(*mu);
         mu->valid = MU_COLUMN | MU_SIZE;
+        if (flag) {
+            mu->valid |= MU_FLAG_ADD;
+            switch (flag) {
+            case SCD_PROXY:
+                mu->flags = HVFS_MDU_IF_PROXY;
+                break;
+            default:;
+            }
+        }
         mu->size = len;
         mu->column_no = 1;
         mc->cno = column;
@@ -5791,7 +5811,7 @@ int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
     }
     
     /* ok, we can update the directory trigger now */
-    err = __hvfs_fwrite(&hs, HVFS_TRIG_COLUMN, new_dtrig, 
+    err = __hvfs_fwrite(&hs, HVFS_TRIG_COLUMN, 0, new_dtrig, 
                         total_len, &hs.mc.c);
     if (err) {
         hvfs_err(xnet, "do internal fwrite on '%s' failed w/ %d\n",
@@ -6570,4 +6590,23 @@ out:
     xfree(hmr);
     
     return err;
+}
+
+int __hvfs_fread_local(struct storage_index *si, struct iovec **oiov)
+{
+    hvfs_err(xnet, "Local file read is impossible for client/amc "
+             "API. If you are using API in storage node, you "
+             "should set in-storage read function to branch "
+             "mgr.\n");
+    return -ENOSYS;
+}
+
+int __hvfs_fwrite_local(struct storage_index *si, void *data,
+                        u64 **location)
+{
+    hvfs_err(xnet, "Local file write is impossible for client/amc "
+             "API. If you are using API in storage node, you "
+             "should set in-storage write function to branch "
+             "mgr.\n");
+    return -ENOSYS;
 }

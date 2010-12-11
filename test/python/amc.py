@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-10-21 18:53:03 macan>
+# Time-stamp: <2010-12-12 01:56:03 macan>
 #
 # Armed with EMACS.
 
@@ -24,13 +24,6 @@ try:
 except OSError, oe:
     print "Can not load shared library: %s" % oe
     sys.exit()
-
-use_readline = True
-try:
-    import readline
-except ImportError, ie:
-    print "Warning: import failed (%s)" % ie
-    use_readline = False
 
 class bcolors:
     HEADER = '\033[36m'
@@ -177,7 +170,8 @@ class pamc_shell(cmd.Cmd):
 
     def __init__(self):
         cmd.Cmd.__init__(self)
-        cmd.Cmd.use_rawinput = use_readline
+        # Same issue as client.py, change use_rawinput always to true
+        cmd.Cmd.use_rawinput = True
         self.bc = bcolors()
 
     def emptyline(self):

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-28 18:47:30 macan>
+ * Time-stamp: <2010-12-10 23:17:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -142,7 +142,8 @@ int hvfs_fupdate(char *path, char *name, void **data);
 int hvfs_fdel(char *path, char *name, void **data, u32 is_dir);
 int hvfs_readdir(char *path, char *name, void **data);
 int hvfs_fread(char *path, char *name, int column, void **data, u64 *len);
-int hvfs_fwrite(char *path, char *name, int column, void *data, u64 len);
+int hvfs_fwrite(char *path, char *name, int column, void *data, 
+                u64 len, u32 flag);
 int hvfs_fcommit(int id);
 int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
                       u32 type, void *data, size_t len);

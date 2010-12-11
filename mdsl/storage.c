@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-30 23:06:29 macan>
+ * Time-stamp: <2010-12-11 16:23:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -647,6 +647,19 @@ struct fdhash_entry *mdsl_storage_fd_lookup(u64 duuid, int ftype, u64 arg)
                     mdsl_storage_fd_lru_update(fde);
                     return fde;
                 }
+            } else if (ftype == MDSL_STORAGE_NORMAL) {
+                struct proxy_args *pa0, *pa1;
+
+                pa0 = (struct proxy_args *)arg;
+                pa1 = (struct proxy_args *)fde->arg;
+
+                if (pa0->uuid == pa1->uuid && pa0->cno == pa1->cno) {
+                    atomic_inc(&fde->ref);
+                    xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
+                    /* lru update */
+                    mdsl_storage_fd_lru_update(fde);
+                    return fde;
+                }
             } else if (arg == fde->arg) {
                 atomic_inc(&fde->ref);
                 xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
@@ -797,7 +810,7 @@ int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path)
             err = -EINVAL;
             goto out_unlock;
         }
-        hvfs_err(mdsl, "open file %s w /fd %d\n", path, fde->fd);
+        hvfs_err(mdsl, "open file %s w/ fd %d\n", path, fde->fd);
         fde->state = FDE_OPEN;
     }
     if (fde->state == FDE_OPEN) {
@@ -869,9 +882,81 @@ first_hit:
     goto out_unlock;
 }
 
+int __normal_open(struct fdhash_entry *fde, char *path)
+{
+    int err = 0;
+
+    xlock_lock(&fde->lock);
+    if (fde->state == FDE_FREE) {
+        /* ok, we should open it */
+        fde->fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+        if (fde->fd < 0) {
+            hvfs_err(mdsl, "open file '%s' failed\n", path);
+            err = -EINVAL;
+            goto out_unlock;
+        }
+        hvfs_err(mdsl, "open file %s w/ fd %d\n", path, fde->fd);
+        fde->state = FDE_OPEN;
+    }
+    if (fde->state == FDE_OPEN) {
+        /* we should lseek to the tail of the file */
+        fde->proxy.foffset = lseek(fde->fd, 0, SEEK_END);
+        if (fde->proxy.foffset == -1UL) {
+            hvfs_err(mdsl, "lseek to tail of fd(%d) failed w/ %d\n",
+                     fde->fd, -errno);
+            err = -errno;
+            goto out_unlock;
+        }
+        fde->state = FDE_NORMAL;
+    }
+out_unlock:
+    xlock_unlock(&fde->lock);
+
+    return 0;
+}
+
 int __normal_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 {
-    return 0;
+    loff_t offset;
+    long bl, bw;
+    int err = 0, i;
+    
+    xlock_lock(&fde->lock);
+    if (msa->offset == -1) {
+        /* do lseek() now */
+        fde->proxy.foffset = lseek(fde->fd, 0, SEEK_END);
+        if (fde->proxy.foffset == -1UL) {
+            hvfs_err(mdsl, "do lseek on fd(%d) failed w/ %d\n",
+                     fde->fd, -errno);
+            err = -errno;
+            goto out;
+        }
+        offset = *((u64 *)msa->arg) = fde->proxy.foffset;
+    } else
+        offset = *((u64 *)msa->arg) = msa->offset;
+
+    for (i = 0; i < msa->iov_nr; i++) {
+        bl = 0;
+        do {
+            bw = pwrite(fde->fd, (msa->iov + i)->iov_base + bl,
+                        (msa->iov + i)->iov_len - bl, offset + bl);
+            if (bw < 0) {
+                hvfs_err(mdsl, "pwrite failed w/ %d\n", errno);
+                err = -errno;
+                goto out;
+            } else if (bw == 0) {
+                hvfs_err(mdsl, "reach EOF?\n");
+                err = -EINVAL;
+                goto out;
+            }
+            bl += bw;
+        } while (bl < (msa->iov + i)->iov_len);
+        atomic64_add(bl, &hmo.prof.storage.wbytes);
+    }
+out:    
+    xlock_unlock(&fde->lock);
+
+    return err;
 }
 
 /* __normal_read()
@@ -1625,6 +1710,23 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
             goto out;
         }
         break;
+    case MDSL_STORAGE_NORMAL:
+    {
+        /* 
+         * the file name is constructed as following:
+         * duuid/.proxy.uuid.cno
+         */
+        struct proxy_args *pa = (struct proxy_args *)fde->arg;
+        
+        sprintf(path, "%s/%lx/%lx/.proxy.%lx.%lx", HVFS_MDSL_HOME,
+                hmo.site_id, fde->uuid, pa->uuid, pa->cno);
+        err = __normal_open(fde, path);
+        if (err) {
+            hvfs_err(mdsl, "normal file create failed w/ %d\n", err);
+            goto out;
+        }
+        break;
+    }
     case MDSL_STORAGE_DIRECTW:
         sprintf(path, "%s/%lx/%lx/directw", HVFS_MDSL_HOME, hmo.site_id, 
                 fde->uuid);
@@ -1715,13 +1817,15 @@ int mdsl_storage_fd_write(struct fdhash_entry *fde,
     int err = 0;
 
 retry:
-    if (fde->state == FDE_ABUF) {
+    switch (fde->state) {
+    case FDE_ABUF:
         err = append_buf_write(fde, msa);
         if (err) {
             hvfs_err(mdsl, "append_buf_write failed w/ %d\n", err);
             goto out_failed;
         }
-    } else if (fde->state == FDE_ABUF_UNMAPPED) {
+        break;
+    case FDE_ABUF_UNMAPPED:
         /* this is surely a transient state, we should try to remap the abuf,
          * and retry */
         xlock_lock(&fde->lock);
@@ -1734,37 +1838,43 @@ retry:
         }
         xlock_unlock(&fde->lock);
         goto retry;
-    } else if (fde->state == FDE_ODIRECT) {
+        break;
+    case FDE_ODIRECT:
         err = odirect_write(fde, msa);
         if (err) {
             hvfs_err(mdsl, "odirect_write failed w/ %d\n", err);
             goto out_failed;
         }
-    } else if (fde->state == FDE_MEMWIN) {
+        break;
+    case FDE_MEMWIN:
         err = __mmap_write(fde, msa);
         if (err) {
             hvfs_err(mdsl, "__mmap_write failed w/ %d\n", err);
             goto out_failed;
         }
-    } else if (fde->state == FDE_NORMAL) {
+        break;
+    case FDE_NORMAL:
         err = __normal_write(fde, msa);
         if (err) {
             hvfs_err(mdsl, "__normal_write faield w/ %d\n", err);
             goto out_failed;
         }
-    } else if (fde->state == FDE_MDISK) {
+        break;
+    case FDE_MDISK:
         err = __mdisk_write(fde, msa);
         if (err) {
             hvfs_err(mdsl, "__mdisk_write failed w/ %d\n", err);
             goto out_failed;
         }
-    } else if (fde->state == FDE_BITMAP) {
+        break;
+    case FDE_BITMAP:
         err = __bitmap_write_v2(fde, msa);
         if (err) {
             hvfs_err(mdsl, "__bitmap_write failed w/ %d\n", err);
             goto out_failed;
         }
-    } else if (fde->state == FDE_OPEN) {
+        break;
+    case FDE_OPEN:
         /* we should change to ABUF or MEMWIN or NORMAL access mode */
         err = mdsl_storage_fd_init(fde);
         if (err) {
@@ -1772,8 +1882,10 @@ retry:
             goto out_failed;
         }
         goto retry;
-    } else {
+        break;
+    default:
         /* we should (re-)open the file */
+        ;
     }
 
     atomic64_inc(&hmo.prof.storage.wreq);
@@ -1824,6 +1936,8 @@ retry:
         goto retry;
     } else {
         /* we should (re-)open the file */
+        hvfs_warning(mdsl, "Invalid read operation: state %d\n",
+                     fde->state);
     }
 
     atomic64_inc(&hmo.prof.storage.rreq);
