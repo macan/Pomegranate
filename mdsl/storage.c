@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-11 16:23:44 macan>
+ * Time-stamp: <2010-12-13 00:45:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -792,9 +792,9 @@ void mdsl_storage_fd_pagecache_cleanup(void)
 
 void __mdisk_range_sort(void *ranges, size_t size);
 
-/* mdsl_stroage_fd_normal()
+/* mdsl_stroage_fd_mdisk()
  *
- * do normal file open.
+ * do mdisk open.
  */
 int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path)
 {
@@ -882,6 +882,8 @@ first_hit:
     goto out_unlock;
 }
 
+/* __normal_open() do normal file open
+ */
 int __normal_open(struct fdhash_entry *fde, char *path)
 {
     int err = 0;

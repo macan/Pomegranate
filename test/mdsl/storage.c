@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-11 18:46:49 macan>
+ * Time-stamp: <2010-12-13 01:03:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -365,6 +365,65 @@ out:
     return err;
 }
 
+int __test_normal_rw()
+{
+    struct fdhash_entry *fde;
+    struct proxy_args pa;
+    int err = 0;
+
+    pa.uuid = 1;
+    pa.cno = 0;
+    /* the proxy file we got is '$HOME/0/.proxy.1.0' */
+    fde = mdsl_storage_fd_lookup_create(0, MDSL_STORAGE_NORMAL,
+                                        (u64)&pa);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create normal file failed w/ %ld\n",
+                 PTR_ERR(fde));
+        return PTR_ERR(fde);
+    }
+
+    /* write and read something to the file */
+    {
+        char buf[1024] = "hello, world!\n";
+        char res[1024];
+        struct iovec test_iov = {
+            .iov_base = buf,
+            .iov_len = lib_random(1024),
+        };
+        u64 location = 0;
+        struct mdsl_storage_access msa = {
+            .iov = &test_iov,
+            .arg = &location,
+            .iov_nr = 1,
+        };
+
+        /* APPEND mode or offset-directed mode, both have tested */
+        msa.offset = -1UL;
+        err = mdsl_storage_fd_write(fde, &msa);
+        if (err) {
+            hvfs_err(mdsl, "fd write failed w/ %d\n", err);
+            goto out_put;
+        }
+
+        test_iov.iov_base = res;
+        msa.offset = location;
+        err = mdsl_storage_fd_read(fde, &msa);
+        if (err) {
+            hvfs_err(mdsl, "fd read failed w/ %d\n", err);
+            goto out_put;
+        }
+
+        /* check result */
+        if (memcmp(buf, res, test_iov.iov_len) != 0) {
+            hvfs_err(mdsl, "Data check failed\n");
+        }
+    }
+out_put:
+    mdsl_storage_fd_put(fde);
+
+    return err;
+}
+
 int main(int argc, char *argv[])
 {
     int err = 0;
@@ -377,6 +436,13 @@ int main(int argc, char *argv[])
     mdsl_verify();
 
 #if 1
+    err = __test_normal_rw();
+    if (err) {
+        hvfs_err(mdsl, "normal file rw test failed w/ %d\n", err);
+        goto out;
+    }
+#endif
+#if 0
     err = __test_append_buf();
     if (err) {
         hvfs_err(mdsl, "append buf test failed w/ %d\n", err);
