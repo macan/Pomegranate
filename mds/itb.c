@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-14 23:31:43 macan>
+ * Time-stamp: <2010-12-12 12:30:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -929,7 +929,7 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
         if (mu->valid & MU_NLINK)
             e->s.mdu.nlink = mu->nlink;
         if (mu->valid & MU_LLFS) {
-            e->s.mdu.lr = *((struct llfs_ref *)hi->data +
+            e->s.mdu.lr = *(struct llfs_ref *)(hi->data +
                             sizeof(struct mdu_update));
             coffset = sizeof(struct llfs_ref);
         }

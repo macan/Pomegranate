@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-12 01:50:25 macan>
+ * Time-stamp: <2010-12-12 17:18:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3792,6 +3792,9 @@ out_free:
     return err;
 }
 
+/* Note that: hvfs_update do not return the column info in the packed result
+ * string, you should call hvfs_stat to get the column info.
+ */
 int __hvfs_update(u64 puuid, u64 psalt, struct hstat *hs,
                   struct mdu_update *imu)
 {
@@ -3849,7 +3852,7 @@ int __hvfs_update(u64 puuid, u64 psalt, struct hstat *hs,
         memcpy((void *)hi + offset, imu, sizeof(*imu));
         offset += sizeof(*imu);
         if (imu->valid & MU_LLFS) {
-            memcpy((void *)hi + offset, (void *)imu + offset,
+            memcpy((void *)hi + offset, (void *)imu + sizeof(*imu),
                    sizeof(struct llfs_ref));
             offset += sizeof(struct llfs_ref);
         }
@@ -3860,7 +3863,7 @@ int __hvfs_update(u64 puuid, u64 psalt, struct hstat *hs,
                        imu->column_no * sizeof(struct mu_column));
             } else {
                 memcpy((void *)hi + offset, (void *)imu +
-                       sizeof(struct mdu_update),
+                       offset - sizeof(*hi) - hi->namelen, 
                        imu->column_no * sizeof(struct mu_column));
             }
         }
@@ -4673,6 +4676,7 @@ void __kv2mu(char *kv, struct mdu_update *mu)
             /* end */
             break;
         }
+        n = NULL;
         if (strncmp(p, "mode", 4) == 0) {
             NEXT_TOKEN;
             mu->valid |= MU_MODE;
@@ -4856,14 +4860,17 @@ int hvfs_fupdate(char *path, char *name, void **data)
         goto out_free;
     }
     if (mu->valid & MU_COLUMN) {
-        if (!(mu->valid & MU_LLFS)) {
+        if (mu->column_no == 1) {
+            memcpy(&hs.mc, (void *)mu + sizeof(*mu) +
+                   sizeof(struct llfs_ref), sizeof(struct mu_column));
+        } else if (!(mu->valid & MU_LLFS)) {
             /* move mdu_update to the position of llfs */
             memcpy((void *)mu + sizeof(*mu),
                    (void *)mu + sizeof(*mu) + sizeof(struct llfs_ref),
                    sizeof(struct mu_column));
         }
     }
-    
+
     /* finally, do update now */
     if (!name) {
         /* update the final directory by uuid */

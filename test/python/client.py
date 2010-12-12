@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-12-12 01:49:00 macan>
+# Time-stamp: <2010-12-12 17:25:21 macan>
 #
 # Armed with EMACS.
 
@@ -323,7 +323,13 @@ class pamc_shell(cmd.Cmd):
     def do_stat(self, line):
         '''Stat a file. If any of the dir does not exist,
         we just reject the operations.
-        Usage: stat path/to/name'''
+        Usage: stat path/to/name
+
+        Result description:
+        puuid(0x) psalt(0x) uuid(0x) flags(0x) uid gid mode(o) 
+        nlink size dev atime ctime mtime dtime version 
+        {$symlink/$llfs:fsid$llfs:rfino} [column_no stored_itbid len offset]
+        '''
         l = shlex.split(line)
         if len(l) < 1:
             print "Invalid argument. See help stat."
@@ -357,6 +363,9 @@ class pamc_shell(cmd.Cmd):
     def do_setattr(self, line):
         '''Set the attributes of a file in current pathname. 
         Usage: setattr /path/to/name key1=value1,key2=value2
+
+        Result description:
+        the column region is always ZERO (please use stat to get the correct values)
         '''
         l = shlex.split(line)
         if len(l) < 1:
