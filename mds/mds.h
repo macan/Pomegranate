@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-27 23:28:59 macan>
+ * Time-stamp: <2010-12-15 19:05:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -403,7 +403,7 @@ void mds_dh_check(time_t cur);
 int mds_dh_init(struct dh *, int);
 void mds_dh_destroy(struct dh *);
 struct dhe *mds_dh_load(struct dh *, u64);
-void mds_dh_reload_nolock(struct dhe *e);
+int mds_dh_reload_nolock(struct dhe *e);
 struct dhe *mds_dh_insert(struct dh *, struct hvfs_index *);
 int mds_dh_dt_update(struct dh *, u64, struct dir_trigger_mgr *);
 struct dhe *mds_dh_search(struct dh *, u64);

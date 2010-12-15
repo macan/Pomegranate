@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-19 01:06:27 macan>
+ * Time-stamp: <2010-12-15 19:06:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -329,7 +329,7 @@ void mds_dh_check(time_t cur)
     static time_t last_chk = 0;
     static int last_idx = 0;
     u64 tsc = lib_rdtsc(), gap;
-    int i;
+    int i, err = 0;
 
     /* we trigger the check every 60 seconds */
     if (cur - last_chk < 60) {
@@ -370,7 +370,20 @@ void mds_dh_check(time_t cur)
                 hvfs_debug(mds, "PREReload %lx @ %ld w/ %p ref %d\n", 
                            tpos->uuid, cur, tpos->data, 
                            atomic_read(&tpos->ref));
-                mds_dh_reload_nolock(tpos);
+                err = mds_dh_reload_nolock(tpos);
+                if (err == -ENOENT) {
+                    /* we should remove this DHE from the table */
+                    mds_dh_put(tpos);
+                    while (atomic_read(&tpos->ref) > 0)
+                        xsleep(10);
+
+                    hlist_del_init(&tpos->hlist);
+                    list_for_each_entry_safe(b, m, &tpos->bitmap, list) {
+                        xfree(b);
+                    }
+                    xfree(tpos);
+                    goto retry;
+                }
                 hvfs_debug(mds, "POSTReload %lx @ %ld w/ %p ref %d\n", 
                            tpos->uuid, cur, tpos->data, 
                            atomic_read(&tpos->ref));
@@ -725,7 +738,7 @@ out_free:
 
 /* mds_dh_reload_nolock() try to update the DH state
  */
-void mds_dh_reload_nolock(struct dhe *ue)
+int mds_dh_reload_nolock(struct dhe *ue)
 {
     struct hvfs_md_reply *hmr = NULL;
     struct hvfs_index thi, *rhi;
@@ -742,7 +755,7 @@ void mds_dh_reload_nolock(struct dhe *ue)
         msg = xnet_alloc_msg(XNET_MSG_NORMAL);
         if (!msg) {
             hvfs_debug(mds, "xnet_alloc_msg() in low memory.\n");
-            return;
+            return -ENOMEM;
         }
     }
 
@@ -785,7 +798,7 @@ void mds_dh_reload_nolock(struct dhe *ue)
     if (IS_ERR(p)) {
         hvfs_err(mds, "ring_get_point(%ld) failed with %ld\n", 
                  thi.itbid, PTR_ERR(p));
-        e = ERR_PTR(-ECHP);
+        err = -ECHP;
         goto out_free;
     }
     if (p->site_id == hmo.site_id) {
@@ -830,6 +843,7 @@ void mds_dh_reload_nolock(struct dhe *ue)
             m = hmr_extract_local(hmr, EXTRACT_MDU, &no);
             if (!m) {
                 hvfs_err(mds, "Extract MDU failed\n");
+                err = -EINVAL;
                 goto out_free_hmr;
             }
             if (hmr->flag & MD_REPLY_WITH_DC) {
@@ -901,7 +915,6 @@ void mds_dh_reload_nolock(struct dhe *ue)
         err = xnet_send(hmo.xc, msg);
         if (err) {
             hvfs_err(mds, "xnet_send() failed with %d\n", err);
-            e = ERR_PTR(err);
             goto out_free;
         }
 
@@ -912,7 +925,7 @@ void mds_dh_reload_nolock(struct dhe *ue)
             hvfs_err(mds, "mds_dh_load(%lx) from site %lx "
                      "failed w/ %d\n",
                      ue->uuid, tsid, msg->pair->tx.err);
-            e = ERR_PTR(msg->pair->tx.err);
+            err = msg->pair->tx.err;
         } else {
             struct gdt_md *m;
             struct column *c = NULL;
@@ -922,13 +935,14 @@ void mds_dh_reload_nolock(struct dhe *ue)
             if (!hmr || hmr->err) {
                 hvfs_err(mds, "dh_load request failed %d\n", 
                          !hmr ? -ENOTEXIST : hmr->err);
-                e = !hmr ? ERR_PTR(-ENOTEXIST) : ERR_PTR(hmr->err);
+                err = !hmr ? -ENOTEXIST : hmr->err;
                 goto out_free;
             }
             rhi = hmr_extract(hmr, EXTRACT_HI, &no);
             if (!rhi) {
                 hvfs_err(mds, "hmr_extract MDU failed, do not found this "
                          "subregion.\n");
+                err = -EINVAL;
                 goto out_free;
             }
             m = hmr_extract(hmr, EXTRACT_MDU, &no);
@@ -986,6 +1000,8 @@ void mds_dh_reload_nolock(struct dhe *ue)
     
 out_free:
     xnet_free_msg(msg);
+
+    return err;
 }
 
 /* mds_dh_search() may block on dh_load

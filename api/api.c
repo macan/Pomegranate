@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-12 17:18:06 macan>
+ * Time-stamp: <2010-12-14 22:15:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -4872,7 +4872,7 @@ int hvfs_fupdate(char *path, char *name, void **data)
     }
 
     /* finally, do update now */
-    if (!name) {
+    if (!name || strlen(name) == 0) {
         /* update the final directory by uuid */
         hs.name = NULL;
         hs.hash = 0;
@@ -4961,7 +4961,7 @@ int hvfs_fdel(char *path, char *name, void **data, u32 is_dir)
         goto out;
 
     /* finally, do delete now */
-    if (!name) {
+    if (!name || strlen(name) == 0) {
         /* what we want to delete is a directory, double check it */
         if (!S_ISDIR(hs.mdu.mode) || !is_dir) {
             hvfs_err(xnet, "It is a dir you want to delete, isn't it?\n");
@@ -4989,12 +4989,31 @@ int hvfs_fdel(char *path, char *name, void **data, u32 is_dir)
             goto out;
         }
     } else {
+        /* confirm what it is firstly! */
+        hs.name = name;
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal stat (SDT) on '%s' "
+                     "failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
+        if ((S_ISDIR(hs.mdu.mode) && !is_dir) ||
+            (!S_ISDIR(hs.mdu.mode) && is_dir)) {
+            hvfs_err(xnet, "is directory or file but not "
+                     "matched with your argument\n");
+            err = -EINVAL;
+            goto out;
+        }
+        
         /* delete a normal file or dir, it is easy */
         hs.name = name;
         hs.uuid = 0;
         err = __hvfs_unlink(puuid, psalt, &hs);
         if (err) {
-            hvfs_err(xnet, "do internal delete on '%s' failed w/ %d\n",
+            hvfs_err(xnet, "do internal delete (SDT) on '%s' "
+                     "failed w/ %d\n",
                      name, err);
             goto out;
         }
@@ -5003,7 +5022,8 @@ int hvfs_fdel(char *path, char *name, void **data, u32 is_dir)
             hs.hash = 0;
             err = __hvfs_unlink(hmi.gdt_uuid, hmi.gdt_salt, &hs);
             if (err) {
-                hvfs_err(xnet, "do internal delete on '%s' failed w/ %d\n",
+                hvfs_err(xnet, "do internal delete (GDT) on '%s' "
+                         "failed w/ %d\n",
                          name, err);
                 goto out;
             }

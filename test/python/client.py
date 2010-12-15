@@ -3,9 +3,11 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-12-12 17:25:21 macan>
+# Time-stamp: <2010-12-15 22:12:55 macan>
 #
 # Armed with EMACS.
+#
+# This file provides a file system client in Python
 
 import os, time, sys
 import getopt
@@ -273,6 +275,15 @@ class pamc_shell(cmd.Cmd):
             c_path = c_char_p(path)
             c_file = c_char_p(file)
             c_data = c_void_p(None)
+            err = api.hvfs_readdir(c_path, c_file, byref(c_data))
+            if err != 0:
+                print "api.hvfs_readdir() failed w/ %d" % err
+                return
+            if c_data.value != None:
+                print "Directory '%s/%s' is not empty!" % (path,
+                                                           file)
+                return
+            c_data = c_void_p(None)
             self.start_clock()
             err = api.hvfs_fdel(c_path, c_file, byref(c_data), 1)
             if err != 0:
@@ -368,7 +379,7 @@ class pamc_shell(cmd.Cmd):
         the column region is always ZERO (please use stat to get the correct values)
         '''
         l = shlex.split(line)
-        if len(l) < 1:
+        if len(l) < 2:
             print "Invalid argument. See help setattr."
             return
 
