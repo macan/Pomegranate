@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-09 12:10:39 macan>
+ * Time-stamp: <2010-12-16 00:28:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -158,6 +158,7 @@ retry:
             if (au_lookup(AU_ITB_SPLIT, ni->h.itbid) ||
                 mds_cbht_exist_check(&hmo.cbht, hi->puuid, ni->h.itbid) ||
                 mds_dh_bitmap_test(&hmo.dh, hi->puuid, ni->h.itbid)) {
+                oi->h.depth = saved_depth;
                 goto out_relock;
             }
             goto can_continue;

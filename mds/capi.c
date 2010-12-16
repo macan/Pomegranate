@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-18 20:26:30 macan>
+ * Time-stamp: <2010-12-16 01:34:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -70,7 +70,53 @@ void xtable_send_reply(struct xnet_msg *msg, struct iovec *iov,
     xnet_free_msg(rpy);
 }
 
-int xtable_put(struct amc_index *ai, struct iovec **iov, int *nr)
+static inline
+int __xtable_adjust_itbid(struct hvfs_index *hi,
+                          struct xnet_msg *msg)
+{
+    struct dhe *e;
+    struct chp *p;
+    u64 itbid;
+    int err = 0;
+
+    e = mds_dh_search(&hmo.dh, hi->puuid);
+    if (IS_ERR(e)) {
+        err = PTR_ERR(e);
+        goto out;
+    }
+    itbid = mds_get_itbid(e, hi->hash);
+    if (itbid != hi->itbid || hmo.conf.option & HVFS_MDS_CHRECHK) {
+        p = ring_get_point(itbid, hi->psalt, hmo.chring[CH_RING_MDS]);
+        if (unlikely(IS_ERR(p))) {
+            hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
+            err = -ECHP;
+            mds_dh_put(e);
+            goto out;
+        }
+        if (hmo.site_id != p->site_id) {
+            /* reply -ERESTART to retry */
+            err = -ERESTART;
+            if (itbid == hi->itbid) {
+                err = -ERINGCHG;
+            }
+            mds_dh_put(e);
+            /* doing the forward now */
+            hi->flag |= INDEX_BIT_FLIP;
+            hi->itbid = itbid;
+            err = mds_do_forward(msg, p->site_id);
+            if (!err)
+                err = -EFWD;
+            goto out;
+        }
+        hi->itbid = itbid;
+    }
+    mds_dh_put(e);
+out:
+    return err;
+}
+
+int xtable_put(struct amc_index *ai, struct iovec **iov, int *nr,
+               struct xnet_msg *msg)
 {
     struct hvfs_index *hi;
     struct hvfs_md_reply hmr;
@@ -106,6 +152,15 @@ int xtable_put(struct amc_index *ai, struct iovec **iov, int *nr)
     hi->puuid = ai->ptid;
     hi->psalt = ai->psalt;
     hi->data = ai->data;
+
+    /* last second checking */
+    err = __xtable_adjust_itbid(hi, msg);
+    if (err) {
+        if (err != -EFWD)
+            hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
+                     hi->itbid, err);
+        goto out_hi;
+    }
 
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, &hmr, txg, &txg);
@@ -146,7 +201,8 @@ out_hi:
     return err;
 }
 
-int xtable_get(struct amc_index *ai, struct iovec **iov, int *nr)
+int xtable_get(struct amc_index *ai, struct iovec **iov, int *nr,
+               struct xnet_msg *msg)
 {
     struct hvfs_index *hi;
     struct hvfs_md_reply hmr;
@@ -182,6 +238,15 @@ int xtable_get(struct amc_index *ai, struct iovec **iov, int *nr)
     hi->itbid = ai->sid;
     hi->puuid = ai->ptid;
     hi->psalt = ai->psalt;
+
+    /* last second checking */
+    err = __xtable_adjust_itbid(hi, msg);
+    if (err) {
+        if (err != -EFWD)
+            hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
+                     hi->itbid, err);
+        goto out;
+    }
 
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, &hmr, txg, &txg);
@@ -222,7 +287,8 @@ out:
     return err;
 }
 
-int xtable_del(struct amc_index *ai, struct iovec **iov, int *nr)
+int xtable_del(struct amc_index *ai, struct iovec **iov, int *nr,
+               struct xnet_msg *msg)
 {
     struct hvfs_index *hi;
     struct hvfs_md_reply hmr;
@@ -242,6 +308,15 @@ int xtable_del(struct amc_index *ai, struct iovec **iov, int *nr)
     hi->itbid = ai->sid;
     hi->puuid = ai->ptid;
     hi->psalt = ai->psalt;
+
+    /* last second checking */
+    err = __xtable_adjust_itbid(hi, msg);
+    if (err) {
+        if (err != -EFWD)
+            hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
+                     hi->itbid, err);
+        goto out;
+    }
 
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, &hmr, txg, &txg);
@@ -279,7 +354,8 @@ out:
     return err;
 }
 
-int xtable_update(struct amc_index *ai, struct iovec **iov, int *nr)
+int xtable_update(struct amc_index *ai, struct iovec **iov, int *nr,
+                  struct xnet_msg *msg)
 {
     struct hvfs_index *hi;
     struct hvfs_md_reply hmr;
@@ -315,6 +391,15 @@ int xtable_update(struct amc_index *ai, struct iovec **iov, int *nr)
     hi->puuid = ai->ptid;
     hi->psalt = ai->psalt;
     hi->data = ai->data;
+
+    /* last second checking */
+    err = __xtable_adjust_itbid(hi, msg);
+    if (err) {
+        if (err != -EFWD)
+            hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
+                     hi->itbid, err);
+        goto out_hi;
+    }
 
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, &hmr, txg, &txg);
@@ -352,12 +437,14 @@ out_hi:
     return err;
 }
 
-int xtable_cupdate(struct amc_index *ai, struct iovec **iov, int *nr)
+int xtable_cupdate(struct amc_index *ai, struct iovec **iov, int *nr,
+                   struct xnet_msg *msg)
 {
-    return xtable_update(ai, iov, nr);
+    return xtable_update(ai, iov, nr, msg);
 }
 
-int xtable_commit(struct amc_index *ai, struct iovec **iov, int *nr)
+int xtable_commit(struct amc_index *ai, struct iovec **iov, int *nr,
+                  struct xnet_msg *msg)
 {
     txg_change_immediately();
     *nr = 0;
@@ -365,7 +452,8 @@ int xtable_commit(struct amc_index *ai, struct iovec **iov, int *nr)
     return 0;
 }
 
-int xtable_sput(struct amc_index *ai, struct iovec **iov, int *nr)
+int xtable_sput(struct amc_index *ai, struct iovec **iov, int *nr,
+                struct xnet_msg *msg)
 {
     struct hvfs_index *hi;
     struct hvfs_md_reply hmr;
@@ -409,6 +497,15 @@ int xtable_sput(struct amc_index *ai, struct iovec **iov, int *nr)
     hi->psalt = ai->psalt;
     hi->data = ai->data;
 
+    /* last second checking */
+    err = __xtable_adjust_itbid(hi, msg);
+    if (err) {
+        if (err != -EFWD)
+            hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
+                     hi->itbid, err);
+        goto out_hi;
+    }
+
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, &hmr, txg, &txg);
     txg_put(txg);
@@ -448,7 +545,8 @@ out_hi:
     return err;
 }
 
-int xtable_sget(struct amc_index *ai, struct iovec **iov, int *nr)
+int xtable_sget(struct amc_index *ai, struct iovec **iov, int *nr,
+                struct xnet_msg *msg)
 {
     struct hvfs_index *hi;
     struct hvfs_md_reply hmr;
@@ -489,6 +587,15 @@ int xtable_sget(struct amc_index *ai, struct iovec **iov, int *nr)
     hi->psalt = ai->psalt;
     hi->data = ai->data;
 
+    /* last second checking */
+    err = __xtable_adjust_itbid(hi, msg);
+    if (err) {
+        if (err != -EFWD)
+            hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
+                     hi->itbid, err);
+        goto out;
+    }
+
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, &hmr, txg, &txg);
     txg_put(txg);
@@ -528,7 +635,8 @@ out:
     return err;
 }
 
-int xtable_sdel(struct amc_index *ai, struct iovec **iov, int *nr)
+int xtable_sdel(struct amc_index *ai, struct iovec **iov, int *nr,
+                struct xnet_msg *msg)
 {
     struct hvfs_index *hi;
     struct hvfs_md_reply hmr;
@@ -553,6 +661,15 @@ int xtable_sdel(struct amc_index *ai, struct iovec **iov, int *nr)
     hi->puuid = ai->ptid;
     hi->psalt = ai->psalt;
     hi->data = ai->data;
+
+    /* last second checking */
+    err = __xtable_adjust_itbid(hi, msg);
+    if (err) {
+        if (err != -EFWD)
+            hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
+                     hi->itbid, err);
+        goto out;
+    }
 
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, &hmr, txg, &txg);
@@ -590,7 +707,8 @@ out:
     return err;
 }
 
-int xtable_supdate(struct amc_index *ai, struct iovec **iov, int *nr)
+int xtable_supdate(struct amc_index *ai, struct iovec **iov, int *nr,
+                   struct xnet_msg *msg)
 {
     struct hvfs_index *hi;
     struct hvfs_md_reply hmr;
@@ -633,6 +751,15 @@ int xtable_supdate(struct amc_index *ai, struct iovec **iov, int *nr)
     hi->psalt = ai->psalt;
     hi->data = ai->data;
 
+    /* last second checking */
+    err = __xtable_adjust_itbid(hi, msg);
+    if (err) {
+        if (err != -EFWD)
+            hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
+                     hi->itbid, err);
+        goto out_hi;
+    }
+
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, &hmr, txg, &txg);
     txg_put(txg);
@@ -669,9 +796,10 @@ out_hi:
     return err;
 }
 
-int xtable_scupdate(struct amc_index *ai, struct iovec **iov, int *nr)
+int xtable_scupdate(struct amc_index *ai, struct iovec **iov, int *nr,
+                    struct xnet_msg *msg)
 {
-    return xtable_supdate(ai, iov, nr);
+    return xtable_supdate(ai, iov, nr, msg);
 }
 
 /* xtable_handle_req() handle the incomming AMC request
@@ -706,44 +834,45 @@ void xtable_handle_req(struct xnet_msg *msg)
 
     switch (ai->op) {
     case INDEX_PUT:
-        err = xtable_put(ai, &iov, &nr);
+        err = xtable_put(ai, &iov, &nr, msg);
         break;
     case INDEX_SPUT:
-        err = xtable_sput(ai, &iov, &nr);
+        err = xtable_sput(ai, &iov, &nr, msg);
         break;
     case INDEX_GET:
-        err = xtable_get(ai, &iov, &nr);
+        err = xtable_get(ai, &iov, &nr, msg);
         break;
     case INDEX_SGET:
-        err = xtable_sget(ai, &iov, &nr);
+        err = xtable_sget(ai, &iov, &nr, msg);
         break;
     case INDEX_DEL:
-        err = xtable_del(ai, &iov, &nr);
+        err = xtable_del(ai, &iov, &nr, msg);
         break;
     case INDEX_SDEL:
-        err = xtable_sdel(ai, &iov, &nr);
+        err = xtable_sdel(ai, &iov, &nr, msg);
         break;
     case INDEX_UPDATE:
-        err = xtable_update(ai, &iov, &nr);
+        err = xtable_update(ai, &iov, &nr, msg);
         break;
     case INDEX_SUPDATE:
-        err = xtable_supdate(ai, &iov, &nr);
+        err = xtable_supdate(ai, &iov, &nr, msg);
         break;
     case INDEX_CUPDATE:
-        err = xtable_cupdate(ai, &iov, &nr);
+        err = xtable_cupdate(ai, &iov, &nr, msg);
         break;
     case INDEX_SCUPDATE:
-        err = xtable_scupdate(ai, &iov, &nr);
+        err = xtable_scupdate(ai, &iov, &nr, msg);
         break;
     case INDEX_COMMIT:
-        err = xtable_commit(ai, &iov, &nr);
+        err = xtable_commit(ai, &iov, &nr, msg);
         break;
     default:
         err = -EINVAL;
     }
 
 send_rpy:
-    xtable_send_reply(msg, iov, nr, err);
+    if (err != -EFWD)
+        xtable_send_reply(msg, iov, nr, err);
 
     /* free the resources */
     xfree(iov);

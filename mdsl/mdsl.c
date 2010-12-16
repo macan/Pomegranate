@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-30 19:44:00 macan>
+ * Time-stamp: <2010-12-16 18:44:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -335,6 +335,7 @@ int mdsl_config(void)
     HVFS_MDSL_GET_ENV_atoi(data_file_chunk, value);
     HVFS_MDSL_GET_ENV_atoi(itb_falloc, value);
     HVFS_MDSL_GET_ENV_atoi(aio_sync_len, value);
+    HVFS_MDSL_GET_ENV_atoi(fd_cleanup_N, value);
 
     HVFS_MDSL_GET_ENV_atol(memlimit, value);
     HVFS_MDSL_GET_ENV_atol(fdlimit, value);
@@ -349,15 +350,24 @@ int mdsl_config(void)
     }
 
     /* set default chunk if not setted. */
-    if (!hmo.conf.itb_file_chunk)
+    hmo.conf.itb_file_chunk &= ~(getpagesize() - 1);
+    hmo.conf.data_file_chunk &= ~(getpagesize() - 1);    
+    if (!hmo.conf.itb_file_chunk ||
+        hmo.conf.itb_file_chunk < getpagesize())
         hmo.conf.itb_file_chunk = MDSL_STORAGE_ITB_DEFAULT_CHUNK;
-    if (!hmo.conf.data_file_chunk)
+    if (!hmo.conf.data_file_chunk ||
+        hmo.conf.data_file_chunk < getpagesize())
         hmo.conf.data_file_chunk = MDSL_STORAGE_DATA_DEFAULT_CHUNK;
+    /* round up the the page size */
 
     /* set default fd limit here, total 1 GB memory for it */
     if (!hmo.conf.fdlimit)
         hmo.conf.fdlimit = (1024 * 1024 * 1024 / 
                             hmo.conf.data_file_chunk);
+
+    /* set fd cleanup N, default to 1024 */
+    if (!hmo.conf.fd_cleanup_N)
+        hmo.conf.fd_cleanup_N = 1024;
 
     /* set default pcct value to 1GB memory */
     if (!hmo.conf.pcct)
@@ -426,6 +436,11 @@ int mdsl_init(void)
     if (err)
         goto out_timers;
     
+    /* init storage */
+    err = mdsl_storage_init();
+    if (err)
+        goto out_storage;
+
     /* FIXME: init the service threads' pool */
     err = mdsl_spool_create();
     if (err)
@@ -436,11 +451,6 @@ int mdsl_init(void)
     if (err)
         goto out_aio;
     
-    /* init storage */
-    err = mdsl_storage_init();
-    if (err)
-        goto out_storage;
-
     /* mask the SIGUSR1 signal for main thread */
     {
         sigset_t set;
@@ -453,9 +463,9 @@ int mdsl_init(void)
     /* ok to run */
     hmo.state = HMO_STATE_RUNNING;
 
-out_storage:
 out_aio:
 out_spool:
+out_storage:
 out_timers:
 out_signal:
 out_tcc:

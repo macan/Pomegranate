@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-11 16:22:50 macan>
+ * Time-stamp: <2010-12-16 17:33:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -265,6 +265,7 @@ struct mdsl_conf
     int storage_fdhash_size;    /* # of storage fdhash size */
     int itb_file_chunk;         /* chunk size of the itb file */
     int data_file_chunk;        /* chunk size of the data file */
+    int fd_cleanup_N;           /* # of fds to cleanup for each tick */
     u32 aio_sync_len;           /* sync chunnk size for AIO */
     u8 prof_plot;               /* do we dump profilings for gnuplot */
 

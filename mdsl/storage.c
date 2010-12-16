@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-13 00:45:48 macan>
+ * Time-stamp: <2010-12-16 23:15:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,11 +57,13 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
         /* ok, we should open it */
         fde->fd = open(name, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
         if (fde->fd < 0) {
-            hvfs_err(mdsl, "open file '%s' failed\n", name);
+            hvfs_err(mdsl, "open file '%s' failed w/ %s(%d)\n", 
+                     name, strerror(errno), -errno);
             xlock_unlock(&fde->lock);
-            return -EINVAL;
+
+            return -errno;
         }
-        hvfs_err(mdsl, "open file %s w/ fd %d\n", name, fde->fd);
+        hvfs_warning(mdsl, "open file %s w/ fd %d\n", name, fde->fd);
         fde->state = FDE_OPEN;
     }
     if (state == FDE_ABUF && fde->state == FDE_OPEN) {
@@ -142,8 +144,13 @@ int append_buf_flush(struct fdhash_entry *fde, int flag)
                 err = -errno;
                 goto out;
             }
+            atomic64_add(fde->abuf.offset, &hmo.prof.storage.wbytes);
+            posix_madvise(fde->abuf.addr, fde->abuf.len,
+                          POSIX_MADV_DONTNEED);
+            posix_fadvise(fde->fd, fde->abuf.file_offset,
+                          fde->abuf.len, POSIX_FADV_DONTNEED);
             if (flag & ABUF_UNMAP) {
-                err = munmap(fde->abuf.addr, fde->abuf.offset);
+                err = munmap(fde->abuf.addr, fde->abuf.len);
                 if (err) {
                     hvfs_err(mdsl, "munmap() fd %d faield w/ %d\n", 
                              fde->fd, errno);
@@ -340,17 +347,20 @@ int odirect_create(struct fdhash_entry *fde, char *name, int state)
         fde->odirect.wfd = open(name, O_RDWR | O_CREAT | O_DIRECT, 
                                 S_IRUSR | S_IWUSR);
         if (fde->odirect.wfd < 0) {
-            hvfs_err(mdsl, "open file '%s' failed\n", name);
+            hvfs_err(mdsl, "open file '%s' failed w/ %s(%d)\n", 
+                     name, strerror(errno), -errno);
             xlock_unlock(&fde->lock);
-            return -EINVAL;
+            return -errno;
         }
         hvfs_err(mdsl, "open file %s w/ fd %d\n", name, fde->odirect.wfd);
         fde->odirect.rfd = open(name, O_RDONLY | O_CREAT,
                                 S_IRUSR | S_IWUSR);
         if (fde->odirect.rfd < 0) {
-            hvfs_err(mdsl, "open file '%s' failed\n", name);
+            hvfs_err(mdsl, "open file '%s' failed w/ %s(%d)\n", 
+                     name, strerror(errno), -errno);
+            close(fde->odirect.wfd);
             xlock_unlock(&fde->lock);
-            return -EINVAL;
+            return -errno;
         }
         fde->state = FDE_OPEN;
         fde->fd = fde->odirect.rfd;
@@ -538,7 +548,18 @@ int mdsl_storage_init(void)
     char path[256] = {0, };
     int err = 0;
     int i;
-    
+
+    /* set the fd limit firstly */
+    struct rlimit rli = {
+        .rlim_cur = 65536,
+        .rlim_max = 70000,
+    };
+    err = setrlimit(RLIMIT_NOFILE, &rli);
+    if (err) {
+        hvfs_err(xnet, "setrlimit failed w/ %s\n", strerror(errno));
+        return -errno;
+    }
+
     if (!hmo.conf.storage_fdhash_size) {
         hmo.conf.storage_fdhash_size = MDSL_STORAGE_FDHASH_SIZE;
     }
@@ -732,33 +753,37 @@ void mdsl_storage_fd_remove(struct fdhash_entry *new)
 void mdsl_storage_fd_limit_check(void)
 {
     struct fdhash_entry *fde;
-    int idx, remove;
+    int idx, remove, i = 0;
 
     if (atomic_read(&hmo.storage.active) > hmo.conf.fdlimit) {
-        /* try to evict some fd entry now */
-        xlock_lock(&hmo.storage.lru_lock);
-        if (list_empty(&hmo.storage.lru)) {
+        while (i++ < hmo.conf.fd_cleanup_N) {
+            if (atomic_read(&hmo.storage.active) <= hmo.conf.fdlimit)
+                break;
+            /* try to evict some fd entry now */
+            xlock_lock(&hmo.storage.lru_lock);
+            if (list_empty(&hmo.storage.lru)) {
+                xlock_unlock(&hmo.storage.lru_lock);
+                return;
+            }
+            fde = list_entry(hmo.storage.lru.prev, struct fdhash_entry, lru);
+            list_del_init(&fde->lru);
             xlock_unlock(&hmo.storage.lru_lock);
-            return;
-        }
-        fde = list_entry(hmo.storage.lru.prev, struct fdhash_entry, lru);
-        list_del_init(&fde->lru);
-        xlock_unlock(&hmo.storage.lru_lock);
-        /* do destroy on the file w/ a lock */
-        idx = hvfs_hash_fdht(fde->uuid, fde->type) % 
-            hmo.conf.storage_fdhash_size;
-        xlock_lock(&(hmo.storage.fdhash + idx)->lock);
-        remove = mdsl_storage_fd_cleanup(fde);
-        if (remove) {
-            hlist_del_init(&fde->list);
-            close(fde->fd);
-            xfree(fde);
-        }
-        xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
-        if (remove) {
-            atomic_dec(&hmo.storage.active);
-        } else {
-            mdsl_storage_fd_lru_update(fde);
+            /* do destroy on the file w/ a lock */
+            idx = hvfs_hash_fdht(fde->uuid, fde->type) % 
+                hmo.conf.storage_fdhash_size;
+            xlock_lock(&(hmo.storage.fdhash + idx)->lock);
+            remove = mdsl_storage_fd_cleanup(fde);
+            if (remove) {
+                hlist_del_init(&fde->list);
+                close(fde->fd);
+                xfree(fde);
+            }
+            xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
+            if (remove) {
+                atomic_dec(&hmo.storage.active);
+            } else {
+                mdsl_storage_fd_lru_update(fde);
+            }
         }
     }
 }
@@ -806,11 +831,12 @@ int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path)
         /* ok, we should open it */
         fde->fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
         if (fde->fd < 0) {
-            hvfs_err(mdsl, "open file '%s' failed\n", path);
-            err = -EINVAL;
+            hvfs_err(mdsl, "open file '%s' failed w/ %s(%d)\n", 
+                     path, strerror(-errno), -errno);
+            err = -errno;
             goto out_unlock;
         }
-        hvfs_err(mdsl, "open file %s w/ fd %d\n", path, fde->fd);
+        hvfs_warning(mdsl, "open file %s w/ fd %d\n", path, fde->fd);
         fde->state = FDE_OPEN;
     }
     if (fde->state == FDE_OPEN) {
@@ -893,11 +919,12 @@ int __normal_open(struct fdhash_entry *fde, char *path)
         /* ok, we should open it */
         fde->fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
         if (fde->fd < 0) {
-            hvfs_err(mdsl, "open file '%s' failed\n", path);
-            err = -EINVAL;
+            hvfs_err(mdsl, "open file '%s' failed w/ %s(%d)\n", 
+                     path, strerror(errno), -errno);
+            err = -errno;
             goto out_unlock;
         }
-        hvfs_err(mdsl, "open file %s w/ fd %d\n", path, fde->fd);
+        hvfs_warning(mdsl, "open file %s w/ fd %d\n", path, fde->fd);
         fde->state = FDE_OPEN;
     }
     if (fde->state == FDE_OPEN) {
@@ -1258,11 +1285,12 @@ int mdsl_storage_fd_mmap(struct fdhash_entry *fde, char *path,
         /* ok, we should open it */
         fde->fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
         if (fde->fd < 0) {
-            hvfs_err(mdsl, "open file '%s' failed\n", path);
-            err = -EINVAL;
+            hvfs_err(mdsl, "open file '%s' failed w/ %s(%d)\n", 
+                     path, strerror(errno), -errno);
+            err = -errno;
             goto out_unlock;
         }
-        hvfs_err(mdsl, "open file %s w/ fd %d\n", path, fde->fd);
+        hvfs_warning(mdsl, "open file %s w/ fd %d\n", path, fde->fd);
         fde->state = FDE_OPEN;
     }
     if (fde->state == FDE_OPEN) {
@@ -1333,8 +1361,9 @@ int mdsl_storage_fd_bitmap(struct fdhash_entry *fde, char *path)
         /* ok, we should open it */
         fde->fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
         if (fde->fd < 0) {
-            hvfs_err(mdsl, "open file '%s' failed\n", path);
-            err = -EINVAL;
+            hvfs_err(mdsl, "open file '%s' failed w/ %s(%d)\n", 
+                     path, strerror(errno), -errno);
+            err = -errno;
             goto out_unlock;
         }
         /* check to see if this is the first access */

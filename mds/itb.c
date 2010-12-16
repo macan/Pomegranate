@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-12 12:30:53 macan>
+ * Time-stamp: <2010-12-17 01:25:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -969,8 +969,8 @@ inline int ite_match(struct ite *e, struct hvfs_index *hi)
                 /* we reuse hi->uuid as the key length */
                 if (e->v.klen != hi->uuid || !hi->data)
                     return ITE_MATCH_MISS;
-                if (strncmp((const char *)hi->data, 
-                            (const char *)e->v.value, (size_t)hi->uuid) == 0) {
+                if (memcmp((const void *)hi->data, 
+                           (const void *)e->v.value, (size_t)hi->uuid) == 0) {
                     return ITE_MATCH_HIT;
                 } else
                     return ITE_MATCH_MISS;

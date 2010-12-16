@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-14 22:15:50 macan>
+ * Time-stamp: <2010-12-16 17:09:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1709,10 +1709,12 @@ int __hvfs_write(struct amc_index *ai, char *value, u32 len,
         goto out_free;
     }
 
+#if 0
     if (location == 0) {
         hvfs_warning(xnet, "puuid %lx uuid 0x%lx to %lx L @ %ld len %d\n",
                      ai->ptid, ai->tid, dsite, location, len);
     }
+#endif
 
     col->stored_itbid = ai->sid;
     col->len = len;
@@ -1843,8 +1845,8 @@ int __hvfs_indirect_write(struct amc_index *ai, char *key, char *value,
     }
 
     /* Step 5: Update indirect column info to 'col', already in it */
-    hvfs_info(xnet, "indirect_len %d, col offset %ld len %ld\n", 
-              indirect_len, col->offset, col->len);
+    hvfs_debug(xnet, "indirect_len %d, col offset %ld len %ld\n", 
+               indirect_len, col->offset, col->len);
 
 out_free:
     ai->column = target_column;
@@ -1866,7 +1868,7 @@ int hvfs_put(char *table, u64 key, char *value, int column)
     struct column col;
     u64 dsite;
     u32 vid;
-    int err = 0, recreate = 0;
+    int err = 0;
 
     memset(&ai, 0, sizeof(ai));
     ai.op = INDEX_PUT;
@@ -1954,12 +1956,11 @@ resend:
     }
 
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT && !recreate) {
+    if (msg->pair->tx.err == -ESPLIT) {
         /* the ITB is under splitting, we need retry */
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
-        recreate = 1;
         sched_yield();
         goto resend;
     } else if (msg->pair->tx.err == -ERESTART) {
@@ -2468,7 +2469,7 @@ int hvfs_sput(char *table, char *key, char *value, int column)
     struct column col;
     u64 dsite;
     u32 vid;
-    int err = 0, recreate = 0;
+    int err = 0;
 
     if (strlen(key) == 0) {
         hvfs_err(xnet, "Invalid key: Zero-length key?\n");
@@ -2559,12 +2560,12 @@ resend:
     }
 
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT && !recreate) {
+    if (msg->pair->tx.err == -ESPLIT) {
         /* the ITB is under splitting, we need retry */
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
-        recreate = 1;
+        atomic64_inc(&split_retry);
         sched_yield();
         goto resend;
     } else if (msg->pair->tx.err == -ERESTART) {

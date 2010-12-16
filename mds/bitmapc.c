@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-10 17:40:08 macan>
+ * Time-stamp: <2010-12-16 02:09:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -801,6 +801,12 @@ int mds_bc_backend_commit(void)
             }
             /* put the current delta to the error list */
             list_del_init(&pos->list);
+            if (err == -ENOENT) {
+                /* FIXME: TODO: this directory is gone, ok to ignore the
+                 * updates */
+                xfree(pos);
+                continue;
+            }
             list_add(&pos->list, &errlist);
             continue;
         }
