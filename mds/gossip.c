@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-29 15:07:00 macan>
+ * Time-stamp: <2010-12-19 00:53:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,6 +40,10 @@ struct gossip_mgr gm = {
     .gto = 5,
 };
 
+void mds_rdir_gosip(struct rdir_mgr *rm)
+{
+}
+
 void *gossip_thread_main(void *arg)
 {
     sigset_t set;
@@ -62,6 +66,7 @@ void *gossip_thread_main(void *arg)
                 goto out;
         }
         /* send the gossip message now */
+        mds_rdir_gossip(&hmo.rm);
         mds_dh_gossip(&hmo.dh);
         /* ft gossip */
         if (hmo.conf.active_ft)

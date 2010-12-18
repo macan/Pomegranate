@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-16 18:44:45 macan>
+ * Time-stamp: <2010-12-18 22:22:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -175,6 +175,8 @@ static void *mdsl_timer_thread_main(void *arg)
         hvfs_debug(mdsl, "OK, we receive a SIGALRM event(remain %d).\n", v);
         /* should we work now */
         mdsl_dump_profiling(time(NULL));
+        /* check the pending IOs */
+        mdsl_storage_pending_io();
         /* check the fd hash table */
         mdsl_storage_fd_limit_check();
         /* keep page cache clean if there are a lot of page cache entries */
@@ -360,10 +362,10 @@ int mdsl_config(void)
         hmo.conf.data_file_chunk = MDSL_STORAGE_DATA_DEFAULT_CHUNK;
     /* round up the the page size */
 
-    /* set default fd limit here, total 1 GB memory for it */
-    if (!hmo.conf.fdlimit)
-        hmo.conf.fdlimit = (1024 * 1024 * 1024 / 
-                            hmo.conf.data_file_chunk);
+    /* set default fd limit here, total 1 GB memory for itb/data */
+    if (!hmo.conf.fdlimit) {
+        hmo.conf.fdlimit = (1024UL * 1024 * 1024 * 2);
+    }
 
     /* set fd cleanup N, default to 1024 */
     if (!hmo.conf.fd_cleanup_N)

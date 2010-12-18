@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-16 23:15:59 macan>
+ * Time-stamp: <2010-12-18 22:26:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -100,6 +100,7 @@ int append_buf_create(struct fdhash_entry *fde, char *name, int state)
             fde->abuf.offset = 0;
         }
         fde->state = FDE_ABUF;
+        atomic64_add(buf_len, &hmo.storage.memcache);
     }
 
     xlock_unlock(&fde->lock);
@@ -192,6 +193,16 @@ void append_buf_destroy(struct fdhash_entry *fde)
             hvfs_err(mdsl, "ftruncate fd %d failed w/ %d\n",
                      fde->fd, err);
         }
+        atomic64_add(-fde->abuf.len, &hmo.storage.memcache);
+    }
+    memset(&fde->abuf, 0, sizeof(fde->abuf));
+    fde->state = FDE_OPEN;
+}
+
+void append_buf_destroy_async(struct fdhash_entry *fde)
+{
+    if (fde->state == FDE_ABUF) {
+        append_buf_flush(fde, ABUF_ASYNC | ABUF_UNMAP | ABUF_TRUNC);
     }
     memset(&fde->abuf, 0, sizeof(fde->abuf));
     fde->state = FDE_OPEN;
@@ -627,7 +638,9 @@ void mdsl_storage_destroy(void)
                         fsync(fde->fd);
                     close(fde->fd);
                     hlist_del(&fde->list);
+                    list_del(&fde->lru);
                     xfree(fde);
+                    atomic_dec(&hmo.storage.active);
                 } else {
                     notdone = 1;
                 }
@@ -755,7 +768,7 @@ void mdsl_storage_fd_limit_check(void)
     struct fdhash_entry *fde;
     int idx, remove, i = 0;
 
-    if (atomic_read(&hmo.storage.active) > hmo.conf.fdlimit) {
+    if (atomic64_read(&hmo.storage.memcache) > hmo.conf.fdlimit) {
         while (i++ < hmo.conf.fd_cleanup_N) {
             if (atomic_read(&hmo.storage.active) <= hmo.conf.fdlimit)
                 break;
@@ -786,6 +799,53 @@ void mdsl_storage_fd_limit_check(void)
             }
         }
     }
+}
+
+/* mdsl_storage_clean_dir() do clean all the opened fds in the directory
+ * 'duuid'.
+ */
+int mdsl_storage_clean_dir(u64 duuid)
+{
+    struct fdhash_entry *fde;
+    struct hlist_node *pos, *n;
+    int i, j = 0;
+    
+    for (i = 0; i < hmo.conf.storage_fdhash_size; i++) {
+        xlock_lock(&(hmo.storage.fdhash + i)->lock);
+        hlist_for_each_entry_safe(fde, pos, n,
+                                  &(hmo.storage.fdhash + i)->h,
+                                  list) {
+            if (fde->uuid == duuid && 
+                atomic_read(&fde->ref) == 0 &&
+                (fde->type == MDSL_STORAGE_DATA)) {
+                append_buf_destroy_async(fde);
+
+                hlist_del(&fde->list);
+                list_del(&fde->lru);
+                xfree(fde);
+                atomic_dec(&hmo.storage.active);
+                hvfs_debug(mdsl, "Clean the data file %d in dir %lx",
+                           fde->fd, duuid);
+                j++;
+            }
+        }
+        xlock_unlock(&(hmo.storage.fdhash + i)->lock);
+    }
+
+    atomic64_add(j, &hmo.pending_ios);
+
+    return 0;
+}
+
+void mdsl_storage_pending_io(void)
+{
+    int i, nr = min(MDSL_STORAGE_IO_PEAK, 
+                    (u64)atomic64_read(&hmo.pending_ios));
+    
+    for (i = 0; i < nr; i++) {
+        mdsl_aio_start();
+    }
+    atomic64_add(-nr, &hmo.pending_ios);
 }
 
 void mdsl_storage_fd_pagecache_cleanup(void)

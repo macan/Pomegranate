@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-17 01:25:47 macan>
+ * Time-stamp: <2010-12-18 17:25:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -641,6 +641,7 @@ void ite_unlink(struct ite *e, struct itb *i, u64 offset, u64 pos)
             }
             /* then, update the dir delta to remote site */
             txg = mds_get_open_txg(&hmo);
+            err = txg_add_rdir(txg, e->uuid);
             err = txg_add_update_ddelta(txg, i->h.puuid, -1,
                                         DIR_DELTA_NLINK | DIR_DELTA_CTIME
                                         | DIR_DELTA_MTIME);

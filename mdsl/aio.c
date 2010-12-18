@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-04 11:45:13 macan>
+ * Time-stamp: <2010-12-18 22:21:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -170,15 +170,51 @@ int __serv_sync_unmap_request(struct aio_request *ar)
 #endif
     atomic64_add(ar->len, &hmo.prof.storage.wbytes);
     posix_madvise(ar->addr, ar->mlen, POSIX_MADV_DONTNEED);
-    posix_fadvise(ar->fd, ar->foff, ar->len, POSIX_FADV_DONTNEED);
+    posix_fadvise(ar->fd, ar->foff, ar->mlen, POSIX_FADV_DONTNEED);
     err = munmap(ar->addr, ar->mlen);
     if (err) {
         hvfs_err(mdsl, "AIO UNMAP region [%p,%ld] failed w/ %d\n",
                  ar->addr, ar->mlen, errno);
         err = -errno;
     }
-    hvfs_info(mdsl, "ASYNC FLUSH foff %lx addr %p, done.\n", 
-              ar->foff, ar->addr);
+    hvfs_debug(mdsl, "ASYNC FLUSH foff %lx addr %p, done.\n", 
+               ar->foff, ar->addr);
+    xfree(ar);
+
+    return err;
+}
+
+int __serv_sync_unmap_trunc_request(struct aio_request *ar)
+{
+    int err = 0;
+
+    err = msync(ar->addr, ar->len, MS_SYNC);
+    if (err) {
+        hvfs_err(mdsl, "AIO SYNC region [%p,%ld] failed w/ %d\n",
+                 ar->addr, ar->len, errno);
+        err = -errno;
+    }
+    atomic64_add(ar->len, &hmo.prof.storage.wbytes);
+    posix_madvise(ar->addr, ar->mlen, POSIX_MADV_DONTNEED);
+    posix_fadvise(ar->fd, ar->foff, ar->mlen, POSIX_FADV_DONTNEED);
+    err = munmap(ar->addr, ar->mlen);
+    if (err) {
+        hvfs_err(mdsl, "AIO UNMAP region [%p,%ld] failed w/ %d\n",
+                 ar->addr, ar->mlen, errno);
+        err = -errno;
+    }
+    err = ftruncate(ar->fd, PAGE_ROUNDUP(ar->foff + ar->len,
+                                         getpagesize()));
+    if (err) {
+        hvfs_err(mdsl, "AIO TRUNC region [%p,%ld] failed w/ %d\n",
+                 ar->addr, ar->len, errno);
+        err = -errno;
+    }
+    /* FIXME: close the file? */
+    close(ar->fd);
+    atomic64_add(-ar->mlen, &hmo.storage.memcache);
+    hvfs_debug(mdsl, "ASYNC FLUSH foff %lx addr %p, done.\n",
+               ar->foff, ar->addr);
     xfree(ar);
 
     return err;
@@ -247,6 +283,13 @@ int __serv_request(void)
         err = __serv_sync_unmap_request(ar);
         if (err) {
             hvfs_err(mdsl, "Handle AIO SYNC UNMAP request faield w/ %d\n", err);
+        }
+        break;
+    case MDSL_AIO_SYNC_UNMAP_TRUNC:
+        err = __serv_sync_unmap_trunc_request(ar);
+        if (err) {
+            hvfs_err(mdsl, "Handle AIO SYNC UNMAP TRUNC request "
+                     "failed w/ %d\n", err);
         }
         break;
     case MDSL_AIO_ODIRECT:

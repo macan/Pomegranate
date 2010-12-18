@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-12-17 01:38:54 macan>
+# Time-stamp: <2010-12-18 16:01:54 macan>
 #
 # Armed with EMACS.
 
@@ -165,6 +165,112 @@ class test_del(threading.Thread):
             except ValueError, ve:
                 print "ValueError %s" % ve
 
+class test_put_v2(threading.Thread):
+    def __init__(self, ptid, psalt, id, loops, bytes, shift, 
+                 column, array):
+        threading.Thread.__init__(self)
+        self.ptid = ptid
+        self.psalt = psalt
+        self.shift = shift
+        self.id = id
+        self.loops = loops
+        self.bytes = bytes
+        self.column = column
+        self.array = array
+        self.xstart = 0.0
+        self.stop = 0.0
+        self.total = 0.0
+
+    def run(self):
+        genvalue = "".join([random.choice(string.letters + 
+                                          string.digits) for x in range(self.bytes)])
+        for i in self.array:
+            try:
+                ptid = c_ulonglong(self.ptid)
+                psalt = c_ulonglong(self.psalt)
+                key = c_ulonglong((long(i) << self.shift) + 
+                                  int(self.id))
+                value = c_char_p(genvalue)
+                column = c_int(self.column[i])
+                self.xstart = time.time()
+                err = api.hvfs_put_v2(ptid, psalt, key, value, column)
+                self.stop = time.time()
+                if err != 0:
+                    print "api.hvfs_put_v2() failed w/ %d" % err
+                    return
+                self.total += self.stop - self.xstart
+            except ValueError, ve:
+                print "ValueError %s" % ve
+
+class test_get_v2(threading.Thread):
+    def __init__(self, ptid, psalt, id, loops, bytes, shift, 
+                 column, array):
+        threading.Thread.__init__(self)
+        self.ptid = ptid
+        self.psalt = psalt
+        self.shift = shift
+        self.id = id
+        self.loops = loops
+        self.bytes = bytes
+        self.column = column
+        self.array = array
+        self.xstart = 0.0
+        self.stop = 0.0
+        self.total = 0.0
+
+    def run(self):
+        for i in self.array:
+            try:
+                ptid = c_ulonglong(self.ptid)
+                psalt = c_ulonglong(self.psalt)
+                key = c_ulonglong((long(i) << self.shift) + 
+                                  int(self.id))
+                value = c_char_p(None)
+                column = c_int(self.column[i])
+                self.xstart = time.time()
+                err = api.hvfs_get_v2(ptid, psalt, key, byref(value), column)
+                self.stop = time.time()
+                if err != 0:
+                    print "api.hvfs_get_v2() failed w/ %d" % err
+                    return
+                self.total += self.stop - self.xstart
+                api.hvfs_free(value)
+            except ValueError, ve:
+                print "ValueError %s" % ve
+
+class test_del_v2(threading.Thread):
+    def __init__(self, ptid, psalt, id, loops, bytes, shift, 
+                 column, array):
+        threading.Thread.__init__(self)
+        self.ptid = ptid
+        self.psalt = psalt
+        self.shift = shift
+        self.id = id
+        self.loops = loops
+        self.bytes = bytes
+        self.column = column
+        self.array = array
+        self.xstart = 0.0
+        self.stop = 0.0
+        self.total = 0.0
+
+    def run(self):
+        for i in self.array:
+            try:
+                ptid = c_ulonglong(self.ptid)
+                psalt = c_ulonglong(self.psalt)
+                key = c_ulonglong((long(i) << self.shift) + 
+                                  int(self.id))
+                self.xstart = time.time()
+                err = api.hvfs_del_v2(ptid, psalt, key, 0)
+                self.stop = time.time()
+                if err != 0:
+                    print "api.hvfs_del_v2() failed w/ %d" % err
+                    return
+                self.total += self.stop - self.xstart
+            except ValueError, ve:
+                print "ValueError %s" % ve
+
 class test_sput(threading.Thread):
     def __init__(self, table, id, loops, bytes, shift, 
                  column, array):
@@ -259,6 +365,111 @@ class test_sdel(threading.Thread):
             except ValueError, ve:
                 print "ValueError %s" % ve
 
+class test_sput_v2(threading.Thread):
+    def __init__(self, ptid, psalt, id, loops, bytes, shift, 
+                 column, array):
+        threading.Thread.__init__(self)
+        self.ptid = ptid
+        self.psalt = psalt
+        self.shift = shift
+        self.id = id
+        self.loops = loops
+        self.bytes = bytes
+        self.column = column
+        self.array = array
+        self.xstart = 0.0
+        self.stop = 0.0
+        self.total = 0.0
+
+    def run(self):
+        genvalue = "".join([random.choice(string.letters + 
+                                          string.digits) for x in range(self.bytes)])
+        for i in self.array:
+            try:
+                ptid = c_ulonglong(self.ptid)
+                psalt = c_ulonglong(self.psalt)
+                key = c_char_p(str(self.id) + "." + str(i))
+                value = c_char_p(genvalue)
+                column = c_int(self.column[i])
+                self.xstart = time.time()
+                err = api.hvfs_sput_v2(ptid, psalt, key, value, 
+                                       column)
+                self.stop = time.time()
+                if err != 0:
+                    print "api.hvfs_sput_v2() failed w/ %d" % err
+                    return
+                self.total += self.stop - self.xstart
+            except ValueError, ve:
+                print "ValueError %s" % ve
+
+class test_sget_v2(threading.Thread):
+    def __init__(self, ptid, psalt, id, loops, bytes, shift, 
+                 column, array):
+        threading.Thread.__init__(self)
+        self.ptid = ptid
+        self.psalt = psalt
+        self.shift = shift
+        self.id = id
+        self.loops = loops
+        self.bytes = bytes
+        self.column = column
+        self.array = array
+        self.xstart = 0.0
+        self.stop = 0.0
+        self.total = 0.0
+
+    def run(self):
+        for i in self.array:
+            try:
+                ptid = c_ulonglong(self.ptid)
+                psalt = c_ulonglong(self.psalt)
+                key = c_char_p(str(self.id) + "." + str(i))
+                value = c_char_p(None)
+                column = c_int(self.column[i])
+                self.xstart = time.time()
+                err = api.hvfs_sget_v2(ptid, psalt, key, 
+                                       byref(value), column)
+                self.stop = time.time()
+                if err != 0:
+                    print "api.hvfs_sget_v2() failed w/ %d" % err
+                    return
+                self.total += self.stop - self.xstart
+                api.hvfs_free(value)
+            except ValueError, ve:
+                print "ValueError %s" % ve
+
+class test_sdel_v2(threading.Thread):
+    def __init__(self, ptid, psalt, id, loops, bytes, shift, 
+                 column, array):
+        threading.Thread.__init__(self)
+        self.ptid = ptid
+        self.psalt = psalt
+        self.shift = shift
+        self.id = id
+        self.loops = loops
+        self.bytes = bytes
+        self.column = column
+        self.array = array
+        self.xstart = 0.0
+        self.stop = 0.0
+        self.total = 0.0
+
+    def run(self):
+        for i in self.array:
+            try:
+                ptid = c_ulonglong(self.ptid)
+                psalt = c_ulonglong(self.psalt)
+                key = c_char_p(str(self.id) + "." + str(i))
+                self.xstart = time.time()
+                err = api.hvfs_sdel_v2(ptid, psalt, key, 0)
+                self.stop = time.time()
+                if err != 0:
+                    print "api.hvfs_sdel_v2() failed w/ %d" % err
+                    return
+                self.total += self.stop - self.xstart
+            except ValueError, ve:
+                print "ValueError %s" % ve
+
 def main(argv):
     try:
         opts, args = getopt.getopt(argv, "hdt:i:r:x:",
@@ -316,6 +527,7 @@ def main(argv):
 
     if dotest == True:
         do_test(loops, thread)
+        do_test_v2(loops, thread)
         api.__core_exit(None)
         return
     elif debug == True:
@@ -555,6 +767,249 @@ def do_test(loops, thread_nr = 1):
     start = time.time()
     for id in range(thread_nr):
         ct = test_del(table, id, loops, 100, shift, column, array)
+        s3list.append(ct)
+        ct.start()
+
+    for s3 in s3list:
+        s3.join()
+    stop = time.time()
+    total = stop - start
+
+    print "RPS of  DEL is: %f" % (thread_nr * int(loops) / total)
+
+    err = api.hvfs_drop_table(table)
+    if err != 0:
+        print "api.hvfs_drop_table() failed w/ %s(%d)" % (os.strerror(-err), 
+                                                          err)
+        return
+
+    # Step 4: test sput/sget with random column
+
+def do_test_v2(loops, thread_nr = 1):
+    '''Do a strandard test for Pomegranate KV store'''
+    start = 0.0
+    stop = 0.0
+    total = 0.0
+    one_table = True
+
+    try:
+        if int(loops) <= 0:
+            print "Invalid or zero loops, do nothing ..."
+            return
+    except Exception:
+        print "Invalid loops value, do nothing ..."
+        return
+
+    if thread_nr == 1:
+        print ("\033[41mThis is a SINGLE thread test!.\033[0m")
+    print ("\033[41mPomegranate K/V API(v2) is a little optimized"
+           + ".\033[0m")
+    print ("\033[41mPerformance of K/V API(v2) is about ~50% of xTable API.\033[0m")
+
+    shift = 0
+    _tmp = thread_nr
+    while _tmp > 0:
+        _tmp = _tmp >> 1
+        shift += 1
+
+    # Step 1: test put/get interface
+    table = c_char_p("test_table_1")
+    err = api.hvfs_create_table(table)
+    if err != 0:
+        print "api.hvfs_create_table() failed w/ %d" % err
+        return
+
+    # open the table
+    ptid = c_long(0)
+    psalt = c_long(0)
+    err = api.hvfs_open_table(table, byref(ptid), byref(psalt))
+    if err != 0:
+        print "api.hvfs_create_table() failed w/ %d" % err
+        return
+    ptid = ptid.value
+    psalt = psalt.value
+
+    random.seed(1079)
+    column = [random.choice(range(1)) for x in range(int(loops))]
+    array = random.sample(range(int(loops)), int(loops))
+
+    s1list = []
+    start = time.time()
+    for id in range(thread_nr):
+        ct = test_put_v2(ptid, psalt, id, loops, 100, shift, 
+                         column, array)
+        s1list.append(ct)
+        ct.start()
+
+    for s1 in s1list:
+        s1.join()
+    stop = time.time()
+    total = stop - start
+
+    print "RPS of  PUT is: %f" % (thread_nr * int(loops) / total)
+
+    s1list = []
+    start = time.time()
+    for id in range(thread_nr):
+        ct = test_get_v2(ptid, psalt, id, loops, 100, shift, 
+                         column, array)
+        s1list.append(ct)
+        ct.start()
+
+    for s1 in s1list:
+        s1.join()
+    stop = time.time()
+    total = stop - start
+
+    print "RPS of  GET is: %f" % (thread_nr * int(loops) / total)
+
+    s1list = []
+    start = time.time()
+    for id in range(thread_nr):
+        ct = test_del_v2(ptid, psalt, id, loops, 100, shift, 
+                         column, array)
+        s1list.append(ct)
+        ct.start()
+
+    for s1 in s1list:
+        s1.join()
+    stop = time.time()
+    total = stop - start
+
+    print "RPS of  DEL is: %f" % (thread_nr * int(loops) / total)
+
+    if not one_table:
+        err = api.hvfs_drop_table(table)
+        if err != 0:
+            print "api.hvfs_drop_table() failed w/ %s(%d)" % (os.strerror(-err), 
+                                                              err)
+            return
+
+    # Step 2: test sput/sget interface
+    if not one_table:
+        table = c_char_p("test_table_2")
+        err = api.hvfs_create_table(table)
+        if err != 0:
+            print "api.hvfs_create_table() failed w/ %d" % err
+            return
+
+        ptid = c_long(0)
+        psalt = c_long(0)
+        err = api.hvfs_open_table(table, byref(ptid), byref(psalt))
+        if err != 0:
+            print "api.hvfs_create_table() failed w/ %d" % err
+            return
+        ptid = ptid.value
+        psalt = psalt.value
+
+    s2list = []
+    start = time.time()
+    for id in range(thread_nr):
+        ct = test_sput_v2(ptid, psalt, id, loops, 100, shift, 
+                          column, array)
+        s2list.append(ct)
+        ct.start()
+
+    for s2 in s2list:
+        s2.join()
+    stop = time.time()
+    total = stop - start
+
+    print "RPS of SPUT is: %f" % (thread_nr * int(loops) / total)
+
+    s2list = []
+    start = time.time()
+    for id in range(thread_nr):
+        ct = test_sget_v2(ptid, psalt, id, loops, 100, shift, 
+                          column, array)
+        s2list.append(ct)
+        ct.start()
+
+    for s2 in s2list:
+        s2.join()
+    stop = time.time()
+    total = stop - start
+
+    print "RPS of SGET is: %f" % (thread_nr * int(loops) / total)
+
+    s2list = []
+    start = time.time()
+    for id in range(thread_nr):
+        ct = test_sdel_v2(ptid, psalt, id, loops, 100, shift, 
+                          column, array)
+        s2list.append(ct)
+        ct.start()
+
+    for s2 in s2list:
+        s2.join()
+    stop = time.time()
+    total = stop - start
+
+    print "RPS of SDEL is: %f" % (thread_nr * int(loops) / total)
+
+    if not one_table:
+        err = api.hvfs_drop_table(table)
+        if err != 0:
+            print "api.hvfs_drop_table() failed w/ %s(%d)" % (os.strerror(-err), 
+                                                              err)
+            return
+
+    # Step 3: test put/get with random column 
+    if not one_table:
+        table = c_char_p("test_table_3")
+        err = api.hvfs_create_table(table)
+        if err != 0:
+            print "api.hvfs_create_table() failed w/ %d" % err
+            return
+
+        ptid = c_long(0)
+        psalt = c_long(0)
+        err = api.hvfs_open_table(table, byref(ptid), byref(psalt))
+        if err != 0:
+            print "api.hvfs_create_table() failed w/ %d" % err
+            return
+        ptid = ptid.value
+        psalt = psalt.value
+
+    random.seed(1079)
+    column = [random.choice(range(4000)) for x in range(int(loops))]
+    array = random.sample(range(int(loops)), int(loops))
+
+    s3list = []
+    start = time.time()
+    for id in range(thread_nr):
+        ct = test_put_v2(ptid, psalt, id, loops, 100, shift, 
+                         column, array)
+        s3list.append(ct)
+        ct.start()
+
+    for s3 in s3list:
+        s3.join()
+    stop = time.time()
+    total = stop - start
+
+    print "RPS of  PUT is: %f" % (thread_nr * int(loops) / total)
+
+    s3list = []
+    start = time.time()
+    for id in range(thread_nr):
+        ct = test_get_v2(ptid, psalt, id, loops, 100, shift, 
+                         column, array)
+        s3list.append(ct)
+        ct.start()
+
+    for s3 in s3list:
+        s3.join()
+    stop = time.time()
+    total = stop - start
+
+    print "RPS of  GET is: %f" % (thread_nr * int(loops) / total)
+
+    s3list = []
+    start = time.time()
+    for id in range(thread_nr):
+        ct = test_del_v2(ptid, psalt, id, loops, 100, shift, 
+                         column, array)
         s3list.append(ct)
         ct.start()
 

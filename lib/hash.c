@@ -348,12 +348,16 @@ static inline u64 hvfs_hash_vsite(u64 key1, u64 key2, u64 key2len)
 
 static inline u64 hvfs_hash_kvs(u64 key, u64 keylen)
 {
+#if 0
     u64 val;
 
     val = APHash((char *)key, keylen);
     val <<= 32;
     val |= RSHash((char *)key, keylen);
     return val;
+#else
+    return __murmurhash64a((const void *)key, keylen, 0xf87239);
+#endif
 }
 
 static inline u32 hvfs_hash_tws(u64 key)

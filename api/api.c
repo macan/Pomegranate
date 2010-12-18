@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-16 17:09:17 macan>
+ * Time-stamp: <2010-12-18 12:37:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1860,7 +1860,8 @@ out:
  * Note that, the key must not be zero, otherwise it will trigger the MDS key
  * recomputing :(
  */
-int hvfs_put(char *table, u64 key, char *value, int column)
+static inline
+int __hvfs_put(u64 ptid, u64 psalt, u64 key, char *value, int column)
 {
     struct xnet_msg *msg;
     struct amc_index ai;
@@ -1874,14 +1875,8 @@ int hvfs_put(char *table, u64 key, char *value, int column)
     ai.op = INDEX_PUT;
     ai.column = column;
     ai.key = key;
-
-    /* lookup the table name in the root directory to find the table
-     * metadata */
-    err = hvfs_find_table(table, &ai.ptid, &ai.psalt);
-    if (err) {
-        hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n", err);
-        goto out;
-    }
+    ai.ptid = ptid;
+    ai.psalt = psalt;
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
@@ -2083,7 +2078,8 @@ out:
     return err;
 }
 
-int hvfs_get(char *table, u64 key, char **value, int column)
+static inline
+int __hvfs_get(u64 ptid, u64 psalt, u64 key, char **value, int column)
 {
     struct xnet_msg *msg;
     struct amc_index ai;
@@ -2097,14 +2093,8 @@ int hvfs_get(char *table, u64 key, char **value, int column)
     ai.op = INDEX_GET;
     ai.column = column;
     ai.key = key;
-
-    /* lookup the table name in the root directory to find the table
-     * metadata */
-    err = hvfs_find_table(table, &ai.ptid, &ai.psalt);
-    if (err) {
-        hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n", err);
-        goto out;
-    }
+    ai.ptid = ptid;
+    ai.psalt = psalt;
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
@@ -2247,7 +2237,8 @@ out:
     return err;
 }
 
-int hvfs_del(char *table, u64 key, int column)
+static inline
+int __hvfs_del(u64 ptid, u64 psalt, u64 key, int column)
 {
     struct xnet_msg *msg;
     struct amc_index ai;
@@ -2260,14 +2251,8 @@ int hvfs_del(char *table, u64 key, int column)
     ai.op = INDEX_DEL;
     ai.column = column;
     ai.key = key;
-
-    /* lookup the table name in the root directory to find the table
-     * metadata */
-    err = hvfs_find_table(table, &ai.ptid, &ai.psalt);
-    if (err) {
-        hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n", err);
-        goto out;
-    }
+    ai.ptid = ptid;
+    ai.psalt = psalt;
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
@@ -2335,7 +2320,8 @@ out:
     return err;
 }
 
-int hvfs_update(char *table, u64 key, char *value, int column)
+static inline
+int __hvfs_kvupdate(u64 ptid, u64 psalt, u64 key, char *value, int column)
 {
     struct xnet_msg *msg;
     struct amc_index ai;
@@ -2349,14 +2335,8 @@ int hvfs_update(char *table, u64 key, char *value, int column)
     ai.op = INDEX_UPDATE;
     ai.column = column;
     ai.key = key;
-
-    /* lookup the table name in the root directory to find the table
-     * metadata */
-    err = hvfs_find_table(table, &ai.ptid, &ai.psalt);
-    if (err) {
-        hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n", err);
-        goto out;
-    }
+    ai.ptid = ptid;
+    ai.psalt = psalt;
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
@@ -2461,7 +2441,8 @@ out:
     return err;
 }
 
-int hvfs_sput(char *table, char *key, char *value, int column)
+static inline
+int __hvfs_sput(u64 ptid, u64 psalt, char *key, char *value, int column)
 {
     struct xnet_msg *msg;
     struct amc_index ai;
@@ -2482,14 +2463,8 @@ int hvfs_sput(char *table, char *key, char *value, int column)
     ai.column = column;
     ai.key = hvfs_hash(0, (u64)key, strlen(key), HASH_SEL_KVS);
     ai.tid = strlen(key);
-
-    /* lookup the table name in the root directory to find the table
-     * metadata */
-    err = hvfs_find_table(table, &ai.ptid, &ai.psalt);
-    if (err) {
-        hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n", err);
-        goto out;
-    }
+    ai.ptid = ptid;
+    ai.psalt = psalt;
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
@@ -2692,7 +2667,8 @@ out:
     return err;
 }
 
-int hvfs_sget(char *table, char *key, char **value, int column)
+static inline
+int __hvfs_sget(u64 ptid, u64 psalt, char *key, char **value, int column)
 {
     struct xnet_msg *msg;
     struct amc_index ai;
@@ -2713,14 +2689,8 @@ int hvfs_sget(char *table, char *key, char **value, int column)
     ai.column = column;
     ai.key = hvfs_hash(0, (u64)key, strlen(key), HASH_SEL_KVS);
     ai.tid = strlen(key);
-
-    /* lookup the table name in the root directory to find the table
-     * metadata */
-    err = hvfs_find_table(table, &ai.ptid, &ai.psalt);
-    if (err) {
-        hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n", err);
-        goto out;
-    }
+    ai.ptid = ptid;
+    ai.psalt = psalt;
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
@@ -2870,7 +2840,8 @@ out:
     return err;
 }
 
-int hvfs_sdel(char *table, char *key, int column)
+static inline
+int __hvfs_sdel(u64 ptid, u64 psalt, char *key, int column)
 {
     struct xnet_msg *msg;
     struct amc_index ai;
@@ -2890,14 +2861,8 @@ int hvfs_sdel(char *table, char *key, int column)
     ai.column = column;
     ai.key = hvfs_hash(0, (u64)key, strlen(key), HASH_SEL_KVS);
     ai.tid = strlen(key);
-
-    /* lookup the table name in the root directory to find the table
-     * metadata */
-    err = hvfs_find_table(table, &ai.ptid, &ai.psalt);
-    if (err) {
-        hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n", err);
-        goto out;
-    }
+    ai.ptid = ptid;
+    ai.psalt = psalt;
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
@@ -2968,7 +2933,8 @@ out:
     return err;
 }
 
-int hvfs_supdate(char *table, char *key, char *value, int column)
+static inline
+int __hvfs_supdate(u64 ptid, u64 psalt, char *key, char *value, int column)
 {
     struct xnet_msg *msg;
     struct amc_index ai;
@@ -2989,14 +2955,8 @@ int hvfs_supdate(char *table, char *key, char *value, int column)
     ai.column = column;
     ai.key = hvfs_hash(0, (u64)key, strlen(key), HASH_SEL_KVS);
     ai.tid = strlen(key);
-
-    /* lookup the table name in the root directory to find the table
-     * metadata */
-    err = hvfs_find_table(table, &ai.ptid, &ai.psalt);
-    if (err) {
-        hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n", err);
-        goto out;
-    }
+    ai.ptid = ptid;
+    ai.psalt = psalt;
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
@@ -6637,4 +6597,273 @@ int __hvfs_fwrite_local(struct storage_index *si, void *data,
              "should set in-storage write function to branch "
              "mgr.\n");
     return -ENOSYS;
+}
+
+/* Key/Value interface Version 1
+ */
+int hvfs_put(char *table, u64 key, char *value, int column)
+{
+    u64 ptid, psalt;
+    int err = 0;
+    
+    /* lookup the table name in the root directory to find the table
+     * metadata */
+    err = hvfs_find_table(table, &ptid, &psalt);
+    if (err) {
+        hvfs_err(xnet, "hvfs_find_table(%s) failed w/ %d\n", 
+                 table, err);
+        goto out;
+    }
+
+    err = __hvfs_put(ptid, psalt, key, value, column);
+    if (err) {
+        hvfs_err(xnet, "__hvfs_put() failed w/ %d\n", err);
+        goto out;
+    }
+    
+out:
+    return err;
+}
+
+int hvfs_get(char *table, u64 key, char **value, int column)
+{
+    u64 ptid, psalt;
+    int err = 0;
+
+    /* lookup the table name in the root directory to find the table
+     * metadata */
+    err = hvfs_find_table(table, &ptid, &psalt);
+    if (err) {
+        hvfs_err(xnet, "hvfs_find_table(%s) failed w/ %d\n", 
+                 table, err);
+        goto out;
+    }
+
+    err = __hvfs_get(ptid, psalt, key, value, column);
+    if (err) {
+        hvfs_err(xnet, "__hvfs_get() failed w/ %d\n", err);
+        goto out;
+    }
+
+out:
+    return err;
+}
+
+int hvfs_del(char *table, u64 key, int column)
+{
+    u64 ptid, psalt;
+    int err = 0;
+
+    /* lookup the table name in the root directory to find the table
+     * metadata */
+    err = hvfs_find_table(table, &ptid, &psalt);
+    if (err) {
+        hvfs_err(xnet, "hvfs_find_table(%s) failed w/ %d\n", 
+                 table, err);
+        goto out;
+    }
+
+    err = __hvfs_del(ptid, psalt, key, column);
+    if (err) {
+        hvfs_err(xnet, "__hvfs_del() failed w/ %d\n", err);
+        goto out;
+    }
+
+out:
+    return err;
+}
+
+int hvfs_update(char *table, u64 key, char *value, int column)
+{
+    u64 ptid, psalt;
+    int err = 0;
+    
+    /* lookup the table name in the root directory to find the table
+     * metadata */
+    err = hvfs_find_table(table, &ptid, &psalt);
+    if (err) {
+        hvfs_err(xnet, "hvfs_find_table(%s) failed w/ %d\n", 
+                 table, err);
+        goto out;
+    }
+
+    err = __hvfs_kvupdate(ptid, psalt, key, value, column);
+    if (err) {
+        hvfs_err(xnet, "__hvfs_kvupdate() failed w/ %d\n", err);
+        goto out;
+    }
+
+out:
+    return err;
+}
+
+int hvfs_sput(char *table, char *key, char *value, int column)
+{
+    u64 ptid, psalt;
+    int err = 0;
+    
+    /* lookup the table name in the root directory to find the table
+     * metadata */
+    err = hvfs_find_table(table, &ptid, &psalt);
+    if (err) {
+        hvfs_err(xnet, "hvfs_find_table(%s) failed w/ %d\n", 
+                 table, err);
+        goto out;
+    }
+
+    err = __hvfs_sput(ptid, psalt, key, value, column);
+    if (err) {
+        hvfs_err(xnet, "__hvfs_sput() failed w/ %d\n", err);
+        goto out;
+    }
+out:
+    return err;
+}
+
+int hvfs_sget(char *table, char *key, char **value, int column)
+{
+    u64 ptid, psalt;
+    int err = 0;
+
+    /* lookup the table name in the root directory to find the table
+     * metadata */
+    err = hvfs_find_table(table, &ptid, &psalt);
+    if (err) {
+        hvfs_err(xnet, "hvfs_find_table(%s) failed w/ %d\n", 
+                 table, err);
+        goto out;
+    }
+
+    err = __hvfs_sget(ptid, psalt, key, value, column);
+    if (err) {
+        hvfs_err(xnet, "__hvfs_sget() failed w/ %d\n", err);
+        goto out;
+    }
+out:
+    return err;
+}
+
+int hvfs_sdel(char *table, char *key, int column)
+{
+    u64 ptid, psalt;
+    int err = 0;
+
+    /* lookup the table name in the root directory to find the table
+     * metadata */
+    err = hvfs_find_table(table, &ptid, &psalt);
+    if (err) {
+        hvfs_err(xnet, "hvfs_find_table(%s) failed w/ %d\n", 
+                 table, err);
+        goto out;
+    }
+
+    err = __hvfs_sdel(ptid, psalt, key, column);
+    if (err) {
+        hvfs_err(xnet, "__hvfs_sdel() failed w/ %d\n", err);
+        goto out;
+    }
+out:
+    return err;
+}
+
+int hvfs_supdate(char *table, char *key, char *value, int column)
+{
+    u64 ptid, psalt;
+    int err = 0;
+
+    /* lookup the table name in the root directory to find the table
+     * metadata */
+    err = hvfs_find_table(table, &ptid, &psalt);
+    if (err) {
+        hvfs_err(xnet, "hvfs_find_table(%s) failed w/ %d\n", 
+                 table, err);
+        goto out;
+    }
+
+    err = __hvfs_supdate(ptid, psalt, key, value, column);
+    if (err) {
+        hvfs_err(xnet, "__hvfs_supdate() failed w/ %d\n", err);
+        goto out;
+    }
+out:
+    return err;
+}
+
+/* Key/Value interface Version 2
+ *
+ * In KV v2, we drop the silly design of accepting a table name for each
+ * put/get/update/del operation. User can open/create a table at beginning,
+ * and then do other operations. But, note that, open a table do NOT means
+ * that the table will always exist, we do not promise the opened table is
+ * always valid. Thus, we have a FIXME here.
+ *
+ * FIXME: we should add the lease interface to MDS metadata!
+*/
+
+/* hvfs_open_table() open a table to get the metadata
+ */
+int hvfs_open_table(char *table, u64 *ptid, u64 *psalt)
+{
+    int err = 0;
+
+    err = hvfs_find_table(table, ptid, psalt);
+    if (err) {
+        hvfs_err(xnet, "hvfs_find_table() failed w/ %d\n", err);
+        goto out;
+    }
+
+out:
+    return err;
+}
+
+/* hvfs_close_table() actually do nothing now
+ */
+int hvfs_close_table(char *table)
+{
+    return 0;
+}
+
+int hvfs_put_v2(u64 ptid, u64 psalt, u64 key, char *value, 
+                int column)
+{
+    return __hvfs_put(ptid, psalt, key, value, column);
+}
+
+int hvfs_get_v2(u64 ptid, u64 psalt, u64 key, char **value,
+                int column)
+{
+    return __hvfs_get(ptid, psalt, key, value, column);
+}
+
+int hvfs_del_v2(u64 ptid, u64 psalt, u64 key, int column)
+{
+    return __hvfs_del(ptid, psalt, key, column);
+}
+
+int hvfs_update_v2(u64 ptid, u64 psalt, u64 key, char *value,
+                   int column)
+{
+    return __hvfs_kvupdate(ptid, psalt, key, value, column);
+}
+
+int hvfs_sput_v2(u64 ptid, u64 psalt, char *key, char *value, 
+                 int column)
+{
+    return __hvfs_sput(ptid, psalt, key, value, column);
+}
+int hvfs_sget_v2(u64 ptid, u64 psalt, char *key, char **value, 
+                 int column)
+{
+    return __hvfs_sget(ptid, psalt, key, value, column);
+}
+
+int hvfs_sdel_v2(u64 ptid, u64 psalt, char *key, int column)
+{
+    return __hvfs_sdel(ptid, psalt, key, column);
+}
+
+int hvfs_supdate_v2(u64 ptid, u64 psalt, char *key, char *value,
+                    int column)
+{
+    return __hvfs_supdate(ptid, psalt, key, value, column);
 }

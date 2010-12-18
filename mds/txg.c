@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-11 23:01:17 macan>
+ * Time-stamp: <2010-12-19 00:43:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +26,27 @@
 #include "tx.h"
 #include "mds.h"
 #include "ring.h"
+
+int txg_add_rdir(struct hvfs_txg *txg, u64 uuid)
+{
+    u64 *p;
+    u32 nsize;
+
+    if (txg->rd.asize >= txg->rd.psize) {
+        /* alloc new chunks */
+        nsize = max(txg->rd.psize << 1, (u32)1);
+        p = xrealloc(txg->rd.rd, nsize * sizeof(u64));
+        if (!p) {
+            return -ENOMEM;
+        }
+        txg->rd.rd = p;
+        txg->rd.psize = nsize;
+    }
+    txg->rd.rd[txg->rd.asize++] = uuid;
+    rdir_insert(&hmo.rm, uuid);
+
+    return 0;
+}
 
 struct hvfs_txg *txg_alloc(void)
 {
@@ -68,6 +89,9 @@ void txg_free(struct hvfs_txg *t)
     struct bitmap_delta_buf *bdb, *bdbn;
     struct hvfs_dir_delta_buf *ddb, *ddbn;
     struct hvfs_rmds_ckpt_buf *ckpt, *ckptn;
+    
+    if (t->rd.psize)
+        xfree(t->rd.rd);
     
     list_for_each_entry_safe(bdb, bdbn, &t->bdb, list) {
         list_del(&bdb->list);
@@ -351,6 +375,7 @@ int txg_prepare_begin(struct commit_thread_arg *cta, struct hvfs_txg *t)
     memset(&cta->begin, 0, sizeof(cta->begin));
     cta->begin.magic = TXG_BEGIN_MAGIC;
     cta->begin.mi_txg = t->txg;
+    cta->begin.rd_nr = t->rd.asize;
     cta->begin.mi_uuid = atomic64_read(&hmi.mi_uuid);
     cta->begin.mi_fnum = atomic64_read(&hmi.mi_fnum);
     cta->begin.mi_dnum = atomic64_read(&hmi.mi_dnum);
@@ -486,6 +511,11 @@ int txg_wb_itb_ll(struct commit_thread_arg *cta, struct itb *itb)
         if (cta->begin.ckpt_nr) {
             msg->tx.arg0 |= HVFS_WBTXG_CKPT;
             TXG_ADD_SDATA(hvfs_rmds_ckpt_buf, ckpt, checkpoint, cta, msg);
+        }
+        if (cta->begin.rd_nr) {
+            msg->tx.arg0 |= HVFS_WBTXG_RDIR;
+            xnet_msg_add_sdata(msg, cta->wbt->rd.rd,
+                               sizeof(u64) * cta->begin.rd_nr);
         }
         msg->tx.flag |= XNET_NEED_REPLY;
     }
@@ -738,6 +768,8 @@ void *txg_commit(void *arg)
         hvfs_info(mds, "TXG %ld is released (free:%d, clean:%d, ntkwn:%d) %ld s.\n", 
                   t->txg, freed, clean, notknown, (end - begin));
         mcond_destroy(&t->cond);
+        /* try to clean the removed directories */
+        mds_rdir_check(0);
         /* trigger the commit callback on the TXs */
         txg_trigger_ccb(t);
         /* FIXME: I should add dir delta async update here! */

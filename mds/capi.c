@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-16 01:34:30 macan>
+ * Time-stamp: <2010-12-17 22:40:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -461,7 +461,7 @@ int xtable_sput(struct amc_index *ai, struct iovec **iov, int *nr,
     int err = 0;
 
     hi = xzalloc(sizeof(struct hvfs_index));
-    if (!hi) {
+    if (unlikely(!hi)) {
         hvfs_err(mds, "xzalloc() hvfs_index failed.\n");
         return -ENOMEM;
     }
@@ -477,7 +477,7 @@ int xtable_sput(struct amc_index *ai, struct iovec **iov, int *nr,
         hvfs_err(mds, "Column number %d is too large.\n", ai->column);
         err = -EINVAL;
         goto out_hi;
-    } else if (ai->column > XTABLE_INDIRECT_COLUMN) {
+    } else if (unlikely(ai->column > XTABLE_INDIRECT_COLUMN)) {
         hi->flag |= INDEX_COLUMN;
         /* column is ZERO */
     } else if (ai->column) {
@@ -499,8 +499,8 @@ int xtable_sput(struct amc_index *ai, struct iovec **iov, int *nr,
 
     /* last second checking */
     err = __xtable_adjust_itbid(hi, msg);
-    if (err) {
-        if (err != -EFWD)
+    if (unlikely(err)) {
+        if (likely(err != -EFWD))
             hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
                      hi->itbid, err);
         goto out_hi;
@@ -511,7 +511,7 @@ int xtable_sput(struct amc_index *ai, struct iovec **iov, int *nr,
     txg_put(txg);
 
     /* then, parse the hmr to value */
-    if (err) {
+    if (unlikely(err)) {
         hvfs_debug(mds, "mds_cbht_search() for KV put K:%lx failed w/ %d\n",
                    hi->hash, err);
         goto out;
@@ -521,13 +521,13 @@ int xtable_sput(struct amc_index *ai, struct iovec **iov, int *nr,
      * put operation, instead, we return the real itbid. */
     *nr = 1;
     *iov = xzalloc(sizeof(struct iovec));
-    if (!*iov) {
+    if (unlikely(!*iov)) {
         hvfs_err(mds, "xzalloc iovec failed\n");
         err = -ENOMEM;
         goto out;
     }
     (*iov)->iov_base = xmalloc(sizeof(u64));
-    if (!(*iov)->iov_base) {
+    if (unlikely(!(*iov)->iov_base)) {
         hvfs_err(mds, "xzalloc itbid failed\n");
         err = -ENOMEM;
         xfree(*iov);

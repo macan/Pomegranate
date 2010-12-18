@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-08 19:30:30 macan>
+ * Time-stamp: <2010-12-18 17:23:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -87,6 +87,13 @@ struct bitmap_delta_buf
     struct bitmap_delta buf[0];
 };
 
+struct rdir
+{
+#define RDIR_CHUNK              (64)
+    u64 *rd;                    /* pointer to RD buffer */
+    u32 psize, asize;
+};
+
 struct hvfs_txg 
 {
     time_t open_time;
@@ -102,6 +109,7 @@ struct hvfs_txg
     u8 dirty;                   /* whether this txg is dirtied, using in the
                                  * SIGALARM handler to changing txg. */
     u32 ddht_nr;
+    struct rdir rd;
 
     xlock_t ckpt_lock, rddb_lock, bdb_lock, ccb_lock, itb_lock;
     xrwlock_t ddht_lock;    

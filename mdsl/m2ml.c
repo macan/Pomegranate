@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-13 21:47:48 macan>
+ * Time-stamp: <2010-12-18 18:08:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -861,7 +861,8 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                     tb->bitmap_delta_nr * 
                     sizeof(struct bitmap_delta) +
                     tb->ckpt_nr * 
-                    sizeof(struct checkpoint);
+                    sizeof(struct checkpoint) +
+                    tb->rd_nr * sizeof(u64);
                 if (toe->osize) {
                     toe->other_region = xmalloc(toe->osize);
                     if (!toe->other_region) {
@@ -893,6 +894,11 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                                  tb->site_id, tb->txg, data, tb->ckpt_nr);
                 data += tb->ckpt_nr * sizeof(struct checkpoint);
                 len -= tb->ckpt_nr * sizeof(struct checkpoint);
+
+                toe_to_tmpfile_N(TXG_OPEN_ENTRY_DISK_RDIR,
+                                 tb->site_id, tb->txg, data, tb->rd_nr);
+                data += tb->rd_nr * sizeof(u64);
+                len -= tb->rd_nr * sizeof(u64);
             }
         }
 
@@ -953,6 +959,37 @@ void mdsl_wbtxg(struct xnet_msg *msg)
             }
         }
         if (msg->tx.arg0 & HVFS_WBTXG_CKPT) {
+        }
+        if (msg->tx.arg0 & HVFS_WBTXG_RDIR) {
+            size_t region_len = 0;
+            loff_t offset = 
+                tb->dir_delta_nr * sizeof(struct hvfs_dir_delta) +
+                tb->rdd_nr * sizeof(struct hvfs_dir_delta) +
+                tb->bitmap_delta_nr * sizeof(struct bitmap_delta) +
+                tb->ckpt_nr * sizeof(struct checkpoint);
+
+            if (tb && toe && toe->other_region) {
+                region_len = sizeof(u64) * tb->rd_nr;
+                p = toe->other_region + offset;
+
+                u64 *rd = (u64 *)p;
+#if 0
+                int i;
+                for (i = 0; i < tb->rd_nr; i++) {
+                    hvfs_err(mdsl, "Remove dir %lx\n", *(rd + i));
+                }
+#else
+                int err, i;
+
+                for (i = 0; i < tb->rd_nr; i++) {
+                    err = mdsl_storage_clean_dir(*(rd + i));
+                    if (err) {
+                        hvfs_err(mdsl, "storage clean dir %lx failed w/ %d\n",
+                                 *(rd + i), err);
+                    }
+                }
+#endif
+            }
         }
     }
     if (msg->tx.arg0 & HVFS_WBTXG_ITB) {

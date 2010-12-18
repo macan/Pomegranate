@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-14 16:43:36 macan>
+ * Time-stamp: <2010-12-19 00:17:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -736,7 +736,8 @@ void __cbht mds_cbht_scan(struct eh *eh, int op)
 
     if (op >= HVFS_MDS_MAX_OPS)
         return;
-    if (op == HVFS_MDS_OP_EVICT_ALL) {
+    if (op == HVFS_MDS_OP_EVICT_ALL ||
+        op == HVFS_MDS_OP_CLEAN) {
         seg_offsets[op] = 0;
         bucket_offsets[op] = 0;
     }
@@ -809,7 +810,8 @@ keepon:
     }
     xrwlock_wunlock(&eh->lock);
 
-    if (op == HVFS_MDS_OP_EVICT_ALL) {
+    if (op == HVFS_MDS_OP_EVICT_ALL ||
+        op == HVFS_MDS_OP_CLEAN) {
         if (seg_offsets[op] != 0 || bucket_offsets[op] != 0)
             goto keepon;
     }

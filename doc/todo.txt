@@ -143,3 +143,31 @@ there is an error. Low.
     Branch processor is not a standalone server. It should NOT be 
     a callable component for MDSL. It should be a stancalone 
     server framework!
+
+17. Metadata Lease
+
+    We want to support lease in MDS. User can acquire/release a 
+    lease if it is not conflict right now. Normal operations, 
+    i.e. lookup, would not be affected. Only operations that 
+    cares about lease should do the lease check.
+
+    For example, in a empty dir X, client A want to rmdir X and 
+    client B want to create a new file X/1. If there are not 
+    sync point, file data missing is surely to happen (i.e. 
+    create X/1, but the X is deleted). Based on lease, client A
+    firstly lookup directory X with a RMDIR intent to wlock the 
+    metadata of X; client B lookup directory X with a CREATE intent
+    to wlock the metadata of X. Thus, only one client can success.
+    If client A success, client B will got the -ELOCKED error.
+    Client B do the directory removing and client B retry to fail.
+    If client B success, client A will got the -ELOCKED error.
+    Client A then create the new file X/1, and finally release
+    the lease (*release the lease is important!*). Then, client A
+    can lookup and delete the dir X (which should be faild, cause
+    of directory X is not empty right now).
+
+18. Key/Value interface Version 2 design and implementation
+
+    The silly KV interface V1 only has 28% performance of xTable
+    interface. I am very disappointed :( For every put/get/update/
+    del, there are at least 2 RPCs. BAD!

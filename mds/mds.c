@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-30 22:02:35 macan>
+ * Time-stamp: <2010-12-19 00:52:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -489,10 +489,223 @@ out:
     return err;
 }
 
+int rdir_init(void)
+{
+    int i;
+    
+    if (!hmo.conf.rdir_hsize)
+        hmo.conf.rdir_hsize = RDIR_HTSIZE;
+
+    hmo.rm.hsize = hmo.conf.rdir_hsize;
+    hmo.rm.ht = xzalloc(hmo.rm.hsize * sizeof(struct regular_hash));
+    if (!hmo.rm.ht) {
+        hvfs_err(mds, "xzalloc() rdir hash table failed\n");
+        return -ENOMEM;
+    }
+
+    for (i = 0; i < hmo.rm.hsize; i++) {
+        INIT_HLIST_HEAD(&(hmo.rm.ht + i)->h);
+        xlock_init(&(hmo.rm.ht + i)->lock);
+    }
+    atomic_set(&hmo.rm.active, 0);
+
+    return 0;
+}
+
+void rdir_destroy(void)
+{
+    xfree(hmo.rm.ht);
+}
+
+static inline
+int rdir_hash(u64 key)
+{
+    u64 val1;
+
+    val1 = hash_64(key, 64);
+    val1 = val1 ^ GOLDEN_RATIO_PRIME;
+
+    return val1 % hmo.rm.hsize; /* FIXME: need more faster! */
+}
+
+int rdir_lookup(struct rdir_mgr *rm, u64 uuid)
+{
+    struct regular_hash *rh;
+    struct rdir_entry *re;
+    struct hlist_node *n;
+    int idx, found = 0;
+
+    idx = rdir_hash(uuid);
+    rh = hmo.rm.ht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry(re, n, &rh->h, hlist) {
+        if (likely(re->uuid == uuid)) {
+            found = 1;
+            break;
+        }
+    }
+    xlock_unlock(&rh->lock);
+
+    return found;
+}
+
+int rdir_insert(struct rdir_mgr *rm, u64 uuid)
+{
+    struct regular_hash *rh;
+    struct rdir_entry *re, *new;
+    struct hlist_node *n;
+    int idx, found = 0;
+
+    new = xmalloc(sizeof(*new));
+    if (!new) {
+        hvfs_err(mds, "alloc rdir entry failed\n");
+        return -ENOMEM;
+    }
+    INIT_HLIST_NODE(&new->hlist);
+    new->uuid = uuid;
+    
+    idx = rdir_hash(uuid);
+    rh = hmo.rm.ht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry(re, n, &rh->h, hlist) {
+        if (likely(re->uuid == new->uuid)) {
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        hlist_add_head(&new->hlist, &rh->h);
+        atomic_inc(&hmo.rm.active);
+    }
+    xlock_unlock(&rh->lock);
+    if (found) {
+        xfree(new);
+    }
+
+    return !found;
+}
+
+int rdir_remove(struct rdir_mgr *rm, u64 uuid)
+{
+    struct regular_hash *rh;
+    struct rdir_entry *re;
+    struct hlist_node *pos, *n;
+    int idx;
+
+    idx = rdir_hash(uuid);
+    rh = hmo.rm.ht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry_safe(re, pos, n, &rh->h, hlist) {
+        if (unlikely(re->uuid == uuid)) {
+            hlist_del(&re->hlist);
+            xfree(re);
+            atomic_dec(&hmo.rm.active);
+        }
+    }
+    xlock_unlock(&rh->lock);
+
+    return 0;
+}
+
+int rdir_remove_all(struct rdir_mgr *rm)
+{
+    struct regular_hash *rh;
+    struct rdir_entry *re;
+    struct hlist_node *pos, *n;
+    int idx;
+
+    for (idx = 0; idx < hmo.rm.hsize; idx++) {
+        rh = hmo.rm.ht + idx;
+        xlock_lock(&rh->lock);
+        hlist_for_each_entry_safe(re, pos, n, &rh->h, hlist) {
+            hlist_del(&re->hlist);
+            xfree(re);
+            atomic_dec(&hmo.rm.active);
+        }
+        xlock_unlock(&rh->lock);
+    }
+    
+    return 0;
+}
+
+void mds_rdir_check(time_t cur)
+{
+    if (atomic_read(&hmo.rm.active) > 0) {
+        /* we should clean the itbs */
+        mds_cbht_scan(&hmo.cbht, HVFS_MDS_OP_CLEAN);
+        /* it is ok to remove some MORE entries :) */
+        rdir_remove_all(&hmo.rm);
+        atomic_set(&hmo.rm.active, 0);
+    }
+}
+
+/* mdsl_cbht_clean_default()
+ *
+ * This function check if the directory is removed. If it is, then commit and
+ * remove the current ITB.
+ */
 int mds_cbht_clean_default(struct bucket *b, void *arg0, void *arg1)
 {
+    struct bucket_entry *be = (struct bucket_entry *)arg0;
+    struct bucket_entry *obe;
+    struct itbh *ih = (struct itbh *)arg1;
+    struct hvfs_txg *t;
     int err = 0;
 
+    xrwlock_wlock(&ih->lock);
+    hvfs_debug(mds, "Try to clean ITB %ld txg %ld state %x "
+               "be %p obe %p twin %ld ref %d list_empty %d\n", 
+               ih->itbid, ih->txg, ih->state, be, ih->be, 
+               ih->twin, atomic_read(&ih->ref), list_empty(&ih->list));
+    if (rdir_lookup(&hmo.rm, ih->puuid)) {
+        /* ok, we should clean this itb NOW. Actually, we do not care about
+         * the itb->h.state, but we check it either */
+
+        if (ih->state == ITB_STATE_CLEAN) {
+            /* ok, this is the target to operate on */
+            obe = ih->be;
+            t = mds_get_open_txg(&hmo);
+            if (be == obe) {
+                if (ih->be != be ||
+                    ih->twin != 0 || 
+                    atomic_read(&ih->ref) > 1 ||
+                    !list_empty(&ih->list)) {
+                    /* we just failed to update the wlock, exit... */
+                    txg_put(t);
+                    goto out_unlock;
+                }
+                
+                /* try to release the ITB now */
+                if (ih->be == obe) {
+                    /* not moved, unhash it */
+                    hlist_del_init(&ih->cbht);
+                    ih->be = NULL;
+                    atomic_dec(&b->active);
+                    atomic64_sub(atomic_read(&ih->entries), 
+                                 &hmo.prof.cbht.aentry);
+                } else {
+                    /* moved, not unhash */
+                    txg_put(t);
+                    goto out_unlock;
+                }
+                
+                hvfs_warning(mds, "DO evict on clean ITB %ld txg %ld success\n", 
+                             ih->itbid, ih->txg);
+                itb_put((struct itb *)ih);
+            }
+            txg_put(t);
+            goto out;
+        } else if (ih->state == ITB_STATE_DIRTY) {
+            hvfs_warning(mds, "DO not evict dirty ITB %ld\n", ih->itbid);
+        }
+    }
+        
+out_unlock:
+    xrwlock_wunlock(&ih->lock);
+out:
     return err;
 }
 
@@ -603,6 +816,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(loadin_pressure, value);
     HVFS_MDS_GET_ENV_atoi(dati, value);
     HVFS_MDS_GET_ENV_atoi(active_ft, value);
+    HVFS_MDS_GET_ENV_atoi(rdir_hsize, value);
 
     HVFS_MDS_GET_kmg(memlimit, value);
 
@@ -752,6 +966,11 @@ int mds_init(int bdepth)
     if (err)
         goto out_gossip;
 
+    /* FIXME: init the rdir mgr */
+    err = rdir_init();
+    if (err)
+        goto out_rdir;
+
     /* FIXME: waiting for the notification from R2 */
 
     /* FIXME: waiting for the requests from client/mds/mdsl/r2 */
@@ -769,6 +988,7 @@ int mds_init(int bdepth)
     hmo.state = HMO_STATE_RUNNING;
     hmo.uptime = time(NULL);
 
+out_rdir:
 out_gossip:
 out_ft:
 out_scrub:
@@ -839,6 +1059,9 @@ void mds_destroy(void)
 
     /* itb */
     itb_cache_destroy(&hmo.ic);
+    
+    /* rdir */
+    rdir_destroy();
     
     /* close the files */
     if (hmo.conf.pf_file)

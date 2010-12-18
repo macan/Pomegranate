@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-15 19:05:52 macan>
+ * Time-stamp: <2010-12-19 00:23:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,6 +43,20 @@ struct itb_cache
     struct list_head lru;
     atomic_t csize;             /* current cache size */
     xlock_t lock;
+};
+
+struct rdir_entry
+{
+    struct hlist_node hlist;
+    u64 uuid;
+};
+
+struct rdir_mgr
+{
+#define RDIR_HTSIZE     (1024)
+    struct regular_hash *ht;
+    int hsize;
+    atomic_t active;
 };
 
 struct mds_conf 
@@ -92,6 +106,7 @@ struct mds_conf
     int dhupdatei;              /* dh update interval */
     int gto;                    /* gossip timeout */
     int loadin_pressure;        /* loadin memory pressure */
+    int rdir_hsize;             /* rdir mgr hash table size */
     s8 itbid_check;             /* should we do ITBID check? */
     u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
                                  * conflicts */
@@ -154,6 +169,7 @@ struct hvfs_mds_object
     u64 ring_site;
 
     struct list_head async_unlink;
+    struct rdir_mgr rm;
 
     /* the following region is used for threads */
     time_t unlink_ts;
@@ -231,6 +247,8 @@ struct mds_fwd
 
 /* APIs */
 /* for mds.c */
+int rdir_insert(struct rdir_mgr *, u64);
+void mds_rdir_check(time_t);
 void mds_pre_init(void);
 int mds_init(int bdepth);
 int mds_verify(void);
@@ -350,6 +368,7 @@ void mds_destroy_tx(void);
 void mds_tx_chg2forget(struct hvfs_tx *);
 
 /* for txg.c: DRAFT */
+int txg_add_rdir(struct hvfs_txg *, u64);
 void txg_add_itb(struct hvfs_txg *, struct itb *);
 int txg_switch(struct hvfs_mds_info *, struct hvfs_mds_object *);
 void txg_free(struct hvfs_txg *);

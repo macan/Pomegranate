@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-16 17:33:10 macan>
+ * Time-stamp: <2010-12-18 22:23:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -211,6 +211,7 @@ struct txg_open_entry_disk
 #define TXG_OPEN_ENTRY_DISK_CKPT        0x10
 #define TXG_OPEN_ENTRY_DISK_END         0x20
 #define TXG_OPEN_ENTRY_DISK_DIR_R       0x40
+#define TXG_OPEN_ENTRY_DISK_RDIR        0x80
     u32 type;
     u32 len;
     u64 ssite;
@@ -232,6 +233,7 @@ struct mdsl_storage
     /* global fds */
     int txg_fd, tmp_fd, tmp_txg_fd, log_fd, split_log_fd;
     atomic_t active;
+    atomic64_t memcache;
 };
 
 struct mdsl_conf
@@ -257,7 +259,7 @@ struct mdsl_conf
 
     /* misc configs */
     u64 memlimit;               /* memlimit of the TCC */
-    u64 fdlimit;                /* fd limit of the fd hash table */
+    u64 fdlimit;                /* fd limit of the mem cache */
     u64 pcct;                   /* pagecache cleanup threshold */
     int itb_falloc;             /* # of itb file chunk to pre-alloc */
     int ring_vid_max;           /* max # of vid in the ring(AUTO) */
@@ -302,6 +304,7 @@ struct hvfs_mdsl_object
 
     /* the following region is used for threads */
     sem_t timer_sem;            /* for timer thread wakeup */
+    atomic64_t pending_ios;     /* pending IOs */
     
     pthread_t timer_thread;
     pthread_t *spool_thread;    /* array of service threads */
@@ -383,6 +386,8 @@ void toe_deactive(struct txg_open_entry *);
 void toe_wait(struct txg_open_entry *, int);
 
 /* storage.c */
+#define MDSL_STORAGE_IO_PEAK    ((u64)(CPU_CORE) << 1)
+
 #define MDSL_STORAGE_MD         0x0000
 #define MDSL_STORAGE_ITB        0x0001
 #define MDSL_STORAGE_RANGE      0x0002
@@ -411,6 +416,8 @@ void mdsl_storage_fd_put(struct fdhash_entry *fde)
 {
     atomic_dec(&fde->ref);
 }
+void mdsl_storage_pending_io(void);
+int mdsl_storage_clean_dir(u64);
 void mdsl_storage_fd_limit_check(void);
 int mdsl_storage_fd_cleanup(struct fdhash_entry *fde);
 int append_buf_create(struct fdhash_entry *, char *, int);
@@ -431,10 +438,13 @@ void mdsl_storage_fd_pagecache_cleanup(void);
 #define ABUF_ASYNC      0x01
 #define ABUF_UNMAP      0x02
 #define ABUF_SYNC       0x04
+#define ABUF_TRUNC      0x08
 
 /* aio.c */
 #define MDSL_AIO_SYNC           0x01
-#define MDSL_AIO_SYNC_UNMAP     0x03
+#define MDSL_AIO_SYNC_UNMAP     (ABUF_ASYNC | ABUF_UNMAP)
+#define MDSL_AIO_SYNC_UNMAP_TRUNC       (ABUF_ASYNC | ABUF_UNMAP | \
+                                         ABUF_TRUNC)
 #define MDSL_AIO_ODIRECT        0x04
 #define MDSL_AIO_READ           0x10
 int mdsl_aio_create(void);

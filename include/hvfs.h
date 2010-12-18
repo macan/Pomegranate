@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-28 00:04:01 macan>
+ * Time-stamp: <2010-12-18 16:49:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -118,6 +118,7 @@
 #define HVFS_WBTXG_R_DIR_DELTA  0x0010
 #define HVFS_WBTXG_CKPT         0x0020
 #define HVFS_WBTXG_END          0x0040
+#define HVFS_WBTXG_RDIR         0x0080
 /* end subregion for arg0 */
 #define HVFS_MDS2MDSL_WDATA     0x0000000080040000
 #define HVFS_MDS2MDSL_BTCOMMIT  0x0000000080100000
