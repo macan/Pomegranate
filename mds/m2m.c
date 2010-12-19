@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-25 00:46:52 macan>
+ * Time-stamp: <2010-12-19 16:38:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -957,6 +957,35 @@ void mds_gossip_bitmap(struct xnet_msg *msg)
         }
     }
     mds_dh_put(e);
+
+out:
+    xnet_free_msg(msg);
+}
+
+void mds_gossip_rdir(struct xnet_msg *msg)
+{
+    u64 *array;
+    int i;
+    
+    /* ABI:
+     *
+     * tx.arg0: size of the array
+     * xm_data: rdir array
+     */
+
+    /* sanity checking */
+    if (msg->tx.len < sizeof(u64) * msg->tx.arg0) {
+        hvfs_err(mds, "Invalid rdir gossip message from %lx\n",
+                 msg->tx.ssite_id);
+        goto out;
+    }
+
+    array = msg->xm_data;
+
+    /* add the rdir array to hmo.rm */
+    for (i = 0; i < msg->tx.arg0; i++) {
+        rdir_insert(&hmo.rm, array[i]);
+    }
 
 out:
     xnet_free_msg(msg);

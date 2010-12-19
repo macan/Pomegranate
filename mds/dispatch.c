@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-03 19:10:00 macan>
+ * Time-stamp: <2010-12-19 16:37:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -147,6 +147,9 @@ int mds_mds_dispatch(struct xnet_msg *msg)
         break;
     case HVFS_MDS2MDS_GF:
         ft_gossip_recv(msg);
+        break;
+    case HVFS_MDS2MDS_GR:
+        mds_gossip_rdir(msg);
         break;
     case HVFS_MDS2MDS_BRANCH:
         if (hmo.branch_dispatch)

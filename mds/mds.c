@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-19 00:52:38 macan>
+ * Time-stamp: <2010-12-19 16:12:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -629,6 +629,38 @@ int rdir_remove_all(struct rdir_mgr *rm)
     }
     
     return 0;
+}
+
+void mds_rdir_get_all(struct rdir_mgr *rm, u64 **out, size_t *size)
+{
+    struct regular_hash *rh;
+    struct rdir_entry *re;
+    struct hlist_node *n;
+    u64 *p = NULL;
+    size_t s = 0;
+    int idx;
+
+    *out = NULL;
+    
+    for (idx = 0; idx < hmo.rm.hsize; idx++) {
+        rh = hmo.rm.ht + idx;
+        xlock_lock(&rh->lock);
+        hlist_for_each_entry(re, n, &rh->h, hlist) {
+            s++;
+            p = xrealloc(*out, s * sizeof(u64));
+            if (!p) {
+                hvfs_err(mds, "realloc() rdir entry failed\n");
+                xlock_unlock(&rh->lock);
+                *size = s - 1;
+                return;
+            }
+            *out = p;
+            p[s - 1] = re->uuid;
+        }
+        xlock_unlock(&rh->lock);
+    }
+
+    *size = s;
 }
 
 void mds_rdir_check(time_t cur)

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-19 00:53:49 macan>
+ * Time-stamp: <2010-12-19 16:38:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -40,8 +40,65 @@ struct gossip_mgr gm = {
     .gto = 5,
 };
 
-void mds_rdir_gosip(struct rdir_mgr *rm)
+/* select a random site and send the rdir entries */
+void mds_rdir_gossip(struct rdir_mgr *rm)
 {
+    u64 *buf = NULL;
+    size_t size = 0;
+    struct xnet_msg *msg;
+    struct chp *p;
+    u64 point;
+    int err = 0;
+
+    msg = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!msg) {
+        /* retry with slow method */
+        msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+        if (!msg) {
+            hvfs_err(mds, "xnet_alloc_msg() in low memory.\n");
+            return;
+        }
+    }
+
+    /* select a random site from the mds ring */
+    point = hvfs_hash(lib_random(0xfffffff),
+                      lib_random(0xfffffff), 0, HASH_SEL_GDT);
+    p = ring_get_point2(point, hmo.chring[CH_RING_MDS]);
+    if (IS_ERR(p)) {
+        hvfs_err(mds, "ring_get_point2() failed w/ %ld\n",
+                 PTR_ERR(p));
+        goto out_free;
+    }
+
+    if (p->site_id == hmo.xc->site_id) {
+        /* self gossip? do not do it */
+        goto out_free;
+    }
+
+    /* send the request to the selected site */
+    mds_rdir_get_all(rm, &buf, &size);
+    if (!size) {
+        /* zero length, do not send */
+        goto out_free;
+    }
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE, 
+                     hmo.xc->site_id, p->site_id);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_GR, size, 0);
+    xnet_msg_add_sdata(msg, buf, size * sizeof(u64));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(mds, "xnet_send() failed with %d\n", err);
+    }
+
+    xnet_free_msg(msg);
+    return;
+out_free:
+    xnet_raw_free_msg(msg);
 }
 
 void *gossip_thread_main(void *arg)

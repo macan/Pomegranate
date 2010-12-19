@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-19 00:23:14 macan>
+ * Time-stamp: <2010-12-19 16:38:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -249,6 +249,7 @@ struct mds_fwd
 /* for mds.c */
 int rdir_insert(struct rdir_mgr *, u64);
 void mds_rdir_check(time_t);
+void mds_rdir_get_all(struct rdir_mgr *, u64 **, size_t *);
 void mds_pre_init(void);
 int mds_init(int bdepth);
 int mds_verify(void);
@@ -459,6 +460,7 @@ void mds_m2m_lb(struct xnet_msg *msg);
 void mds_audirdelta(struct xnet_msg *msg);
 void mds_audirdelta_r(struct xnet_msg *msg);
 void mds_gossip_bitmap(struct xnet_msg *msg);
+void mds_gossip_rdir(struct xnet_msg *msg);
 void mds_do_reject(struct xnet_msg *msg);
 
 /* for async.c */
