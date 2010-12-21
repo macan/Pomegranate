@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-02 11:26:28 macan>
+ * Time-stamp: <2010-12-21 12:25:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,65 +22,6 @@
  */
 
 #include "lib.h"
-
-/**
- * lib_bitmap_tas - Set a bit and return its old value
- * @offset: Bit to set
- * @addr: Address to count from
- *
- * This operation is atomic and cannot be reordered.
- * It also implies a memory barrier.
- */
-int lib_bitmap_tas(volatile void *addr, u32 offset)
-{
-    int oldbit;
-
-    asm volatile("lock; bts %2,%1\n\t"
-                 "sbb %0,%0" 
-                 : "=r" (oldbit), ADDR : "Ir" (offset) : "memory");
-
-    return oldbit;
-}
-
-/**
- * lib_bitmap_tac - Clear a bit and return its old value
- * @offset: Bit to clear
- * @addr: Address to count from
- *
- * This operation is atomic and cannot be reordered.
- * It also implies a memory barrier.
- */
-int lib_bitmap_tac(volatile void *addr, u32 offset)
-{
-    int oldbit;
-
-    asm volatile("lock; btr %2,%1\n\t"
-                 "sbb %0,%0"
-                 : "=r" (oldbit), ADDR : "Ir" (offset) : "memory");
-
-    return oldbit;
-}
-
-
-/**
- * lib_bitmap_tach - Change a bit and return its old value
- * @offset: Bit to change
- * @addr: Address to count from
- *
- * This operation is atomic and cannot be reordered.
- * It also implies a memory barrier.
- */
-int lib_bitmap_tach(volatile void *addr, u32 offset)
-{
-    int oldbit;
-
-    asm volatile("lock; btc %2,%1\n\t"
-                 "sbb %0,%0"
-                 : "=r" (oldbit), ADDR : "Ir" (offset) : "memory");
-
-    return oldbit;
-}
-
 
 static inline long
 __find_first_zero_bit(const unsigned long * addr, unsigned long size)

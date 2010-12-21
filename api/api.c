@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-18 12:37:15 macan>
+ * Time-stamp: <2010-12-21 23:55:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1880,7 +1880,7 @@ int __hvfs_put(u64 ptid, u64 psalt, u64 key, char *value, int column)
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
-    if (IS_ERR(e)) {
+    if (unlikely(IS_ERR(e))) {
         hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
         err = PTR_ERR(e);
         goto out;
@@ -1889,11 +1889,20 @@ int __hvfs_put(u64 ptid, u64 psalt, u64 key, char *value, int column)
     ai.sid = mds_get_itbid(e, key);
     mds_dh_put(e);
 
-    if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
+    if (!column) {
+        /* check the value length */
+        ai.dlen = strlen(value);
+        if (unlikely(ai.dlen > XTABLE_VALUE_SIZE)) {
+            hvfs_err(xnet, "Value is %d bytes long, using other columns "
+                     "instead.\n", (int)ai.dlen);
+            err = -EINVAL;
+            goto out;
+        }
+    } else if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
         hvfs_err(xnet, "Column is %d, which exceeds the maximum column.\n", column);
         err = -EINVAL;
         goto out;
-    } else if (column > XTABLE_INDIRECT_COLUMN) {
+    } else if (unlikely(column > XTABLE_INDIRECT_COLUMN)) {
         /* we have to use the indirect column to save this column */
         err = __hvfs_indirect_write(&ai, (char *)&key, value, &col);
         if (err) {
@@ -1909,21 +1918,13 @@ int __hvfs_put(u64 ptid, u64 psalt, u64 key, char *value, int column)
                      column, err, strerror(-err));
             goto out;
         }
-    } else {
-        /* check the value length */
-        if (strlen(value) > XTABLE_VALUE_SIZE) {
-            hvfs_err(xnet, "Value is %d bytes long, using other columns "
-                     "instead.\n", (int)strlen(value));
-            err = -EINVAL;
-            goto out;
-        }
     }
-
+    
     /* construct the ai structure and send to the table server */
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
+    if (unlikely(!msg)) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         err = -ENOMEM;
         goto out;
@@ -1939,19 +1940,20 @@ int __hvfs_put(u64 ptid, u64 psalt, u64 key, char *value, int column)
         ai.dlen = sizeof(col);
         xnet_msg_add_sdata(msg, &col, sizeof(col));
     } else {
-        ai.dlen = strlen(value);
-        xnet_msg_add_sdata(msg, value, strlen(value));
+        xnet_msg_add_sdata(msg, value, ai.dlen);
     }
 
 resend:
     err = xnet_send(hmo.xc, msg);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out_msg;
     }
 
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         /* the ITB is under splitting, we need retry */
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
@@ -1977,9 +1979,11 @@ resend:
     }
     xnet_set_auto_free(msg->pair);
 
-    mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
-                         *(u64 *)msg->pair->xm_data,
-                         MDS_BITMAP_SET);
+    if (unlikely(msg->tx.dsite_id != msg->pair->tx.ssite_id))
+        mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
+                             *(u64 *)msg->pair->xm_data,
+                             MDS_BITMAP_SET);
+    
 out_msg:
     xnet_free_msg(msg);
     return err;
@@ -2003,7 +2007,7 @@ int hvfs_get_indirect(struct amc_index *iai, struct mu_column **mc)
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
+    if (unlikely(!msg)) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         err = -ENOMEM;
         goto out;
@@ -2018,13 +2022,15 @@ int hvfs_get_indirect(struct amc_index *iai, struct mu_column **mc)
 
 resend:
     err = xnet_send(hmo.xc, msg);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out_msg;
     }
 
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         /* the ITB is under splitting, we need retry */
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
@@ -2044,11 +2050,12 @@ resend:
     }
     xnet_set_auto_free(msg->pair);
 
-    mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
-                         *(u64 *)msg->pair->xm_data,
-                         MDS_BITMAP_SET);
+    if (unlikely(msg->tx.dsite_id != msg->pair->tx.ssite_id))
+        mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
+                             *(u64 *)msg->pair->xm_data,
+                             MDS_BITMAP_SET);
     *mc = xzalloc(msg->pair->tx.len - sizeof(u64));
-    if (!*mc) {
+    if (unlikely(!*mc)) {
         hvfs_err(xnet, "xmalloc() value failed\n");
         err = -ENOMEM;
         goto out_msg;
@@ -2062,7 +2069,7 @@ resend:
         hvfs_warning(xnet, "Read in itbid %ld offset %ld len %ld\n",
                      c->stored_itbid, c->offset, c->len);
         err = __hvfs_read(&ai, (char **)mc, c);
-        if (err) {
+        if (unlikely(err)) {
             hvfs_err(xnet, "__hvfs_read() itbid %ld offset %ld len %ld "
                      "failed w/ %d\n",
                      c->stored_itbid, c->offset, c->len, err);
@@ -2098,7 +2105,7 @@ int __hvfs_get(u64 ptid, u64 psalt, u64 key, char **value, int column)
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
-    if (IS_ERR(e)) {
+    if (unlikely(IS_ERR(e))) {
         hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
         err = PTR_ERR(e);
         goto out;
@@ -2107,7 +2114,9 @@ int __hvfs_get(u64 ptid, u64 psalt, u64 key, char **value, int column)
     ai.sid = mds_get_itbid(e, key);
     mds_dh_put(e);
 
-    if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
+    if (likely(column <= XTABLE_INDIRECT_COLUMN)) {
+        /* quickly fall through */;
+    } else if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
         hvfs_err(xnet, "Column is %d, which exceeds the maximum column.\n", column);
         err = -EINVAL;
         goto out;
@@ -2121,7 +2130,7 @@ int __hvfs_get(u64 ptid, u64 psalt, u64 key, char **value, int column)
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
+    if (unlikely(!msg)) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         err = -ENOMEM;
         goto out;
@@ -2136,13 +2145,15 @@ int __hvfs_get(u64 ptid, u64 psalt, u64 key, char **value, int column)
 
 resend:
     err = xnet_send(hmo.xc, msg);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out_msg;
     }
 
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         /* the ITB is under splitting, we need retry */
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
@@ -2162,17 +2173,20 @@ resend:
     }
     xnet_set_auto_free(msg->pair);
 
-    mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
-                         *(u64 *)msg->pair->xm_data,
-                         MDS_BITMAP_SET);
-    *value = xzalloc(msg->pair->tx.len - sizeof(u64));
-    if (!*value) {
+    if (unlikely(msg->tx.dsite_id != msg->pair->tx.ssite_id))
+        mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
+                             *(u64 *)msg->pair->xm_data,
+                             MDS_BITMAP_SET);
+    *value = xmalloc(msg->pair->tx.len - sizeof(u64));
+    if (unlikely(!*value)) {
         hvfs_err(xnet, "xmalloc() value failed\n");
         err = -ENOMEM;
         goto out_msg;
     }
     kv = msg->pair->xm_data + sizeof(u64);
-    if (column > XTABLE_INDIRECT_COLUMN) {
+    if (!column) {
+        memcpy(*value, kv->value, kv->len);
+    } else if (column > XTABLE_INDIRECT_COLUMN) {
         /* we have read in the indirect column in kv */
         struct column *c = (void *)kv + kv->len + KV_HEADER_LEN;
         struct mu_column *mc;
@@ -2225,8 +2239,6 @@ resend:
                      c->stored_itbid, c->offset, c->len, err);
             goto out_msg;
         }
-    } else {
-        memcpy(*value, kv->value, kv->len);
     }
     
 out_msg:
@@ -2256,7 +2268,7 @@ int __hvfs_del(u64 ptid, u64 psalt, u64 key, int column)
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
-    if (IS_ERR(e)) {
+    if (unlikely(IS_ERR(e))) {
         hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
         err = PTR_ERR(e);
         goto out;
@@ -2269,7 +2281,7 @@ int __hvfs_del(u64 ptid, u64 psalt, u64 key, int column)
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
+    if (unlikely(!msg)) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         err = -ENOMEM;
         goto out;
@@ -2284,13 +2296,15 @@ int __hvfs_del(u64 ptid, u64 psalt, u64 key, int column)
 
 resend:
     err = xnet_send(hmo.xc, msg);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out_msg;
     }
 
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         /* the ITB is under splitting, we need retry */
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
@@ -2310,9 +2324,10 @@ resend:
     }
     xnet_set_auto_free(msg->pair);
 
-    mds_dh_bitmap_update(&hmo.dh, ai.ptid,
-                         *(u64 *)msg->pair->xm_data,
-                         MDS_BITMAP_SET);
+    if (unlikely(msg->tx.dsite_id != msg->pair->tx.ssite_id))
+        mds_dh_bitmap_update(&hmo.dh, ai.ptid,
+                             *(u64 *)msg->pair->xm_data,
+                             MDS_BITMAP_SET);
 out_msg:
     xnet_free_msg(msg);
     return err;
@@ -2340,7 +2355,7 @@ int __hvfs_kvupdate(u64 ptid, u64 psalt, u64 key, char *value, int column)
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
-    if (IS_ERR(e)) {
+    if (unlikely(IS_ERR(e))) {
         hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
         err = PTR_ERR(e);
         goto out;
@@ -2349,7 +2364,15 @@ int __hvfs_kvupdate(u64 ptid, u64 psalt, u64 key, char *value, int column)
     ai.sid = mds_get_itbid(e, key);
     mds_dh_put(e);
 
-    if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
+    if (!column) {
+        /* check the value length */
+        if (strlen(value) > XTABLE_VALUE_SIZE) {
+            hvfs_err(xnet, "Value is %d bytes long, using other columns "
+                     "instead.\n", (int)strlen(value));
+            err = -EINVAL;
+            goto out;
+        }
+    } else if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
         hvfs_err(xnet, "Column is %d, which exceeds the maximum column.\n", column);
         err = -EINVAL;
         goto out;
@@ -2369,21 +2392,13 @@ int __hvfs_kvupdate(u64 ptid, u64 psalt, u64 key, char *value, int column)
                      column, err, strerror(-err));
             goto out;
         }
-    } else {
-        /* check the value length */
-        if (strlen(value) > XTABLE_VALUE_SIZE) {
-            hvfs_err(xnet, "Value is %d bytes long, using other columns "
-                     "instead.\n", (int)strlen(value));
-            err = -EINVAL;
-            goto out;
-        }
     }
 
     /* construct the ai structure and send to the table server */
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
+    if (unlikely(!msg)) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         err = -ENOMEM;
         goto out;
@@ -2400,18 +2415,20 @@ int __hvfs_kvupdate(u64 ptid, u64 psalt, u64 key, char *value, int column)
         xnet_msg_add_sdata(msg, &col, sizeof(col));
     } else {
         ai.dlen = strlen(value);
-        xnet_msg_add_sdata(msg, value, strlen(value));
+        xnet_msg_add_sdata(msg, value, ai.dlen);
     }
 
 resend:
     err = xnet_send(hmo.xc, msg);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out_msg;
     }
 
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         /* the ITB is under splitting, we need retry */
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
@@ -2431,9 +2448,10 @@ resend:
     }
     xnet_set_auto_free(msg->pair);
 
-    mds_dh_bitmap_update(&hmo.dh, ai.ptid,
-                         *(u64 *)msg->pair->xm_data,
-                         MDS_BITMAP_SET);
+    if (unlikely(msg->tx.dsite_id != msg->pair->tx.ssite_id))
+        mds_dh_bitmap_update(&hmo.dh, ai.ptid,
+                             *(u64 *)msg->pair->xm_data,
+                             MDS_BITMAP_SET);
 out_msg:
     xnet_free_msg(msg);
     return err;
@@ -2449,10 +2467,11 @@ int __hvfs_sput(u64 ptid, u64 psalt, char *key, char *value, int column)
     struct dhe *e;
     struct column col;
     u64 dsite;
-    u32 vid;
+    u32 vid, klen;
     int err = 0;
 
-    if (strlen(key) == 0) {
+    klen = strlen(key);
+    if (unlikely(klen == 0)) {
         hvfs_err(xnet, "Invalid key: Zero-length key?\n");
         err = -EINVAL;
         goto out;
@@ -2461,14 +2480,14 @@ int __hvfs_sput(u64 ptid, u64 psalt, char *key, char *value, int column)
     memset(&ai, 0, sizeof(ai));
     ai.op = INDEX_SPUT;
     ai.column = column;
-    ai.key = hvfs_hash(0, (u64)key, strlen(key), HASH_SEL_KVS);
-    ai.tid = strlen(key);
+    ai.key = hvfs_hash(0, (u64)key, klen, HASH_SEL_KVS);
+    ai.tid = klen;
     ai.ptid = ptid;
     ai.psalt = psalt;
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
-    if (IS_ERR(e)) {
+    if (unlikely(IS_ERR(e))) {
         hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
         err = PTR_ERR(e);
         goto out;
@@ -2477,7 +2496,9 @@ int __hvfs_sput(u64 ptid, u64 psalt, char *key, char *value, int column)
     ai.sid = mds_get_itbid(e, ai.key);
     mds_dh_put(e);
 
-    if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
+    if (!column) {
+        /* fall throuth quickly */;
+    } else if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
         hvfs_err(xnet, "Column is %d, which exceeds the maximum column.\n", column);
         err = -EINVAL;
         goto out;
@@ -2503,7 +2524,7 @@ int __hvfs_sput(u64 ptid, u64 psalt, char *key, char *value, int column)
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
+    if (unlikely(!msg)) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         err = -ENOMEM;
         goto out;
@@ -2522,20 +2543,22 @@ int __hvfs_sput(u64 ptid, u64 psalt, char *key, char *value, int column)
     } else {
         /* ai.dlen saved the total length */
         ai.dlen = strlen(value) + ai.tid;
-        xnet_msg_add_sdata(msg, value, strlen(value));
+        xnet_msg_add_sdata(msg, value, ai.dlen - ai.tid);
     }
 
     hvfs_debug(xnet, "key len %ld, key+value len %ld\n", ai.tid, ai.dlen);
 
 resend:
     err = xnet_send(hmo.xc, msg);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out_msg;
     }
 
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         /* the ITB is under splitting, we need retry */
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
@@ -2562,9 +2585,10 @@ resend:
     }
     xnet_set_auto_free(msg->pair);
 
-    mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
-                         *(u64 *)msg->pair->xm_data,
-                         MDS_BITMAP_SET);
+    if (unlikely(msg->tx.dsite_id != msg->pair->tx.ssite_id))
+        mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
+                             *(u64 *)msg->pair->xm_data,
+                             MDS_BITMAP_SET);
 out_msg:
     xnet_free_msg(msg);
     return err;
@@ -2589,7 +2613,7 @@ int hvfs_sget_indirect(struct amc_index *iai, struct mu_column **mc)
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
+    if (unlikely(!msg)) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         err = -ENOMEM;
         goto out;
@@ -2607,13 +2631,15 @@ int hvfs_sget_indirect(struct amc_index *iai, struct mu_column **mc)
 
 resend:
     err = xnet_send(hmo.xc, msg);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out_msg;
     }
 
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         /* the ITB is under splitting, we need retry */
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
@@ -2633,11 +2659,12 @@ resend:
     }
     xnet_set_auto_free(msg->pair);
 
-    mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
-                         *(u64 *)msg->pair->xm_data,
-                         MDS_BITMAP_SET);
+    if (msg->tx.dsite_id != msg->pair->tx.ssite_id)
+        mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
+                             *(u64 *)msg->pair->xm_data,
+                             MDS_BITMAP_SET);
     *mc = xzalloc(msg->pair->tx.len - sizeof(u64));
-    if (!*mc) {
+    if (unlikely(!*mc)) {
         hvfs_err(xnet, "xmalloc() value failed\n");
         err = -ENOMEM;
         goto out_msg;
@@ -2651,7 +2678,7 @@ resend:
         hvfs_warning(xnet, "Read in itbid %ld offset %ld len %ld\n",
                      c->stored_itbid, c->offset, c->len);
         err = __hvfs_read(&ai, (char **)mc, c);
-        if (err) {
+        if (unlikely(err)) {
             hvfs_err(xnet, "__hvfs_read() itbid %ld offset %ld len %ld "
                      "failed w/ %d\n",
                      c->stored_itbid, c->offset, c->len, err);
@@ -2675,10 +2702,11 @@ int __hvfs_sget(u64 ptid, u64 psalt, char *key, char **value, int column)
     struct kv *kv;
     struct dhe *e;
     u64 dsite;
-    u32 vid;
+    u32 vid, klen;
     int err = 0;
 
-    if (strlen(key) == 0) {
+    klen = strlen(key);
+    if (unlikely(klen == 0)) {
         hvfs_err(xnet, "Invalid key: Zero-length key?\n");
         err = -EINVAL;
         goto out;
@@ -2687,14 +2715,14 @@ int __hvfs_sget(u64 ptid, u64 psalt, char *key, char **value, int column)
     memset(&ai, 0, sizeof(ai));
     ai.op = INDEX_SGET;
     ai.column = column;
-    ai.key = hvfs_hash(0, (u64)key, strlen(key), HASH_SEL_KVS);
-    ai.tid = strlen(key);
+    ai.key = hvfs_hash(0, (u64)key, klen, HASH_SEL_KVS);
+    ai.tid = klen;
     ai.ptid = ptid;
     ai.psalt = psalt;
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
-    if (IS_ERR(e)) {
+    if (unlikely(IS_ERR(e))) {
         hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
         err = PTR_ERR(e);
         goto out;
@@ -2703,7 +2731,9 @@ int __hvfs_sget(u64 ptid, u64 psalt, char *key, char **value, int column)
     ai.sid = mds_get_itbid(e, ai.key);
     mds_dh_put(e);
 
-    if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
+    if (likely(column <= XTABLE_INDIRECT_COLUMN)) {
+        /* quickly fall through */;
+    } else if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
         hvfs_err(xnet, "Column is %d, which exceeds the maximum column.\n", column);
         err = -EINVAL;
         goto out;
@@ -2717,7 +2747,7 @@ int __hvfs_sget(u64 ptid, u64 psalt, char *key, char **value, int column)
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
+    if (unlikely(!msg)) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         err = -ENOMEM;
         goto out;
@@ -2735,13 +2765,15 @@ int __hvfs_sget(u64 ptid, u64 psalt, char *key, char **value, int column)
 
 resend:
     err = xnet_send(hmo.xc, msg);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out_msg;
     }
 
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         /* the ITB is under splitting, we need retry */
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
@@ -2761,17 +2793,25 @@ resend:
     }
     xnet_set_auto_free(msg->pair);
 
-    mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
-                         *(u64 *)msg->pair->xm_data,
-                         MDS_BITMAP_SET);
+    if (msg->tx.dsite_id != msg->pair->tx.ssite_id)
+        mds_dh_bitmap_update(&hmo.dh, ai.ptid, 
+                             *(u64 *)msg->pair->xm_data,
+                             MDS_BITMAP_SET);
     *value = xzalloc(msg->pair->tx.len - sizeof(u64));
-    if (!*value) {
+    if (unlikely(!*value)) {
         hvfs_err(xnet, "xmalloc() value failed\n");
         err = -ENOMEM;
         goto out_msg;
     }
     kv = msg->pair->xm_data + sizeof(u64);
-    if (column > XTABLE_INDIRECT_COLUMN) {
+    if (!column) {
+        /* check if it is the correct key */
+        if (memcmp(key, (void *)kv->value, (size_t)kv->klen) == 0) {
+            memcpy(*value, kv->value + kv->klen, kv->len - kv->klen);
+        } else {
+            err = -ENOTEXIST;
+        }
+    } else if (column > XTABLE_INDIRECT_COLUMN) {
         /* we have read in the indirect column in kv */
         struct column *c = (void *)kv + kv->len + KV_HEADER_LEN;
         struct mu_column *mc;
@@ -2824,13 +2864,6 @@ resend:
         } else {
             err = -ENOTEXIST;
         }
-    } else {
-        /* check if it is the correct key */
-        if (strncmp(key, (const char *)kv->value, (size_t)kv->klen) == 0) {
-            memcpy(*value, kv->value + kv->klen, kv->len - kv->klen);
-        } else {
-            err = -ENOTEXIST;
-        }
     }
     
 out_msg:
@@ -2847,10 +2880,11 @@ int __hvfs_sdel(u64 ptid, u64 psalt, char *key, int column)
     struct amc_index ai;
     struct dhe *e;
     u64 dsite;
-    u32 vid;
+    u32 vid, klen;
     int err = 0;
 
-    if (strlen(key) == 0) {
+    klen = strlen(key);
+    if (unlikely(klen == 0)) {
         hvfs_err(xnet, "Invalid key: Zero-length key?\n");
         err = -EINVAL;
         goto out;
@@ -2859,14 +2893,14 @@ int __hvfs_sdel(u64 ptid, u64 psalt, char *key, int column)
     memset(&ai, 0, sizeof(ai));
     ai.op = INDEX_SDEL;
     ai.column = column;
-    ai.key = hvfs_hash(0, (u64)key, strlen(key), HASH_SEL_KVS);
-    ai.tid = strlen(key);
+    ai.key = hvfs_hash(0, (u64)key, klen, HASH_SEL_KVS);
+    ai.tid = klen;
     ai.ptid = ptid;
     ai.psalt = psalt;
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
-    if (IS_ERR(e)) {
+    if (unlikely(IS_ERR(e))) {
         hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
         err = PTR_ERR(e);
         goto out;
@@ -2879,7 +2913,7 @@ int __hvfs_sdel(u64 ptid, u64 psalt, char *key, int column)
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
+    if (unlikely(!msg)) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         err = -ENOMEM;
         goto out;
@@ -2897,13 +2931,15 @@ int __hvfs_sdel(u64 ptid, u64 psalt, char *key, int column)
 
 resend:
     err = xnet_send(hmo.xc, msg);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out_msg;
     }
 
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         /* the ITB is under splitting, we need retry */
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
@@ -2923,9 +2959,10 @@ resend:
     }
     xnet_set_auto_free(msg->pair);
 
-    mds_dh_bitmap_update(&hmo.dh, ai.ptid,
-                         *(u64 *)msg->pair->xm_data,
-                         MDS_BITMAP_SET);
+    if (msg->tx.dsite_id != msg->tx.ssite_id)
+        mds_dh_bitmap_update(&hmo.dh, ai.ptid,
+                             *(u64 *)msg->pair->xm_data,
+                             MDS_BITMAP_SET);
 out_msg:
     xnet_free_msg(msg);
     return err;
@@ -2941,10 +2978,11 @@ int __hvfs_supdate(u64 ptid, u64 psalt, char *key, char *value, int column)
     struct dhe *e;
     struct column col;
     u64 dsite;
-    u32 vid;
+    u32 vid, klen;
     int err = 0;
 
-    if (strlen(key) == 0) {
+    klen = strlen(key);
+    if (unlikely(klen == 0)) {
         hvfs_err(xnet, "Invalid key: Zero-length key?\n");
         err = -EINVAL;
         goto out;
@@ -2953,14 +2991,14 @@ int __hvfs_supdate(u64 ptid, u64 psalt, char *key, char *value, int column)
     memset(&ai, 0, sizeof(ai));
     ai.op = INDEX_SUPDATE;
     ai.column = column;
-    ai.key = hvfs_hash(0, (u64)key, strlen(key), HASH_SEL_KVS);
-    ai.tid = strlen(key);
+    ai.key = hvfs_hash(0, (u64)key, klen, HASH_SEL_KVS);
+    ai.tid = klen;
     ai.ptid = ptid;
     ai.psalt = psalt;
 
     /* using the info of table to get the slice id */
     e = mds_dh_search(&hmo.dh, ai.ptid);
-    if (IS_ERR(e)) {
+    if (unlikely(IS_ERR(e))) {
         hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
         err = PTR_ERR(e);
         goto out;
@@ -2968,8 +3006,10 @@ int __hvfs_supdate(u64 ptid, u64 psalt, char *key, char *value, int column)
 
     ai.sid = mds_get_itbid(e, ai.key);
     mds_dh_put(e);
-    
-    if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
+
+    if (!column) {
+        /* fall through quickly */;
+    } else if (unlikely(column > HVFS_KV_MAX_COLUMN)) {
         hvfs_err(xnet, "Column is %d, which exceeds the maximum column.\n", column);
         err = -EINVAL;
         goto out;
@@ -2996,7 +3036,7 @@ int __hvfs_supdate(u64 ptid, u64 psalt, char *key, char *value, int column)
     dsite = SELECT_SITE(ai.sid, ai.psalt, CH_RING_MDS, &vid);
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
+    if (unlikely(!msg)) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         err = -ENOMEM;
         goto out;
@@ -3014,18 +3054,20 @@ int __hvfs_supdate(u64 ptid, u64 psalt, char *key, char *value, int column)
         xnet_msg_add_sdata(msg, &col, sizeof(col));
     } else {
         ai.dlen = strlen(value) + ai.tid;
-        xnet_msg_add_sdata(msg, value, strlen(value));
+        xnet_msg_add_sdata(msg, value, ai.dlen - ai.tid);
     }
 
 resend:
     err = xnet_send(hmo.xc, msg);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out_msg;
     }
 
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         /* the ITB is under splitting, we need retry */
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
@@ -3045,9 +3087,10 @@ resend:
     }
     xnet_set_auto_free(msg->pair);
 
-    mds_dh_bitmap_update(&hmo.dh, ai.ptid,
-                         *(u64 *)msg->pair->xm_data,
-                         MDS_BITMAP_SET);
+    if (msg->tx.dsite_id != msg->tx.ssite_id)
+        mds_dh_bitmap_update(&hmo.dh, ai.ptid,
+                             *(u64 *)msg->pair->xm_data,
+                             MDS_BITMAP_SET);
 out_msg:
     xnet_free_msg(msg);
     return err;
@@ -3677,7 +3720,9 @@ resend:
     }
     /* this means we have got the reply, parse it */
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -3860,7 +3905,9 @@ resend:
 
     /* this means we have got he reply, parse it */
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         xnet_free_msg(msg);
         msg->pair = NULL;
         sched_yield();
@@ -3997,7 +4044,9 @@ resend:
 
     /* this means we have got the reply, parse it! */
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         xnet_free_msg(msg);
         msg->pair = NULL;
         goto resend;
@@ -4140,7 +4189,9 @@ resend:
 
     /* this means we have got the reply, parse it */
     ASSERT(msg->pair, xnet);
-    if (msg->pair->tx.err == -ESPLIT) {
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ESPLIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
@@ -6609,14 +6660,14 @@ int hvfs_put(char *table, u64 key, char *value, int column)
     /* lookup the table name in the root directory to find the table
      * metadata */
     err = hvfs_find_table(table, &ptid, &psalt);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "hvfs_find_table(%s) failed w/ %d\n", 
                  table, err);
         goto out;
     }
 
     err = __hvfs_put(ptid, psalt, key, value, column);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "__hvfs_put() failed w/ %d\n", err);
         goto out;
     }
@@ -6633,14 +6684,14 @@ int hvfs_get(char *table, u64 key, char **value, int column)
     /* lookup the table name in the root directory to find the table
      * metadata */
     err = hvfs_find_table(table, &ptid, &psalt);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "hvfs_find_table(%s) failed w/ %d\n", 
                  table, err);
         goto out;
     }
 
     err = __hvfs_get(ptid, psalt, key, value, column);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "__hvfs_get() failed w/ %d\n", err);
         goto out;
     }
@@ -6657,14 +6708,14 @@ int hvfs_del(char *table, u64 key, int column)
     /* lookup the table name in the root directory to find the table
      * metadata */
     err = hvfs_find_table(table, &ptid, &psalt);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "hvfs_find_table(%s) failed w/ %d\n", 
                  table, err);
         goto out;
     }
 
     err = __hvfs_del(ptid, psalt, key, column);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "__hvfs_del() failed w/ %d\n", err);
         goto out;
     }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-11 23:02:40 macan>
+ * Time-stamp: <2010-12-21 23:12:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -172,8 +172,8 @@ int __serv_request(void)
 {
     struct xnet_msg *msg = NULL, *pos, *n;
 
-    if (unlikely(!hmo.spool_modify_pause)) {
-        if (!list_empty(&spool_mgr.modify_req)) {
+    if (likely(!hmo.spool_modify_pause)) {
+        if (unlikely(!list_empty(&spool_mgr.modify_req))) {
             xlock_lock(&spool_mgr.pmreq_lock);
             list_for_each_entry_safe(pos, n, &spool_mgr.modify_req, list) {
                 list_del_init(&pos->list);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-21 15:52:19 macan>
+ * Time-stamp: <2010-12-21 01:16:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -353,7 +353,7 @@ int mds_fe_dispatch(struct xnet_msg *msg)
         lib_timer_B();
 #endif
         e = mds_dh_search(&hmo.dh, hi->puuid);
-        if (IS_ERR(e)) {
+        if (unlikely(IS_ERR(e))) {
             /* reply err = -ENOENT */
             err = PTR_ERR(e);
             goto out;
@@ -424,6 +424,18 @@ int mds_fe_dispatch(struct xnet_msg *msg)
         return mds_mds_dispatch(msg);
     } else if (HVFS_IS_MDSL(msg->tx.ssite_id)) {
         return mds_mdsl_dispatch(msg);
+    } else if (HVFS_IS_AMC(msg->tx.ssite_id)) {
+        if (unlikely(msg->tx.cmd == HVFS_CLT2MDS_CREATE ||
+                     msg->tx.cmd == HVFS_CLT2MDS_LOOKUP ||
+                     msg->tx.cmd == HVFS_CLT2MDS_LD ||
+                     msg->tx.cmd == HVFS_CLT2MDS_LB_PROXY ||
+                     msg->tx.cmd == HVFS_CLT2MDS_UNLINK ||
+                     msg->tx.cmd == HVFS_CLT2MDS_LIST)) {
+            hvfs_debug(mds, "Request %lx from %lx proxy to client "
+                       "processing.\n", msg->tx.cmd, msg->tx.ssite_id);
+            goto client_proxy;
+        }
+        return mds_amc_dispatch(msg);
     } else if (HVFS_IS_RING(msg->tx.ssite_id)) {
         if (msg->tx.cmd & HVFS_CLT2MDS_BASE ||
             msg->tx.cmd == HVFS_CLT2MDS_LB_PROXY) {
@@ -434,18 +446,6 @@ int mds_fe_dispatch(struct xnet_msg *msg)
         return mds_ring_dispatch(msg);
     } else if (HVFS_IS_ROOT(msg->tx.ssite_id)) {
         return mds_root_dispatch(msg);
-    } else if (HVFS_IS_AMC(msg->tx.ssite_id)) {
-        if (unlikely(msg->tx.cmd == HVFS_CLT2MDS_CREATE ||
-                     msg->tx.cmd == HVFS_CLT2MDS_LOOKUP ||
-                     msg->tx.cmd == HVFS_CLT2MDS_LD ||
-                     msg->tx.cmd == HVFS_CLT2MDS_LIST ||
-                     msg->tx.cmd == HVFS_CLT2MDS_LB_PROXY ||
-                     msg->tx.cmd == HVFS_CLT2MDS_UNLINK)) {
-            hvfs_debug(mds, "Request %lx from %lx proxy to client "
-                       "processing.\n", msg->tx.cmd, msg->tx.ssite_id);
-            goto client_proxy;
-        }
-        return mds_amc_dispatch(msg);
     }
         
     hvfs_err(mds, "MDS front-end handle INVALID request <0x%lx %d>\n", 

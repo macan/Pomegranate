@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-19 16:38:20 macan>
+ * Time-stamp: <2010-12-20 22:18:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -102,6 +102,7 @@ struct mds_conf
     int xnet_resend_to;         /* xnet resend timeout */
     int hb_interval;            /* heart beat interval */
     int scrub_interval;         /* scurb interval */
+    int dh_hsize;               /* dh hash table size */
     int dh_ii;                  /* dh invalidate interval */
     int dhupdatei;              /* dh update interval */
     int gto;                    /* gossip timeout */

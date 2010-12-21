@@ -171,3 +171,12 @@ there is an error. Low.
     The silly KV interface V1 only has 28% performance of xTable
     interface. I am very disappointed :( For every put/get/update/
     del, there are at least 2 RPCs. BAD!
+
+    @ 12/19/2010 we have implemented the v2 API and got 50% 
+    performance of xTable interface. Thus, we have a long way to
+    go absolutely.
+
+19. Proof of Snapshot
+
+    Proof of the correctness of sharding + cow + commit + B tree
+    like written method. It should be complicated to proof!

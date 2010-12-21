@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-15 19:06:26 macan>
+ * Time-stamp: <2010-12-21 18:51:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -133,6 +133,12 @@ int mds_dh_init(struct dh *dh, int hsize)
     
     /* regular hash init */
     hsize = (hsize == 0) ? MDS_DH_DEFAULT_SIZE : hsize;
+    i = fls64(hsize);
+    if ((u64)hsize != (1UL << i)) {
+        hvfs_err(mds, "You should set the hash table size to "
+                 "2^N.\n");
+        return -EINVAL;
+    }
     dh->ht = xzalloc(hsize * sizeof(struct regular_hash));
     if (!dh->ht) {
         hvfs_err(mds, "DH hash table allocation failed\n");
@@ -189,7 +195,7 @@ void mds_dh_evict(struct dh *dh)
 static inline
 u32 mds_dh_hash(u64 uuid)
 {
-    return hvfs_hash_dh(uuid) % hmo.dh.hsize;
+    return hvfs_hash_dh(uuid) & (hmo.dh.hsize - 1);
 }
 
 /* mds_dh_insert()
@@ -1094,7 +1100,8 @@ void mds_dh_gossip(struct dh *dh)
 
 /* mds_get_itbid() may block on bitmap load
  *
- * Convert the hash to itbid by lookup the bitmap
+ * Convert the hash to itbid by lookup the bitmap. This is a hot path that we
+ * should optimize it hardly.
  */
 u64 mds_get_itbid(struct dhe *e, u64 hash)
 {
@@ -1117,21 +1124,8 @@ retry:
                 goto retry;
             }
             /* NOTE: we are sure that we can not run into here! */
-        } else if (b->offset > offset) {
-            /* it means that we need to load the missing slice */
-            xlock_unlock(&e->lock);
-            err = mds_bitmap_load(e, offset);
-            if (err == -ENOTEXIST) {
-                offset = mds_bitmap_fallback(offset);
-            } else if (err) {
-                /* some error occurs, we failed to the 0 position */
-                hvfs_err(mds, "Hoo, loading DHE %lx Bitmap %ld failed\n", 
-                         e->uuid, offset);
-                goto out;
-            }
-            goto retry;
         } else if (offset >= b->offset + XTABLE_BITMAP_SIZE) {
-            if (b->flag & BITMAP_END) {
+            if (likely(b->flag & BITMAP_END)) {
                 /* ok, let us just fallbacking */
                 xlock_unlock(&e->lock);
                 offset = mds_bitmap_cut(offset,
@@ -1154,6 +1148,19 @@ retry:
                 }
                 goto retry;
             }
+        } else if (b->offset > offset) {
+            /* it means that we need to load the missing slice */
+            xlock_unlock(&e->lock);
+            err = mds_bitmap_load(e, offset);
+            if (err == -ENOTEXIST) {
+                offset = mds_bitmap_fallback(offset);
+            } else if (err) {
+                /* some error occurs, we failed to the 0 position */
+                hvfs_err(mds, "Hoo, loading DHE %lx Bitmap %ld failed\n", 
+                         e->uuid, offset);
+                goto out;
+            }
+            goto retry;
         }
     }
     xlock_unlock(&e->lock);

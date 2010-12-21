@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-15 23:21:07 macan>
+ * Time-stamp: <2010-12-21 20:52:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -74,11 +74,9 @@ void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr,
     /* match the original request at the source site */
     tx->rpy->tx.handle = tx->req->tx.handle;
 
-    xnet_wait_group_add(mds_gwg, tx->rpy);
-    if (xnet_isend(hmo.xc, tx->rpy)) {
-        hvfs_err(mds, "xnet_isend() failed\n");
+    if (xnet_send(hmo.xc, tx->rpy)) {
+        hvfs_err(mds, "xnet_send() failed\n");
         /* do not retry myself, client is forced to retry */
-        xnet_wait_group_del(mds_gwg, tx->rpy);
         /* FIXME: should we free the tx->rpy? */
     }
     /* FIXME: state machine of TX, MSG */
@@ -117,7 +115,7 @@ void __customized_send_reply(struct xnet_msg *msg, struct iovec iov[], int nr)
     rpy->tx.handle = msg->tx.handle;
 
     if (xnet_send(hmo.xc, rpy)) {
-        hvfs_err(mds, "xnet_isend() failed\n");
+        hvfs_err(mds, "xnet_send() failed\n");
         /* do not retry myself, client is forced to retry */
     }
     xnet_free_msg(rpy);
@@ -158,11 +156,9 @@ void mds_statfs(struct hvfs_tx *tx)
 
     mds_tx_done(tx);
 
-    xnet_wait_group_add(mds_gwg, tx->rpy);
-    if (xnet_isend(hmo.xc, tx->rpy)) {
-        hvfs_err(mds, "xnet_isend() failed\n");
+    if (xnet_send(hmo.xc, tx->rpy)) {
+        hvfs_err(mds, "xnet_send() failed\n");
         /* do not retry myself, client is forced to retry */
-        xnet_wait_group_del(mds_gwg, tx->rpy);
     }
     /* FIXME: state machine of TX, MSG */
     mds_tx_reply(tx);
@@ -201,7 +197,7 @@ void mds_lookup(struct hvfs_tx *tx)
     }
     /* alloc hmr */
     hmr = get_hmr();
-    if (!hmr) {
+    if (unlikely(!hmr)) {
         hvfs_err(mds, "get_hmr() failed\n");
         /* do not retry myself */
         mds_free_tx(tx);
@@ -307,7 +303,7 @@ void mds_update(struct hvfs_tx *tx)
     int err;
 
     /* sanity checking */
-    if (tx->req->tx.len < sizeof(*hi)) {
+    if (unlikely(tx->req->tx.len < sizeof(*hi))) {
         hvfs_err(mds, "Invalid UPDATE request %d received\n", 
                  tx->req->tx.reqno);
         err = -EINVAL;
@@ -328,7 +324,7 @@ void mds_update(struct hvfs_tx *tx)
     }
     /* alloc hmr */
     hmr = get_hmr();
-    if (!hmr) {
+    if (unlikely(!hmr)) {
         hvfs_err(mds, "get_hmr() failed\n");
         /* do not retry myself */
         mds_free_tx(tx);
@@ -373,7 +369,7 @@ void mds_linkadd(struct hvfs_tx *tx)
      */
 
     /* sanity checking */
-    if (tx->req->tx.len < sizeof(*hi)) {
+    if (unlikely(tx->req->tx.len < sizeof(*hi))) {
         hvfs_err(mds, "Invalid LINKADD request %d received\n", 
                  tx->req->tx.reqno);
         err = -EINVAL;
@@ -394,7 +390,7 @@ void mds_linkadd(struct hvfs_tx *tx)
     }
     /* alloc hmr */
     hmr = get_hmr();
-    if (!hmr) {
+    if (unlikely(!hmr)) {
         hvfs_err(mds, "get_hmr() failed\n");
         /* do not retry myself */
         mds_free_tx(tx);
@@ -431,7 +427,7 @@ void mds_unlink(struct hvfs_tx *tx)
     int err;
 
     /* sanity checking */
-    if (tx->req->tx.len < sizeof(*hi)) {
+    if (unlikely(tx->req->tx.len < sizeof(*hi))) {
         hvfs_err(mds, "Invalid UNLINK request %d received\n", 
                  tx->req->tx.reqno);
         err = -EINVAL;
@@ -452,7 +448,7 @@ void mds_unlink(struct hvfs_tx *tx)
     }
     /* alloc hmr */
     hmr = get_hmr();
-    if (!hmr) {
+    if (unlikely(!hmr)) {
         hvfs_err(mds, "get_hmr() failed\n");
         /* do not retry myself */
         mds_free_tx(tx);
@@ -484,7 +480,7 @@ void mds_symlink(struct hvfs_tx *tx)
     int err;
 
     /* sanity checking */
-    if (tx->req->tx.len < sizeof(*hi)) {
+    if (unlikely(tx->req->tx.len < sizeof(*hi))) {
         hvfs_err(mds, "Invalid LINKADD request %d received\n", 
                  tx->req->tx.reqno);
         err = -EINVAL;
@@ -505,7 +501,7 @@ void mds_symlink(struct hvfs_tx *tx)
     }
     /* alloc hmr */
     hmr = get_hmr();
-    if (!hmr) {
+    if (unlikely(!hmr)) {
         hvfs_err(mds, "get_hmr() failed\n");
         /* do not retry myself */
         mds_free_tx(tx);
@@ -547,7 +543,7 @@ void mds_lb(struct hvfs_tx *tx)
     int err = 0;
 
     /* sanity checking */
-    if (tx->req->tx.len < sizeof(*hi)) {
+    if (unlikely(tx->req->tx.len < sizeof(*hi))) {
         hvfs_err(mds, "Invalid LoadBitmap request %d received\n",
                  tx->req->tx.reqno);
         err = -EINVAL;
@@ -575,7 +571,7 @@ void mds_lb(struct hvfs_tx *tx)
 
     /* cut the bitmap to valid range */
     err = mds_bc_dir_lookup(hi, &location, &size);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(mds, "bc_dir_lookup failed w/ %d\n", err);
         goto send_err_rpy;
     }
@@ -692,7 +688,7 @@ void mds_dump_itb(struct hvfs_tx *tx)
     int err;
 
     /* sanity checking */
-    if (tx->req->tx.len < sizeof(*hi)) {
+    if (unlikely(tx->req->tx.len < sizeof(*hi))) {
         hvfs_err(mds, "Invalid DITB request %d recieved\n",
                  tx->req->tx.reqno);
         err = -EINVAL;
@@ -739,7 +735,7 @@ void mds_list(struct hvfs_tx *tx)
     int err;
 
     /* sanity checking */
-    if (tx->req->tx.len < sizeof(*hi)) {
+    if (unlikely(tx->req->tx.len < sizeof(*hi))) {
         hvfs_err(mds, "Invalid LIST request %d received len %d\n", 
                  tx->req->tx.reqno, tx->req->tx.len);
         err = -EINVAL;
@@ -760,7 +756,7 @@ void mds_list(struct hvfs_tx *tx)
 
     /* Note that, we should check if we should do message forwarding here */
     p = ring_get_point(hi->itbid, hi->psalt, hmo.chring[CH_RING_MDS]);
-    if (IS_ERR(p)) {
+    if (unlikely(IS_ERR(p))) {
         hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
         err = -ECHP;
         goto send_rpy;

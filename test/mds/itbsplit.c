@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-10 15:15:09 macan>
+ * Time-stamp: <2010-12-21 23:01:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -540,7 +540,7 @@ void __ut_random(u64 entry, int thread)
         th[i1] /= thread;
         th[i1] = entry / th[i1];
     }
-    hvfs_info(mds, "IOPS [insert lookup unlink shadow] %lf %lf %lf %lf\n", 
+    hvfs_info(mds, "QPS  [insert lookup unlink shadow] %lf %lf %lf %lf M\n", 
               th[0], th[1], th[2], th[3]);
     for (i1 = 0; i1 < 4; i1++) {
         acc[i1] = 0.0;
@@ -549,7 +549,7 @@ void __ut_random(u64 entry, int thread)
         }
         acc[i1] /= entry;
     }
-    hvfs_info(mds, "Lat  [insert lookup unlink shadow] %lf %lf %lf %lf\n", 
+    hvfs_info(mds, "Lat  [insert lookup unlink shadow] %lf %lf %lf %lf us\n", 
               acc[0], acc[1], acc[2], acc[3]);
 
     hvfs_info(mds, "CBHT dir depth %d\n", hmo.cbht.dir_depth);

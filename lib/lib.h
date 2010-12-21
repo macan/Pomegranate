@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-06 19:20:20 macan>
+ * Time-stamp: <2010-12-21 12:25:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,9 +54,6 @@ void lib_timer_echo_plus(struct timeval *, struct timeval *, int, char *);
 #define lib_timer_O(loop, str) lib_timer_echo_plus(&begin, &end, loop, str)
 #define lib_timer_A(ACC) lib_timer_acc(&begin, &end, (ACC))
 
-int lib_bitmap_tas(volatile void *, u32);
-int lib_bitmap_tac(volatile void *, u32);
-int lib_bitmap_tach(volatile void *, u32);
 long find_first_zero_bit(const unsigned long *, unsigned long);
 long find_next_zero_bit(const unsigned long *, long, long);
 long find_first_bit(const unsigned long *, unsigned long);
@@ -84,6 +81,67 @@ void *hmr_extract_local(void *, int, int *);
 #endif
 
 #define ADDR				BITOP_ADDR(addr)
+
+/**
+ * lib_bitmap_tas - Set a bit and return its old value
+ * @offset: Bit to set
+ * @addr: Address to count from
+ *
+ * This operation is atomic and cannot be reordered.
+ * It also implies a memory barrier.
+ */
+static inline
+int lib_bitmap_tas(volatile void *addr, u32 offset)
+{
+    int oldbit;
+
+    asm volatile("lock; bts %2,%1\n\t"
+                 "sbb %0,%0" 
+                 : "=r" (oldbit), ADDR : "Ir" (offset) : "memory");
+
+    return oldbit;
+}
+
+/**
+ * lib_bitmap_tac - Clear a bit and return its old value
+ * @offset: Bit to clear
+ * @addr: Address to count from
+ *
+ * This operation is atomic and cannot be reordered.
+ * It also implies a memory barrier.
+ */
+static inline
+int lib_bitmap_tac(volatile void *addr, u32 offset)
+{
+    int oldbit;
+
+    asm volatile("lock; btr %2,%1\n\t"
+                 "sbb %0,%0"
+                 : "=r" (oldbit), ADDR : "Ir" (offset) : "memory");
+
+    return oldbit;
+}
+
+
+/**
+ * lib_bitmap_tach - Change a bit and return its old value
+ * @offset: Bit to change
+ * @addr: Address to count from
+ *
+ * This operation is atomic and cannot be reordered.
+ * It also implies a memory barrier.
+ */
+static inline
+int lib_bitmap_tach(volatile void *addr, u32 offset)
+{
+    int oldbit;
+
+    asm volatile("lock; btc %2,%1\n\t"
+                 "sbb %0,%0"
+                 : "=r" (oldbit), ADDR : "Ir" (offset) : "memory");
+
+    return oldbit;
+}
 
 /**
  * __set_bit - Set a bit in memory

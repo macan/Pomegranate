@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-14 10:44:01 macan>
+ * Time-stamp: <2010-12-21 15:26:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1703,6 +1703,7 @@ int msg_send_mt(int entry, int op, int thread)
     struct msg_send_args msa[thread];
     int i, err = 0;
 
+    memset(msa, 0, sizeof(msa));
     entry /= thread;
 
     for (i = 0; i < thread; i++) {
@@ -2619,7 +2620,13 @@ int main(int argc, char *argv[])
     {
         lib_timer_def();
         double acc = 0.0;
-        
+
+        /* Step 1: we should warmup the system a litte */
+        hvfs_info(xnet, "Warmup the whole system a little ...\n");
+        msg_send_mt(100, 100, thread);
+        hvfs_info(xnet, "OK to real test now...\n");
+
+        /* Step 2: do real test */
         lib_timer_B();
         msg_send_mt(entry, op, thread);
         lib_timer_E();

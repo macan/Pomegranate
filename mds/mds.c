@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-19 16:12:15 macan>
+ * Time-stamp: <2010-12-21 23:33:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -836,6 +836,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(txg_interval, value);
     HVFS_MDS_GET_ENV_atoi(unlink_interval, value);
     HVFS_MDS_GET_ENV_atoi(bitmap_cache_interval, value);
+    HVFS_MDS_GET_ENV_atoi(dh_hsize, value);
     HVFS_MDS_GET_ENV_atoi(dh_ii, value);
     HVFS_MDS_GET_ENV_atoi(dhupdatei, value);
     HVFS_MDS_GET_ENV_atoi(txg_buf_len, value);
@@ -910,7 +911,8 @@ int mds_init(int bdepth)
     hmo.conf.cbht_bucket_depth = bdepth;
     hmo.conf.itb_depth_default = 3;
     hmo.conf.async_update_N = 4;
-    hmo.conf.spool_threads = 8;
+    /* unset the default spool theads number */
+    /* hmo.conf.spool_threads = 8; */
     hmo.conf.mp_to = 60;
     hmo.conf.hb_interval = 60;
     hmo.conf.scrub_interval = 3600;
@@ -948,7 +950,7 @@ int mds_init(int bdepth)
     /* FIXME: register with the Ring server */
 
     /* FIXME: init the dh subsystem */
-    err = mds_dh_init(&hmo.dh, MDS_DH_DEFAULT_SIZE);
+    err = mds_dh_init(&hmo.dh, hmo.conf.dh_hsize);
     if (err)
         goto out_dh;
     

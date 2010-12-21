@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-03 00:17:20 macan>
+ * Time-stamp: <2010-12-20 00:28:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -56,8 +56,10 @@ struct hvfs_index
 #define INDEX_LOOKUP            0x00000010 /* LOOKUP */
 #define INDEX_INTENT_OPEN       0x00000020 /* open with ITE.ct++ */
 #define INDEX_COLUMN            0x00000040 /* lookup the column info */
+#define INDEX_INTENT_UNLINK     0x00000080 /* lookup for unlink */
+#define INDEX_INTENT_CREATE     0x00000100
 
-#define INDEX_LINK_ADD          0x00000100 /* lookup & nlink++, TXC */
+#define INDEX_LINK_ADD          0x00000800 /* lookup & nlink++, TXC */
 
 #define INDEX_CREATE            0x00001000 /* create, TXC */
 #define INDEX_CREATE_LINK       0x00002000 /* hard link, TXC */
@@ -66,7 +68,7 @@ struct hvfs_index
 #define INDEX_CREATE_FORCE      0x00010000 /* forced create */
 #define INDEX_CREATE_GDT        0x00020000 /* create the gdt entry */
 
-#define INDEX_CREATE_LARGE      0x00020000 /* create large file */
+#define INDEX_CREATE_LARGE      0x00800000 /* create large file */
 #define INDEX_CREATE_SMALL      0x00040000 /* create small file */
 #define INDEX_CREATE_KV         0x00080000 /* create kv file */
 

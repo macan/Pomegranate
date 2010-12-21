@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-18 17:25:08 macan>
+ * Time-stamp: <2010-12-22 00:28:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -368,7 +368,8 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
             hi->uuid = ite->uuid;
             /* FIXME: we can optimize the kv memcpy here! */
             if (hi->flag & INDEX_KV)
-                memcpy(data, &(ite->v), sizeof(struct kv));
+                memcpy(data, &(ite->v), KV_HEADER_LEN +
+                       ite->v.len);
             else
                 memcpy(data, &(ite->g), HVFS_MDU_SIZE);
         } else {
@@ -1608,7 +1609,8 @@ retry:
             /* read MDU to buffer */
             hi->uuid = itb->ite[ii->entry].uuid;
             if (hi->flag & INDEX_KV)
-                memcpy(data, &(itb->ite[ii->entry].v), sizeof(struct kv));
+                memcpy(data, &(itb->ite[ii->entry].v),
+                       KV_HEADER_LEN + itb->ite[ii->entry].v.len);
             else
                 memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
             /* FIXME: we should add symlink handling here! */
@@ -1851,7 +1853,8 @@ retry:
             /* read MDU to buffer */
             hi->uuid = itb->ite[ii->entry].uuid;
             if (hi->flag & INDEX_KV)
-                memcpy(data, &(itb->ite[ii->entry].v), sizeof(struct kv));
+                memcpy(data, &(itb->ite[ii->entry].v),
+                    KV_HEADER_LEN + itb->ite[ii->entry].v.len);
             else
                 memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
             /* FIXME: we should add symlink handling here! */
@@ -2333,7 +2336,7 @@ void async_unlink_ite(struct itb *i, int *dc)
     /* FIXME: we need to dirty the ITBs, it is a dirty work */
 
     while (offset < total) {
-        l = &i->lock[offset / ITB_LOCK_GRANULARITY];
+        l = &i->lock[offset & (ITB_LOCK_GRANULARITY - 1)];
         itb_index_wlock(l);
 
         ii = &i->index[offset];

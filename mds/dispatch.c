@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-19 16:37:02 macan>
+ * Time-stamp: <2010-12-21 10:53:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,7 +36,7 @@ int mds_client_dispatch(struct xnet_msg *msg)
     lib_timer_def();
     lib_timer_B();
 #endif
-    if (msg->tx.flag & XNET_NEED_TX)
+    if (unlikely(msg->tx.flag & XNET_NEED_TX))
         op = HVFS_TX_NORMAL;    /* need tx(ack/rpy+commit) */
     else if (msg->tx.flag & XNET_NEED_REPLY)
         op = HVFS_TX_NOCOMMIT;  /* no tx but need reply */

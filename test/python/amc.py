@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-12-18 16:01:54 macan>
+# Time-stamp: <2010-12-21 01:36:49 macan>
 #
 # Armed with EMACS.
 
@@ -598,7 +598,7 @@ def do_test(loops, thread_nr = 1):
     print ("\033[41mPomegranate K/V API(v1) need 2+ RPCs " +
            "and several malloc()s for " + 
            "each OP, we will fix it in API(v2).\033[0m")
-    print ("\033[41mPerformance of K/V API(v1) is only ~28% of xTable API.\033[0m")
+    print ("\033[41mPerformance of K/V API(v1) is only ~30% of xTable API.\033[0m")
 
     shift = 0
     _tmp = thread_nr
@@ -804,7 +804,7 @@ def do_test_v2(loops, thread_nr = 1):
         print ("\033[41mThis is a SINGLE thread test!.\033[0m")
     print ("\033[41mPomegranate K/V API(v2) is a little optimized"
            + ".\033[0m")
-    print ("\033[41mPerformance of K/V API(v2) is about ~50% of xTable API.\033[0m")
+    print ("\033[41mPerformance of K/V API(v2) is about ~60% of xTable API.\033[0m")
 
     shift = 0
     _tmp = thread_nr

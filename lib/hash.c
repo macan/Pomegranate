@@ -356,7 +356,7 @@ static inline u64 hvfs_hash_kvs(u64 key, u64 keylen)
     val |= RSHash((char *)key, keylen);
     return val;
 #else
-    return __murmurhash64a((const void *)key, keylen, 0xf87239);
+    return __murmurhash64a((const void *)key, keylen, 0xf87211939);
 #endif
 }
 

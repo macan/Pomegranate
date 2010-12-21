@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-20 17:15:58 macan>
+ * Time-stamp: <2010-12-21 18:52:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -88,7 +88,7 @@ struct hvfs_tx *mds_alloc_tx(u16 op, struct xnet_msg *req)
         goto init_tx;
     /* fall back to slow path */
     tx = xzalloc(sizeof(*tx));
-    if (!tx) {
+    if (unlikely(!tx)) {
         hvfs_debug(mds, "zalloc() hvfs_tx failed\n");
         return NULL;
     }
@@ -184,6 +184,11 @@ int mds_init_txc(struct hvfs_txc *txc, int hsize, int ftx)
 
     /* regular hash init */
     hsize = (hsize == 0) ? MDS_TXC_DEFAULT_SIZE : hsize;
+    i = fls64(hsize);
+    if ((u64)hsize != (1UL << i)) {
+        hvfs_err(mds, "TXC hash table size should be 2^N.\n");
+        return -EINVAL;
+    }
     txc->txht = xzalloc(hsize * sizeof(struct regular_hash));
     if (!txc->txht) {
         hvfs_err(mds, "TXC hash table allocation failed\n");
@@ -234,7 +239,7 @@ int mds_txc_hash(u64 site_id, u64 reqno, struct hvfs_txc *txc)
     val2 = hash_64(reqno, 64);
     val1 = val1 ^ (val2 ^ GOLDEN_RATIO_PRIME);
 
-    return val1 % txc->hsize;   /* FIXME: need more faster! */
+    return val1 & (txc->hsize - 1);
 }
 
 /* TXC insert function
