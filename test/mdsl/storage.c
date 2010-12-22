@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-13 01:03:52 macan>
+ * Time-stamp: <2010-12-22 10:58:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -77,7 +77,8 @@ int __test_fd_cleanup()
     }
     hvfs_info(mdsl, "end write ...\n");
     sleep(30);
-    mdsl_storage_fd_cleanup(fde);
+    /* Semantic change: fd_cleanup will wait for the last reference now  */
+    /* mdsl_storage_fd_cleanup(fde); */
     sleep(30);
     for (i = 0; i < (63 * 1024); i++) {
         err = mdsl_storage_fd_write(fde, &msa);

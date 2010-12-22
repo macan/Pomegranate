@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-21 18:53:51 macan>
+ * Time-stamp: <2010-12-22 19:00:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2274,6 +2274,7 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
     /* send the reg request to root_site w/ requested siteid = request_site */
     msg->tx.reserved = gid;
 
+resend:
     err = xnet_send(hmo.xc, msg);
     if (err) {
         hvfs_err(xnet, "xnet_send() failed\n");
@@ -2288,6 +2289,15 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
     } else if (msg->pair->tx.err == -EHWAIT) {
         hvfs_err(xnet, "R2 reply that another instance is still alive, "
                  "wait a moment and retry.\n");
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        {
+            int nr = 5;
+
+            while (nr > 0)
+                nr = sleep(nr);
+        }
+        goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "Reg site %lx failed w/ %d\n", request_site,
                  msg->pair->tx.err);

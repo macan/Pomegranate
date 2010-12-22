@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-18 22:22:28 macan>
+ * Time-stamp: <2010-12-22 19:38:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -341,6 +341,7 @@ int mdsl_config(void)
 
     HVFS_MDSL_GET_ENV_atol(memlimit, value);
     HVFS_MDSL_GET_ENV_atol(fdlimit, value);
+    HVFS_MDSL_GET_ENV_atol(mclimit, value);
     HVFS_MDSL_GET_ENV_atol(pcct, value);
 
     HVFS_MDSL_GET_ENV_option(write_drop, WDROP, value);
@@ -362,9 +363,13 @@ int mdsl_config(void)
         hmo.conf.data_file_chunk = MDSL_STORAGE_DATA_DEFAULT_CHUNK;
     /* round up the the page size */
 
-    /* set default fd limit here, total 1 GB memory for itb/data */
+    /* set default fd limit here, total 2 GB memory for itb/data */
+    if (!hmo.conf.mclimit) {
+        hmo.conf.mclimit = (1024UL * 1024 * 1024 * 2);
+    }
+
     if (!hmo.conf.fdlimit) {
-        hmo.conf.fdlimit = (1024UL * 1024 * 1024 * 2);
+        hmo.conf.fdlimit = 1024;
     }
 
     /* set fd cleanup N, default to 1024 */

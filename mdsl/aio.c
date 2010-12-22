@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-18 22:21:37 macan>
+ * Time-stamp: <2010-12-22 18:26:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -66,10 +66,15 @@ void __mdsl_aio_qdcheck(int flag)
     int err;
     
     if (flag == MDSL_AIO_QDCHECK_LOCK) {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 600;
     retry:
-        err = sem_wait(&aio_mgr.qdsem);
+        err = sem_timedwait(&aio_mgr.qdsem, &ts);
         if (err < 0 && (errno == EINTR)) {
             goto retry;
+        } else if (errno == ETIMEDOUT) {
+            hvfs_err(mdsl, "Start aio time out for 600s, do it!\n");
         }
     } else if (flag == MDSL_AIO_QDCHECK_UNLOCK) {
         sem_post(&aio_mgr.qdsem);

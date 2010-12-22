@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-18 22:26:00 macan>
+ * Time-stamp: <2010-12-22 19:38:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -199,13 +199,21 @@ void append_buf_destroy(struct fdhash_entry *fde)
     fde->state = FDE_OPEN;
 }
 
-void append_buf_destroy_async(struct fdhash_entry *fde)
+/* Returan value: 0: truely issue request; 1: no request issued
+ */
+int append_buf_destroy_async(struct fdhash_entry *fde)
 {
+    int res = 0;
+    
     if (fde->state == FDE_ABUF) {
         append_buf_flush(fde, ABUF_ASYNC | ABUF_UNMAP | ABUF_TRUNC);
-    }
+    } else
+        res = 1;
+    
     memset(&fde->abuf, 0, sizeof(fde->abuf));
     fde->state = FDE_OPEN;
+
+    return res;
 }
 
 /*
@@ -768,7 +776,7 @@ void mdsl_storage_fd_limit_check(void)
     struct fdhash_entry *fde;
     int idx, remove, i = 0;
 
-    if (atomic64_read(&hmo.storage.memcache) > hmo.conf.fdlimit) {
+    if (atomic64_read(&hmo.storage.memcache) > hmo.conf.mclimit) {
         while (i++ < hmo.conf.fd_cleanup_N) {
             if (atomic_read(&hmo.storage.active) <= hmo.conf.fdlimit)
                 break;
@@ -787,6 +795,10 @@ void mdsl_storage_fd_limit_check(void)
             xlock_lock(&(hmo.storage.fdhash + idx)->lock);
             remove = mdsl_storage_fd_cleanup(fde);
             if (remove) {
+                /* wait for the last reference, while this broke the original
+                 * storage unit test */
+                while (atomic_read(&fde->ref) > 0)
+                    sched_yield();
                 hlist_del_init(&fde->list);
                 close(fde->fd);
                 xfree(fde);
@@ -818,7 +830,9 @@ int mdsl_storage_clean_dir(u64 duuid)
             if (fde->uuid == duuid && 
                 atomic_read(&fde->ref) == 0 &&
                 (fde->type == MDSL_STORAGE_DATA)) {
-                append_buf_destroy_async(fde);
+                
+                if (!append_buf_destroy_async(fde))
+                    j++;
 
                 hlist_del(&fde->list);
                 list_del(&fde->lru);
@@ -826,7 +840,6 @@ int mdsl_storage_clean_dir(u64 duuid)
                 atomic_dec(&hmo.storage.active);
                 hvfs_debug(mdsl, "Clean the data file %d in dir %lx",
                            fde->fd, duuid);
-                j++;
             }
         }
         xlock_unlock(&(hmo.storage.fdhash + i)->lock);
@@ -914,7 +927,7 @@ int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path)
                 if (bl == 0) {
                     goto first_hit;
                 }
-                hvfs_err(mdsl, "pread to EOF\n");
+                hvfs_err(mdsl, "pread to EOF w/ offset %ld\n", bl);
                 err = -EINVAL;
                 goto out_unlock;
             }
@@ -926,6 +939,11 @@ int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path)
                            fde->mdisk.range_nr[1] +
                            fde->mdisk.range_nr[2]);
         size = fde->mdisk.size * sizeof(range_t);
+        
+        if (!size) {
+            /* there is no content to read, just return OK */
+            goto ok;
+        }
         
         fde->mdisk.ranges = xzalloc(size);
         if (!fde->mdisk.ranges) {
@@ -944,7 +962,9 @@ int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path)
                 err = -errno;
                 goto out_unlock;
             } else if (br == 0) {
-                hvfs_err(mdsl, "pread to EOF\n");
+                hvfs_err(mdsl, "pread to EOF @ %ld vs %d\n",
+                         sizeof(struct md_disk) + bl,
+                         size);
                 err = -EINVAL;
                 goto out_unlock;
             }
@@ -952,6 +972,7 @@ int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path)
         } while (bl < size);
         /* we need to sort the range list */
         __mdisk_range_sort(fde->mdisk.ranges, fde->mdisk.size);
+    ok:
         fde->mdisk.new_range = NULL;
         fde->mdisk.new_size = 0;
         fde->state = FDE_MDISK;
@@ -959,7 +980,7 @@ int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path)
 out_unlock:
     xlock_unlock(&fde->lock);
     
-    return 0;
+    return err;
 first_hit:
     /* init the mdisk memory structure */
     fde->mdisk.winsize = MDSL_STORAGE_DEFAULT_RANGE_SIZE;
@@ -1001,7 +1022,7 @@ int __normal_open(struct fdhash_entry *fde, char *path)
 out_unlock:
     xlock_unlock(&fde->lock);
 
-    return 0;
+    return err;
 }
 
 int __normal_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
@@ -1112,7 +1133,7 @@ int __mdisk_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
     /* we should write the fde.mdisk to disk file */
     xlock_lock(&fde->lock);
     do {
-        bw = pwrite(fde->fd, (void *)&fde->mdisk + bl, 
+        bw = pwrite(fde->fd, (void *)(&fde->mdisk) + bl, 
                     sizeof(struct md_disk) - bl, offset + bl);
         if (bw < 0) {
             hvfs_err(mdsl, "pwrite md_disk failed w/ %d\n", errno);
@@ -1155,6 +1176,8 @@ int __mdisk_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
             bl += bw;
         } while (bl < sizeof(range_t) * fde->mdisk.new_size);
     }
+    hvfs_debug(mdsl, "mdisk write len %ld\n", sizeof(range_t) * 
+               fde->mdisk.new_size);
 
     atomic64_add(sizeof(struct md_disk) + 
                  fde->mdisk.size + fde->mdisk.new_size, 
@@ -1162,7 +1185,7 @@ int __mdisk_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 out:            
     xlock_unlock(&fde->lock);
     
-    return 0;
+    return err;
 }
 
 int __mdisk_add_range_nolock(struct fdhash_entry *fde, u64 begin, u64 end, 

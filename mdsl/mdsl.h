@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-18 22:23:26 macan>
+ * Time-stamp: <2010-12-22 19:39:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -260,6 +260,7 @@ struct mdsl_conf
     /* misc configs */
     u64 memlimit;               /* memlimit of the TCC */
     u64 fdlimit;                /* fd limit of the mem cache */
+    u64 mclimit;                /* memcache threshold */
     u64 pcct;                   /* pagecache cleanup threshold */
     int itb_falloc;             /* # of itb file chunk to pre-alloc */
     int ring_vid_max;           /* max # of vid in the ring(AUTO) */
