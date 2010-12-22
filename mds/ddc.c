@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-10 16:30:19 macan>
+ * Time-stamp: <2010-12-22 21:59:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -155,7 +155,7 @@ int txg_ddc_update_cbht(struct dir_delta_au *dda)
 
     memset(&mu, 0, sizeof(mu));
     if (dda->dd.flag & DIR_DELTA_NLINK) {
-        mu.valid |= MU_NLINK;
+        mu.valid |= MU_NLINK_DELTA;
         mu.nlink = atomic_read(&dda->dd.nlink);
     }
     err = gettimeofday(&tv, NULL);

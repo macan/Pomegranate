@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-22 00:28:59 macan>
+ * Time-stamp: <2010-12-22 23:10:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -629,7 +629,7 @@ void ite_unlink(struct ite *e, struct itb *i, u64 offset, u64 pos)
         int err = 0;
 
         /* unlink the entry now */
-        if (likely(e->s.mdu.nlink == 1)) {
+        if (likely(e->s.mdu.nlink == 0)) {
             /* ok, we add this itb in the async_unlink list if the
              * configration saied that :) */
             if (hmo.conf.async_unlink) {
@@ -930,6 +930,8 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.size = mu->size;
         if (mu->valid & MU_NLINK)
             e->s.mdu.nlink = mu->nlink;
+        if (mu->valid & MU_NLINK_DELTA)
+            e->s.mdu.nlink += mu->nlink;
         if (mu->valid & MU_LLFS) {
             e->s.mdu.lr = *(struct llfs_ref *)(hi->data +
                             sizeof(struct mdu_update));
@@ -1675,6 +1677,11 @@ retry:
                 }
             }
             ite_update(hi, &itb->ite[ii->entry]);
+            if (unlikely((itb->ite[ii->entry].s.mdu.mode & S_IFDIR) && 
+                         (itb->ite[ii->entry].s.mdu.nlink == 0))) {
+                /* BUG: we should unlink this dir now, is it? */
+                itb_del_ite(itb, &itb->ite[ii->entry], offset, pos);
+            }
             hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
             __data_column_hook(hi, itb, ii, data);
