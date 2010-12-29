@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-12-21 01:36:49 macan>
+# Time-stamp: <2010-12-23 20:08:59 macan>
 #
 # Armed with EMACS.
 
@@ -526,7 +526,7 @@ def main(argv):
         return
 
     if dotest == True:
-        do_test(loops, thread)
+        #do_test(loops, thread)
         do_test_v2(loops, thread)
         api.__core_exit(None)
         return

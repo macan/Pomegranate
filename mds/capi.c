@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-20 23:44:36 macan>
+ * Time-stamp: <2010-12-28 19:00:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,7 +44,7 @@ void xtable_send_reply(struct xnet_msg *msg, struct iovec *iov,
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
 #endif
-    if (err) {
+    if (unlikely(err)) {
         xnet_msg_set_err(rpy, err);
     } else {
         int i;
@@ -533,7 +533,7 @@ int xtable_sget(struct amc_index *ai, struct iovec *iov, int *nr,
 
     /* last second checking */
     err = __xtable_adjust_itbid(&hi, msg, ai);
-    if (err) {
+    if (unlikely(err)) {
         if (err != -EFWD)
             hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
                      hi.itbid, err);
@@ -545,7 +545,7 @@ int xtable_sget(struct amc_index *ai, struct iovec *iov, int *nr,
     txg_put(txg);
 
     /* then, parse the hmr to value */
-    if (err) {
+    if (unlikely(err)) {
         hvfs_debug(mds, "mds_cbht_search() for KV get K:%lx failed w/ %d\n",
                    hi.hash, err);
         goto out;
@@ -593,7 +593,7 @@ int xtable_sdel(struct amc_index *ai, struct iovec *iov, int *nr,
 
     /* last second checking */
     err = __xtable_adjust_itbid(&hi, msg, ai);
-    if (err) {
+    if (unlikely(err)) {
         if (err != -EFWD)
             hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
                      hi.itbid, err);
@@ -605,7 +605,7 @@ int xtable_sdel(struct amc_index *ai, struct iovec *iov, int *nr,
     txg_put(txg);
 
     /* then, parse the hmr and return the result */
-    if (err) {
+    if (unlikely(err)) {
         hvfs_debug(mds, "mds_cbht_search() for KV del K:%lx failed w/ %d\n",
                    hi.hash, err);
         goto out;
@@ -670,7 +670,7 @@ int xtable_supdate(struct amc_index *ai, struct iovec *iov, int *nr,
 
     /* last second checking */
     err = __xtable_adjust_itbid(&hi, msg, ai);
-    if (err) {
+    if (unlikely(err)) {
         if (err != -EFWD)
             hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
                      hi.itbid, err);
@@ -681,7 +681,7 @@ int xtable_supdate(struct amc_index *ai, struct iovec *iov, int *nr,
     err = mds_cbht_search(&hi, &hmr, txg, &txg);
     txg_put(txg);
 
-    if (err) {
+    if (unlikely(err)) {
         hvfs_debug(mds, "mds_cbht_search() for KV update K:%lx failed w/ %d\n",
                    hi.hash, err);
         goto out;

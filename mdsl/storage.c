@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-22 19:38:32 macan>
+ * Time-stamp: <2010-12-29 09:42:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -771,12 +771,33 @@ void mdsl_storage_fd_remove(struct fdhash_entry *new)
     atomic_dec(&hmo.storage.active);
 }
 
-void mdsl_storage_fd_limit_check(void)
+int mdsl_storage_low_load(time_t cur)
+{
+    static u64 last_wbytes = 0;
+    static time_t last_probe = 0;
+    int res = 0;
+
+    /* we recompute the wbytes rate every 10 seconds */
+    if (cur - last_probe >= 10) {
+        /* rate < 5MB/s */
+        if (atomic64_read(&hmo.prof.storage.wbytes) - last_wbytes < 
+            (5 << 20)) {
+            res = 1;
+        }
+        last_probe = cur;
+        last_wbytes = atomic64_read(&hmo.prof.storage.wbytes);
+    }
+
+    return res;
+}
+
+void mdsl_storage_fd_limit_check(time_t cur)
 {
     struct fdhash_entry *fde;
     int idx, remove, i = 0;
 
-    if (atomic64_read(&hmo.storage.memcache) > hmo.conf.mclimit) {
+    if (atomic64_read(&hmo.storage.memcache) > hmo.conf.mclimit ||
+        mdsl_storage_low_load(cur)) {
         while (i++ < hmo.conf.fd_cleanup_N) {
             if (atomic_read(&hmo.storage.active) <= hmo.conf.fdlimit)
                 break;
@@ -831,11 +852,19 @@ int mdsl_storage_clean_dir(u64 duuid)
                 atomic_read(&fde->ref) == 0 &&
                 (fde->type == MDSL_STORAGE_DATA)) {
                 
+                xlock_lock(&hmo.storage.lru_lock);
+                /* Caution: race with fd_limit_check! */
+                if (list_empty(&fde->lru)) {
+                    xlock_unlock(&hmo.storage.lru_lock);
+                    continue;
+                } else
+                    list_del(&fde->lru);
+                xlock_unlock(&hmo.storage.lru_lock);
+
                 if (!append_buf_destroy_async(fde))
                     j++;
 
                 hlist_del(&fde->list);
-                list_del(&fde->lru);
                 xfree(fde);
                 atomic_dec(&hmo.storage.active);
                 hvfs_debug(mdsl, "Clean the data file %d in dir %lx",

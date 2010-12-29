@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-21 12:01:57 macan>
+ * Time-stamp: <2010-12-24 17:25:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,6 +61,7 @@
 #define HVFS_CLT2MDS_LIST       0x8400000000000000 /* for readdir use */
 #define HVFS_CLT2MDS_COMMIT     0x8800000000000000 /* trigger a memory
                                                     * snapshot */
+#define HVFS_CLT2MDS_ACQUIRE    0x9000000000000000 /* acquire the locks/lease */
 
 #define HVFS_CLT2MDS_DITB       0x8000000100000000 /* dump itb */
 #define HVFS_CLT2MDS_DEBUG      (HVFS_CLT2MDS_DITB)

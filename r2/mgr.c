@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-09 17:02:55 macan>
+ * Time-stamp: <2010-12-23 11:50:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1368,6 +1368,12 @@ int root_mgr_lookup_create2(struct root_mgr *rm, u64 fsid,
                          fsid);
                 root_mgr_free_re(re);
             }
+            /* finally, write it to disk now */
+            err = root_write_re(re);
+            if (err) {
+                hvfs_err(root, "Flush fs root %ld to storage failed w/ %d.\n",
+                         re->fsid, err);
+            }
             err = 1;
         } else {
             /* error here */
@@ -1480,7 +1486,21 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *hxi)
                 }
                 /* ok, we can change the fs now */
                 err = root_read_hxi(site_id, fsid, hxi);
-                if (err) {
+                if (err == -ENOTEXIST) {
+                    err = root_create_hxi(se);
+                    if (err) {
+                        hvfs_err(root, "create hxi %ld %lx failed w/ %d\n",
+                                 se->fsid, se->site_id, err);
+                        goto out_client_unlock;
+                    }
+                    /* write the hxi to disk now */
+                    err = root_write_hxi(se);
+                    if (err) {
+                        hvfs_err(root, "write hxi %ld %lx failed w/ %d\n",
+                                 se->fsid, se->site_id, err);
+                        goto out_client_unlock;
+                    }
+                } else if (err) {
                     hvfs_err(root, "root_read_hxi() failed w/ %d\n",
                              err);
                     goto out_client_unlock;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-20 22:18:01 macan>
+ * Time-stamp: <2010-12-28 19:19:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,6 +57,33 @@ struct rdir_mgr
     struct regular_hash *ht;
     int hsize;
     atomic_t active;
+};
+
+/* RPC table */
+typedef void *(*rpc_callback_t)(void *);
+
+struct rpc_args
+{
+    u64 arg;
+    void *data;
+};
+
+struct rpc_result
+{
+    u32 length;
+    u8 data[0];
+};
+
+struct mds_rpc_entry
+{
+    char *name;
+    rpc_callback_t cb;
+};
+
+struct mds_rpc_table
+{
+    int psize, asize;
+    struct mds_rpc_entry mre[0];
 };
 
 struct mds_conf 
@@ -177,6 +204,7 @@ struct hvfs_mds_object
     time_t mp_ts;               /* begin time of modify pause */
     time_t scrub_ts;            /* last scrub time */
     time_t uptime;              /* startup time */
+    time_t tick;                /* current time */
 
     sem_t timer_sem;            /* for timer thread wakeup */
     sem_t commit_sem;           /* for commit thread wakeup */
@@ -207,7 +235,11 @@ struct hvfs_mds_object
     u8 reqin_drop;              /* drop the incoming client requests */
 
     int scrub_op;               /* scrub operation */
+    atomic_t lease_seqno;       /* lease seqno */
     atomic64_t ctxg;            /* last completed txg */
+    
+    /* rpc table */
+    struct mds_rpc_table *mrt;  /* mds rpc table */
     
     /* BRANCH dispatcher */
     int (*branch_dispatch)(void *);
@@ -440,6 +472,7 @@ void mds_dh_evict(struct dh *);
 void mds_statfs(struct hvfs_tx *);
 void mds_lookup(struct hvfs_tx *);
 void mds_create(struct hvfs_tx *);
+void mds_acquire(struct hvfs_tx *);
 void mds_release(struct hvfs_tx *);
 void mds_update(struct hvfs_tx *);
 void mds_linkadd(struct hvfs_tx *);

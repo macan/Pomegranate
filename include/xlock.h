@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-03 11:21:44 macan>
+ * Time-stamp: <2010-12-27 16:10:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -135,6 +135,13 @@ typedef pthread_spinlock_t xspinlock_t;
 #define xspinlock_unlock pthread_spin_unlock
 #define xspinlock_init(l) pthread_spin_init(l, PTHREAD_PROCESS_PRIVATE)
 #define xspinlock_destroy pthread_spin_destroy
+
+/* section for seqlock */
+struct __xseqlock_t
+{
+    u64 seqno;
+};
+typedef struct __xseqlock_t xseqlock_t;
 
 #endif
 

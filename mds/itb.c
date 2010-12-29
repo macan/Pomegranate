@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-22 23:10:46 macan>
+ * Time-stamp: <2010-12-28 19:30:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -325,7 +325,8 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
                 ite->flag |= ITE_FLAG_LS;
             } else if (unlikely(hi->flag & INDEX_SYMLINK)) {
                 ite->flag |= ITE_FLAG_SYM;
-            } else if (unlikely(hi->flag & INDEX_KV)) {
+            } else if (unlikely((hi->flag & INDEX_KV) ||
+                                (hi->flag & INDEX_CREATE_KV))) {
                 ite->flag |= ITE_FLAG_KV;
             } else 
                 ite->flag |= ITE_FLAG_NORMAL;
@@ -619,8 +620,13 @@ void ite_unlink(struct ite *e, struct itb *i, u64 offset, u64 pos)
         /* FIXME: hard link file, nobody refer it, just delete it */
         e->s.mdu.nlink = 0;
         itb_del_ite(i, e, offset, pos);
-    } else if (e->flag & ITE_FLAG_KV) {
+    } 
+    if (e->flag & ITE_FLAG_KV) {
+        /* for KVS, we ignore the nlink handling for table(dir) */
         itb_del_ite(i, e, offset, pos);
+        if (e->flag & ITE_FLAG_SDT) {
+            goto do_delta;
+        }
     }
 
     /* FIXME: should we do async dir delta update here? */
@@ -640,6 +646,7 @@ void ite_unlink(struct ite *e, struct itb *i, u64 offset, u64 pos)
                 /* delete the entry imediately */
                 itb_del_ite(i,e, offset, pos);
             }
+        do_delta:
             /* then, update the dir delta to remote site */
             txg = mds_get_open_txg(&hmo);
             err = txg_add_rdir(txg, e->uuid);
@@ -1155,6 +1162,7 @@ struct itb *get_free_itb(struct hvfs_txg *txg)
 #else
     xlock_init(&n->h.ilock);
 #endif
+
     INIT_HLIST_NODE(&n->h.cbht);
     INIT_LIST_HEAD(&n->h.list);
     INIT_LIST_HEAD(&n->h.unlink);
@@ -1190,6 +1198,7 @@ void itb_reinit(struct itb *n)
 #else
     xlock_init(&n->h.ilock);
 #endif
+    
     INIT_HLIST_NODE(&n->h.cbht);
     INIT_LIST_HEAD(&n->h.list);
     INIT_LIST_HEAD(&n->h.unlink);
@@ -1537,6 +1546,65 @@ void __data_column_hook(struct hvfs_index *hi, struct itb *itb,
     }
 }
 
+#define LEASE_IS_TIMEOUT(v)     ((hmo.tick -                            \
+                                  (v & ~(LEASE_MASK | LEASE_SEQNO_MASK))) >= 60)
+#define LEASE_SEQNO(v)          (atomic_inc_return(v))
+
+static inline
+void ite_lease_set(struct ite *e, u64 value)
+{
+    /* must be atomic operation here */
+    e->s.mdu.dtime = value;
+}
+
+static inline
+u64 ite_lease_get(struct ite *e)
+{
+    return e->s.mdu.dtime;
+}
+
+static inline
+int ite_lease_check_setup(struct hvfs_index *hi, struct itb *i, struct ite *e)
+{
+    u64 value = 0;
+    
+    /* lease ts is ZERO, we accept this request */
+    if (!e->s.mdu.dtime)
+        goto setup_lease;
+    /* lease magic is ok! */
+    if (e->s.mdu.dtime == hi->dlen)
+        goto setup_lease;
+    if (LEASE_IS_TIMEOUT(e->s.mdu.dtime)) {
+        goto setup_lease;
+    }
+    /* check if this entry is shared */
+    if (e->s.mdu.dtime & LEASE_EXCLUDE) {
+        return -ELOCKED;
+    }
+    if ((e->s.mdu.dtime & LEASE_SHARED) &&
+        (hi->flag & INDEX_INTENT_EXCLUDE)) {
+        return -ELOCKED;
+    }
+
+setup_lease:
+    if (unlikely(hi->flag & (INDEX_INTENT_EXCLUDE | 
+                             INDEX_INTENT_SHARED |
+                             INDEX_INTENT_RELEASE))) {
+        value = LEASE_SEQNO(&hmo.lease_seqno);
+        if (hi->flag & INDEX_INTENT_EXCLUDE)
+            value |= hmo.tick | LEASE_EXCLUDE;
+        else if (hi->flag & INDEX_INTENT_SHARED)
+            value |= hmo.tick | LEASE_SHARED;
+        else if (hi->flag & INDEX_INTENT_RELEASE)
+            value = 0;
+        ite_lease_set(e, value);
+        if (ite_lease_get(e) != value)
+            return -ERACE;
+    }
+
+    return 0;
+}
+
 /**
  * Search ITE in the ITB, matched by hvfs_index
  *
@@ -1608,6 +1676,11 @@ retry:
         /* OK, found it, already lock it then do xxx on it */
         hvfs_verbose(mds, "OK, the ITE do exist in the ITB.\n");
         if (hi->flag & INDEX_LOOKUP) {
+            /* check if it has been locked yet */
+            ret = ite_lease_check_setup(hi, itb, &itb->ite[ii->entry]);
+            if (unlikely(ret)) {
+                goto out;
+            }
             /* read MDU to buffer */
             hi->uuid = itb->ite[ii->entry].uuid;
             if (hi->flag & INDEX_KV)
@@ -1729,6 +1802,63 @@ retry:
             }
             hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
+        } else if (unlikely(hi->flag & INDEX_ACQUIRE)) {
+            /* Note that, we have already been wlock protected */
+            if (hi->dlen & LEASE_MASK) {
+                u64 value;
+                
+                if (!LEASE_IS_TIMEOUT(itb->ite[ii->entry].s.mdu.dtime)) {
+                    if (hi->dlen != itb->ite[ii->entry].s.mdu.dtime) {
+                        if (hi->dlen & LEASE_EXCLUDE) {
+                            if (itb->ite[ii->entry].s.mdu.dtime & 
+                                LEASE_MASK) {
+                                ret = -ELOCKED;
+                                goto out;
+                            }
+                        } else if (hi->dlen & LEASE_SHARED) {
+                            if (itb->ite[ii->entry].s.mdu.dtime & 
+                                LEASE_EXCLUDE) {
+                                ret = -ELOCKED;
+                                goto out;
+                            }
+                        }
+                    }
+                }
+                /* ok to set the new lease lock now */
+                value = LEASE_SEQNO(&hmo.lease_seqno);
+                if (hi->dlen & LEASE_EXCLUDE)
+                    value |= hmo.tick | LEASE_EXCLUDE;
+                else if (hi->dlen & LEASE_SHARED)
+                    value |= hmo.tick | LEASE_SHARED;
+                ite_lease_set(&itb->ite[ii->entry], value);
+                /* note that, we do not have to compare value with return
+                 * value! */
+                *(u64 *)data = value;
+            } else {
+                ret = -EINVAL;
+                goto out;
+            }
+        } else if (unlikely(hi->flag & INDEX_RELEASE)) {
+            if (hi->dlen & LEASE_MASK) {
+                if (hi->dlen == itb->ite[ii->entry].s.mdu.dtime) {
+                    ite_lease_set(&itb->ite[ii->entry], 0);
+                } else {
+                    /* it is ok to get the EINVAL result for shared lease
+                     * lock. only the last access can release the lock, if it
+                     * releases the shared lock firstly, other clients may got
+                     * wrong result. However, this behaver is acceptable for
+                     * the RACE of empty directory removal and new file
+                     * create. Thus, FIXME! */
+                    if (itb->ite[ii->entry].s.mdu.dtime & LEASE_SHARED)
+                        ret = 0;
+                    else
+                        ret = -EINVAL;
+                    goto out;
+                }
+            } else {
+                ret = -EINVAL;
+                goto out;
+            }
         } else if (hi->flag & INDEX_SYMLINK) {
             /* symlink */
             hvfs_err(mds, "Find the ITE and can NOT symlink it.\n");
@@ -1857,11 +1987,16 @@ retry:
             SETUP_DIR_TRIGGER(e, DIR_TRIG_PRE_LOOKUP, itb, 
                               &itb->ite[ii->entry], hi, 
                               ret, out);
+            /* check if it has been locked yet */
+            ret = ite_lease_check_setup(hi, itb, &itb->ite[ii->entry]);
+            if (unlikely(ret)) {
+                goto out;
+            }
             /* read MDU to buffer */
             hi->uuid = itb->ite[ii->entry].uuid;
             if (hi->flag & INDEX_KV)
                 memcpy(data, &(itb->ite[ii->entry].v),
-                    KV_HEADER_LEN + itb->ite[ii->entry].v.len);
+                       KV_HEADER_LEN + itb->ite[ii->entry].v.len);
             else
                 memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
             /* FIXME: we should add symlink handling here! */
@@ -1998,6 +2133,75 @@ retry:
             hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
             SETUP_DIR_TRIGGER(e, DIR_TRIG_POST_LINKADD, itb,
+                              &itb->ite[ii->entry], hi,
+                              ret, out);
+        } else if (unlikely(hi->flag & INDEX_ACQUIRE)) {
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_PRE_ACQUIRE, itb,
+                              &itb->ite[ii->entry], hi,
+                              ret, out);
+            /* Note that, we have already been wlock protected */
+            if (hi->dlen & LEASE_MASK) {
+                u64 value;
+                
+                if (!LEASE_IS_TIMEOUT(itb->ite[ii->entry].s.mdu.dtime)) {
+                    if (hi->dlen != itb->ite[ii->entry].s.mdu.dtime) {
+                        if (hi->dlen & LEASE_EXCLUDE) {
+                            if (itb->ite[ii->entry].s.mdu.dtime & 
+                                LEASE_MASK) {
+                                ret = -ELOCKED;
+                                goto out;
+                            }
+                        } else if (hi->dlen & LEASE_SHARED) {
+                            if (itb->ite[ii->entry].s.mdu.dtime & 
+                                LEASE_EXCLUDE) {
+                                ret = -ELOCKED;
+                                goto out;
+                            }
+                        }
+                    }
+                }
+                /* ok to set the new lease lock now */
+                value = LEASE_SEQNO(&hmo.lease_seqno);
+                if (hi->dlen & LEASE_EXCLUDE)
+                    value |= hmo.tick | LEASE_EXCLUDE;
+                else if (hi->dlen & LEASE_SHARED)
+                    value |= hmo.tick | LEASE_SHARED;
+                ite_lease_set(&itb->ite[ii->entry], value);
+                /* note that, we do not have to compare value with return
+                 * value! */
+                *(u64 *)data = value;
+            } else {
+                ret = -EINVAL;
+                goto out;
+            }
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_POST_ACQUIRE, itb,
+                              &itb->ite[ii->entry], hi,
+                              ret, out);
+        } else if (unlikely(hi->flag & INDEX_RELEASE)) {
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_PRE_RELEASE, itb,
+                              &itb->ite[ii->entry], hi,
+                              ret, out);
+            if (hi->dlen & LEASE_MASK) {
+                if (hi->dlen == itb->ite[ii->entry].s.mdu.dtime) {
+                    ite_lease_set(&itb->ite[ii->entry], 0);
+                } else {
+                    /* it is ok to get the EINVAL result for shared lease
+                     * lock. only the last access can release the lock, if it
+                     * releases the shared lock firstly, other clients may got
+                     * wrong result. However, this behaver is acceptable for
+                     * the RACE of empty directory removal and new file
+                     * create. Thus, FIXME! */
+                    if (itb->ite[ii->entry].s.mdu.dtime & LEASE_SHARED)
+                        ret = 0;
+                    else
+                        ret = -EINVAL;
+                    goto out;
+                }
+            } else {
+                ret = -EINVAL;
+                goto out;
+            }
+            SETUP_DIR_TRIGGER(e, DIR_TRIG_POST_RELEASE, itb,
                               &itb->ite[ii->entry], hi,
                               ret, out);
         } else if (hi->flag & INDEX_SYMLINK) {

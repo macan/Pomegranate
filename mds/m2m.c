@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-19 16:38:47 macan>
+ * Time-stamp: <2010-12-27 10:48:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -989,4 +989,86 @@ void mds_gossip_rdir(struct xnet_msg *msg)
 
 out:
     xnet_free_msg(msg);
+}
+
+/* mds_rpc() handle the generic rpc calls. The arguments are in the tx.arg*
+ * and other fields.
+ */
+void mds_rpc(struct xnet_msg *msg)
+{
+    struct rpc_args ra;
+    struct hvfs_md_reply *hmr;
+    void *result;
+    int err = 0;
+
+    /* in mds_init() we setup a call table for rpc calls */
+    /* ABI:
+     * @tx.arg0: rpc index!
+     */
+    ra.arg = msg->tx.arg1;
+    if (msg->xm_datacheck) {
+        ra.data = msg->xm_data;
+    } else {
+        ra.data = NULL;
+    }
+
+    /* check the rpc table and call the RPC now */
+    if (hmo.mrt->asize >= msg->tx.arg0) {
+    } else {
+        hvfs_err(mds, "Invalid RPC call %ld from %lx\n", msg->tx.arg0,
+                 msg->tx.ssite_id);
+        err = -EINVAL;
+        goto err_rpy;
+    }
+
+    result = hmo.mrt->mre[msg->tx.arg0].cb(&ra);
+    if (IS_ERR(result)) {
+        err = PTR_ERR(result);
+        goto err_rpy;
+    }
+
+    /* return the value to caller
+     * ABI:
+     * 1:u32 length
+     * 2:u8* data region
+     */
+    {
+        struct rpc_result *rr = (struct rpc_result *)result;
+        struct xnet_msg *rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
+
+        if (!rpy) {
+            hvfs_err(mds, "xnet_alloc_msg() failed\n");
+            err = -ENOMEM;
+            goto err_rpy;
+        }
+#ifdef XNET_EAGER_WRITEV
+        xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
+        xnet_msg_add_sdata(rpy, result, rr->length + sizeof(u32));
+        xnet_msg_fill_tx(rpy, XNET_MSG_RPY, XNET_NEED_DATA_FREE, hmo.site_id,
+                         msg->tx.ssite_id);
+        xnet_msg_fill_reqno(rpy, msg->tx.reqno);
+        xnet_msg_fill_cmd(rpy, XNET_RPY_DATA, 0, 0);
+        /* match the original request at the source site */
+        rpy->tx.handle = msg->tx.handle;
+
+        err = xnet_send(hmo.xc, rpy);
+        if (err) {
+            hvfs_err(mds, "xnet_send() failed w/ %d\n", err);
+        }
+        xnet_free_msg(rpy);
+    }
+
+out:
+
+    xnet_free_msg(msg);
+    return;
+err_rpy:
+    hmr = get_hmr();
+    if (!hmr) {
+        hvfs_err(mds, "get_hmr() failed\n");
+        goto out;
+    }
+    mds_send_reply(msg, hmr, err);
+    goto out;
 }

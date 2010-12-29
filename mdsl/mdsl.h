@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-22 19:39:23 macan>
+ * Time-stamp: <2010-12-28 20:08:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -419,7 +419,7 @@ void mdsl_storage_fd_put(struct fdhash_entry *fde)
 }
 void mdsl_storage_pending_io(void);
 int mdsl_storage_clean_dir(u64);
-void mdsl_storage_fd_limit_check(void);
+void mdsl_storage_fd_limit_check(time_t);
 int mdsl_storage_fd_cleanup(struct fdhash_entry *fde);
 int append_buf_create(struct fdhash_entry *, char *, int);
 int mdsl_storage_fd_write(struct fdhash_entry *fde, 

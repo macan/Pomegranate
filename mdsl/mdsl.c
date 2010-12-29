@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-22 19:38:55 macan>
+ * Time-stamp: <2010-12-28 20:07:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -157,6 +157,7 @@ static int __gcd(int m, int n)
 static void *mdsl_timer_thread_main(void *arg)
 {
     sigset_t set;
+    time_t cur;
     int v, err;
 
     hvfs_debug(mdsl, "I am running...\n");
@@ -173,12 +174,13 @@ static void *mdsl_timer_thread_main(void *arg)
             continue;
         sem_getvalue(&hmo.timer_sem, &v);
         hvfs_debug(mdsl, "OK, we receive a SIGALRM event(remain %d).\n", v);
+        cur = time(NULL);
         /* should we work now */
-        mdsl_dump_profiling(time(NULL));
+        mdsl_dump_profiling(cur);
         /* check the pending IOs */
         mdsl_storage_pending_io();
         /* check the fd hash table */
-        mdsl_storage_fd_limit_check();
+        mdsl_storage_fd_limit_check(cur);
         /* keep page cache clean if there are a lot of page cache entries */
         mdsl_storage_fd_pagecache_cleanup();
     }
@@ -372,9 +374,9 @@ int mdsl_config(void)
         hmo.conf.fdlimit = 1024;
     }
 
-    /* set fd cleanup N, default to 1024 */
+    /* set fd cleanup N, default to 32 */
     if (!hmo.conf.fd_cleanup_N)
-        hmo.conf.fd_cleanup_N = 1024;
+        hmo.conf.fd_cleanup_N = 32;
 
     /* set default pcct value to 1GB memory */
     if (!hmo.conf.pcct)

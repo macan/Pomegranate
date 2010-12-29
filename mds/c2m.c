@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-21 20:52:12 macan>
+ * Time-stamp: <2010-12-27 22:27:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -90,6 +90,37 @@ void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr,
 }
 
 static inline
+void mds_send_reply_nodata(struct hvfs_tx *tx, int err, u64 arg0)
+{
+    tx->rpy = xnet_alloc_msg(XNET_MSG_CACHE);
+    if (!tx->rpy) {
+        hvfs_err(mds, "xnet_alloc_msg() failed\n");
+        /* do not retry myself */
+        mds_free_tx(tx);
+        return;
+    }
+    
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(tx->rpy, &tx->rpy->tx,
+                       sizeof(tx->rpy->tx));
+#endif
+    if (err)
+        xnet_msg_set_err(tx->rpy, err);
+    xnet_msg_fill_tx(tx->rpy, XNET_MSG_RPY, 0,
+                     hmo.site_id, tx->reqin_site);
+    xnet_msg_fill_reqno(tx->rpy, tx->req->tx.reqno);
+    xnet_msg_fill_cmd(tx->rpy, XNET_RPY_DATA, arg0, 0);
+    /* match the original request at the source site */
+    tx->rpy->tx.handle = tx->req->tx.handle;
+
+    if (xnet_send(hmo.xc, tx->rpy)) {
+        hvfs_err(mds, "xnet_send() failed\n");
+    }
+    mds_tx_done(tx);
+    mds_tx_reply(tx);
+}
+
+static inline
 void __customized_send_reply(struct xnet_msg *msg, struct iovec iov[], int nr)
 {
     struct xnet_msg *rpy = xnet_alloc_msg(XNET_MSG_CACHE);
@@ -171,6 +202,9 @@ void mds_lookup(struct hvfs_tx *tx)
     struct hvfs_md_reply *hmr;
     int err;
 
+    /* ABI:
+     * tx.arg1: lease timestamp
+     */
     /* sanity checking */
     if (unlikely(tx->req->tx.len < sizeof(*hi))) {
         hvfs_err(mds, "Invalid LOOKUP request %d received len %d\n", 
@@ -206,6 +240,9 @@ void mds_lookup(struct hvfs_tx *tx)
 
     /* search in the CBHT */
     hi->flag |= INDEX_LOOKUP;
+    /* reuse dlen as the lease timestamp */
+    hi->dlen = tx->req->tx.arg1;
+    
     err = mds_cbht_search(hi, hmr, tx->txg, &tx->txg);
 
 actually_send:
@@ -288,11 +325,111 @@ send_rpy:
     goto actually_send;
 }
 
-/* RELEASE */
+/* ACQUIRE 
+ *
+ * use ACQUIRE to issue a search
+ */
+void mds_acquire(struct hvfs_tx *tx)
+{
+    struct hvfs_index *hi = NULL;
+    struct hvfs_md_reply *hmr;
+    u64 value = 0;
+    int err;
+    
+    /* ABI
+     * @tx.arg1: lock type(LEASE_EXCLUDE/LEASE_SHARED)
+     */
+    if (unlikely(tx->req->tx.len < sizeof(*hi))) {
+        hvfs_err(mds, "Invalid ACQUIRE request %d received\n",
+                 tx->req->tx.reqno);
+        err = -EINVAL;
+        goto send_rpy;
+    }
+
+    if (tx->req->xm_datacheck)
+        hi = tx->req->xm_data;
+    else {
+        hvfs_err(mds, "Internal error, data lossing ...\n");
+        err = -EFAULT;
+        goto send_rpy;
+    }
+
+    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
+        hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen,
+                             HASH_SEL_EH);
+    }
+    /* alloc hmr */
+    hmr = get_hmr();
+    if (unlikely(!hmr)) {
+        hvfs_err(mds, "get_hmr() failed\n");
+        /* do not retry myself */
+        mds_free_tx(tx);
+        return;
+    }
+
+    /* search in the CBHT */
+    hi->flag |= INDEX_ACQUIRE;
+    hi->dlen = tx->req->tx.arg1;
+    err = mds_cbht_search(hi, hmr, tx->txg, &tx->txg);
+    value = *(u64 *)hmr;
+
+    xfree(hmr);
+
+send_rpy:
+    return mds_send_reply_nodata(tx, err, value);
+}
+
+/* RELEASE
+ *
+ * use RELEASE to issue a search
+ */
 void mds_release(struct hvfs_tx *tx)
 {
-    /* FIXME */
-    hvfs_info(mds, "Not implement yet.\n");
+    struct hvfs_index *hi = NULL;
+    struct hvfs_md_reply *hmr;
+    int err;
+
+    /* ABI
+     * @tx.arg1: lease magic
+     */
+    /* sanity checking */
+    if (unlikely(tx->req->tx.len < sizeof(*hi))) {
+        hvfs_err(mds, "Invalid RELEASE request %d received\n",
+                 tx->req->tx.reqno);
+        err = -EINVAL;
+        goto send_rpy;
+    }
+
+    if (tx->req->xm_datacheck)
+        hi = tx->req->xm_data;
+    else {
+        hvfs_err(mds, "Internal error, data lossing ...\n");
+        err = -EFAULT;
+        goto send_rpy;
+    }
+
+    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
+        hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen,
+                             HASH_SEL_EH);
+    }
+    /* alloc hmr */
+    hmr = get_hmr();
+    if (unlikely(!hmr)) {
+        hvfs_err(mds, "get_hmr() failed\n");
+        /* do not retry myself */
+        mds_free_tx(tx);
+        return;
+    }
+
+    /* search in the CBHT */
+    hi->flag |= INDEX_RELEASE;
+    hi->dlen = tx->req->tx.arg1;
+    err = mds_cbht_search(hi, hmr, tx->txg, &tx->txg);
+
+    xfree(hmr);
+
+send_rpy:
+    return mds_send_reply_nodata(tx, err, 0);
 }
 
 /* UPDATE */

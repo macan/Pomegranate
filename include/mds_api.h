@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-22 21:57:30 macan>
+ * Time-stamp: <2010-12-27 22:45:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,11 @@
 
 #ifndef __MDS_API_H__
 #define __MDS_API_H__
+
+#define LEASE_EXCLUDE           0x8000000000000000
+#define LEASE_SHARED            0x4000000000000000
+#define LEASE_MASK              0xff00000000000000
+#define LEASE_SEQNO_MASK        0x00ffffff00000000
 
 /* the general index structure between HVFS client and MDS */
 struct hvfs_index
@@ -56,8 +61,12 @@ struct hvfs_index
 #define INDEX_LOOKUP            0x00000010 /* LOOKUP */
 #define INDEX_INTENT_OPEN       0x00000020 /* open with ITE.ct++ */
 #define INDEX_COLUMN            0x00000040 /* lookup the column info */
-#define INDEX_INTENT_UNLINK     0x00000080 /* lookup for unlink */
-#define INDEX_INTENT_CREATE     0x00000100
+#define INDEX_INTENT_EXCLUDE    0x00000080 /* exclude lock */
+#define INDEX_INTENT_SHARED     0x00000100 /* shared lock */
+#define INDEX_INTENT_RELEASE    0x00000200 /* release the ite */
+
+#define INDEX_ACQUIRE           0x00000400 /* acquire lease */
+#define INDEX_RELEASE           0x04000000 /* release lease */
 
 #define INDEX_LINK_ADD          0x00000800 /* lookup & nlink++, TXC */
 
@@ -105,10 +114,11 @@ struct hvfs_index
 /* the general reply structure between HVFS client and MDS */
 struct hvfs_md_reply
 {
-    short mdu_no;               /* # of MDUs */
-    short ls_no;                /* # of LSs */
-    short bitmap_no;            /* # of BITMAPs */
-    short dc_no;                /* # of data columns */
+    /* FIXME: ABI changed, notify somebody! */
+    u8 mdu_no;                  /* # of MDUs */
+    u8 ls_no;                   /* # of LSs */
+    u8 bitmap_no;               /* # of BITMAPs */
+    u8 dc_no;                   /* # of data columns */
     int err;
     int len;                    /* the data length */
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-16 01:29:50 macan>
+ * Time-stamp: <2010-12-27 16:59:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -87,4 +87,7 @@ static char *hvfs_ccolor[] __attribute__((unused)) =
                                  * line */
 #define EADJUST         1039    /* someone should adjust themself */
 #define EFWD            1040    /* already forwarded */
+#define ELOCKED         1041    /* lease locked */
+#define ERACE           1042    /* lease raced */
+
 #endif

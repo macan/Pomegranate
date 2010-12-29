@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-21 23:33:19 macan>
+ * Time-stamp: <2010-12-27 13:50:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -243,6 +243,7 @@ static void *mds_timer_thread_main(void *arg)
         hvfs_debug(mds, "OK, we receive a SIGALRM event(remain %d).\n", v);
         /* should we work now */
         cur = time(NULL);
+        hmo.tick = cur;
         if (hmo.state > HMO_STATE_LAUNCH) {
             /* ok, checking txg */
             dynamic_adjust_txg_interval(cur);
@@ -741,6 +742,96 @@ out:
     return err;
 }
 
+int rpc_realloc(struct mds_rpc_table **omrt)
+{
+    struct mds_rpc_table *mrt = NULL;
+    int size = 0;
+
+    if (*omrt) {
+        size = (*omrt)->psize;
+    }
+    size += 64;
+
+    mrt = xrealloc(*omrt, sizeof(struct mds_rpc_table) + 
+                   size * sizeof(struct mds_rpc_entry));
+    if (!mrt) {
+        hvfs_err(mds, "realloc MRT failed w/ ENOMEM\n");
+        return -ENOMEM;
+    }
+
+    *omrt = mrt;
+
+    return 0;
+}
+
+int rpc_init(void)
+{
+    int err = 0;
+
+    /* init the rpc table to 64 entries */
+    err = rpc_realloc(&hmo.mrt);
+    if (err) {
+        hvfs_err(mds, "RPC realloc failed w/ %d\n", err);
+        goto out;
+    }
+    
+out:    
+    return err;
+}
+
+/* rpc_reg() return the index of the RPC entry
+ */
+int rpc_reg(char *name, rpc_callback_t cb)
+{
+    int err = 0, i;
+    
+    if (hmo.mrt->asize == hmo.mrt->psize) {
+        /* realloc the rpc table */
+        err = rpc_realloc(&hmo.mrt);
+        if (err) {
+            hvfs_err(mds, "RPC realloc failed w/ %d\n", err);
+            return err;
+        }
+    }
+    /* check for name conflict */
+    for (i = 0; i < hmo.mrt->asize; i++) {
+        if (strcmp(hmo.mrt->mre[i].name, name) == 0) {
+            hvfs_err(mds, "Conflict RPC function name on '%s'\n", name);
+            return -EINVAL;
+        }
+    }
+    
+    /* ok to install the rpc entry */
+    hmo.mrt->mre[hmo.mrt->asize].name = strdup(name);
+    hmo.mrt->mre[hmo.mrt->asize].cb = cb;
+    hmo.mrt->asize++;
+
+    return hmo.mrt->asize - 1;
+}
+
+void *__rpc_default(void *arg)
+{
+    hvfs_err(mds, "This RPC has been reset to default function call\n");
+    return NULL;
+}
+
+/* Return value: 1: error; 0: found and deleted
+ */
+int rpc_unreg(char *name)
+{
+    int i;
+
+    for (i = 0; i < hmo.mrt->asize; i++) {
+        if (strcmp(hmo.mrt->mre[i].name, name) == 0) {
+            hmo.mrt->mre[i].name = "";
+            hmo.mrt->mre[i].cb = __rpc_default;
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
 struct eh_operations ehops_default = {
     .evict = mds_cbht_evict_default,
     .evict_all = mds_cbht_evict_all_default,
@@ -1005,6 +1096,11 @@ int mds_init(int bdepth)
     if (err)
         goto out_rdir;
 
+    /* FIXME: init the rpc subsystem */
+    err = rpc_init();
+    if (err)
+        goto out_rpc;
+
     /* FIXME: waiting for the notification from R2 */
 
     /* FIXME: waiting for the requests from client/mds/mdsl/r2 */
@@ -1022,6 +1118,7 @@ int mds_init(int bdepth)
     hmo.state = HMO_STATE_RUNNING;
     hmo.uptime = time(NULL);
 
+out_rpc:
 out_rdir:
 out_gossip:
 out_ft:

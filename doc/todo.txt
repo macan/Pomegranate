@@ -180,3 +180,26 @@ there is an error. Low.
 
     Proof of the correctness of sharding + cow + commit + B tree
     like written method. It should be complicated to proof!
+
+20. How to do atomic RENAME?
+
+    Atomic RENAME is a little difficult for any file system to 
+    handle. In Pomegranate, we utilize a global directory 
+    /.global.rename/ and dtriggers to detect conflict renames. 
+    Any rename operation must obtain a valid file to continue 
+    other operations.
+
+    After creating the new rename file, we know that there is no
+    conflict with previous renames and no new rename can conflict
+    with myself. 
+
+    You know, the rename files in one directory may be distributed 
+    onto many MDSs. We have to utilize dtrigger to send the rename
+    metadata to ONE mds to resolve the conflicts.
+
+21. Change itb->ite to dynamic name length!
+
+    grep -rn "itb->ite" * | wc -l => 70. Thus, this should be a 
+    trivial work!
+
+    Optimize memory usage.

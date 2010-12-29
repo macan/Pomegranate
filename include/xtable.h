@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-16 00:05:00 macan>
+ * Time-stamp: <2010-12-28 17:43:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -227,6 +227,10 @@ struct dir_trigger
 #define DIR_TRIG_POST_UPDATE    12
 #define DIR_TRIG_PRE_LIST       13
 #define DIR_TRIG_POST_LIST      14
+#define DIR_TRIG_PRE_ACQUIRE    15
+#define DIR_TRIG_POST_ACQUIRE   16
+#define DIR_TRIG_PRE_RELEASE    17
+#define DIR_TRIG_POST_RELEASE   18
     u16 where;                  /* trigger at where */
     int len;                    /* code length */
 };

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-20 00:19:38 macan>
+ * Time-stamp: <2010-12-28 17:25:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,7 +22,9 @@
  */
 
 #include "lib.h"
+#ifdef USE_DT_PYTHON
 #include "Python.h"
+#endif
 #include "xtable.h"
 
 /* This is a shadow structure of python class DT. Just for reference, nobody
@@ -137,8 +139,8 @@ struct DT_mgr
     struct dir_trigger *dt;
 };
 
-int ebpy_c2py(struct DT_mgr *dt_mgr, PyObject **pArgs)
 #ifdef USE_DT_PYTHON
+int ebpy_c2py(struct DT_mgr *dt_mgr, PyObject **pArgs)
 {
     PyObject *pDict, *value, *pTuple;
     int err = -EINVAL;
@@ -341,13 +343,14 @@ out:
     return err;
 }
 #else
+int ebpy_c2py(struct DT_mgr *dt_mgr, void **pArgs)
 {
     return 0;
 }
 #endif
 
-int ebpy_py2c(PyObject *pInstance, struct DT_mgr *dt_mgr)
 #ifdef USE_DT_PYTHON
+int ebpy_py2c(PyObject *pInstance, struct DT_mgr *dt_mgr)
 {
     PyObject *pDict, *value;
     int err = -EINVAL;
@@ -367,6 +370,7 @@ out:
     return err;
 }
 #else
+int ebpy_py2c(void *pInstance, struct DT_mgr *dt_mgr)
 {
     return 0;
 }

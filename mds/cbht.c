@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-19 00:17:19 macan>
+ * Time-stamp: <2010-12-28 19:01:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -919,6 +919,11 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
                    hi->itbid, hi->name, i);
         goto out;
     }
+    if (unlikely((hi->flag & INDEX_ACQUIRE) ||
+                 (hi->flag & INDEX_RELEASE))) {
+        *(u64 *)hmr = *(u64 *)(mdu_rpy);
+        goto out;
+    }
     /* FIXME: fill hmr with mdu_rpy */
     /* determine the flags */
     m = (struct mdu *)(mdu_rpy);
@@ -971,7 +976,7 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
         }
     }
     
-    if (hi->flag & INDEX_BY_ITB)
+    if (unlikely(hi->flag & INDEX_BY_ITB))
         hmr->flag |= MD_REPLY_READDIR;
 
     if (S_ISDIR(m->mode) && hi->puuid != hmi.gdt_uuid) {
