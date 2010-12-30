@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-29 15:01:26 macan>
+ * Time-stamp: <2010-12-30 15:40:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -414,6 +414,58 @@ out:
     return err;
 }
 
+struct addr_args
+{
+    u64 site_id;
+    void *data;
+    int len;
+};
+
+void *__cli_send_addr_table(void *args)
+{
+    struct xnet_msg *msg;
+    struct addr_args *aa = (struct addr_args *)args;
+    int err = 0;
+
+    hvfs_info(root, "Send addr table to %lx len %d\n", aa->site_id, aa->len);
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(root, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0,
+                     hro.xc->site_id, aa->site_id);
+    xnet_msg_fill_cmd(msg, HVFS_FR2_AU, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    /* Step 1: pack the addr table */
+    err = __pack_msg(msg, aa->data, aa->len);
+    if (err) {
+        hvfs_err(root, "pack addr table len %d failed w/ %d\n",
+                 aa->len, err);
+        goto send;
+    }
+
+    /* Step 2: send the message to receiver */
+send:
+    if (err) {
+        xnet_msg_set_err(msg, err);
+    }
+    err = xnet_send(hro.xc, msg);
+    if (err) {
+        hvfs_err(root, "xnet_send() to %lx failed\n", aa->site_id);
+        goto out_msg;
+    }
+out_msg:
+    xnet_free_msg(msg);
+out:
+    return ERR_PTR(err);
+}
+
 /* __add2ring() add one site to the CH ring w/ ring_vid_max entries
  */
 int __add2ring(struct chring *r, u64 site)
@@ -584,4 +636,69 @@ struct xnet_group *cli_get_active_site(struct chring *r)
     }
 
     return xg;
+}
+
+/* cli_do_addsite manipulate the address table!
+ */
+int cli_do_addsite(struct sockaddr_in *sin, u64 fsid, u64 site_id)
+{
+    struct addr_args aa;
+    struct addr_entry *ae;
+    int err = 0;
+
+    site_id = hst_find_free(site_id);
+    
+    err = addr_mgr_lookup_create(&hro.addr, fsid, &ae);
+    if (err > 0) {
+        hvfs_info(root, "Create addr table for fsid %ld\n", 
+                  fsid);
+    } else if (err < 0) {
+        hvfs_err(root, "addr_mgr_lookup_create() fsid %ld failed w/ %d\n",
+                 fsid, err);
+        goto out;
+    }
+
+    err = addr_mgr_update_one(ae, HVFS_SITE_PROTOCOL_TCP |
+                              HVFS_SITE_REPLACE,
+                              site_id,
+                              sin);
+    if (err) {
+        hvfs_err(xnet, "addr_mgr_update entry %lx failedw/ %d\n",
+                 site_id, err);
+        goto out;
+    }
+
+    /* export the new addr to st_table */
+    {
+        void *data;
+        int len;
+
+        err = addr_mgr_compact_one(ae, site_id, HVFS_SITE_REPLACE, 
+                                   &data, &len);
+        if (err) {
+            hvfs_err(xnet, "compact addr mgr failed w/ %d\n", err);
+            goto out;
+        }
+
+        err = hst_to_xsst(data, len);
+        if (err) {
+            hvfs_err(xnet, "hst to xsst failed w/ %d\n", err);
+            xfree(data);
+            goto out;
+        }
+
+        /* trigger an addr table update now */
+        aa.data = data;
+        aa.len = len;
+        err = site_mgr_traverse(&hro.site, __cli_send_addr_table, &aa);
+        if (err) {
+            hvfs_err(root, "bcast the address table failed w/ %d\n", err);
+            xfree(data);
+            goto out;
+        }
+
+        xfree(data);
+    }
+out:
+    return err;
 }

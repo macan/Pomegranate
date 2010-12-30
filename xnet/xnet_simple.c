@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-03 23:47:24 macan>
+ * Time-stamp: <2010-12-30 16:23:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -307,7 +307,7 @@ int __xnet_handle_tx(int fd)
                     .msg_iovlen = 1,
                 };
                 int bt;
-                
+
                 bt = sendmsg(fd, &__msg, MSG_NOSIGNAL);
                 if (bt < 0 || bt < sizeof(htx)) {
                     hvfs_err(xnet, "sendmsg do not support redo now(%s) :(\n",
@@ -755,6 +755,12 @@ void st_list(char *type)
     } else if (strncmp(type, "r2", 2) == 0) {
         begin = HVFS_ROOT(0);
         end = HVFS_ROOT(HVFS_SITE_N_MASK);
+    } else if (strncmp(type, "client", 6) == 0) {
+        begin = HVFS_CLIENT(0);
+        end = HVFS_CLIENT(HVFS_SITE_N_MASK);
+    } else if (strncmp(type, "amc", 3) == 0) {
+        begin = HVFS_AMC(0);
+        end = HVFS_AMC(HVFS_SITE_N_MASK);
     } else {
         hvfs_err(xnet, "Type '%s' not supported.\n", type);
         return;
@@ -772,6 +778,20 @@ void st_list(char *type)
             }
         }
     }
+}
+
+/* find the first free slot */
+u64 st_ff(int begin, int end)
+{
+    int i;
+    
+    for (i = begin; i <= end; i++) {
+        if (!gst.site[i]) {
+            /* got one */
+            return i;
+        }
+    }
+    return -1UL;
 }
 
 /* st_update_sockfd() update the related addr with the new connection fd
@@ -2166,7 +2186,7 @@ int hst_to_xsst(void *data, int len)
         case HVFS_SITE_DEL:
             err = xnet_del_ipaddr(hst->site_id, hst->nr, hst->addr);
             if (err) {
-                hvfs_err(xnet, "del ipaddr2 failed w. %d\n", err);
+                hvfs_err(xnet, "del ipaddr2 failed w/ %d\n", err);
                 continue;
             }
             break;
@@ -2179,6 +2199,87 @@ int hst_to_xsst(void *data, int len)
     }
 
     return err;
+}
+
+/* find a free slot in address table. Not thread-safe!
+ */
+u64 hst_find_free(u64 type) 
+{
+    u64 site_id = -1UL;
+    int begin, end;
+    
+    switch (type) {
+    case HVFS_SITE_TYPE_CLIENT:
+        begin = HVFS_CLIENT(0);
+        end = HVFS_CLIENT(HVFS_SITE_N_MASK);
+        break;
+    case HVFS_SITE_TYPE_MDS:
+        begin = HVFS_MDS(0);
+        end = HVFS_MDS(HVFS_SITE_N_MASK);
+        break;
+    case HVFS_SITE_TYPE_MDSL:
+        begin = HVFS_MDSL(0);
+        end = HVFS_MDSL(HVFS_SITE_N_MASK);
+        break;
+    case HVFS_SITE_TYPE_AMC:
+        begin = HVFS_AMC(0);
+        end = HVFS_AMC(HVFS_SITE_N_MASK);
+        break;
+    case HVFS_SITE_TYPE_ROOT:
+        begin = HVFS_RING(0);
+        end = HVFS_RING(HVFS_SITE_N_MASK);
+        break;
+    case HVFS_SITE_TYPE_BP:
+        begin = HVFS_BP(0);
+        end = HVFS_BP(HVFS_SITE_N_MASK);
+        break;
+    default:
+        return type;
+    }
+    site_id = st_ff(begin, end);
+
+    return site_id;
+}
+
+struct hvfs_site_tx *hst_construct_tcp(u64 site_id, char *ip, 
+                                       short port, u32 flag)
+{
+    struct hvfs_site_tx *hst;
+    struct sockaddr_in sin;
+
+    hst = xzalloc(sizeof(*hst) + sizeof(struct hvfs_addr_tx));
+    if (!hst) {
+        hvfs_err(xnet, "xzalloc() hst failed\n");
+        return NULL;
+    }
+    hst->site_id = site_id;
+    hst->flag = flag;
+    hst->nr = 1;
+    hst->addr[0].flag = HVFS_SITE_PROTOCOL_TCP;
+    sin.sin_port = htons(port);
+    inet_aton(ip, &sin.sin_addr);
+    *((struct sockaddr_in *)&hst->addr[0].sock.sa) = sin;
+
+    return hst;
+}
+
+/* Update one site only if it does not exist
+ */
+int hst_addto_xsst(struct hvfs_site_tx *hst)
+{
+    int err = 0;
+    
+    if (!hst) {
+        return -EINVAL;
+    }
+
+    err = xnet_add_ipaddr(hst->site_id, hst->nr, hst->addr);
+    if (err) {
+        hvfs_err(xnet, "add ipaddr2 failed w/ %d\n", err);
+        return err;
+    }
+
+    return 0;
 }
 
 #endif

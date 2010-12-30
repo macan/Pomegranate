@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-15 09:39:46 macan>
+ * Time-stamp: <2010-12-30 15:31:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -178,6 +178,7 @@ struct ring_entry *ring_mgr_lookup(struct ring_mgr *, u32);
 void ring_mgr_put(struct ring_entry *);
 struct root_entry *root_mgr_lookup(struct root_mgr *, u64);
 int addr_mgr_compact(struct addr_entry *, void **, int *);
+int addr_mgr_compact_one(struct addr_entry *, u64, u32, void **, int *);
 int addr_mgr_update_one(struct addr_entry *, u32, u64, void *);
 struct addr_entry *addr_mgr_lookup(struct addr_mgr *, u64);
 int addr_mgr_lookup_create(struct addr_mgr *, u64, struct addr_entry **);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-21 01:16:28 macan>
+ * Time-stamp: <2010-12-30 15:14:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -264,22 +264,34 @@ out:
 
 int mds_ring_update(struct xnet_msg *msg)
 {
-    void *data = NULL;
-    int err = 0;
-    
     if (msg->xm_datacheck) {
-        data = msg->xm_data;
         /* ok, we should call the ring update callback function */
         if (hmo.cb_ring_update)
-            hmo.cb_ring_update(data);
+            hmo.cb_ring_update(msg->xm_data);
     } else {
         hvfs_err(mds, "Invalid data region of ring update request from %ld\n",
                  msg->tx.ssite_id);
+        return -EINVAL;
     }
 
     xnet_free_msg(msg);
 
-    return err;
+    return 0;
+}
+
+int mds_addr_table_update(struct xnet_msg *msg)
+{
+    if (msg->xm_datacheck) {
+        if (hmo.cb_addr_table_update)
+            hmo.cb_addr_table_update(msg->xm_data);
+    } else {
+        hvfs_err(mds, "Invalid addr table update message, incomplete hst!\n");
+        return -EINVAL;
+    }
+
+    xnet_free_msg(msg);
+
+    return 0;
 }
 
 /* Callback for XNET, should be thread-safe!

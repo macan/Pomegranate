@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-28 18:56:28 macan>
+ * Time-stamp: <2010-12-29 15:34:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -70,6 +70,12 @@ int root_dispatch(struct xnet_msg *msg)
         break;
     case HVFS_R2_FTREPORT:
         err = root_do_ftreport(msg);
+        break;
+    case HVFS_R2_ADDSITE:
+        err = root_do_addsite(msg);
+        break;
+    case HVFS_R2_RMVSITE:
+        err = root_do_rmvsite(msg);
         break;
     default:
         hvfs_err(root, "R2 core dispatcher handle INVALID "

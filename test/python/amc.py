@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-12-23 20:08:59 macan>
+# Time-stamp: <2010-12-29 16:23:49 macan>
 #
 # Armed with EMACS.
 
@@ -1036,7 +1036,7 @@ class pamc_shell(cmd.Cmd):
     keywords = ["EOF", "create", "drop", "put", "get", "del", "update",
                 "quit", "list", "ls", "set", "commit", "getcluster",
                 "getactivesite", "online", "offline", "sput", 
-                "sget", "supdate"]
+                "sget", "supdate", "addsite"]
 
     def __init__(self):
         cmd.Cmd.__init__(self)
@@ -1497,17 +1497,38 @@ class pamc_shell(cmd.Cmd):
 
     def do_online(self, line):
         '''Online a site or a group sites.
-        Usage: online 'mds/mdsl' id ip'''
+        Usage: online 'mds/mdsl' id'''
         l = shlex.split(line)
-        if len(l) < 3:
+        if len(l) < 2:
             print "Invalid argument. See help online!"
             return
         # ok
         try:
             self.start_clock()
-            err = api.hvfs_online(l[0], int(l[1]), l[2])
+            err = api.hvfs_online(l[0], int(l[1]))
             if err != 0:
                 print "api.hvfs_online() failed w/ %d" % err
+                return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
+        except TypeError, te:
+            print "TypeError %s" % te
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_addsite(self, line):
+        '''Online add a new site.
+        Usage: addsite ip port type id'''
+        l = shlex.split(line)
+        if len(l) < 4:
+            print "Invalid arguments. See help addsite!"
+            return
+        # ok
+        try:
+            self.start_clock()
+            err = api.hvfs_addsite(l[0], int(l[1]), l[2], int(l[3]))
+            if err != 0:
+                print "api.hvfs_addsite() failed w/ %d" % err
                 return
             self.stop_clock()
             self.echo_clock("Time elasped:")

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-22 18:59:50 macan>
+ * Time-stamp: <2010-12-30 16:23:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -708,6 +708,30 @@ out:
     return;
 }
 
+void amc_cb_addr_table_update(void *arg)
+{
+    struct hvfs_site_tx *hst;
+    void *data = arg;
+    int err = 0;
+
+    hvfs_info(xnet, "Update address table ...\n");
+
+    err = bparse_addr(data, &hst);
+    if (err < 0) {
+        hvfs_err(xnet, "bparse_addr failed w/ %d\n", err);
+        goto out;
+    }
+    
+    err = hst_to_xsst(hst, err - sizeof(u32));
+    if (err) {
+        hvfs_err(xnet, "hst to xsst failed w/ %d\n", err);
+        goto out;
+    }
+
+out:
+    return;
+}
+
 int hvfs_lookup_root(void)
 {
     struct xnet_msg *msg;
@@ -867,10 +891,13 @@ int amc_dispatch(struct xnet_msg *msg)
     case HVFS_FR2_RU:
         err = mds_ring_update(msg);
         break;
+    case HVFS_FR2_AU:
+        err = mds_addr_table_update(msg);
+        break;
     default:
         hvfs_err(xnet, "AMC core dispatcher handle INVALID "
-                 "request <0x%lx %d>\n",
-                 msg->tx.ssite_id, msg->tx.reqno);
+                 "request <0x%lx %d %lx>\n",
+                 msg->tx.ssite_id, msg->tx.reqno, msg->tx.cmd);
         err = -EINVAL;
     }
 
@@ -1017,6 +1044,7 @@ int __core_main(int argc, char *argv[])
     
     hmo.cb_exit = amc_cb_exit;
     hmo.cb_ring_update = amc_cb_ring_update;
+    hmo.cb_addr_table_update = amc_cb_addr_table_update;
     err = r2cli_do_reg(self, HVFS_RING(0), fsid, 0);
     if (err) {
         hvfs_err(xnet, "ref self %x w/ r2 %x failed w/ %d\n",
@@ -3382,6 +3410,10 @@ int hvfs_get_cluster(char *type)
         st_list("mdsl");
     } else if (strncmp(type, "mds", 3) == 0) {
         st_list("mds");
+    } else if (strncmp(type, "client", 6) == 0) {
+        st_list("client");
+    } else if (strncmp(type, "amc", 3) == 0) {
+        st_list("amc");
     } else {
         hvfs_err(xnet, "Type '%s' not supported yet.\n", type);
     }
@@ -3414,6 +3446,8 @@ char *hvfs_active_site(char *type)
             err = "Error: No memory.";
             goto out;
         }
+    } else {
+        hvfs_err(xnet, "Type '%s' not supported yet.\n", type);
     }
 
     /* print the active sites */
@@ -3437,7 +3471,7 @@ out:
     return err;
 }
 
-int hvfs_online(char *type, int id, char *ip)
+int hvfs_online(char *type, int id)
 {
     struct xnet_msg *msg;
     u64 site_id;
@@ -3467,8 +3501,7 @@ int hvfs_online(char *type, int id, char *ip)
     }
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hmo.xc->site_id, HVFS_ROOT(0));
-    /* arg1: ip address */
-    xnet_msg_fill_cmd(msg, HVFS_R2_ONLINE, site_id, inet_addr(ip));
+    xnet_msg_fill_cmd(msg, HVFS_R2_ONLINE, site_id, 0);
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -3519,8 +3552,7 @@ int hvfs_offline(char *type, int id)
     }
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hmo.xc->site_id, HVFS_ROOT(0));
-    xnet_msg_fill_cmd(msg, HVFS_R2_OFFLINE, site_id, 0); /* arg1: ip
-                                                          * address */
+    xnet_msg_fill_cmd(msg, HVFS_R2_OFFLINE, site_id, 0);
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -3538,6 +3570,121 @@ out_msg:
     xnet_free_msg(msg);
 out:
     
+    return err;
+}
+
+/* we will find the 
+ */
+int hvfs_addsite(char *ip, int port, char *type, int id)
+{
+    struct xnet_msg *msg;
+    struct sockaddr_in sin;
+    u64 site_id = HVFS_SITE_TYPE_CLIENT;
+    int err = 0;
+
+    if (id == -1) {
+        if (strncmp(type, "mdsl", 4) == 0) {
+            site_id = HVFS_SITE_TYPE_MDSL;
+        } else if (strncmp(type, "mds", 3) == 0) {
+            site_id = HVFS_SITE_TYPE_MDS;
+        } else if (strncmp(type, "client", 6) == 0) {
+            site_id = HVFS_SITE_TYPE_CLIENT;
+        } else if (strncmp(type, "root", 4) == 0) {
+            site_id = HVFS_SITE_TYPE_ROOT;
+        } else if (strncmp(type, "amc", 3) == 0) {
+            site_id = HVFS_SITE_TYPE_AMC;
+        } else if (strncmp(type, "bp", 2) == 0) {
+            site_id = HVFS_SITE_TYPE_BP;
+        }
+    } else if (id > 0) {
+        if (strncmp(type, "mdsl", 4) == 0) {
+            site_id = HVFS_MDSL(id);
+        } else if (strncmp(type, "mds", 3) == 0) {
+            site_id = HVFS_MDS(id);
+        } else if (strncmp(type, "client", 6) == 0) {
+            site_id = HVFS_CLIENT(id);
+        } else if (strncmp(type, "root", 4) == 0) {
+            site_id = HVFS_ROOT(id);
+        } else if (strncmp(type, "amc", 3) == 0) {
+            site_id = HVFS_AMC(id);
+        } else if (strncmp(type, "bp", 2) == 0) {
+            site_id = HVFS_BP(id);
+        }
+    } else {
+        hvfs_err(xnet, "Invalid id %d\n", id);
+        err = -EINVAL;
+        goto out;
+    }
+
+    sin.sin_port = htons(port);
+    inet_aton(ip, &sin.sin_addr);
+    
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, HVFS_ROOT(0));
+    xnet_msg_fill_cmd(msg, HVFS_R2_ADDSITE, (u64)sin.sin_port | 
+                      (u64)sin.sin_addr.s_addr << 32, site_id);
+    if (hmo.fsid == 1) {
+        /* in kv mode, we fallback to addr table of fs 0 */
+        msg->tx.reserved = 0;
+    } else {
+        msg->tx.reserved = hmo.fsid;
+    }
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    xnet_set_auto_free(msg->pair);
+
+out_msg:
+    xnet_free_msg(msg);
+out:
+
+    return err;
+}
+
+int hvfs_rmvsite(u64 site_id)
+{
+    struct xnet_msg *msg;
+    int err = 0;
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, HVFS_ROOT(0));
+    xnet_msg_fill_cmd(msg, HVFS_R2_RMVSITE, site_id, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    xnet_set_auto_free(msg->pair);
+
+out_msg:
+    xnet_free_msg(msg);
+out:
     return err;
 }
 

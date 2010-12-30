@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-29 00:12:36 macan>
+ * Time-stamp: <2010-12-30 17:04:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -232,7 +232,12 @@ void st_destroy(void);
 void st_list(char *type);
 int xnet_update_ipaddr(u64, int, char *ipaddr[], short port[]);
 int hst_to_xsst(void *, int);
+u64 hst_find_free(u64);
 void xnet_wait_any(struct xnet_context *xc);
+#else
+/* To eliminate warnings */
+int hst_to_xsst(void *, int);
+u64 hst_find_free(u64);
 #endif
 
 /* XNET Group management */

@@ -1,4 +1,13 @@
 #!/bin/bash
+##
+# Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
+#                           <macan@ncic.ac.cn>
+#
+# Time-stamp: <2010-12-30 10:13:47 macan>
+#
+# This is the mangement script for Pomegranate
+#
+# Armed with EMACS.
 
 if [ "x$HVFS_HOME" == "x" ]; then
     HVFS_HOME=`pwd`

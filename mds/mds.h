@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-28 19:19:08 macan>
+ * Time-stamp: <2010-12-30 15:26:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -248,6 +248,7 @@ struct hvfs_mds_object
     void (*cb_exit)(void *);
     void (*cb_hb)(void *);
     void (*cb_ring_update)(void *);
+    void (*cb_addr_table_update)(void *);
     u64 fsid;
 };
 
@@ -308,6 +309,7 @@ int mds_fe_dispatch(struct xnet_msg *msg);
 int mds_pause(struct xnet_msg *);
 int mds_resume(struct xnet_msg *);
 int mds_ring_update(struct xnet_msg *);
+int mds_addr_table_update(struct xnet_msg *msg);
 
 /* for dispatch.c */
 int mds_client_dispatch(struct xnet_msg *msg);

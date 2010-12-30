@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-24 17:25:42 macan>
+ * Time-stamp: <2010-12-30 11:32:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -142,10 +142,14 @@
 #define HVFS_R2_ONLINE          0x0000000040000012 /* online a site */
 #define HVFS_R2_OFFLINE         0x0000000040000014 /* offline a site */
 #define HVFS_R2_FTREPORT        0x0000000040000018 /* ft report */
+#define HVFS_R2_ADDSITE         0x0000000040000020 /* add site */
+#define HVFS_R2_RMVSITE         0x0000000040000021 /* remove site */
 
 /* ROOT/RING to * */
 #define HVFS_FR2_RU             0x0000000041000000 /* ring updates to all
                                                     * sites */
+#define HVFS_FR2_AU             0x0000000042000000 /* address table updates to
+                                                    * all sites */
 
 /* APIs */
 #define HASH_SEL_EH     0x00

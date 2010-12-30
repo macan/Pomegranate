@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-22 18:56:26 macan>
+ * Time-stamp: <2010-12-30 15:34:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2436,6 +2436,30 @@ out:
     return;
 }
 
+void client_cb_addr_table_update(void *arg)
+{
+    struct hvfs_site_tx *hst;
+    void *data = arg;
+    int err = 0;
+
+    hvfs_info(xnet, "Update address table ...\n");
+
+    err = bparse_addr(data, &hst);
+    if (err < 0) {
+        hvfs_err(xnet, "bparse_addr failed w/ %d\n", err);
+        goto out;
+    }
+    
+    err = hst_to_xsst(hst, err - sizeof(u32));
+    if (err) {
+        hvfs_err(xnet, "hst to xsst failed w/ %d\n", err);
+        goto out;
+    }
+
+out:
+    return;
+}
+
 int client_dispatch(struct xnet_msg *msg)
 {
     int err = 0;
@@ -2443,6 +2467,9 @@ int client_dispatch(struct xnet_msg *msg)
     switch (msg->tx.cmd) {
     case HVFS_FR2_RU:
         err = mds_ring_update(msg);
+        break;
+    case HVFS_FR2_AU:
+        err = mds_addr_table_update(msg);
         break;
     default:
         hvfs_err(xnet, "Client core dispatcher handle INVALID "
@@ -2602,6 +2629,7 @@ int main(int argc, char *argv[])
     } else {
         hmo.cb_exit = client_cb_exit;
         hmo.cb_ring_update = client_cb_ring_update;
+        hmo.cb_addr_table_update = client_cb_addr_table_update;
         /* use ring info to init the mds */
         err = r2cli_do_reg(self, HVFS_RING(0), 0, 0);
         if (err) {

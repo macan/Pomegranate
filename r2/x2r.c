@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-28 19:21:35 macan>
+ * Time-stamp: <2010-12-30 15:24:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -153,7 +153,7 @@ int root_do_reg(struct xnet_msg *msg)
     if (err > 0) {
         /* it is a new create site entry, set the fsid now */
         se->fsid = msg->tx.arg1;
-        se->gid = msg->tx.reserved;
+        se->gid = msg->tx.reserved & 0xffffffff;
         err = root_read_hxi(se->site_id, se->fsid, &se->hxi);
         if (err == -ENOTEXIST) {
             err = root_create_hxi(se);
@@ -1012,7 +1012,7 @@ int root_do_online(struct xnet_msg *msg)
 
     /* ABI:
      * tx.arg0: site_id
-     * tx.arg1: ip address
+     * tx.arg1: NONE
      */
 
     /* first, we should update the address table and bcast it to all the
@@ -1022,7 +1022,7 @@ int root_do_online(struct xnet_msg *msg)
     /* second, we update the hash ring and bcast it */
     if (HVFS_IS_MDS(msg->tx.arg0)) {
         type = CH_RING_MDS;
-    } else if (HVFS_IS_MDSL(msg->tx.arg1)) {
+    } else if (HVFS_IS_MDSL(msg->tx.arg0)) {
         type = CH_RING_MDSL;
     } else {
         hvfs_err(root, "Invalid site (type): %ld\n", msg->tx.arg0);
@@ -1038,6 +1038,7 @@ int root_do_online(struct xnet_msg *msg)
     
     err = cli_dynamic_add_site(re, msg->tx.arg0);
     if (err) {
+        ring_mgr_put(re);
         hvfs_err(root, "cli_dynamic_add_site() failed w/ %d\n", err);
         goto out;
     }
@@ -1060,12 +1061,12 @@ int root_do_offline(struct xnet_msg *msg)
 
     /* ABI:
      * tx.arg0: site_id
-     * tx.arg1: ip address
+     * tx.arg1: NONE
      */
 
     if (HVFS_IS_MDS(msg->tx.arg0)) {
         type = CH_RING_MDS;
-    } else if (HVFS_IS_MDSL(msg->tx.arg1)) {
+    } else if (HVFS_IS_MDSL(msg->tx.arg0)) {
         type = CH_RING_MDSL;
     } else {
         hvfs_err(root, "Invalid site (type): %ld\n", msg->tx.arg0);
@@ -1081,6 +1082,7 @@ int root_do_offline(struct xnet_msg *msg)
     
     err = cli_dynamic_del_site(re, msg->tx.arg0);
     if (err) {
+        ring_mgr_put(re);
         hvfs_err(root, "ring_find_site() failed w/ %d\n", err);
         goto out;
     }
@@ -1104,4 +1106,46 @@ int root_do_ftreport(struct xnet_msg *msg)
     int err = 0;
 
     return err;
+}
+
+/* This function is NOT thread-safe! FIXME
+ */
+int root_do_addsite(struct xnet_msg *msg)
+{
+    struct sockaddr_in sin;
+    int err = 0;
+
+    /* ABI:
+     * tx.arg0: ip address | service port (already converted to network order)
+     * tx.arg1: site_id to add or site type
+     * tx.reserved: fsid
+     */
+
+    sin.sin_family = AF_INET;
+    sin.sin_port = msg->tx.arg0 & 0xffffffff;
+    sin.sin_addr.s_addr = msg->tx.arg0 >> 32;
+
+    /* For security reasons, we should only allow authorized sites to add
+     * sites */
+    err = cli_do_addsite(&sin, msg->tx.reserved, msg->tx.arg1);
+    if (err) {
+        hvfs_err(root, "cli_do_addsite(%ld, %ld) failed w/ %d\n",
+                 msg->tx.reserved, msg->tx.arg1, err);
+    }
+
+    __simply_send_reply(msg, err);
+    xnet_free_msg(msg);
+
+    return err;
+}
+
+
+int root_do_rmvsite(struct xnet_msg *msg)
+{
+    /* ABI:
+     * tx.arg0: site_id to remove
+     */
+    xnet_free_msg(msg);
+
+    return 0;
 }

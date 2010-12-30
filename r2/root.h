@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-28 19:32:18 macan>
+ * Time-stamp: <2010-12-30 15:24:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -163,6 +163,8 @@ int root_do_lbgdt(struct xnet_msg *);
 int root_do_online(struct xnet_msg *);
 int root_do_offline(struct xnet_msg *);
 int root_do_ftreport(struct xnet_msg *);
+int root_do_addsite(struct xnet_msg *);
+int root_do_rmvsite(struct xnet_msg *);
 
 int bparse_hxi(void *, union hvfs_x_info **);
 int bparse_ring(void *, struct chring_tx **);
@@ -176,6 +178,7 @@ int root_mkfs(struct root_entry *, struct ring_entry *, u32);
 int cli_scan_ring(struct ring_entry *, int, struct ring_range *);
 int cli_dynamic_add_site(struct ring_entry *, u64);
 int cli_dynamic_del_site(struct ring_entry *, u64);
+int cli_do_addsite(struct sockaddr_in *, u64, u64);
 struct xnet_group *cli_get_active_site(struct chring *);
 
 #endif

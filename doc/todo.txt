@@ -203,3 +203,8 @@ there is an error. Low.
     trivial work!
 
     Optimize memory usage.
+
+22. Dynamic site address addin (Priority: High)
+
+    Detect new site addin by ROOT server, and bcast the new site 
+    table.

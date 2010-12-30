@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-12-15 22:12:55 macan>
+# Time-stamp: <2010-12-29 16:17:44 macan>
 #
 # Armed with EMACS.
 #
@@ -721,15 +721,15 @@ class pamc_shell(cmd.Cmd):
 
     def do_online(self, line):
         '''Online a site or a group sites.
-        Usage: online 'mds/mdsl' id ip'''
+        Usage: online 'mds/mdsl' id'''
         l = shlex.split(line)
-        if len(l) < 3:
+        if len(l) < 2:
             print "Invalid argument. See help online!"
             return
         # ok
         try:
             self.start_clock()
-            err = api.hvfs_online(l[0], int(l[1]), l[2])
+            err = api.hvfs_online(l[0], int(l[1]))
             if err != 0:
                 print "api.hvfs_online() failed w/ %d" % err
                 return
