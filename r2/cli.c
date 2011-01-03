@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-30 15:40:21 macan>
+ * Time-stamp: <2010-12-31 11:24:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -663,7 +663,7 @@ int cli_do_addsite(struct sockaddr_in *sin, u64 fsid, u64 site_id)
                               site_id,
                               sin);
     if (err) {
-        hvfs_err(xnet, "addr_mgr_update entry %lx failedw/ %d\n",
+        hvfs_err(xnet, "addr_mgr_update entry %lx failed w/ %d\n",
                  site_id, err);
         goto out;
     }
@@ -699,6 +699,66 @@ int cli_do_addsite(struct sockaddr_in *sin, u64 fsid, u64 site_id)
 
         xfree(data);
     }
+out:
+    return err;
+}
+
+int cli_do_rmvsite(struct sockaddr_in *sin, u64 fsid, u64 site_id)
+{
+    struct addr_args aa;
+    struct addr_entry *ae;
+    int err = 0;
+
+    ae = addr_mgr_lookup(&hro.addr, fsid);
+    if (IS_ERR(ae)) {
+        hvfs_err(root, "addr_mgr_lookup() fsid %ld failed w/ %ld\n",
+                 fsid, PTR_ERR(ae));
+        err = PTR_ERR(ae);
+        goto out;
+    }
+
+    /* export the new addr to st_table */
+    {
+        void *data;
+        int len;
+
+        err = addr_mgr_compact_one(ae, site_id, HVFS_SITE_DEL,
+                                   &data, &len);
+        if (err) {
+            hvfs_err(xnet, "compact addr mgr failed w/ %d\n", err);
+            goto out;
+        }
+
+        err = hst_to_xsst(data, len);
+        if (err) {
+            hvfs_err(xnet, "hst to xsst failed w/ %d\n", err);
+            xfree(data);
+            goto out;
+        }
+
+        err = addr_mgr_update_one(ae, HVFS_SITE_PROTOCOL_TCP |
+                                  HVFS_SITE_DEL,
+                                  site_id, sin);
+        if (err) {
+            hvfs_err(xnet, "addr_mgr_update entry %lx failed w/ %d\n",
+                     site_id, err);
+            xfree(data);
+            goto out;
+        }
+
+        /* trigger an addr table update now */
+        aa.data = data;
+        aa.len = len;
+        err = site_mgr_traverse(&hro.site, __cli_send_addr_table, &aa);
+        if (err) {
+            hvfs_err(root, "bcast the address table failed w/ %d\n", err);
+            xfree(data);
+            goto out;
+        }
+
+        xfree(data);
+    }
+    
 out:
     return err;
 }

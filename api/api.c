@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-30 16:23:23 macan>
+ * Time-stamp: <2011-01-02 23:43:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3617,7 +3617,10 @@ int hvfs_addsite(char *ip, int port, char *type, int id)
     }
 
     sin.sin_port = htons(port);
-    inet_aton(ip, &sin.sin_addr);
+    if (inet_aton(ip, &sin.sin_addr) == 0) {
+        hvfs_err(xnet, "Invalid inet address %s\n", ip);
+        return -EINVAL;
+    }
     
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!msg) {
@@ -3655,10 +3658,17 @@ out:
     return err;
 }
 
-int hvfs_rmvsite(u64 site_id)
+int hvfs_rmvsite(char *ip, int port, u64 site_id)
 {
     struct xnet_msg *msg;
+    struct sockaddr_in sin;
     int err = 0;
+
+    sin.sin_port = htons(port);
+    if (inet_aton(ip, &sin.sin_addr) == 0) {
+        hvfs_err(xnet, "Invalid inet address %s\n", ip);
+        return -EINVAL;
+    }
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!msg) {
@@ -3668,7 +3678,14 @@ int hvfs_rmvsite(u64 site_id)
     }
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hmo.xc->site_id, HVFS_ROOT(0));
-    xnet_msg_fill_cmd(msg, HVFS_R2_RMVSITE, site_id, 0);
+    xnet_msg_fill_cmd(msg, HVFS_R2_RMVSITE, (u64)sin.sin_port |
+                      (u64)sin.sin_addr.s_addr << 32, site_id);
+    if (hmo.fsid == 1) {
+        /* in kv mode, we fallback to addr table of fs 0 */
+        msg->tx.reserved = 0;
+    } else {
+        msg->tx.reserved = hmo.fsid;
+    }
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -4416,7 +4433,8 @@ resend:
         if (hs) {
             memset(hs, 0, sizeof(*hs));
             hs->puuid = rhi->puuid;
-            if (hmr->flag & MD_REPLY_DIR) {
+            if (hmr->flag & MD_REPLY_DIR ||
+                puuid == hmi.gdt_uuid) {
                 hs->ssalt = m->salt;
             } else 
                 hs->psalt = rhi->psalt;
@@ -5277,6 +5295,15 @@ int hvfs_readdir(char *path, char *name, void **data)
             goto out;
         }
         psalt = hs.ssalt;
+    } else {
+        /* check if it is the root directory */
+        if (puuid == hmi.root_uuid) {
+            err = __hvfs_fill_root(&hs);
+            if (err) {
+                hvfs_err(xnet, "fill root entry failed w/ %d\n", err);
+                goto out;
+            }
+        }
     }
 
     err = __hvfs_readdir(puuid, psalt, (char **)data);

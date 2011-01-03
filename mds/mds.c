@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-27 13:50:00 macan>
+ * Time-stamp: <2011-01-02 22:20:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -442,9 +442,9 @@ int mds_cbht_evict_all_default(struct bucket *b, void *arg0, void *arg1)
     int err = 0;
 
     xrwlock_wlock(&ih->lock);
-    hvfs_warning(mds, "Try to evict ITB %ld txg %ld state %x "
+    hvfs_warning(mds, "Try to evict ITB (%lx,%ld) txg %ld state %x "
                  "be %p obe %p twin %ld ref %d list_empty %d\n", 
-                 ih->itbid, ih->txg, ih->state, be, ih->be, 
+                 ih->puuid, ih->itbid, ih->txg, ih->state, be, ih->be, 
                  ih->twin, atomic_read(&ih->ref), list_empty(&ih->list));
     if (ih->state == ITB_STATE_CLEAN) {
         /* ok, this is the target to operate on */

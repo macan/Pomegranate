@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-12-29 16:17:44 macan>
+# Time-stamp: <2010-12-31 11:23:09 macan>
 #
 # Armed with EMACS.
 #
@@ -128,7 +128,7 @@ class pamc_shell(cmd.Cmd):
                 "rmdir", "cpin", "cpout", "online", "offline",
                 "quit", "ls", "commit", "getcluster", "cat", 
                 "regdtrigger", "catdtrigger", "statfs", "setattr",
-                "getactivesite"]
+                "getactivesite", "addsite", "rmvsite"]
 
     def __init__(self):
         cmd.Cmd.__init__(self)
@@ -740,6 +740,48 @@ class pamc_shell(cmd.Cmd):
         except ValueError, ve:
             print "ValueError %s" % ve
         print "+OK"
+
+    def do_addsite(self, line):
+        '''Online add a new site.
+        Usage: addsite ip port type id'''
+        l = shlex.split(line)
+        if len(l) < 4:
+            print "Invalid arguments. See help addsite!"
+            return
+        # ok
+        try:
+            self.start_clock()
+            err = api.hvfs_addsite(l[0], int(l[1]), l[2], int(l[3]))
+            if err != 0:
+                print "api.hvfs_addsite() failed w/ %d" % err
+                return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
+        except TypeError, te:
+            print "TypeError %s" % te
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_rmvsite(self, line):
+        '''Remove a site from the address table
+        Usage: rmvsite ip port site_id'''
+        l = shlex.split(line)
+        if len(l) < 3:
+            print "Invalid arguments. See help rmvsite!"
+            return
+        # ok
+        try:
+            self.start_clock()
+            err = api.hvfs_rmvsite(l[0], int(l[1]), long(l[2]))
+            if err != 0:
+                print "api.hvfs_rmvsite() failed w/ %d" % err
+                return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
+        except TypeError, te:
+            print "TypeError %s" % te
+        except ValueError, ve:
+            print "ValueError %s" % ve
 
     def do_statfs(self, line):
         '''Statfs to get the metadata of the file system.

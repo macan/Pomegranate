@@ -207,4 +207,25 @@ there is an error. Low.
 22. Dynamic site address addin (Priority: High)
 
     Detect new site addin by ROOT server, and bcast the new site 
-    table.
+    table. @ 2010.12.31, we have already complete the main part.
+    You can add a site in python shell by issuing 'addsite' command.
+    Then, online the new site as MDS or MDSL.
+
+    We should add a shutdown command to close a opened site entry 
+    at R2 server. It should be useful both for test and for production
+    usage.
+
+23. Bug notice on data lossing (Priority: High)
+
+    Maybe I find a bug in the evict all implementation. By online
+    a new mds site, and add new entries to the file system. Then,
+    offline the newly added site, we find that the newly added 
+    entries are lost. The dirty ITB are lost either. Either the 
+    evict function is faulty or the MDSL write function is faulty.
+
+    Schedule to fix it @ 2011/01/02.
+
+    OK to fixed it @ 2011/01/02. This bug is very stupid. The ugly
+    API sucks. On stating GDT entries, we get a NO DIR flag reply.
+    While, api.__hvfs_stat() can not recognize it, and reset the 
+    ssalt to parent salt value. Then everything BONG!

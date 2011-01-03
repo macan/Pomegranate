@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-30 15:24:00 macan>
+ * Time-stamp: <2010-12-31 11:25:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -179,6 +179,7 @@ int cli_scan_ring(struct ring_entry *, int, struct ring_range *);
 int cli_dynamic_add_site(struct ring_entry *, u64);
 int cli_dynamic_del_site(struct ring_entry *, u64);
 int cli_do_addsite(struct sockaddr_in *, u64, u64);
+int cli_do_rmvsite(struct sockaddr_in *, u64, u64);
 struct xnet_group *cli_get_active_site(struct chring *);
 
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-30 15:24:24 macan>
+ * Time-stamp: <2010-12-31 11:26:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1142,8 +1142,37 @@ int root_do_addsite(struct xnet_msg *msg)
 
 int root_do_rmvsite(struct xnet_msg *msg)
 {
+    struct sockaddr_in sin;
+    int err = 0;
+    
     /* ABI:
-     * tx.arg0: site_id to remove
+     * tx.arg0: ip address | service port (already converted to network order)
+     * tx.arg1: site_id to remove
+     * tx.reserved: fsid
+     */
+
+    sin.sin_family = AF_INET;
+    sin.sin_port = msg->tx.arg0 & 0xffffffff;
+    sin.sin_addr.s_addr = msg->tx.arg0 >> 32;
+
+    /* For security reasons, we should only allow authorized sites to remove
+     * sites */
+    err = cli_do_rmvsite(&sin, msg->tx.reserved, msg->tx.arg1);
+    if (err) {
+        hvfs_err(root, "cli_do_rmvsite(%ld, %ld) failed w/ %d\n",
+                 msg->tx.reserved, msg->tx.arg1, err);
+    }
+
+    __simply_send_reply(msg, err);
+    xnet_free_msg(msg);
+
+    return err;
+}
+
+int root_do_shutdown(struct xnet_msg *msg)
+{
+    /* ABI:
+     * tx.arg0: site_id to shutdown
      */
     xnet_free_msg(msg);
 

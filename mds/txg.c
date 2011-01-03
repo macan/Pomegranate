@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-19 00:43:09 macan>
+ * Time-stamp: <2011-01-03 10:56:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -463,6 +463,8 @@ int txg_wb_itb_ll(struct commit_thread_arg *cta, struct itb *itb)
     }
     
     p = ring_get_point(itb->h.itbid, e->salt, hmo.chring[CH_RING_MDSL]);
+    hvfs_debug(mds, "Prepare to wb %lx %ld %ld\n", itb->h.puuid,
+               itb->h.itbid, e->salt);
     mds_dh_put(e);
     if (IS_ERR(p)) {
         hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
