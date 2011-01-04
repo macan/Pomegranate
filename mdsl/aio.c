@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-22 18:26:25 macan>
+ * Time-stamp: <2011-01-04 20:16:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -353,8 +353,24 @@ void *aio_main(void *arg)
 
 int mdsl_aio_create(void)
 {
+    pthread_attr_t attr;
     struct aio_thread_arg *ata;
-    int i, err = 0;
+    int i, err = 0, stacksize;
+
+    /* init the thread stack size */
+    err = pthread_attr_init(&attr);
+    if (err) {
+        hvfs_err(mdsl, "Init pthread attr failed\n");
+        goto out;
+    }
+    stacksize = (hmo.conf.stacksize > (1 << 20) ? 
+                 hmo.conf.stacksize : (2 << 20));
+    err = pthread_attr_setstacksize(&attr, stacksize);
+    if (err) {
+        hvfs_err(mdsl, "set thread stack size to %d failed w/ %d\n", 
+                 stacksize, err);
+        goto out;
+    }
 
     /* init the mgr struct  */
     INIT_LIST_HEAD(&aio_mgr.queue);
@@ -387,7 +403,7 @@ int mdsl_aio_create(void)
 
     for (i = 0; i < hmo.conf.aio_threads; i++) {
         (ata + i)->tid = i;
-        err = pthread_create(hmo.aio_thread + i, NULL, &aio_main,
+        err = pthread_create(hmo.aio_thread + i, &attr, &aio_main,
                              ata + i);
         if (err)
             goto out;

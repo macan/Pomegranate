@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-11 13:15:35 macan>
+ * Time-stamp: <2011-01-04 19:32:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,8 +26,6 @@
 
 #include "hvfs_const.h"
 #include "mds_api.h"
-
-#define XTABLE_VALUE_SIZE       (320)
 
 /* FIXME: there should be many different ITE definations */
 

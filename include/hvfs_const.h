@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-27 16:59:12 macan>
+ * Time-stamp: <2011-01-04 19:33:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,7 +26,14 @@
 
 #define HVFS_SUPER_MAGIC        (0x4af5)
 
+#ifdef USE_SHORT_LEN            /* short length means we have short name length */
+#define HVFS_MAX_NAME_LEN       128
+#define XTABLE_VALUE_SIZE       (192)
+#else
 #define HVFS_MAX_NAME_LEN       256
+#define XTABLE_VALUE_SIZE       (320)
+#endif
+
 #define MDS_DCONF_MAX_NAME_LEN  64
 #define MDSL_DCONF_MAX_NAME_LEN MDS_DCONF_MAX_NAME_LEN
 #define ROOT_DCONF_MAX_NAME_LEN MDS_DCONF_MAX_NAME_LEN

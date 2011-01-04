@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-02 22:20:11 macan>
+ * Time-stamp: <2011-01-04 20:05:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -130,6 +130,39 @@ out:
 }
 
 static inline
+int network_congestion(time_t cur)
+{
+    static time_t last_ts = 0;
+    static u64 last_obytes = 0;
+    u64 cur_obytes;
+    int ret = 0;
+
+    if (cur > last_ts) {
+        if (unlikely(!hmo.prof.xnet)) {
+            /* xnet in/out bytes info is not avaliable, we randomly congested */
+            ret = lib_random(1);
+        } else {
+            if (!last_ts) {
+                last_ts = cur;
+                last_obytes = atomic64_read(&hmo.prof.xnet->outbytes);
+            }
+            if (cur > last_ts) {
+                cur_obytes = atomic64_read(&hmo.prof.xnet->outbytes);
+                /* bigger than 5MB/s means network congested */
+                if ((cur_obytes - last_obytes) / (cur - last_ts) > 
+                    (5 << 20)) {
+                    ret = 1;
+                }
+                last_ts = cur;
+                last_obytes = cur_obytes;
+            }
+        }
+    }
+
+    return ret;
+}
+
+static inline
 void dynamic_adjust_txg_interval(time_t cur)
 {
     static u64 last_modify = 0;
@@ -148,6 +181,9 @@ void dynamic_adjust_txg_interval(time_t cur)
             nr++;
             if (nr > 60)
                 hmo.conf.txg_interval = max(hmo.conf.txg_interval >> 1, 30);
+            /* is it slow? boost up */
+            if (network_congestion(cur))
+                hmo.conf.txg_interval = min(hmo.conf.txg_interval << 2, 15 * 60);
         }
         last_ts = cur;
         last_modify = atomic64_read(&hmo.prof.cbht.modify);
@@ -274,16 +310,32 @@ static void *mds_timer_thread_main(void *arg)
 
 int mds_setup_timers(void)
 {
+    pthread_attr_t attr;
     struct sigaction ac;
     struct itimerval value, ovalue, pvalue;
     int which = ITIMER_REAL, interval;
-    int err;
+    int err = 0, stacksize;
+
+    /* init the thread stack size */
+    err = pthread_attr_init(&attr);
+    if (err) {
+        hvfs_err(mds, "Init pthread attr failed\n");
+        goto out;
+    }
+    stacksize = (hmo.conf.stacksize > (1 << 20) ? 
+                 hmo.conf.stacksize : (2 << 20));
+    err = pthread_attr_setstacksize(&attr, stacksize);
+    if (err) {
+        hvfs_err(mds, "set thread stack size to %d failed w/ %d\n", 
+                 stacksize, err);
+        goto out;
+    }
 
     /* init the timer semaphore */
     sem_init(&hmo.timer_sem, 0, 0);
 
     /* ok, we create the timer thread now */
-    err = pthread_create(&hmo.timer_thread, NULL, &mds_timer_thread_main,
+    err = pthread_create(&hmo.timer_thread, &attr, &mds_timer_thread_main,
                          NULL);
     if (err)
         goto out;
@@ -941,6 +993,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(dati, value);
     HVFS_MDS_GET_ENV_atoi(active_ft, value);
     HVFS_MDS_GET_ENV_atoi(rdir_hsize, value);
+    HVFS_MDS_GET_ENV_atoi(stacksize, value);
 
     HVFS_MDS_GET_kmg(memlimit, value);
 

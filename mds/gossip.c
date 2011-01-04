@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-19 16:38:59 macan>
+ * Time-stamp: <2011-01-04 20:03:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -150,14 +150,31 @@ out:
 
 int gossip_init(void)
 {
-    int err = 0;
+    pthread_attr_t attr;
+    int err = 0, stacksize;
 
-    err = pthread_create(&hmo.gossip_thread, NULL, &gossip_thread_main,
+    /* init the thread stack size */
+    err = pthread_attr_init(&attr);
+    if (err) {
+        hvfs_err(mds, "Init pthread attr failed\n");
+        goto out;
+    }
+    stacksize = (hmo.conf.stacksize > (1 << 20) ? 
+                 hmo.conf.stacksize : (2 << 20));
+    err = pthread_attr_setstacksize(&attr, stacksize);
+    if (err) {
+        hvfs_err(mds, "set thread stack size to %d failed w/ %d\n", 
+                 stacksize, err);
+        goto out;
+    }
+
+    err = pthread_create(&hmo.gossip_thread, &attr, &gossip_thread_main,
                          NULL);
     if (err)
         hvfs_err(mds, "pthread_create gossip thread failed: %s\n",
                  strerror(err));
 
+out:
     return err;
 }
 

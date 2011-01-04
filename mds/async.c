@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-18 22:45:54 macan>
+ * Time-stamp: <2011-01-04 20:02:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -752,8 +752,24 @@ void *async_update(void *arg)
 int async_tp_init(void)
 {
     struct async_thread_arg *ata;
-    int i, err = 0;
+    pthread_attr_t attr;
+    int i, err = 0, stacksize;
 
+    /* init the thread stack size */
+    err = pthread_attr_init(&attr);
+    if (err) {
+        hvfs_err(mds, "Init pthread attr failed\n");
+        goto out;
+    }
+    stacksize = (hmo.conf.stacksize > (1 << 20) ? 
+                 hmo.conf.stacksize : (2 << 20));
+    err = pthread_attr_setstacksize(&attr, stacksize);
+    if (err) {
+        hvfs_err(mds, "set thread stack size to %d failed w/ %d\n", 
+                 stacksize, err);
+        goto out;
+    }
+    
     /* init the global manage structure */
     INIT_LIST_HEAD(&g_aum.aurlist);
     xlock_init(&g_aum.lock);
@@ -781,7 +797,7 @@ int async_tp_init(void)
 
     for (i = 0; i < hmo.conf.async_threads; i++) {
         (ata + i)->tid = i;
-        err = pthread_create(hmo.async_thread + i, NULL, &async_update,
+        err = pthread_create(hmo.async_thread + i, &attr, &async_update,
                              ata + i);
         if (err)
             goto out;

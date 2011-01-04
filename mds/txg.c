@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-03 10:56:25 macan>
+ * Time-stamp: <2011-01-04 20:07:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -864,11 +864,27 @@ void *txg_commit(void *arg)
 
 int commit_tp_init()
 {
+    pthread_attr_t attr;
     struct commit_thread_arg *cta;
-    int i, err = 0;
+    int i, err = 0, stacksize;
 
     sem_init(&hmo.commit_sem, 0, 0);
     
+    /* init the thread stack size */
+    err = pthread_attr_init(&attr);
+    if (err) {
+        hvfs_err(mds, "Init pthread attr failed\n");
+        goto out;
+    }
+    stacksize = (hmo.conf.stacksize > (1 << 20) ? 
+                 hmo.conf.stacksize : (2 << 20));
+    err = pthread_attr_setstacksize(&attr, stacksize);
+    if (err) {
+        hvfs_err(mds, "set thread stack size to %d failed w/ %d\n", 
+                 stacksize, err);
+        goto out;
+    }
+
     /* init commit threads' pool */
     if (!hmo.conf.commit_threads)
         hmo.conf.commit_threads = 4;
@@ -890,7 +906,7 @@ int commit_tp_init()
     
     for (i = 0; i < hmo.conf.commit_threads; i++) {
         (cta + i)->tid = i;
-        err = pthread_create(hmo.commit_thread + i, NULL, &txg_commit,
+        err = pthread_create(hmo.commit_thread + i, &attr, &txg_commit,
                              cta + i);
         if (err)
             goto out;

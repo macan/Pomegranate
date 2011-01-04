@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-30 22:04:18 macan>
+ * Time-stamp: <2011-01-04 20:06:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,8 +65,24 @@ void *scrub_main(void *arg)
 
 int mds_scrub_create(void)
 {
-    int err = 0;
+    pthread_attr_t attr;
+    int err = 0, stacksize;
     
+    /* init the thread stack size */
+    err = pthread_attr_init(&attr);
+    if (err) {
+        hvfs_err(mds, "Init pthread attr failed\n");
+        goto out;
+    }
+    stacksize = (hmo.conf.stacksize > (1 << 20) ? 
+                 hmo.conf.stacksize : (2 << 20));
+    err = pthread_attr_setstacksize(&attr, stacksize);
+    if (err) {
+        hvfs_err(mds, "set thread stack size to %d failed w/ %d\n", 
+                 stacksize, err);
+        goto out;
+    }
+
     /* init the mgr struct */
     sem_init(&scrub_mgr.sem, 0, 0);
     hmo.scrub_running = 0;
@@ -74,7 +90,7 @@ int mds_scrub_create(void)
     hmo.scrub_op = HVFS_MDS_OP_EVICT;
 
     /* init the service thread */
-    err = pthread_create(&hmo.scrub_thread, NULL, &scrub_main, NULL);
+    err = pthread_create(&hmo.scrub_thread, &attr, &scrub_main, NULL);
     if (err) {
         hvfs_err(mds, "create scrub thread failed w/ '%s'\n", 
                  strerror(errno));

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-30 15:26:09 macan>
+ * Time-stamp: <2011-01-04 19:58:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -135,6 +135,7 @@ struct mds_conf
     int gto;                    /* gossip timeout */
     int loadin_pressure;        /* loadin memory pressure */
     int rdir_hsize;             /* rdir mgr hash table size */
+    int stacksize;              /* pthread stack size */
     s8 itbid_check;             /* should we do ITBID check? */
     u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
                                  * conflicts */

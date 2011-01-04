@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-21 16:48:26 macan>
+ * Time-stamp: <2011-01-04 20:02:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -246,9 +246,25 @@ static void *mds_dconf_thread_main(void *arg)
 
 int dconf_init(void)
 {
-    int err = 0;
+    pthread_attr_t attr;
     struct sockaddr_un addr = {.sun_family = AF_UNIX,};
     struct epoll_event ev;
+    int err = 0, stacksize;
+
+    /* init the thread stack size */
+    err = pthread_attr_init(&attr);
+    if (err) {
+        hvfs_err(mds, "Init pthread attr failed\n");
+        goto out;
+    }
+    stacksize = (hmo.conf.stacksize > (1 << 20) ? 
+                 hmo.conf.stacksize : (2 << 20));
+    err = pthread_attr_setstacksize(&attr, stacksize);
+    if (err) {
+        hvfs_err(mds, "set thread stack size to %d failed w/ %d\n", 
+                 stacksize, err);
+        goto out;
+    }
 
     snprintf(hmo.conf.dcaddr, MDS_DCONF_MAX_NAME_LEN, "/tmp/.MDS.DCONF.%d", getpid());
     unlink(hmo.conf.dcaddr);
@@ -302,7 +318,7 @@ int dconf_init(void)
 
     /* ok, let us create a dconf thread to poll the request and do the
      * reply */
-    err = pthread_create(&hmo.conf.dcpt, NULL, &mds_dconf_thread_main,
+    err = pthread_create(&hmo.conf.dcpt, &attr, &mds_dconf_thread_main,
                          NULL);
     if (err)
         goto out;

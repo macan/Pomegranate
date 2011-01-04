@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-28 19:30:20 macan>
+ * Time-stamp: <2011-01-04 20:04:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2697,7 +2697,23 @@ void *async_unlink_local(void *arg)
  */
 int unlink_thread_init(void)
 {
-    int err = 0;
+    pthread_attr_t attr;
+    int err = 0, stacksize;
+
+    /* init the thread stack size */
+    err = pthread_attr_init(&attr);
+    if (err) {
+        hvfs_err(mds, "Init pthread attr failed\n");
+        goto out;
+    }
+    stacksize = (hmo.conf.stacksize > (1 << 20) ? 
+                 hmo.conf.stacksize : (2 << 20));
+    err = pthread_attr_setstacksize(&attr, stacksize);
+    if (err) {
+        hvfs_err(mds, "set thread stack size to %d failed w/ %d\n", 
+                 stacksize, err);
+        goto out;
+    }
 
     if (!hmo.conf.async_unlink)
         return 0;
@@ -2706,7 +2722,7 @@ int unlink_thread_init(void)
     hmo.unlink_thread_stop = 0;
     hmo.unlink_ts = 0;
 
-    err = pthread_create(&hmo.unlink_thread, NULL, &async_unlink_local,
+    err = pthread_create(&hmo.unlink_thread, &attr, &async_unlink_local,
                          NULL);
     if (err) {
         hvfs_err(mds, "create unlink thread failed %d\n", err);
