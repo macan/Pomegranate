@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-02 23:43:44 macan>
+ * Time-stamp: <2011-01-04 14:31:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1770,7 +1770,7 @@ out_free:
 int __hvfs_indirect_write(struct amc_index *ai, char *key, char *value, 
                           struct column *col)
 {
-    struct mu_column *mc, nmc;
+    struct mu_column *mc = NULL, nmc;
     int target_column = ai->column;
     int err = 0, i, nr, found = 0, indirect_len;
 

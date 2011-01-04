@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-22 19:00:04 macan>
+ * Time-stamp: <2011-01-04 15:34:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1512,7 +1512,7 @@ struct msg_send_args
     int tid, thread;
     int entry, op;
     pthread_barrier_t *pb;
-    int latency[MAX_LATENCY];
+    u64 latency[MAX_LATENCY];
 };
 
 int msg_send(int entry, int op, int base, struct msg_send_args *msa)
@@ -1761,9 +1761,9 @@ int msg_send_mt(int entry, int op, int thread)
     for (i = 0; i < MAX_LATENCY; i++) {
         if (msa[0].latency[i]) {
             all += msa[0].latency[i];
-            hvfs_info(xnet, "\t%03.2f%s <= %6.1f ms\n", 
+            hvfs_info(xnet, "\t%03.2f%s <= %6.1f ms %ld %ld\n", 
                       (double)all / entry * 100, "%",
-                      (double)((i + 1) * 500) / 1000);
+                      (double)((i + 1) * 500) / 1000, all, msa[0].latency[i]);
         }
     }
 

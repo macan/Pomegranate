@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-06 23:55:23 macan>
+ * Time-stamp: <2011-01-04 12:49:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -103,6 +103,28 @@ static inline void *xrealloc(void *ptr, size_t size)
 }
 
 #else  /* !__KERNEL */
+
+#ifdef USE_JEMALLOC
+#define JEMALLOC_MANGLE
+#include "jemalloc.h"
+
+static inline void *xzalloc(size_t size)
+{
+#if 1
+    void *m = JEMALLOC_P(malloc)(size);
+    if (likely(m))
+        memset(m, 0, size);
+#else
+    void *m = JEMALLOC_P(calloc)(size, 1);
+#endif
+    return m;
+}
+
+#define xmalloc JEMALLOC_P(malloc)
+#define xfree JEMALLOC_P(free)
+#define xrealloc JEMALLOC_P(realloc)
+
+#else  /* default glibc memory allocator */
 static inline void *xzalloc(size_t size)
 {
 #if 1
@@ -118,6 +140,7 @@ static inline void *xzalloc(size_t size)
 #define xmalloc malloc
 #define xfree free
 #define xrealloc realloc
+#endif  /* USE_JEMALLOC */
 
 #endif
 

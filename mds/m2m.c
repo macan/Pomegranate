@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-27 10:48:31 macan>
+ * Time-stamp: <2011-01-04 13:04:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -807,9 +807,9 @@ void mds_audirdelta(struct xnet_msg *msg)
      * arg1: flag << 32 | nlink
      */
 
-    hvfs_err(mds, "Recv uuid %ld nlink %d from site %lx salt %ld\n", 
-             hdd->duuid, atomic_read(&hdd->nlink), msg->tx.ssite_id,
-             hdd->salt);
+    hvfs_warning(mds, "Recv uuid %ld nlink %d from site %lx salt %ld\n", 
+                 hdd->duuid, atomic_read(&hdd->nlink), msg->tx.ssite_id,
+                 hdd->salt);
 
     /* construct a dir_delta_au struct and add this entry to the txg's ddb
      * list and update the local CBHT state */
@@ -892,9 +892,10 @@ void mds_audirdelta_r(struct xnet_msg *msg)
     ASSERT(msg->tx.arg0 == hdd->duuid, mds);
     async_audirdelta_cleanup(msg->tx.arg0, msg->tx.arg1);
 
-    hvfs_err(mds, "Recv AUDD reply uuid %ld nlink %d from site %lx salt %ld\n",
-             hdd->duuid, atomic_read(&hdd->nlink), msg->tx.ssite_id,
-             hdd->salt);
+    hvfs_warning(mds, "Recv AUDD reply uuid %ld nlink %d from site %lx "
+                 "salt %ld\n",
+                 hdd->duuid, atomic_read(&hdd->nlink), msg->tx.ssite_id,
+                 hdd->salt);
 
 out:
     xnet_free_msg(msg);
