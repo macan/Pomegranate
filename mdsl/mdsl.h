@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 20:09:42 macan>
+ * Time-stamp: <2011-01-05 18:46:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -233,6 +233,7 @@ struct mdsl_storage
     /* global fds */
     int txg_fd, tmp_fd, tmp_txg_fd, log_fd, split_log_fd;
     atomic_t active;
+    atomic_t peace;          /* peace counter count the MDSL slient seconds */
     atomic64_t memcache;
 };
 
@@ -270,6 +271,10 @@ struct mdsl_conf
     int data_file_chunk;        /* chunk size of the data file */
     int fd_cleanup_N;           /* # of fds to cleanup for each tick */
     int stacksize;              /* pthread stack size */
+    int disk_low_load;          /* describe the disk low load threshold. This
+                                 * value is very important for slow disk, you
+                                 * should set this value lower if you find
+                                 * that mdsl is slow. */
     u32 aio_sync_len;           /* sync chunnk size for AIO */
     u8 prof_plot;               /* do we dump profilings for gnuplot */
 

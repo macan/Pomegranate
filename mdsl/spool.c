@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-07-06 16:37:22 macan>
+ * Time-stamp: <2011-01-05 10:01:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -121,9 +121,25 @@ void *spool_main(void *arg)
 
 int mdsl_spool_create(void)
 {
+    pthread_attr_t attr;
     struct spool_thread_arg *sta;
-    int i, err = 0;
+    int i, err = 0, stacksize;
     
+    /* init the thread stack size */
+    err = pthread_attr_init(&attr);
+    if (err) {
+        hvfs_err(mdsl, "Init pthread attr failed\n");
+        goto out;
+    }
+    stacksize = (hmo.conf.stacksize > (1 << 20) ? 
+                 hmo.conf.stacksize : (2 << 20));
+    err = pthread_attr_setstacksize(&attr, stacksize);
+    if (err) {
+        hvfs_err(mdsl, "set thread stack size to %d failed w/ %d\n", 
+                 stacksize, err);
+        goto out;
+    }
+
     /* init the mgr struct */
     INIT_LIST_HEAD(&spool_mgr.reqin);
     xlock_init(&spool_mgr.rin_lock);
@@ -148,7 +164,7 @@ int mdsl_spool_create(void)
 
     for (i = 0; i < hmo.conf.spool_threads; i++) {
         (sta + i)->tid = i;
-        err = pthread_create(hmo.spool_thread + i, NULL, &spool_main,
+        err = pthread_create(hmo.spool_thread + i, &attr, &spool_main,
                              sta + i);
         if (err)
             goto out;

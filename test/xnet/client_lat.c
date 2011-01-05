@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 15:34:56 macan>
+ * Time-stamp: <2011-01-05 19:00:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1757,7 +1757,7 @@ int msg_send_mt(int entry, int op, int thread)
     if (op == OP_ALL)
         entry *= 3;
     else if (op == OP_DATA_ALL)
-        entry *= 7;
+        entry *= 5;             /* not 7! */
     for (i = 0; i < MAX_LATENCY; i++) {
         if (msa[0].latency[i]) {
             all += msa[0].latency[i];

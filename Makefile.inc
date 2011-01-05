@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-01-04 12:49:54 macan>
+# Time-stamp: <2011-01-05 11:33:21 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -55,8 +55,11 @@ endif
 
 # Debuging the memory and locks
 XCFLAGS = -O2 -rdynamic -g -pg -std=gnu99 -fPIC
+DEADCODESTRIP := -fdata-sections -ffunction-sections \
+				 -Wl,--gc-sections
+O3_OPT = -frename-registers -funroll-loops
 
-CFLAGS += $(XCFLAGS)
+CFLAGS += $(XCFLAGS) $(O3_OPT)
 CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" \
 			-DCHOST="\"$(COMPILE_HOST)\"" -I$(INC_PATH) \
 			-I$(PYTHON_INC) -I$(API) -I$(BRANCH) \

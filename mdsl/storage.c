@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-29 09:42:43 macan>
+ * Time-stamp: <2011-01-05 18:47:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,77 @@
 #include "hvfs.h"
 #include "xnet.h"
 #include "mdsl.h"
+
+struct deleted_dir_entry
+{
+    struct list_head list;
+    u64 uuid;
+};
+
+struct deleted_dirs
+{
+    struct list_head dd;
+    struct deleted_dir_entry *cur;
+    xlock_t lock;
+};
+
+static struct deleted_dirs g_dd = {
+    .cur = NULL,
+};
+
+void mdsl_storage_deleted_dir(u64 duuid)
+{
+    struct deleted_dir_entry *dde;
+    int found = 0;
+    
+    /* check if this entry has already exist */
+    xlock_lock(&g_dd.lock);
+    list_for_each_entry(dde, &g_dd.dd, list) {
+        if (duuid == dde->uuid) {
+            found = 1;
+            break;
+        }
+    }
+    xlock_unlock(&g_dd.lock);
+    if (found)
+        return;
+    
+    dde = xmalloc(sizeof(*dde));
+    if (!dde) {
+        hvfs_err(mdsl, "Lost deleted dir %lx, memory leaks\n", duuid);
+        return;
+    }
+    INIT_LIST_HEAD(&dde->list);
+    dde->uuid = duuid;
+    xlock_lock(&g_dd.lock);
+    list_add_tail(&dde->list, &g_dd.dd);
+    xlock_unlock(&g_dd.lock);
+    if (!g_dd.cur)
+        g_dd.cur = dde;
+}
+
+/* Return value: -1UL means nothing got
+ */
+u64 mdsl_storage_get_next_deleted_dir(void)
+{
+    u64 ret = -1UL;
+
+    if (list_empty(&g_dd.dd)) {
+        return ret;
+    }
+    xlock_lock(&g_dd.lock);
+    ret = g_dd.cur->uuid;
+    if (g_dd.cur->list.next == &g_dd.dd) {
+        /* I am the tail, jump to the head */
+        g_dd.cur = list_entry(g_dd.dd.next, struct deleted_dir_entry, list);
+    } else {
+        g_dd.cur = list_entry(g_dd.cur->list.next, struct deleted_dir_entry,
+                              list);
+    }
+    xlock_unlock(&g_dd.lock);
+
+    return ret;
+}
 
 /* append_buf_create()
  *
@@ -568,6 +639,10 @@ int mdsl_storage_init(void)
     int err = 0;
     int i;
 
+    /* init the deleted dir list */
+    INIT_LIST_HEAD(&g_dd.dd);
+    xlock_init(&g_dd.lock);
+    
     /* set the fd limit firstly */
     struct rlimit rli = {
         .rlim_cur = 65536,
@@ -775,14 +850,45 @@ int mdsl_storage_low_load(time_t cur)
 {
     static u64 last_wbytes = 0;
     static time_t last_probe = 0;
+    static int shift = 0;       /* shift for fd_cleanup_N */
+
+    static u64 wbytes = 0, rbytes = 0;
+    static time_t old = 0;
     int res = 0;
 
+    /* update the peace counter */
+    if (cur > old) {
+        if ((atomic64_read(&hmo.prof.storage.wbytes) > wbytes) ||  
+            (atomic64_read(&hmo.prof.storage.rbytes) > rbytes)) {
+            wbytes = atomic64_read(&hmo.prof.storage.wbytes);
+            rbytes = atomic64_read(&hmo.prof.storage.rbytes);
+            atomic_set(&hmo.storage.peace, 0);
+        } else {
+            atomic_inc(&hmo.storage.peace);
+        }
+        old = cur;
+    }
+    
     /* we recompute the wbytes rate every 10 seconds */
     if (cur - last_probe >= 10) {
-        /* rate < 5MB/s */
+        /* rate < 1MB/10s */
         if (atomic64_read(&hmo.prof.storage.wbytes) - last_wbytes < 
-            (5 << 20)) {
+            (hmo.conf.disk_low_load)) {
             res = 1;
+            /* if there is no I/O, we should not adjust the cleanup_N :) */
+            if (atomic64_read(&hmo.prof.storage.wbytes) > last_wbytes) {
+                /* we are gentel man, thus, only 8 times of original
+                 * cleanup_N */
+                if (shift < 3) {
+                    hmo.conf.fd_cleanup_N = hmo.conf.fd_cleanup_N << 1;
+                    ++shift;
+                }
+            }
+        } else {
+            if (shift > 0) {
+                hmo.conf.fd_cleanup_N = hmo.conf.fd_cleanup_N >> shift;
+                shift = 0;
+            }
         }
         last_probe = cur;
         last_wbytes = atomic64_read(&hmo.prof.storage.wbytes);
@@ -794,13 +900,33 @@ int mdsl_storage_low_load(time_t cur)
 void mdsl_storage_fd_limit_check(time_t cur)
 {
     struct fdhash_entry *fde;
+    u64 duuid;
     int idx, remove, i = 0;
 
+    /* Step 1: check if we can free some fde entries */
+    duuid = mdsl_storage_get_next_deleted_dir();
+    if (duuid != -1UL) {
+        int err = mdsl_storage_clean_dir(duuid);
+        if (err) {
+            hvfs_warning(mdsl, "storage clean dir %lx failed w/ %d\n",
+                         duuid, err);
+        }
+    }
+    
+    /* Step 2: check the memcache */
     if (atomic64_read(&hmo.storage.memcache) > hmo.conf.mclimit ||
         mdsl_storage_low_load(cur)) {
         while (i++ < hmo.conf.fd_cleanup_N) {
+            /* check if the opened fdes are not accessed for a long time, for
+             * example 30s */
+            if (atomic_read(&hmo.storage.peace) > 30) {
+                /* if it is, we try to do some evicts without respect to
+                 * fdlimit */
+                goto do_evict;
+            }
             if (atomic_read(&hmo.storage.active) <= hmo.conf.fdlimit)
                 break;
+        do_evict:
             /* try to evict some fd entry now */
             xlock_lock(&hmo.storage.lru_lock);
             if (list_empty(&hmo.storage.lru)) {
@@ -843,6 +969,10 @@ int mdsl_storage_clean_dir(u64 duuid)
     struct hlist_node *pos, *n;
     int i, j = 0;
     
+    /* Step 1: add this deleted dir to a memory list */
+    mdsl_storage_deleted_dir(duuid);
+
+    /* Step 2: try to clean the memcache now */
     for (i = 0; i < hmo.conf.storage_fdhash_size; i++) {
         xlock_lock(&(hmo.storage.fdhash + i)->lock);
         hlist_for_each_entry_safe(fde, pos, n,
@@ -2095,8 +2225,9 @@ out_failed:
  */
 int mdsl_storage_fd_cleanup(struct fdhash_entry *fde)
 {
-    /* we do not release the fde entry, we just release the attached
-     * memory resources. Change the fde state to FDE_OPEN! */
+    /* For append buf and odirect buffer, we do not release the fde entry. We
+     * just release the attached memory resources. Change the fde state to
+     * FDE_OPEN! */
     int err = 0;
 
     switch (fde->state) {

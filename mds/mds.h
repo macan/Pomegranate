@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 19:58:27 macan>
+ * Time-stamp: <2011-01-05 13:19:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -405,6 +405,7 @@ void mds_destroy_tx(void);
 void mds_tx_chg2forget(struct hvfs_tx *);
 
 /* for txg.c: DRAFT */
+int txg_lookup_rdir(struct hvfs_txg *, u64);
 int txg_add_rdir(struct hvfs_txg *, u64);
 void txg_add_itb(struct hvfs_txg *, struct itb *);
 int txg_switch(struct hvfs_mds_info *, struct hvfs_mds_object *);

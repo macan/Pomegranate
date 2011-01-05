@@ -33,12 +33,14 @@ Pomegranate TODOs:
    I have tried to add such info, however, it seems useless. Each server only
    have their own counter beep to a large value. 
 
-   Done! But need some review.
+   Done! But need some review. Cancelled!
 
 6. Is there a need to add vsite links for each ITB? (Priority: Low?)
 
 7. Proxy file read/write, it should be a basepoint for index support. 
    (Priority: High)
+
+   Done before commit bc7900!
 
 8. Report the latency distribution for each test. (Priority: High).
 
@@ -50,12 +52,12 @@ Pomegranate TODOs:
 
    Test on Xeon E5335 2x4 core 2.5GHz CPU, with internal xTable API
 
-   
+   Omitted, you can got it easily!
 
 9. User level file system library. Done @ 10/27/2010. High.
 
 10. Check all the MDS request handling path, reply an UNACK to source site if
-there is an error. Low.
+    there is an error. Low.
 
 11. MDS replication, howto?
 
@@ -88,6 +90,8 @@ there is an error. Low.
     the leaf nodes (physical nodes).
 
 13. Trigger interface
+
+    Done before commit 003574!
 
 14. Index support (secondary index)
 
@@ -229,3 +233,16 @@ there is an error. Low.
     API sucks. On stating GDT entries, we get a NO DIR flag reply.
     While, api.__hvfs_stat() can not recognize it, and reset the 
     ssalt to parent salt value. Then everything BONG!
+
+24. Save the newly splited ITB from original site to storage selectively
+
+    The newly split ITB is not saved in the original site, we should
+    fix this behavior. The ITB should be selectively applied to the 
+    storage. If the dest site has already written back the ITB, we 
+    just drop this original ITB.
+
+25. Negative entry management (Priority: High)
+
+    If one entry is not exist in Pomegranate, we should mark it as 
+    an active negative entry. Or, we should mark the ITB as negative
+    ITB to not reload it repeatly.

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-11 16:24:37 macan>
+ * Time-stamp: <2011-01-05 15:37:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -91,7 +91,7 @@ void mdsl_read(struct xnet_msg *msg)
         goto send_rpy;
     }
 
-    hvfs_debug(mdsl, "Recv read request %ld veclen %d from %lx\n",
+    hvfs_debug(mdsl, "Recv read request %lx veclen %d from %lx\n",
                si->sic.uuid, si->scd.cnr, msg->tx.ssite_id);
 
     /* We should iterate on the client's column_req vector and read each entry
@@ -108,7 +108,7 @@ void mdsl_read(struct xnet_msg *msg)
         fde = mdsl_storage_fd_lookup_create(si->sic.uuid, MDSL_STORAGE_DATA,
                                             si->scd.cr[i].cno);
         if (IS_ERR(fde)) {
-            hvfs_err(mdsl, "lookup create %ld data column %ld failed w/ %ld\n",
+            hvfs_err(mdsl, "lookup create %lx data column %ld failed w/ %ld\n",
                      si->sic.uuid, si->scd.cr[i].cno, PTR_ERR(fde));
             err = PTR_ERR(fde);
             goto cleanup_send_rpy;
@@ -131,7 +131,7 @@ void mdsl_read(struct xnet_msg *msg)
         msa.iov_nr = 1;
         err = mdsl_storage_fd_read(fde, &msa);
         if (err) {
-            hvfs_err(mdsl, "read the dir %ld data column %ld "
+            hvfs_err(mdsl, "read the dir %lx data column %ld "
                      "offset %ld len %ld failed w/ %d\n",
                      si->sic.uuid, si->scd.cr[i].cno, 
                      si->scd.cr[i].req_offset,

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 20:09:54 macan>
+ * Time-stamp: <2011-01-05 18:48:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -341,6 +341,7 @@ int mdsl_config(void)
     HVFS_MDSL_GET_ENV_atoi(aio_sync_len, value);
     HVFS_MDSL_GET_ENV_atoi(fd_cleanup_N, value);
     HVFS_MDSL_GET_ENV_atoi(stacksize, value);
+    HVFS_MDSL_GET_ENV_atoi(disk_low_load, value);
 
     HVFS_MDSL_GET_ENV_atol(memlimit, value);
     HVFS_MDSL_GET_ENV_atol(fdlimit, value);
@@ -382,6 +383,10 @@ int mdsl_config(void)
     /* set default pcct value to 1GB memory */
     if (!hmo.conf.pcct)
         hmo.conf.pcct = (1024 * 1024 * 1024);
+
+    /* set default disk low load to 1MB/10s */
+    if (!hmo.conf.disk_low_load)
+        hmo.conf.disk_low_load = (1 << 20);
 
     /* FIXME: hmi should not be set at here actually */
     hmi.itb_depth = 3;

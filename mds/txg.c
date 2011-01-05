@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 20:07:34 macan>
+ * Time-stamp: <2011-01-05 13:20:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +26,20 @@
 #include "tx.h"
 #include "mds.h"
 #include "ring.h"
+
+int txg_lookup_rdir(struct hvfs_txg *txg, u64 uuid)
+{
+    int found = 0, i;
+
+    for (i = 0; i < txg->rd.asize; i++) {
+        if (uuid == txg->rd.rd[i]) {
+            found = 1;
+            break;
+        }
+    }
+    
+    return found;
+}
 
 int txg_add_rdir(struct hvfs_txg *txg, u64 uuid)
 {

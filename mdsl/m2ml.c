@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-18 18:08:46 macan>
+ * Time-stamp: <2011-01-05 11:03:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -973,22 +973,16 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                 p = toe->other_region + offset;
 
                 u64 *rd = (u64 *)p;
-#if 0
-                int i;
-                for (i = 0; i < tb->rd_nr; i++) {
-                    hvfs_err(mdsl, "Remove dir %lx\n", *(rd + i));
-                }
-#else
                 int err, i;
 
                 for (i = 0; i < tb->rd_nr; i++) {
+                    hvfs_warning(mdsl, "Remove dir %lx\n", *(rd + i));
                     err = mdsl_storage_clean_dir(*(rd + i));
                     if (err) {
                         hvfs_err(mdsl, "storage clean dir %lx failed w/ %d\n",
                                  *(rd + i), err);
                     }
                 }
-#endif
             }
         }
     }
