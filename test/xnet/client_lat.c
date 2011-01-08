@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-05 19:00:03 macan>
+ * Time-stamp: <2011-01-07 21:57:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -418,6 +418,13 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
+    } else if (msg->pair->tx.err == -EHWAIT) {
+        ASSERT(hi->psalt != 0, xnet);
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        sleep(1);
+        goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "CREATE failed @ MDS site %lx w/ %d\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
@@ -565,6 +572,13 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
+    } else if (msg->pair->tx.err == -EHWAIT) {
+        ASSERT(hi->psalt != 0, xnet);
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        sleep(1);
+        goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
@@ -696,6 +710,13 @@ resend:
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err == -EHWAIT) {
+        ASSERT(hi->psalt != 0, xnet);
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        sleep(1);
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "UNLINK failed @ MDS site %lx w/ %d\n",
@@ -913,12 +934,21 @@ resend:
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
+    } else if (msg->pair->tx.err == -EHWAIT) {
+        ASSERT(hi->psalt != 0, xnet);
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        sleep(1);
+        goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
         err = msg->pair->tx.err;
         lookup_failed++;
+#if 0
         __send_msg_dump(msg);
+#endif
         hvfs_err(mds, "DUMP criminal hash 0x%lx\n", hi->hash);
         goto out;
     }
@@ -1183,6 +1213,13 @@ resend:
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err == -EHWAIT) {
+        ASSERT(hi->psalt != 0, xnet);
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        sleep(1);
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
@@ -1455,6 +1492,13 @@ int test_update(u64 loop)
             xnet_set_auto_free(msg->pair);
             xnet_free_msg(msg->pair);
             msg->pair = NULL;
+            goto unlink_resend;
+        } else if (msg->pair->tx.err == -EHWAIT) {
+            ASSERT(hi->psalt != 0, xnet);
+            xnet_set_auto_free(msg->pair);
+            xnet_free_msg(msg->pair);
+            msg->pair = NULL;
+            sleep(1);
             goto unlink_resend;
         } else if (msg->pair->tx.err) {
             hvfs_err(xnet, "UNLINK failed @ MDS site %lx w/ %d\n",
@@ -1837,6 +1881,13 @@ resend:
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err == -EHWAIT) {
+        ASSERT(hi->psalt != 0, xnet);
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        sleep(1);
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "CREATE failed @ MDS site %ld w/ %d\n",

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-21 23:12:41 macan>
+ * Time-stamp: <2011-01-07 16:34:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -146,7 +146,12 @@ void mds_spool_mp_check(time_t t)
         hmo.conf.option &= ~HVFS_MDS_NOSCRUB;
         if (hmo.conf.scrub_interval > 1) {
             hmo.conf.scrub_interval = 1;
-            mds_reset_itimer();
+            if (hmo.conf.mpcheck_sensitive && 
+                hmo.conf.mpcheck_sensitive <= MPCHECK_SENSITIVE_MAX)
+                mds_reset_itimer_us(SECOND_IN_US >> 
+                                    hmo.conf.mpcheck_sensitive);
+            else
+                mds_reset_itimer();
         }
         hvfs_debug(mds, "trigger scrub thread\n");
         mds_scrub_trigger();
@@ -230,6 +235,7 @@ void *spool_main(void *arg)
     sigaddset(&set, SIGCHLD);
     pthread_sigmask(SIG_BLOCK, &set, NULL); /* oh, we do not care about the
                                              * errs */
+    
     while (!hmo.spool_thread_stop) {
         err = sem_wait(&spool_mgr.rin_sem);
         if (err == EINTR)

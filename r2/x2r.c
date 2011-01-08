@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-31 11:26:44 macan>
+ * Time-stamp: <2011-01-06 11:29:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,13 +95,14 @@ void __simply_send_reply(struct xnet_msg *msg, int err)
         hvfs_err(root, "xnet_alloc_msg() failed\n");
         return;
     }
+    xnet_msg_set_err(rpy, err);
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
 #endif
     xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0, hro.site_id,
                      msg->tx.ssite_id);
     xnet_msg_fill_reqno(rpy, msg->tx.reqno);
-    xnet_msg_fill_cmd(rpy, XNET_RPY_DATA, 0, 0);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, 0, 0);
     /* match the original request at the source site */
     rpy->tx.handle = msg->tx.handle;
 
@@ -1169,12 +1170,61 @@ int root_do_rmvsite(struct xnet_msg *msg)
     return err;
 }
 
+/* shutdown() only acts on a error state site_entry and flush the info to disk
+ */
 int root_do_shutdown(struct xnet_msg *msg)
 {
+    struct site_entry *se;
+    int err = 0;
+    
     /* ABI:
      * tx.arg0: site_id to shutdown
      */
+
+    /* find the site entry */
+    se = site_mgr_lookup(&hro.site, msg->tx.arg0);
+    if (IS_ERR(se)) {
+        hvfs_err(root, "site mgr lookup %lx failed w/ %ld\n",
+                 msg->tx.arg0, PTR_ERR(se));
+        err = PTR_ERR(se);
+        goto out;
+    }
+
+    xlock_lock(&se->lock);
+    /* do not check fsid and gid! */
+    switch (se->state) {
+    case SE_STATE_INIT:
+    case SE_STATE_TRANSIENT:
+    case SE_STATE_NORMAL:
+    case SE_STATE_SHUTDOWN:
+        hvfs_err(root, "site entry %lx is not in ERROR state(%x), "
+                 "reject this shutdown request!\n",
+                 se->site_id, se->state);
+        err = -EINVAL;
+        break;
+    case SE_STATE_ERROR:
+        se->state = SE_STATE_SHUTDOWN;
+        break;
+    default:
+        hvfs_err(root, "site entry %lx in wrong state %x\n",
+                 se->site_id, se->state);
+        err = -EFAULT;
+    }
+    xlock_unlock(&se->lock);
+    if (err)
+        goto out;
+
+    /* ok, then we should issue a flush operation now */
+    err = root_write_hxi(se);
+    if (err) {
+        hvfs_err(root, "Flush site %lx hxi to storage failed w/ %d.\n",
+                 se->site_id, err);
+        goto out;
+    }
+    
+out:
+    __simply_send_reply(msg, err);
     xnet_free_msg(msg);
 
-    return 0;
+    return err;
 }

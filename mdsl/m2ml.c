@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-05 11:03:51 macan>
+ * Time-stamp: <2011-01-07 21:28:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -140,7 +140,8 @@ void mdsl_itb(struct xnet_msg *msg)
     hvfs_debug(mdsl, "Recv ITB load requst <%ld,%ld> from site %lx\n",
                msg->tx.arg0, msg->tx.arg1, msg->tx.ssite_id);
 
-    itb = xmalloc(sizeof(*itb));
+    /* Bugfix: for lzo compressed ITB, there is only header */
+    itb = xmalloc(sizeof(itb->h));
     if (!itb) {
         hvfs_err(mdsl, "xmalloc struct itb failed\n");
         err = -ENOMEM;
@@ -207,7 +208,7 @@ void mdsl_itb(struct xnet_msg *msg)
 
     msa.offset = location;
     itb_iov[0].iov_base = itb;
-    itb_iov[0].iov_len = sizeof(*itb);
+    itb_iov[0].iov_len = sizeof(itb->h);
     err = mdsl_storage_fd_read(fde, &msa);
     if (err) {
         hvfs_err(mdsl, "fd read failed w/ %d\n", err);
@@ -216,7 +217,7 @@ void mdsl_itb(struct xnet_msg *msg)
 
     hvfs_warning(mdsl, "Read ITB %ld len %d to %lx\n", 
                  itb->h.itbid, atomic_read(&itb->h.len), msg->tx.ssite_id);
-    data_len = atomic_read(&itb->h.len) - sizeof(*itb);
+    data_len = atomic_read(&itb->h.len) - sizeof(itb->h);
     if (data_len > 0) {
         data = xmalloc(data_len);
         if (!data) {
@@ -226,7 +227,7 @@ void mdsl_itb(struct xnet_msg *msg)
             goto out_put2;
         }
         /* ok, do pread now */
-        msa.offset = location + sizeof(*itb);
+        msa.offset = location + sizeof(itb->h);
         msa.iov->iov_base = data;
         msa.iov->iov_len = data_len;
         err = mdsl_storage_fd_read(fde, &msa);
@@ -249,7 +250,7 @@ out:
         xfree(itb);
     } else {
         itb_iov[0].iov_base = itb;
-        itb_iov[0].iov_len = sizeof(*itb);
+        itb_iov[0].iov_len = sizeof(itb->h);
         err = 1;
         if (data_len) {
             itb_iov[1].iov_base = data;
@@ -991,7 +992,7 @@ void mdsl_wbtxg(struct xnet_msg *msg)
         struct txg_open_entry *toe;
         
         /* sanity checking */
-        if (len < sizeof(struct itb)) {
+        if (len < sizeof(struct itbh)) {
             hvfs_err(mdsl, "Invalid WBTXG request %d received from %lx\n",
                      msg->tx.reqno, msg->tx.ssite_id);
             goto out;

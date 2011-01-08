@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-01-05 11:33:21 macan>
+# Time-stamp: <2011-01-07 10:53:59 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -93,7 +93,7 @@ MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \
 MDSL_AR_SOURCE = mdsl.c spool.c tcc.c dispatch.c m2ml.c prof.c storage.c \
 				 aio.c c2ml.c local.c
 LIB_AR_SOURCE = lib.c ring.c time.c bitmap.c xlock.c segv.c conf.c md5.c \
-                embedpy.c
+                embedpy.c minilzo.c
 XNET_AR_SOURCE = xnet.c xnet_simple.c
 R2_AR_SOURCE = mgr.c root.c spool.c x2r.c dispatch.c bparser.c cli.c
 API_AR_SOURCE = api.c
@@ -106,7 +106,7 @@ INC_H_SOURCE = atomic.h err.h hvfs.h hvfs_common.h hvfs_const.h hvfs_k.h \
 MDS_H_SOURCE = mds.h cbht.h dh.h itb.h prof.h async.h bitmapc.h mds_config.h ft.h
 MDSL_H_SOURCE = mdsl.h lprof.h mdsl_config.h
 R2_H_SOURCE = root.h mgr.h root_config.h rprof.h
-LIB_H_SOURCE = lib.h ring.h
+LIB_H_SOURCE = lib.h ring.h minilzo.h
 API_H_SOURCE = 
 BRANCH_H_SOURCE = branch.h bp.h
 

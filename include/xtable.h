@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-28 17:43:37 macan>
+ * Time-stamp: <2011-01-07 15:15:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -88,6 +88,9 @@ struct itbh
 
     /* section for compression */
     atomic_t len;               /* the actual total length */
+    atomic_t zlen;              /* compressed length */
+#define COMPR_NONE              (0x00)
+#define COMPR_LZO               (0x01)
     u16 compress_algo;
 
     /* section for itb_index allocation */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 20:05:51 macan>
+ * Time-stamp: <2011-01-07 11:11:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -362,7 +362,7 @@ int mds_setup_timers(void)
     interval = __gcd(hmo.conf.scrub_interval, interval);
     if (interval) {
         value.it_interval.tv_sec = interval;
-        value.it_interval.tv_usec = 1;
+        value.it_interval.tv_usec = 0;
         value.it_value.tv_sec = interval;
         value.it_value.tv_usec = 1;
         err = setitimer(which, &value, &ovalue);
@@ -381,6 +381,31 @@ int mds_setup_timers(void)
     
 out:
     return err;
+}
+
+/* we support sub-second timers to promote the triggers
+ */
+void mds_reset_itimer_us(u64 us)
+{
+    struct itimerval value, ovalue;
+    int err;
+
+    if (us) {
+        value.it_interval.tv_sec = 0;
+        value.it_interval.tv_usec = us;
+        value.it_value.tv_sec = 0;
+        value.it_value.tv_usec = us;
+        err = setitimer(ITIMER_REAL, &value, &ovalue);
+        if (err) {
+            goto out;
+        }
+        hvfs_info(mds, "OK, we reset the itimer to %ld us.\n",
+                  us);
+    } else {
+        hvfs_err(mds, "Invalid sub-second timer value.\n");
+    }
+out:
+    return;
 }
 
 void mds_reset_itimer(void)
@@ -408,8 +433,9 @@ void mds_reset_itimer(void)
             goto out;
         }
         hvfs_info(mds, "OK, we reset the itimer to %d second(s).\n", 
-                   interval);
+                  interval);
     }
+
 out:
     return;
 }
@@ -972,6 +998,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(itb_depth_default, value);
     HVFS_MDS_GET_ENV_atoi(async_update_N, value);
     HVFS_MDS_GET_ENV_atoi(mp_to, value);
+    HVFS_MDS_GET_ENV_atoi(mpcheck_sensitive, value);
     HVFS_MDS_GET_ENV_atoi(itbid_check, value);
     HVFS_MDS_GET_ENV_atoi(cbht_slow_down, value);
     HVFS_MDS_GET_ENV_atoi(prof_plot, value);
@@ -1040,6 +1067,13 @@ int mds_init(int bdepth)
     
     /* lib init */
     lib_init();
+
+    /* lzo lib init */
+    err = lzo_init();
+    if (err != LZO_E_OK) {
+        hvfs_err(mds, "init lzo library failed w/ %d\n", err);
+        goto out_lzo;
+    }
     
     /* FIXME: decode the cmdline */
 
@@ -1187,6 +1221,7 @@ out_txc:
 out_bc:
 out_timers:
 out_signal:
+out_lzo:
     return err;
 }
 

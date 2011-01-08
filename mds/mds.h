@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-05 13:19:50 macan>
+ * Time-stamp: <2011-01-07 15:41:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -136,6 +136,8 @@ struct mds_conf
     int loadin_pressure;        /* loadin memory pressure */
     int rdir_hsize;             /* rdir mgr hash table size */
     int stacksize;              /* pthread stack size */
+    s8 mpcheck_sensitive;       /* sensitivity of mp check, bigger value means
+                                 * more sensitive to check */
     s8 itbid_check;             /* should we do ITBID check? */
     u8 cbht_slow_down;          /* set to 1 to eliminate the eh->lock
                                  * conflicts */
@@ -222,6 +224,8 @@ struct hvfs_mds_object
     pthread_t scrub_thread;
     pthread_t gossip_thread;
 
+    pthread_key_t lzo_workmem;  /* for lzo zip use */
+
     u8 timer_thread_stop;       /* running flag for timer thread */
     u8 commit_thread_stop;      /* running flag for commit thread */
     u8 async_thread_stop;       /* running flag for async thread */
@@ -289,6 +293,7 @@ void mds_pre_init(void);
 int mds_init(int bdepth);
 int mds_verify(void);
 void mds_destroy(void);
+void mds_reset_itimer_us(u64);
 void mds_reset_itimer(void);
 static inline
 void mds_gossip_faster(void)
@@ -385,6 +390,8 @@ static inline void itb_put(struct itb *i)
         itb_free(i);
     }
 }
+int itb_lzo_compress(struct itb *, struct itb *, struct itb **);
+int itb_lzo_decompress(struct itb *);
 
 /* for tx.c */
 struct hvfs_tx *mds_alloc_tx(u16, struct xnet_msg *);

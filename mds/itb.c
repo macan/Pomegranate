@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 20:04:11 macan>
+ * Time-stamp: <2011-01-07 21:33:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -127,7 +127,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
         struct hvfs_txg *t;
         
         /* sanity checking */
-        if (msg->pair->tx.len < sizeof(struct itb)) {
+        if (msg->pair->tx.len < sizeof(struct itbh)) {
             hvfs_err(mds, "Invalid ITB load reply received from %lx\n",
                      msg->pair->tx.ssite_id);
             atomic64_dec(&hmo.prof.cbht.aitb);
@@ -148,6 +148,16 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
 
         /* checking the ITB */
         ASSERT(msg->pair->tx.len == atomic_read(&i->h.len), mds);
+        if (i->h.compress_algo == COMPR_LZO) {
+            /* decompress the ITB */
+            int err;
+            
+            err = itb_lzo_decompress(i);
+            if (err) {
+                hvfs_err(mds, "itb_lzo_decompress() failed w/ %d\n", err);
+                goto out_free;
+            }
+        }
 
         hvfs_debug(mds, "Load ITB %ld w/ txg %ld\n", 
                    i->h.itbid, i->h.txg);
@@ -2745,3 +2755,83 @@ void unlink_thread_destroy()
 
     sem_destroy(&hmo.unlink_sem);
 }
+
+/* LZO region */
+int itb_lzo_compress(struct itb *in, struct itb *tmp, struct itb **oi)
+{
+    void *workmem;
+    lzo_uint zlen = 0, inlen;
+    int err = 0;
+
+    *oi = in;
+
+    /* got the work memory */
+    workmem = pthread_getspecific(hmo.lzo_workmem);
+    if (!workmem) {
+        hvfs_err(mds, "LZO work memory lost?!\n");
+        return -EFAULT;
+    }
+    
+    /* copy the itb header */
+    memcpy(&tmp->h, &in->h, sizeof(tmp->h));
+    inlen = atomic_read(&in->h.len) - sizeof(in->h);
+
+    err = lzo1x_1_compress((void *)in->lock, inlen,
+                           (void *)tmp->lock, &zlen, workmem);
+    if (err == LZO_E_OK) {
+        err = 0;
+    } else {
+        hvfs_err(mds, "LZO compress failed w/ %d\n", err);
+        goto out;
+    }
+
+    if (zlen >= inlen) {
+        hvfs_warning(mds, "This ITB %ld is impossible to compress!\n", 
+                     in->h.itbid);
+        goto out;
+    }
+    /* exchange the zlen and len */
+    atomic_set(&tmp->h.zlen, atomic_read(&tmp->h.len));
+    atomic_set(&tmp->h.len, sizeof(tmp->h) + zlen);
+    tmp->h.compress_algo = COMPR_LZO;
+    *oi = tmp;
+    
+out:
+    return err;
+}
+
+/* in-position unpack the ITB
+ */
+int itb_lzo_decompress(struct itb *in)
+{
+    lzo_uint outlen, inlen;
+    int err = 0;
+    void *p;
+
+    inlen = atomic_read(&in->h.len) - sizeof(in->h);
+    p = xmalloc(inlen);
+    if (!p) {
+        hvfs_err(mds, "Unable to alloc the memory to decompress ITB!\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    memcpy(p, (void *)in->lock, inlen);
+    
+    err = lzo1x_decompress(p, inlen, 
+                           (void *)in->lock, &outlen, NULL);
+    if (err == LZO_E_OK && 
+        outlen == atomic_read(&in->h.zlen) - sizeof(in->h)) {
+        err = 0;
+    } else {
+        hvfs_err(mds, "LZO decompress failed w/ %d\n", err);
+    }
+    /* clear the compress flag */
+    in->h.compress_algo = COMPR_NONE;
+    /* exchange the len back */
+    atomic_set(&in->h.len, outlen + sizeof(in->h));
+    xfree(p);
+    
+out:
+    return err;
+}
+

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-05 13:20:27 macan>
+ * Time-stamp: <2011-01-08 11:52:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +26,23 @@
 #include "tx.h"
 #include "mds.h"
 #include "ring.h"
+
+static pthread_key_t itb_key;
+
+static pthread_once_t itb_key_once = PTHREAD_ONCE_INIT;
+static pthread_once_t lzo_key_once = PTHREAD_ONCE_INIT;
+
+static void
+make_tmp_itb()
+{
+    pthread_key_create(&itb_key, NULL);
+}
+
+static void
+make_lzo_workmem()
+{
+    pthread_key_create(&hmo.lzo_workmem, NULL);
+}
 
 int txg_lookup_rdir(struct hvfs_txg *txg, u64 uuid)
 {
@@ -647,14 +664,15 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
                int *freed, int *clean, int *notknown)
 {
     struct itbh *ih, *n;
-    struct itb *i, *tmpi = NULL;
+    struct itb *i, *tmpi = NULL, *swap = NULL;
     int err = 0, failed = 0;
 
     /* try to get the temp itb now */
-    tmpi = xmalloc(sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE);
-    if (!tmpi) {
+    tmpi = pthread_getspecific(itb_key);
+    if (unlikely(!tmpi)) {
         hvfs_err(mds, "Try to get temp itb for WB failed, slow down...\n");
-    }
+    } else 
+        swap = tmpi;
     
     list_for_each_entry_safe(ih, n, &t->dirty_list, list) {
         i = (struct itb *)ih;
@@ -689,7 +707,19 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
             }
             xrwlock_wunlock(&ih->lock);
             if (tmpi) {
+                /* do lzo compress now */
+                err = itb_lzo_compress(tmpi, 
+                                       (struct itb *)((void *)tmpi + 
+                                                      (sizeof(struct itb) + 
+                                                       sizeof(struct ite) * 
+                                                       ITB_SIZE)),
+                                       &tmpi);
+                if (err) {
+                    hvfs_err(mds, "do LZO compress on ITB %ld failed w/ %d\n",
+                             tmpi->h.itbid, err);
+                }
                 err = txg_wb_itb_ll(cta, tmpi);
+                tmpi = swap;
             }
             (*clean)++;
         } else {
@@ -705,9 +735,11 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
         hvfs_err(mds, "bcast end failed w/ %d\n", err);
     }
 
+#if 0
     if (tmpi) {
         xfree(tmpi);
     }
+#endif
 
     return err;
 }
@@ -732,6 +764,33 @@ void *txg_commit(void *arg)
     sigaddset(&set, SIGUSR1);
     pthread_sigmask(SIG_BLOCK, &set, NULL); /* oh, we do not care about the
                                              * errs */
+
+    /* init the itb memory key */
+    pthread_once(&itb_key_once, make_tmp_itb);
+    if (pthread_getspecific(itb_key) == NULL) {
+        /* alloc the tmp ITB now */
+        void *i = xmalloc((sizeof(struct itb) + 
+                           sizeof(struct ite) * ITB_SIZE) * 2);
+        if (!i) {
+            HVFS_BUGON("Allocate TLS tmp itb failed!");
+        }
+        pthread_setspecific(itb_key, i);
+        hvfs_err(mds, "Alloc memory length is %ld\n", 
+                 (sizeof(struct itb) + 
+                  sizeof(struct ite) * ITB_SIZE) * 2);
+    }
+
+    /* init the lzo memory key */
+    pthread_once(&lzo_key_once, make_lzo_workmem);
+    if (pthread_getspecific(hmo.lzo_workmem) == NULL) {
+        /* alloc the LZO work memory now */
+        void *p = xmalloc(LZO1X_1_MEM_COMPRESS + (sizeof(lzo_align_t) - 1));
+
+        if (!p) {
+            HVFS_BUGON("Failed to allocate lzo work memroy!");
+        }
+        pthread_setspecific(hmo.lzo_workmem, p);
+    }
 
     while (!hmo.commit_thread_stop) {
         err = sem_wait(&hmo.commit_sem);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 14:31:31 macan>
+ * Time-stamp: <2011-01-06 11:25:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3573,7 +3573,8 @@ out:
     return err;
 }
 
-/* we will find the 
+/* hvfs_addsite() add a ip,port,type tuple to the R2's address table and bcast
+ * the new entry to other active sites.
  */
 int hvfs_addsite(char *ip, int port, char *type, int id)
 {
@@ -3649,6 +3650,7 @@ int hvfs_addsite(char *ip, int port, char *type, int id)
     }
 
     ASSERT(msg->pair, xnet);
+    err = msg->pair->tx.err;
     xnet_set_auto_free(msg->pair);
 
 out_msg:
@@ -3658,6 +3660,9 @@ out:
     return err;
 }
 
+/* hvfs_rmvsite() remove a ip,port,site_id tuple from R2's address table and
+ * bcast the removed tuple to other active sites.
+ */
 int hvfs_rmvsite(char *ip, int port, u64 site_id)
 {
     struct xnet_msg *msg;
@@ -3697,6 +3702,44 @@ int hvfs_rmvsite(char *ip, int port, u64 site_id)
     }
 
     ASSERT(msg->pair, xnet);
+    err = msg->pair->tx.err;
+    xnet_set_auto_free(msg->pair);
+
+out_msg:
+    xnet_free_msg(msg);
+out:
+    return err;
+}
+
+/* hvfs_shutdown() shutdown a opened site_entry in R2 server only if the site
+ * entry is in ERROR state.
+ */
+int hvfs_shutdown(u64 site_id)
+{
+    struct xnet_msg *msg;
+    int err = 0;
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, HVFS_ROOT(0));
+    xnet_msg_fill_cmd(msg, HVFS_R2_SHUTDOWN, site_id, 0);
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+    ASSERT(msg->pair, xnet);
+    err = msg->pair->tx.err;
     xnet_set_auto_free(msg->pair);
 
 out_msg:

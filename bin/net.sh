@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-01-05 16:16:28 macan>
+# Time-stamp: <2011-01-06 10:52:48 macan>
 #
 # This is a simple network usage displayer for Pomegranate users
 #
@@ -26,6 +26,6 @@ done &
 
 trap "rm -rf $OUTFILE; kill $!;" EXIT
 
-echo "RX(MB/s) TX(MB/s)"
+echo "RX(MiB/s) TX(MiB/s)"
 sleep 5
-tail -f $OUTFILE | awk 'BEGIN{tx=0; rx=0; banner=0;} {banner++; if (banner % 15 == 0) {print "RX(MB/s) TX(MB/s)"} if (tx != 0) {print ($1 - rx)/1024/1024/5, ($2 - tx)/1024/1024/5;} rx = $1; tx = $2;}'
+tail -f $OUTFILE | awk 'BEGIN{tx=0; rx=0; banner=0;} {banner++; if (banner % 15 == 0) {print "RX(MiB/s) TX(MiB/s)"} if (tx != 0) {print ($1 - rx)/1024/1024/5, ($2 - tx)/1024/1024/5;} rx = $1; tx = $2;}'

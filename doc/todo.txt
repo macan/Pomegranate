@@ -217,7 +217,7 @@ Pomegranate TODOs:
 
     We should add a shutdown command to close a opened site entry 
     at R2 server. It should be useful both for test and for production
-    usage.
+    usage. Done @ 2011/1/6!
 
 23. Bug notice on data lossing (Priority: High)
 
@@ -246,3 +246,25 @@ Pomegranate TODOs:
     If one entry is not exist in Pomegranate, we should mark it as 
     an active negative entry. Or, we should mark the ITB as negative
     ITB to not reload it repeatly.
+
+26. GC implementation in MDSL (Priority: Low)
+
+    Part One: GC ITB file
+
+    ITB file is very easy to GC. We got a file offset in atomic manner
+    and scan the file sequentially to generate a compacted ITB file.
+    The metadata of the ITB file, e.x. the range files are re-generated.
+    There maybe several rounds to complete one GC process. See more 
+    details in my PPT 'GC in Pomegrenate' at 
+    [[http://macan.posterous.com]].
+
+    Part Two: GC DATA files
+
+27. ITB compression w/ LZO
+
+    Only compress the ITE region, because there are a lot of ZERO. We 
+    should be got a big benefit.
+
+    Schedule @ 1/7/2011
+
+28. DATA compression w/ LZO

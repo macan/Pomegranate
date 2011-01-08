@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 19:33:37 macan>
+ * Time-stamp: <2011-01-07 16:34:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,6 +45,14 @@
 
 #define HVFS_DEFAULT_UMASK      0644
 #define HVFS_DIR_UMASK          0755
+
+#define MPCHECK_SENSITIVE_MAX   (5)
+#define SECOND_IN_US            (1000000)
+#define HALF_SECOND_IN_US       (500000) /* 1x faster */
+#define QUAD_SECOND_IN_US       (250000) /* 2x */
+#define EIGHTH_SECOND_IN_US     (125000) /* 4x */
+#define SIXTEENTH_SECOND_IN_US  (62500)  /* 8x */
+#define THIRTYND_SECOND_IN_US   (31250)  /* 16x */
 
 /* UUID bits
  *

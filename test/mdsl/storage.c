@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-22 10:58:56 macan>
+ * Time-stamp: <2011-01-06 15:26:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -443,7 +443,7 @@ int main(int argc, char *argv[])
         goto out;
     }
 #endif
-#if 0
+#if 1
     err = __test_append_buf();
     if (err) {
         hvfs_err(mdsl, "append buf test failed w/ %d\n", err);

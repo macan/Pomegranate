@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-12-31 11:23:09 macan>
+# Time-stamp: <2011-01-06 11:18:43 macan>
 #
 # Armed with EMACS.
 #
@@ -128,7 +128,7 @@ class pamc_shell(cmd.Cmd):
                 "rmdir", "cpin", "cpout", "online", "offline",
                 "quit", "ls", "commit", "getcluster", "cat", 
                 "regdtrigger", "catdtrigger", "statfs", "setattr",
-                "getactivesite", "addsite", "rmvsite"]
+                "getactivesite", "addsite", "rmvsite", "shutdown"]
 
     def __init__(self):
         cmd.Cmd.__init__(self)
@@ -775,6 +775,27 @@ class pamc_shell(cmd.Cmd):
             err = api.hvfs_rmvsite(l[0], int(l[1]), long(l[2]))
             if err != 0:
                 print "api.hvfs_rmvsite() failed w/ %d" % err
+                return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
+        except TypeError, te:
+            print "TypeError %s" % te
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_shutdown(self, line):
+        '''Shutdown a opened but ERROR state site entry @ R2 server
+        Usage: shutdown site_id'''
+        l = shlex.split(line)
+        if len(l) < 1:
+            print "Invalid arguments. See help shutdown!"
+            return
+        # ok
+        try:
+            self.start_clock()
+            err = api.hvfs_shutdown(long(l[0]))
+            if err != 0:
+                print "api.hvfs_shutdown() failed w/ %d" % err
                 return
             self.stop_clock()
             self.echo_clock("Time elasped:")
