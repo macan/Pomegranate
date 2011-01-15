@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-21 18:51:01 macan>
+ * Time-stamp: <2011-01-10 15:31:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -70,7 +70,7 @@ int __mds_dh_data_read(struct hvfs_index *hi, int column,
 
     /* fill the parent (dir) uuid to si.uuid */
     si->sic.uuid = hi->puuid;
-    si->sic.arg0 = c->stored_itbid;
+    si->sic.arg0 = hi->uuid;
     si->scd.cnr = 1;
     si->scd.cr[0].cno = column;
     si->scd.cr[0].stored_itbid = c->stored_itbid;

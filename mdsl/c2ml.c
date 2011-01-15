@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-05 15:37:53 macan>
+ * Time-stamp: <2011-01-12 16:38:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -75,6 +75,18 @@ void mdsl_read(struct xnet_msg *msg)
     struct iovec *iov;
     int err = 0, i;
     
+    /* ABI:
+     * @xm_data: storage_index {
+     *           .sic.uuid = puuid (directory uuid)
+     *           .sic.arg0 = uuid (NEW API!)
+     *           .scd.cnr = # of columns
+     *           .scd.cr[x].cno = column number
+     *           .scd.cr[x].stored_itbid = itbid (stored itbid)
+     *           .scd.cr[x].req_offset = request offset in this file
+     *           .scd.cr[x].req_len = request length
+     *     }
+     */
+
     /* sanity checking */
     if (msg->tx.len < sizeof(struct storage_index)) {
         hvfs_err(mdsl, "Invalid mdsl read request %d from %lx.\n",
@@ -172,13 +184,25 @@ void mdsl_write(struct xnet_msg *msg)
     struct mdsl_storage_access msa;
     struct storage_index *si;
     struct iovec iov;
-    struct proxy_args *pa;
+    struct proxy_args *pa = NULL;
     void *data;
     u64 offset = 0;
     u64 *location;
     int err = 0, i;
 
-    /* sanity checkint */
+    /* ABI:
+     * @xm_data: storage_index {
+     *           .sic.uuid = puuid (directory uuid)
+     *           .sic.arg0 = uuid (NEW API!)
+     *           .scd.cnr = # of columns
+     *           .scd.cr[x].cno = column number
+     *           .scd.cr[x].stored_itbid = itbid (stored itbid)
+     *           .scd.cr[x].req_offset = request offset in this file (ignore)
+     *           .scd.cr[x].req_len = request length
+     *     }
+     */
+
+    /* sanity checking */
     if (unlikely(msg->tx.len < sizeof(struct storage_index))) {
         hvfs_err(mdsl, "Invalid mdsl read request %d from %lx.\n",
                  msg->tx.reqno, msg->tx.ssite_id);
@@ -197,7 +221,7 @@ void mdsl_write(struct xnet_msg *msg)
         goto send_rpy;
     }
 
-    hvfs_debug(mdsl, "Recv write request %ld veclen %d from %lx\n",
+    hvfs_debug(mdsl, "Recv write request %lx veclen %d from %lx\n",
                si->sic.uuid, si->scd.cnr, msg->tx.ssite_id);
 
     /* We should iterate on the client's column_req vector and write each
@@ -208,7 +232,7 @@ void mdsl_write(struct xnet_msg *msg)
         err = -ENOMEM;
         goto send_rpy;
     }
-    
+
     for (i = 0; i < si->scd.cnr; i++) {
         /* prepare to get the data file */
         if (unlikely(si->scd.flag & SCD_PROXY)) {
@@ -231,9 +255,11 @@ void mdsl_write(struct xnet_msg *msg)
         }
         
         if (unlikely(IS_ERR(fde))) {
-            hvfs_err(mdsl, "lookup create %ld data column %ld failed w/ %ld\n",
+            hvfs_err(mdsl, "lookup create %lx data column %ld failed w/ %ld\n",
                      si->sic.uuid, si->scd.cr[i].cno, PTR_ERR(fde));
             err = PTR_ERR(fde);
+            if (si->scd.flag & SCD_PROXY)
+                xfree(pa);
             goto cleanup_send_rpy;
         }
 

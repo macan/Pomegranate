@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-02 18:18:29 macan>
+ * Time-stamp: <2011-01-15 20:06:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -98,11 +98,17 @@ void insert_ite(u64 puuid, u64 itbid, char *name, struct mdu_update *imu,
     memcpy(mu, imu, sizeof(struct mdu_update));
     hi->data = mu;
 
+retry:
     memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
-    if (err) {
+    if (err == -ESPLIT) {
+        sched_yield();
+        goto retry;
+    } else if (err == -ERESTART || err == -EHWAIT) {
+        goto retry;
+    } else if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
                  puuid, itbid, name, err);
     }
@@ -135,12 +141,18 @@ void remove_ite(u64 puuid, u64 itbid, char *name,
     hi->namelen = strlen(name);
     hi->data = NULL;
 
+retry:
     memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
 
-    if (err) {
+    if (err == -ESPLIT) {
+        sched_yield();
+        goto retry;
+    } else if (err == -ERESTART || err == -EHWAIT) {
+        goto retry;
+    } else if (err) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s) failed %d\n", 
                  puuid, itbid, name, err);
         mds_cbht_search_dump_itb(hi);
@@ -173,11 +185,17 @@ void lookup_ite(u64 puuid, u64 itbid, char *name, u64 flag ,
     memcpy(hi->name, name, strlen(name));
     hi->namelen = strlen(name);
     
+retry:
     memset(hmr, 0, sizeof(*hmr));
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
-    if (err && (flag & ITE_ACTIVE)) {
+    if (err == -ESPLIT) {
+        sched_yield();
+        goto retry;
+    } else if (err == -ERESTART || err == -EHWAIT) {
+        goto retry;
+    } else if (err && (flag & ITE_ACTIVE)) {
         hvfs_err(mds, "mds_cbht_search(%ld, %ld, %s, %lx) failed %d\n", 
                  puuid, itbid, name, hi->hash, err);
         hvfs_err(mds, "ITB hash 0x%20lx.\n", 
@@ -435,6 +453,7 @@ int st_main(int argc, char *argv[])
     }
     /* init misc configrations */
     hmo.site_id = HVFS_MDS(0);
+    hmo.gossip_thread_stop = 1;
     hmo.conf.itbid_check = 1;
     hmi.gdt_salt = lib_random(0xfffffff);
     hvfs_info(mds, "Select GDT salt to %ld\n", hmi.gdt_salt);    
@@ -750,6 +769,7 @@ int mt_main(int argc, char *argv[])
     int err;
     int i, i1, j, k, x, bdepth, icsize, model, threads;
 
+    hvfs_err(mds, "MT MAIN is broken now, it doesn't work!\n");
     if (argc == 5) {
         /* the argv[1] is k, argv[2] is x, argv[3] is bucket.depth, argv[4] is
          * ITB Cache init size */
@@ -787,6 +807,9 @@ int mt_main(int argc, char *argv[])
     /* init misc configrations */
     hmo.site_id = HVFS_MDS(0);
     hmi.gdt_salt = lib_random(0xfffffff);
+    hmo.gossip_thread_stop = 1;
+    hmo.scrub_thread_stop = 1;
+    hmo.conf.itbid_check = 1;
     hvfs_info(mds, "Select GDT salt to %ld\n", hmi.gdt_salt);
     ring_add(&hmo.chring[CH_RING_MDS], HVFS_MDS(0));
     ring_dump(hmo.chring[CH_RING_MDS]);

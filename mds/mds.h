@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-07 15:41:32 macan>
+ * Time-stamp: <2011-01-15 22:50:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -165,6 +165,7 @@ struct mds_conf
 
 #define HVFS_MDS_LIMITED        0x20 /* for test/mds/itbsplit use only */
 #define HVFS_MDS_NOSCRUB        0x40 /* do not do scrub on cbht */
+#define HVFS_MDS_MDZIP          0x80 /* compress the metadata */
     u64 option;
 };
 

@@ -260,6 +260,9 @@ Pomegranate TODOs:
 
     Part Two: GC DATA files
 
+    API Change! at mdsl_api.h => si_core.arg0 for mdsl_read/mdsl_write 
+    is self UUID.
+
 27. ITB compression w/ LZO
 
     Only compress the ITE region, because there are a lot of ZERO. We 
@@ -268,3 +271,12 @@ Pomegranate TODOs:
     Schedule @ 1/7/2011
 
 28. DATA compression w/ LZO
+
+29. Tune MDSL append buffer performance (Priority: High)
+
+    Schedule @ 1/10/2011
+
+    1. detect the I/O bandwidth of myself (for each fde or total?)
+
+    2. mix MS_SYNC and MS_ASYNC (trigger a MS_SYNC after timeout and 
+       lager buffer?)

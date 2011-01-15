@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-05 18:47:07 macan>
+ * Time-stamp: <2011-01-15 22:26:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -229,8 +229,8 @@ int append_buf_flush(struct fdhash_entry *fde, int flag)
                     err = -errno;
                 }
             }
-            hvfs_warning(mdsl, "sync flush fd %d offset %lx\n", 
-                         fde->fd, fde->abuf.file_offset);
+            hvfs_debug(mdsl, "sync flush fd %d offset %lx\n", 
+                       fde->fd, fde->abuf.file_offset);
         }
         if (flag & ABUF_UNMAP)
             fde->state = FDE_ABUF_UNMAPPED;
@@ -272,6 +272,7 @@ void append_buf_destroy(struct fdhash_entry *fde)
 
 /* Returan value: 0: truely issue request; 1: no request issued
  */
+static inline
 int append_buf_destroy_async(struct fdhash_entry *fde)
 {
     int res = 0;
@@ -287,14 +288,64 @@ int append_buf_destroy_async(struct fdhash_entry *fde)
     return res;
 }
 
+/* Return value: 0: truely drop; 1: actually written */
+int append_buf_destroy_drop(struct fdhash_entry *fde)
+{
+    char path[HVFS_MAX_NAME_LEN] = {0, };
+    int err = 0;
+    
+#ifdef MDSL_RADICAL_DEL
+    if (1) {
+#else
+    if (hmo.conf.option & HVFS_MDSL_RADICAL_DEL) {
+#endif
+        posix_madvise(fde->abuf.addr, fde->abuf.len,
+                      POSIX_MADV_DONTNEED);
+        posix_fadvise(fde->fd, fde->abuf.file_offset,
+                      fde->abuf.len, POSIX_FADV_DONTNEED);
+        if (fde->state == FDE_ABUF) {
+            err = munmap(fde->abuf.addr, fde->abuf.len);
+            if (err) {
+                hvfs_err(mdsl, "munmap() fd %d failed w/ %d\n",
+                         fde->fd, errno);
+                err = -errno;
+                goto out;
+            }
+            atomic64_add(-fde->abuf.len, &hmo.storage.memcache);
+        }
+        /* unlink the file to drop the page cache! ignore errors */
+        if (fde->type == MDSL_STORAGE_DATA) {
+            sprintf(path, "%s/%lx/%lx/data-%ld", HVFS_MDSL_HOME,
+                    hmo.site_id, fde->uuid, fde->arg);
+            if (unlink(path) < 0) {
+                /* calculate the written length */
+                atomic64_add(fde->abuf.len, &hmo.prof.storage.wbytes);
+            }
+        }
+    } else {
+        return append_buf_destroy_async(fde);
+    }
+out:
+    return err;
+}
+
 /*
  * Note: holding the fde->lock
  */
 int append_buf_flush_remap(struct fdhash_entry *fde)
 {
-    int err = 0;
+#ifdef MDSL_ACC_SYNC
+    int err = ABUF_ASYNC | ABUF_UNMAP | ABUF_XSYNC;
 
-    err = append_buf_flush(fde, ABUF_ASYNC | ABUF_UNMAP);
+    if (fde->abuf.acclen >= aio_sync_length()) {
+        err = ABUF_ASYNC | ABUF_UNMAP;
+        fde->abuf.acclen = 0;
+    }
+#else
+    int err = ABUF_ASYNC | ABUF_UNMAP;
+    
+#endif
+    err = append_buf_flush(fde, err);
     if (err) {
         hvfs_err(mdsl, "ABUF flush failed w/ %d\n", err);
         goto out;
@@ -405,6 +456,7 @@ int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
             }
         }
     } while (len > 0);
+    fde->abuf.acclen += msa->iov->iov_len;
 
 out_unlock:
     xlock_unlock(&fde->lock);
@@ -722,6 +774,8 @@ void mdsl_storage_destroy(void)
                     close(fde->fd);
                     hlist_del(&fde->list);
                     list_del(&fde->lru);
+                    if (fde->state == FDE_NORMAL)
+                        xfree((void *)fde->arg);
                     xfree(fde);
                     atomic_dec(&hmo.storage.active);
                 } else {
@@ -849,11 +903,13 @@ void mdsl_storage_fd_remove(struct fdhash_entry *new)
 int mdsl_storage_low_load(time_t cur)
 {
     static u64 last_wbytes = 0;
+    static u64 last_req = 0;
     static time_t last_probe = 0;
     static int shift = 0;       /* shift for fd_cleanup_N */
 
     static u64 wbytes = 0, rbytes = 0;
     static time_t old = 0;
+    u64 this_wbytes, this_req;
     int res = 0;
 
     /* update the peace counter */
@@ -870,13 +926,18 @@ int mdsl_storage_low_load(time_t cur)
     }
     
     /* we recompute the wbytes rate every 10 seconds */
+    if (!last_probe)
+        last_probe = cur;
     if (cur - last_probe >= 10) {
-        /* rate < 1MB/10s */
-        if (atomic64_read(&hmo.prof.storage.wbytes) - last_wbytes < 
-            (hmo.conf.disk_low_load)) {
+        /* rate < 1MB/10s && wreq + rreq < 30/10 */
+        this_wbytes = atomic64_read(&hmo.prof.storage.wbytes);
+        this_req = atomic64_read(&hmo.prof.storage.wreq) +
+            atomic64_read(&hmo.prof.storage.rreq);
+        if (this_wbytes - last_wbytes < (hmo.conf.disk_low_load) &&
+            this_req - last_req < 30) {
             res = 1;
             /* if there is no I/O, we should not adjust the cleanup_N :) */
-            if (atomic64_read(&hmo.prof.storage.wbytes) > last_wbytes) {
+            if (this_wbytes > last_wbytes) {
                 /* we are gentel man, thus, only 8 times of original
                  * cleanup_N */
                 if (shift < 3) {
@@ -891,7 +952,8 @@ int mdsl_storage_low_load(time_t cur)
             }
         }
         last_probe = cur;
-        last_wbytes = atomic64_read(&hmo.prof.storage.wbytes);
+        last_wbytes = this_wbytes;
+        last_req = this_req;
     }
 
     return res;
@@ -948,6 +1010,8 @@ void mdsl_storage_fd_limit_check(time_t cur)
                     sched_yield();
                 hlist_del_init(&fde->list);
                 close(fde->fd);
+                if (fde->state == FDE_NORMAL)
+                    xfree((void *)fde->arg);
                 xfree(fde);
             }
             xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
@@ -991,10 +1055,12 @@ int mdsl_storage_clean_dir(u64 duuid)
                     list_del(&fde->lru);
                 xlock_unlock(&hmo.storage.lru_lock);
 
-                if (!append_buf_destroy_async(fde))
+                if (!append_buf_destroy_drop(fde))
                     j++;
 
                 hlist_del(&fde->list);
+                if (fde->state == FDE_NORMAL)
+                    xfree((void *)fde->arg);
                 xfree(fde);
                 atomic_dec(&hmo.storage.active);
                 hvfs_debug(mdsl, "Clean the data file %d in dir %lx",
@@ -1011,8 +1077,17 @@ int mdsl_storage_clean_dir(u64 duuid)
 
 void mdsl_storage_pending_io(void)
 {
-    int i, nr = min(MDSL_STORAGE_IO_PEAK, 
-                    (u64)atomic64_read(&hmo.pending_ios));
+    int i, nr;
+    
+    do {
+        nr = min(MDSL_STORAGE_IO_PEAK, 
+                 (u64)atomic64_read(&hmo.pending_ios));
+    
+        if (mdsl_aio_queue_empty())
+            atomic64_add(-nr, &hmo.pending_ios);
+        else
+            break;
+    } while (nr > 0);
     
     for (i = 0; i < nr; i++) {
         mdsl_aio_start();
@@ -1228,6 +1303,41 @@ out:
     return err;
 }
 
+/* Note: I find an issue that when I run the client.ut test with 16 threads,
+ * the performance of mdsl read is VERY bad (as low as <1MB/s). While, using
+ * fio to simulate the io pattern, I got about 15MB/s. This is a huge gap!
+ *
+ * After some more investments, I finally realise that the reason for this low
+ * performance is we issue two many large random I/O requests. Thus, we have
+ * this I/O read controler.
+ */
+static inline
+void random_read_control_down(size_t len)
+{
+    if (len < HVFS_TINY_FILE_LEN)
+        return;
+    xcond_lock(&hmo.storage.cond);
+    while (atomic_read(&hmo.prof.storage.pread) >= 1) {
+        /* we should wait now */
+        xcond_wait(&hmo.storage.cond);
+    }
+
+    /* ok to issue */
+    atomic_inc(&hmo.prof.storage.pread);
+    xcond_unlock(&hmo.storage.cond);
+}
+
+static inline
+void random_read_control_up(size_t len)
+{
+    if (len < HVFS_TINY_FILE_LEN)
+        return;
+    atomic_dec(&hmo.prof.storage.pread);
+    xcond_lock(&hmo.storage.cond);
+    xcond_broadcast(&hmo.storage.cond);
+    xcond_unlock(&hmo.storage.cond);
+}
+
 /* __normal_read()
  *
  * Note: we just relay the I/O to the file, nothing should be changed
@@ -1238,7 +1348,7 @@ int __normal_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
     long bl, br;
     int err = 0, i;
 
-    if (fde->state < FDE_OPEN || !msa->iov_nr || !msa->iov)
+    if (unlikely(fde->state < FDE_OPEN || !msa->iov_nr || !msa->iov))
         return -EINVAL;
     
     offset = msa->offset;
@@ -1247,6 +1357,7 @@ int __normal_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
     }
     
     hvfs_debug(mdsl, "read offset %ld len %ld\n", offset, msa->iov->iov_len);
+    random_read_control_down(msa->iov->iov_len);
     for (i = 0; i < msa->iov_nr; i++) {
         bl = 0;
         do {
@@ -1267,6 +1378,8 @@ int __normal_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
     }
 
 out:
+    random_read_control_up(msa->iov->iov_len);
+    
     return err;
 }
 
@@ -2252,12 +2365,13 @@ int mdsl_storage_fd_cleanup(struct fdhash_entry *fde)
             fde->state = FDE_OPEN;
             err = 1;
         }
+        break;
     default:
         err = 1;
     }
 
-    hvfs_warning(mdsl, "cleanup fd %d to state %d w/ %d\n", 
-                 fde->fd, fde->state, err);
+    hvfs_debug(mdsl, "cleanup fd %d to state %d w/ %d\n", 
+               fde->fd, fde->state, err);
     
     return err;
 }

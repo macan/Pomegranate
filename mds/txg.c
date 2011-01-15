@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-08 11:52:43 macan>
+ * Time-stamp: <2011-01-15 22:51:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -707,16 +707,20 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
             }
             xrwlock_wunlock(&ih->lock);
             if (tmpi) {
-                /* do lzo compress now */
-                err = itb_lzo_compress(tmpi, 
-                                       (struct itb *)((void *)tmpi + 
-                                                      (sizeof(struct itb) + 
-                                                       sizeof(struct ite) * 
-                                                       ITB_SIZE)),
-                                       &tmpi);
-                if (err) {
-                    hvfs_err(mds, "do LZO compress on ITB %ld failed w/ %d\n",
-                             tmpi->h.itbid, err);
+                if (hmo.conf.option & HVFS_MDS_MDZIP) {
+                    /* do lzo compress now */
+                    err = itb_lzo_compress(tmpi, 
+                                           (struct itb *)
+                                           ((void *)tmpi + 
+                                            (sizeof(struct itb) + 
+                                             sizeof(struct ite) * 
+                                             ITB_SIZE)),
+                                           &tmpi);
+                    if (err) {
+                        hvfs_err(mds, "do LZO compress on ITB %ld "
+                                 "failed w/ %d\n",
+                                 tmpi->h.itbid, err);
+                    }
                 }
                 err = txg_wb_itb_ll(cta, tmpi);
                 tmpi = swap;
@@ -775,9 +779,9 @@ void *txg_commit(void *arg)
             HVFS_BUGON("Allocate TLS tmp itb failed!");
         }
         pthread_setspecific(itb_key, i);
-        hvfs_err(mds, "Alloc memory length is %ld\n", 
-                 (sizeof(struct itb) + 
-                  sizeof(struct ite) * ITB_SIZE) * 2);
+        hvfs_info(mds, "Alloc thread specific ITB memory %ldB\n", 
+                  (sizeof(struct itb) + 
+                   sizeof(struct ite) * ITB_SIZE) * 2);
     }
 
     /* init the lzo memory key */

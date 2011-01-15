@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-07 11:11:57 macan>
+ * Time-stamp: <2011-01-15 22:53:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1030,6 +1030,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_option(opt_memonly, MEMONLY, value);
     HVFS_MDS_GET_ENV_option(opt_memlimit, MEMLIMIT, value);
     HVFS_MDS_GET_ENV_option(opt_limited, LIMITED, value);
+    HVFS_MDS_GET_ENV_option(opt_mdzip, MDZIP, value);
 
     /* default configurations */
     if (!hmo.conf.txg_buf_len) {

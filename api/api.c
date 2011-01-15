@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-06 11:25:05 macan>
+ * Time-stamp: <2011-01-10 15:29:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1630,7 +1630,7 @@ int __hvfs_read(struct amc_index *ai, char **value, struct column *c)
     }
 
     si->sic.uuid = ai->ptid;
-    si->sic.arg0 = c->stored_itbid;
+    si->sic.arg0 = ai->tid;
     si->scd.cnr = 1;
     si->scd.cr[0].cno = ai->column;
     si->scd.cr[0].stored_itbid = c->stored_itbid;
@@ -1712,7 +1712,7 @@ int __hvfs_write(struct amc_index *ai, char *value, u32 len,
     }
 
     si->sic.uuid = ai->ptid;
-    si->sic.arg0 = ai->sid;
+    si->sic.arg0 = ai->tid;
     si->scd.cnr = 1;
     si->scd.cr[0].cno = ai->column;
     si->scd.cr[0].stored_itbid = ai->sid;
@@ -5439,7 +5439,7 @@ int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c)
 
     /* fill the parent (dir) uuid to sic.uuid */
     si->sic.uuid = hs->puuid;
-    si->sic.arg0 = c->stored_itbid;
+    si->sic.arg0 = hs->uuid;
     if (hs->mdu.flags & HVFS_MDU_IF_PROXY)
         si->scd.flag = SCD_PROXY;
     si->scd.cnr = 1;
@@ -5528,8 +5528,9 @@ int __hvfs_fwrite(struct hstat *hs, int column, u32 flag,
     if (flag & SCD_PROXY)
         si->sic.arg0 = hs->uuid;
     else {
-        /* hs->hash saved the itbid */
-        si->sic.arg0 = hs->hash;
+        /* hs->hash saved the itbid. Well, we changed API to save uuid in this
+         * argument */
+        si->sic.arg0 = hs->uuid;
     }
     si->scd.flag = flag;
     si->scd.cnr = 1;

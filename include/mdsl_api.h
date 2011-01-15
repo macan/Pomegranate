@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-18 16:39:04 macan>
+ * Time-stamp: <2011-01-10 15:15:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@ struct si_core
 {
     u64 uuid;                   /* the dir UUID */
     /* 
-     * for read/write: itbid
+     * for read/write: self uuid or self itbid
      */
     u64 arg0;
 };
@@ -179,6 +179,12 @@ struct bc_commit_core
     u64 location;
     u64 itbid;
     u64 size;
+};
+
+struct data_file_header
+{
+    u64 uuid;                   /* this file's uuid */
+    u64 length;                 /* file length */
 };
 
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-07 21:33:13 macan>
+ * Time-stamp: <2011-01-12 19:17:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -144,6 +144,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
             xnet_set_auto_free(msg->pair);
             goto out_free;
         }
+        /* do not free the new ITB */
         xnet_clear_auto_free(msg->pair);
 
         /* checking the ITB */
@@ -155,6 +156,8 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
             err = itb_lzo_decompress(i);
             if (err) {
                 hvfs_err(mds, "itb_lzo_decompress() failed w/ %d\n", err);
+                i = ERR_PTR(-EFAULT);
+                xnet_set_auto_free(msg->pair);
                 goto out_free;
             }
         }

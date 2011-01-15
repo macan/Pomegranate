@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-27 16:10:00 macan>
+ * Time-stamp: <2011-01-11 12:57:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -73,6 +73,7 @@ typedef pthread_rwlock_t xrwlock_t;
 /* section for lock */
 typedef pthread_mutex_t xlock_t;
 #define xlock_lock pthread_mutex_lock
+#define xlock_trylock pthread_mutex_trylock
 #define xlock_unlock pthread_mutex_unlock
 #define xlock_init(l) pthread_mutex_init(l, NULL)
 #define xlock_destroy pthread_mutex_destroy

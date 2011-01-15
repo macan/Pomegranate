@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-05 18:48:17 macan>
+ * Time-stamp: <2011-01-15 22:07:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -177,6 +177,8 @@ static void *mdsl_timer_thread_main(void *arg)
         cur = time(NULL);
         /* should we work now */
         mdsl_dump_profiling(cur);
+        /* change the SYNC_SIZE to adjust the bandwidth */
+        aio_tune_bw();
         /* check the pending IOs */
         mdsl_storage_pending_io();
         /* check the fd hash table */
@@ -223,9 +225,9 @@ int mdsl_setup_timers(void)
                      hmo.conf.gc_interval);
     if (interval) {
         value.it_interval.tv_sec = interval;
-        value.it_interval.tv_usec = 1;
+        value.it_interval.tv_usec = 0;
         value.it_value.tv_sec = interval;
-        value.it_value.tv_usec = 1;
+        value.it_value.tv_usec = 0;
         err = setitimer(which, &value, &ovalue);
         if (err) {
             err = errno;
@@ -342,6 +344,8 @@ int mdsl_config(void)
     HVFS_MDSL_GET_ENV_atoi(fd_cleanup_N, value);
     HVFS_MDSL_GET_ENV_atoi(stacksize, value);
     HVFS_MDSL_GET_ENV_atoi(disk_low_load, value);
+    HVFS_MDSL_GET_ENV_atoi(aio_expect_bw, value);
+    HVFS_MDSL_GET_ENV_atoi(expection, value);
 
     HVFS_MDSL_GET_ENV_atol(memlimit, value);
     HVFS_MDSL_GET_ENV_atol(fdlimit, value);
@@ -350,11 +354,20 @@ int mdsl_config(void)
 
     HVFS_MDSL_GET_ENV_option(write_drop, WDROP, value);
     HVFS_MDSL_GET_ENV_option(memlimit, MEMLIMIT, value);
+    HVFS_MDSL_GET_ENV_option(radical_del, RADICAL_DEL, value);
 
     /* set default mdsl home */
     if (!hmo.conf.mdsl_home) {
         hmo.conf.mdsl_home = HVFS_MDSL_HOME;
     }
+
+    if (!hmo.conf.spool_threads)
+        hmo.conf.spool_threads = 8; /* double # of CPUs */
+
+    if (!hmo.conf.profiling_thread_interval)
+        hmo.conf.profiling_thread_interval = 5;
+    if (!hmo.conf.gc_interval)
+        hmo.conf.gc_interval = 5;
 
     /* set default chunk if not setted. */
     hmo.conf.itb_file_chunk &= ~(getpagesize() - 1);
@@ -432,9 +445,6 @@ int mdsl_init(void)
 
     /* FIXME: configurations */
     mdsl_config();
-    hmo.conf.profiling_thread_interval = 5;
-    hmo.conf.gc_interval = 5;
-    hmo.conf.spool_threads = 8; /* double # of CPUs */
 
     /* init the txg_compact_cache */
     err = mdsl_tcc_init();

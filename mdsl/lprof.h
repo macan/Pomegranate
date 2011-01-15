@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-05 14:45:34 macan>
+ * Time-stamp: <2011-01-14 11:02:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -66,6 +66,8 @@ struct mdsl_storage_prof
     atomic64_t cpbytes;         /* # of bytes copied to mmap region */
     atomic64_t aio_submitted;
     atomic64_t aio_handled;
+    atomic_t pread;             /* # of concurrent reads' length */
+    atomic_t prreads;           /* # of concurrent reads */
 };
 
 struct mdsl_prof

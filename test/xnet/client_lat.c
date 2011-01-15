@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-07 21:57:59 macan>
+ * Time-stamp: <2011-01-15 13:59:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,7 +50,10 @@ u64 __attribute__((unused)) lookup_failed = 0;
 u64 __attribute__((unused)) unlink_failed = 0;
 
 #define RESOLUTION      (500)   /* us */
-#define MAX_LATENCY     (2000)  /* 1 second */
+#define MAX_LATENCY     (30000)  /* 15 seconds */
+
+u64 range_begin = 0;
+u64 range_end = 1024;
 
 char *ipaddr[] = {
     "127.0.0.1",              /* mds */
@@ -1012,7 +1015,7 @@ out_free:
 
 void __data_write(struct hvfs_index *hi, struct column *c)
 {
-    u8 data[1024];
+    u8 data[range_end];
     struct storage_index *si;
     struct xnet_msg *msg;
     struct mdu_update *mu;
@@ -1020,7 +1023,7 @@ void __data_write(struct hvfs_index *hi, struct column *c)
     u64 dsite;
     u64 location;
     u32 vid = 0;
-    int len = lib_random(1023) + 1;
+    int len = lib_random(range_end - range_begin) + range_begin;
     int err = 0, i;
 
     hvfs_debug(xnet, "Read uuid %lx column itbid %ld len %ld offset %ld "
@@ -1128,10 +1131,29 @@ void __data_write(struct hvfs_index *hi, struct column *c)
     xnet_msg_add_sdata(msg, mu, sizeof(*mu) +
                        sizeof(struct mu_column));
 
+resend:
     err = xnet_send(hmo.xc, msg);
     if (err) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out_msg2;
+    }
+    /* check the update result */
+    if (msg->pair->tx.err == -ESPLIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        xsleep(100);
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "UPDATE failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
     }
     xnet_set_auto_free(msg->pair);
 
@@ -2569,6 +2591,7 @@ int main(int argc, char *argv[])
     char *ring_ip = NULL;
     char profiling_fname[256];
 
+    hvfs_info(xnet, "EV: range_begin (d) range_end (d)\n");
     hvfs_info(xnet, "op:   0/1/2/3/4/5/100/200   => "
               "create/lookup/unlink/create_dir/wdata/rdata/all/data_all\n");
     hvfs_info(xnet, "Mode is 0/1 (no ring/with ring)\n");
@@ -2595,6 +2618,23 @@ int main(int argc, char *argv[])
         mode = atoi(value);
     } else 
         mode = 0;
+    value = getenv("range_begin");
+    if (value) {
+        range_begin = atoi(value);
+    }
+    if (!range_begin)
+        range_begin = 1;
+    value = getenv("range_end");
+    if (value) {
+        range_end = atoi(value);
+    }
+    if (range_begin < 0 || range_end <= 0 || 
+        range_end - range_begin <= 0) {
+        hvfs_err(xnet, "Invalid file byte range [%ld, %ld)\n", 
+                 range_begin, range_end);
+        err = EINVAL;
+        goto out;
+    }
 
     /* if op==TUPD, we update the thread to 1 */
     if (op == OP_TUPD)
@@ -2728,7 +2768,7 @@ int main(int argc, char *argv[])
 
         /* Step 1: we should warmup the system a little */
         hvfs_info(xnet, "Warmup the whole system a little ...\n");
-        msg_send_mt(100, 100, thread);
+        msg_send_mt(thread << 2, 1, thread);
         hvfs_info(xnet, "OK to real test now...\n");
 
         /* Step 2: do real test */

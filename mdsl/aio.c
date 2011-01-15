@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 20:16:20 macan>
+ * Time-stamp: <2011-01-15 21:01:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,15 +29,24 @@
 
 #define MDSL_AIO_SYNC_SIZE_DEFAULT      (8 * 1024 * 1024)
 #define MDSL_AIO_MAX_QDEPTH             (8)
+#define MDSL_AIO_EXPECT_BW              (64 * 1024 * 1024)
 
 struct aio_mgr
 {
     struct list_head queue;
     xlock_t qlock;
+    xlock_t bwlock;
     sem_t qsem;
-    u64 sync_len;
     sem_t qdsem;                /* pause the submiting! */
+    u64 sync_len;
+    u64 expect_bw;
+    u64 observe_bw;
     u64 pending_writes;
+#define MDSL_AIO_BW_STRIDE              (2 * 1024 * 1024)
+    u32 bw_stride;
+    u16 bw_direction;           /* 0 means larger, 1 means smaller */
+    u16 bw_adjust_rounds;       /* if bw_direction is 1, adjust_rounds can be
+                                 * at most 15 */
 };
 
 struct aio_thread_arg
@@ -61,20 +70,131 @@ static struct aio_mgr aio_mgr;
 #define MDSL_AIO_QDCHECK_LOCK           0
 #define MDSL_AIO_QDCHECK_UNLOCK         1
 
+u64 aio_sync_length(void)
+{
+    return aio_mgr.sync_len;
+}
+
+/* BW tuning
+ */
+void aio_tune_bw(void)
+{
+    static u64 last_bytes = 0;
+    static struct timeval last_ts = {0, 0};
+    static u64 last_bw = 0;
+    struct timeval cur_ts;
+    u64 saved_bytes;
+    int err = 0;
+
+    gettimeofday(&cur_ts, NULL);
+    if (!last_ts.tv_sec) {
+        last_ts = cur_ts;
+        last_bytes = atomic64_read(&hmo.prof.storage.wbytes);
+        return;
+    }
+    if (cur_ts.tv_sec <= last_ts.tv_sec + 3)
+        return;
+    
+    err = xlock_trylock(&aio_mgr.bwlock);
+    if (err == EBUSY) {
+        return;
+    } else if (err != 0) {
+        hvfs_err(mdsl, "AIO tuning bandwidth w/ lock failed %d\n", err);
+        return;
+    }
+    
+    /* update the observed bandwidth on every SYNC */
+    saved_bytes = atomic64_read(&hmo.prof.storage.wbytes);
+    aio_mgr.observe_bw = (saved_bytes - last_bytes) * 1000000 / 
+        ((cur_ts.tv_sec - last_ts.tv_sec) * 1000000 + 
+         (cur_ts.tv_usec - last_ts.tv_usec));
+
+    if (aio_mgr.observe_bw != last_bw) {
+        hvfs_warning(mdsl, "observed %ld last %ld expect %ld direction %d "
+                     "rounds %d\n", 
+                     aio_mgr.observe_bw, last_bw, aio_mgr.expect_bw,
+                     aio_mgr.bw_direction, aio_mgr.bw_adjust_rounds);
+    }
+
+    last_bytes = saved_bytes;
+    last_ts = cur_ts;
+
+    if (aio_mgr.observe_bw < 50 * 1024)
+        goto out_unlock;
+    if (aio_mgr.observe_bw < aio_mgr.expect_bw) {
+        /* try to increase the disk bandwidth. But, there should be an
+         * inspection error (say 10KB) */
+        if (aio_mgr.observe_bw < last_bw - (10 << 10)) {
+            /* bw decrease after last adjust, try to redo our operation */
+            if (aio_mgr.bw_adjust_rounds) {
+                if (aio_mgr.bw_direction)
+                    aio_mgr.sync_len += aio_mgr.bw_stride;
+                else
+                    aio_mgr.sync_len -= (aio_mgr.bw_stride << 1);
+                aio_mgr.bw_adjust_rounds--;
+            } else {
+                /* there is no previous operation, we randomized try to
+                 * increase or decrease the sync len */
+                if (lib_random(hmo.conf.expection) > 0) {
+                    aio_mgr.bw_direction = 0;
+                    aio_mgr.sync_len += (aio_mgr.bw_stride << 1);
+                } else {
+                    aio_mgr.bw_direction = 1;
+                    aio_mgr.sync_len -= aio_mgr.bw_stride;
+                }
+                aio_mgr.bw_adjust_rounds++;
+            }
+        } else {
+            /* bw increase after last adjust, try to increase it more */
+            if (!(aio_mgr.bw_direction &&
+                  (aio_mgr.bw_adjust_rounds >= 
+                   (aio_mgr.sync_len / aio_mgr.bw_stride) - 1))) {
+                aio_mgr.bw_adjust_rounds++;
+                if (aio_mgr.bw_direction) {
+                    aio_mgr.sync_len -= aio_mgr.bw_stride;
+                } else {
+                    aio_mgr.sync_len += (aio_mgr.bw_stride << 1);
+                }
+            }
+        }
+        hvfs_warning(mdsl, "AIO chagne sync_len to %ld\n", 
+                     aio_mgr.sync_len);
+    }
+out_unlock:
+    last_bw = aio_mgr.observe_bw;
+    xlock_unlock(&aio_mgr.bwlock);
+}
+
+/* global flow control function, at most 8 current running requests */
+static inline
 void __mdsl_aio_qdcheck(int flag)
 {
     int err;
     
     if (flag == MDSL_AIO_QDCHECK_LOCK) {
         struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += 600;
-    retry:
-        err = sem_timedwait(&aio_mgr.qdsem, &ts);
-        if (err < 0 && (errno == EINTR)) {
-            goto retry;
-        } else if (errno == ETIMEDOUT) {
-            hvfs_err(mdsl, "Start aio time out for 600s, do it!\n");
+
+    retry_wait:
+        err = sem_trywait(&aio_mgr.qdsem);
+        if (err < 0) {
+            if (errno == EINTR) {
+                goto retry_wait;
+            } else if (errno == EAGAIN) {
+                clock_gettime(CLOCK_REALTIME, &ts);
+                /* wait for at most five minutes */
+                ts.tv_sec += 300;
+            retry:
+                err = sem_timedwait(&aio_mgr.qdsem, &ts);
+                if (err < 0) {
+                    if (errno == EINTR) {
+                        goto retry;
+                    } else if (errno == ETIMEDOUT) {
+                        sem_getvalue(&aio_mgr.qdsem, &err);
+                        hvfs_err(mdsl, "Start aio time out for 600s, do it!(%d)\n",
+                                 err);
+                    }
+                }
+            }
         }
     } else if (flag == MDSL_AIO_QDCHECK_UNLOCK) {
         sem_post(&aio_mgr.qdsem);
@@ -122,6 +242,11 @@ void mdsl_aio_start(void)
     sem_post(&aio_mgr.qsem);
 }
 
+int mdsl_aio_queue_empty(void)
+{
+    return list_empty(&aio_mgr.queue);
+}
+
 int __serv_sync_request(struct aio_request *ar)
 {
     int err = 0;
@@ -148,7 +273,7 @@ int __serv_sync_unmap_request(struct aio_request *ar)
                  ar->addr, ar->len, errno);
         err = -errno;
     }
-#elif 1
+#elif 1                         /* this method is not helpful, ignore it */
     int err = 0, i;
     u64 len = ar->len;
     u64 b;
@@ -165,6 +290,8 @@ int __serv_sync_unmap_request(struct aio_request *ar)
         len -= b;
     }
 #else
+    int err = 0;
+    
     err = sync_file_range(ar->fd, ar->foff, ar->len,
                           SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE);
     if (err) {
@@ -175,7 +302,54 @@ int __serv_sync_unmap_request(struct aio_request *ar)
 #endif
     atomic64_add(ar->len, &hmo.prof.storage.wbytes);
     posix_madvise(ar->addr, ar->mlen, POSIX_MADV_DONTNEED);
+#ifdef MDSL_ACC_SYNC
+    err = ar->foff - aio_sync_length() - ar->mlen;
+    if (err < 0)
+        err = 0;
+    posix_fadvise(ar->fd, err, 
+                  (ar->mlen << 1) + aio_sync_length(), POSIX_FADV_DONTNEED);
+#else
     posix_fadvise(ar->fd, ar->foff, ar->mlen, POSIX_FADV_DONTNEED);
+#endif
+    err = munmap(ar->addr, ar->mlen);
+    if (err) {
+        hvfs_err(mdsl, "AIO UNMAP region [%p,%ld] failed w/ %d\n",
+                 ar->addr, ar->mlen, errno);
+        err = -errno;
+    }
+    hvfs_debug(mdsl, "ASYNC FLUSH foff %lx addr %p, done.\n", 
+               ar->foff, ar->addr);
+    xfree(ar);
+
+    return err;
+}
+
+int __serv_sync_unmap_xsync_request(struct aio_request *ar)
+{
+    int err = 0;
+
+#if 1
+    err = msync(ar->addr, ar->len, MS_ASYNC);
+    if (err) {
+        hvfs_err(mdsl, "AIO SYNC region [%p,%ld] faield w/ %d\n",
+                 ar->addr, ar->len, errno);
+        err = -errno;
+    }
+#else
+    err = sync_file_range(ar->fd, ar->foff, ar->len,
+                          SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE);
+    if (err) {
+        hvfs_err(mdsl, "AIO fadvise region [%lx,%ld] failed w/ %d\n",
+                 ar->foff, ar->len, errno);
+        err = -errno;
+    }
+#endif
+    atomic64_add(ar->len, &hmo.prof.storage.wbytes);
+    /* madvise and fadvise have no use with calling MS_ASYNC */
+#if 0
+    posix_madvise(ar->addr, ar->mlen, POSIX_MADV_DONTNEED);
+    posix_fadvise(ar->fd, ar->foff, ar->mlen, POSIX_FADV_DONTNEED);
+#endif
     err = munmap(ar->addr, ar->mlen);
     if (err) {
         hvfs_err(mdsl, "AIO UNMAP region [%p,%ld] failed w/ %d\n",
@@ -297,6 +471,12 @@ int __serv_request(void)
                      "failed w/ %d\n", err);
         }
         break;
+    case MDSL_AIO_SYNC_UNMAP_XSYNC:
+        err = __serv_sync_unmap_xsync_request(ar);
+        if (err) {
+            hvfs_err(mdsl, "Handle AIO SYNC UNMAP request faield w/ %d\n", err);
+        }
+        break;
     case MDSL_AIO_ODIRECT:
         err = __serv_odirect_request(ar);
         if (err) {
@@ -375,18 +555,37 @@ int mdsl_aio_create(void)
     /* init the mgr struct  */
     INIT_LIST_HEAD(&aio_mgr.queue);
     xlock_init(&aio_mgr.qlock);
+    xlock_init(&aio_mgr.bwlock);
     sem_init(&aio_mgr.qsem, 0, 0);
     sem_init(&aio_mgr.qdsem, 0, MDSL_AIO_MAX_QDEPTH);
     aio_mgr.pending_writes = 0;
+    aio_mgr.bw_stride = MDSL_AIO_BW_STRIDE;
 
     if (!hmo.conf.aio_sync_len) {
         hmo.conf.aio_sync_len = MDSL_AIO_SYNC_SIZE_DEFAULT;
         aio_mgr.sync_len = MDSL_AIO_SYNC_SIZE_DEFAULT;
+    } else {
+        hmo.conf.aio_sync_len = PAGE_ROUNDUP(hmo.conf.aio_sync_len, 
+                                             getpagesize());
+        aio_mgr.sync_len = hmo.conf.aio_sync_len;
+    }
+
+    if (!hmo.conf.aio_expect_bw) {
+        aio_mgr.expect_bw = MDSL_AIO_EXPECT_BW;
+    } else {
+        if (aio_mgr.expect_bw < MDSL_AIO_EXPECT_BW)
+            aio_mgr.expect_bw = MDSL_AIO_EXPECT_BW;
+        else
+            aio_mgr.expect_bw = hmo.conf.aio_expect_bw;
+    }
+
+    if (!hmo.conf.expection) {
+        hmo.conf.expection = 2;
     }
 
     /* init aio threads' pool */
     if (!hmo.conf.aio_threads)
-        hmo.conf.aio_threads = 8;
+        hmo.conf.aio_threads = 4;
 
     hmo.aio_thread = xzalloc(hmo.conf.aio_threads * sizeof(pthread_t));
     if (!hmo.aio_thread) {

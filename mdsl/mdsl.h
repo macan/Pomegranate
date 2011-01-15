@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-05 18:46:30 macan>
+ * Time-stamp: <2011-01-15 22:10:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,10 +65,11 @@ struct append_buf
 {
     void *addr;
     size_t len;
+    size_t acclen;              /* accumulate length */
     u64 falloc_size;
-    loff_t file_offset;              /* offset of the mapped file */
-    loff_t offset;                   /* the data offset within the buf */
-    loff_t falloc_offset;            /* where to fallocate */
+    loff_t file_offset;         /* offset of the mapped file */
+    loff_t offset;              /* the data offset within the buf */
+    loff_t falloc_offset;       /* where to fallocate */
 };
 
 /* md disk structure */
@@ -235,6 +236,7 @@ struct mdsl_storage
     atomic_t active;
     atomic_t peace;          /* peace counter count the MDSL slient seconds */
     atomic64_t memcache;
+    xcond_t cond;               /* condition var for read controller */
 };
 
 struct mdsl_conf
@@ -275,7 +277,12 @@ struct mdsl_conf
                                  * value is very important for slow disk, you
                                  * should set this value lower if you find
                                  * that mdsl is slow. */
+    int expection;              /* this value impact the AIO sync length
+                                 * adjusting, larger value leads to larger
+                                 * block! */
+    int rread_max;              /* the concurrent random read max value */
     u32 aio_sync_len;           /* sync chunnk size for AIO */
+    u32 aio_expect_bw;          /* user expected IO bandwidth per disk */
     u8 prof_plot;               /* do we dump profilings for gnuplot */
 
     /* intervals */
@@ -285,6 +292,8 @@ struct mdsl_conf
     /* conf */
 #define HVFS_MDSL_WDROP         0x01 /* drop all the writes to this MDSL */
 #define HVFS_MDSL_MEMLIMIT      0x02 /* limit the TCC memory usage */
+#define HVFS_MDSL_RADICAL_DEL   0x04 /* radical delete the memory resource for
+                                      * deleted directory */
     u64 option;
 };
 
@@ -446,14 +455,20 @@ void mdsl_storage_fd_pagecache_cleanup(void);
 #define ABUF_UNMAP      0x02
 #define ABUF_SYNC       0x04
 #define ABUF_TRUNC      0x08
+#define ABUF_XSYNC      0x10    /* XSYNC means use MS_ASYNC for msync() */
 
 /* aio.c */
 #define MDSL_AIO_SYNC           0x01
 #define MDSL_AIO_SYNC_UNMAP     (ABUF_ASYNC | ABUF_UNMAP)
 #define MDSL_AIO_SYNC_UNMAP_TRUNC       (ABUF_ASYNC | ABUF_UNMAP | \
                                          ABUF_TRUNC)
+#define MDSL_AIO_SYNC_UNMAP_XSYNC       (ABUF_ASYNC | ABUF_UNMAP | \
+                                         ABUF_XSYNC)
 #define MDSL_AIO_ODIRECT        0x04
 #define MDSL_AIO_READ           0x10
+void aio_tune_bw(void);
+int mdsl_aio_queue_empty(void);
+u64 aio_sync_length(void);
 int mdsl_aio_create(void);
 void mdsl_aio_destroy(void);
 int mdsl_aio_submit_request(void *addr, u64 len, u64, loff_t, int, int);

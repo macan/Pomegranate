@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-07 16:34:04 macan>
+ * Time-stamp: <2011-01-14 11:05:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -53,6 +53,8 @@
 #define EIGHTH_SECOND_IN_US     (125000) /* 4x */
 #define SIXTEENTH_SECOND_IN_US  (62500)  /* 8x */
 #define THIRTYND_SECOND_IN_US   (31250)  /* 16x */
+
+#define HVFS_TINY_FILE_LEN      (1024)
 
 /* UUID bits
  *
