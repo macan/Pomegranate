@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-10 15:29:39 macan>
+ * Time-stamp: <2011-01-18 13:34:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -39,6 +39,7 @@ atomic64_t split_retry = {.counter = 0,};
 atomic64_t create_failed = {.counter = 0,};
 atomic64_t lookup_failed = {.counter = 0,};
 atomic64_t unlink_failed = {.counter = 0,};
+void *lzo_workmem;
 
 /* Note that the AMC client just wrapper the mds core functions to act as a
  * standalone program. The API exported by this file can be called by the
@@ -1021,6 +1022,12 @@ int __core_main(int argc, char *argv[])
         hvfs_err(xnet, "fopen() profiling file %s failed %d\n",
                  profiling_fname, errno);
         return EINVAL;
+    }
+
+    /* setup lzo work memory */
+    lzo_workmem = xmalloc(LZO1X_1_MEM_COMPRESS + (sizeof(lzo_align_t) - 1));
+    if (!lzo_workmem) {
+        HVFS_BUGON("Failed to allocate lzo work memroy!");
     }
 
     /* setup the address of root server */
@@ -5472,19 +5479,44 @@ int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c)
     /* recv the reply, parse the data now */
     ASSERT(msg->pair->tx.len == c->len, xnet);
     if (msg->pair->xm_datacheck) {
-        *data = xmalloc(c->len);
-        if (!*data) {
-            hvfs_err(xnet, "xmalloc value region failed.\n");
-            err = -ENOMEM;
-            goto out_msg;
+        /* restore the original data if the data is compressed */
+        if (hs->mdu.flags & HVFS_MDU_IF_LZO) {
+            void *orig;
+            size_t olen, olen_cmp;
+            
+            olen_cmp = *(size_t *)msg->pair->xm_data;
+            orig = xmalloc(olen_cmp + 8);
+            if (!orig) {
+                hvfs_err(xnet, "xmalloc original buffer failed\n");
+                err = -ENOMEM;
+                goto fallback;
+            }
+            err = lzo1x_decompress(msg->pair->xm_data + sizeof(size_t), 
+                                   c->len - sizeof(size_t), 
+                                   orig, &olen, NULL);
+            if (err == LZO_E_OK && olen == olen_cmp) {
+                err = 0;
+            } else {
+                hvfs_err(xnet, "LZO decompress failed w/ %d\n", err);
+                goto fallback;
+            }
+            *data = orig;
+        fallback:;
+        } else {
+            *data = xmalloc(c->len);
+            if (!*data) {
+                hvfs_err(xnet, "xmalloc value region failed.\n");
+                err = -ENOMEM;
+                goto out_msg;
+            }
+            memcpy(*data, msg->pair->xm_data, c->len);
         }
-        memcpy(*data, msg->pair->xm_data, c->len);
     } else {
         hvfs_err(xnet, "recv data read reply ERROR %d\n",
                  msg->pair->tx.err);
-        xnet_set_auto_free(msg->pair);
         goto out_msg;
     }
+    xnet_set_auto_free(msg->pair);
 
 out_msg:
     xnet_free_msg(msg);
@@ -5510,6 +5542,45 @@ int __hvfs_fwrite(struct hstat *hs, int column, u32 flag,
                  "puuid %lx psalt %lx\n",
                  column, len, hs->hash, hs->puuid, hs->psalt);
 
+    if (len <= 0)
+        return 0;
+
+    /* should we compress the data */
+    if (flag & SCD_LZO) {
+        void *zip, *zip_data;
+        size_t zlen;
+
+        zip = xmalloc(len + sizeof(size_t));
+        if (!zip) {
+            hvfs_warning(xnet, "prepare zip buffer failed, fallback to "
+                         "non-zip\n");
+            /* clear the flag */
+            flag &= ~SCD_LZO;
+            goto fallback;
+        }
+        *(size_t *)zip = len;
+        zip_data = zip + sizeof(size_t);
+        err = lzo1x_1_compress(data, len,
+                               zip_data, &zlen, lzo_workmem);
+        if (err == LZO_E_OK) {
+            err = 0;
+        } else {
+            hvfs_warning(xnet, "LZO compress failed w/ %d\n", err);
+            xfree(zip);
+            /* clear the flag */
+            flag &= ~SCD_LZO;
+            goto fallback;
+        }
+        if (zlen + sizeof(size_t) >= len) {
+            xfree(zip);
+            flag &= ~SCD_LZO;
+            goto fallback;
+        }
+        data = zip;
+        len = zlen + sizeof(size_t);
+    fallback:;
+    }
+    
     si = xzalloc(sizeof(*si) + sizeof(struct column_req));
     if (!si) {
         hvfs_err(xnet, "xzalloc() stroage index failed\n");
@@ -5582,6 +5653,9 @@ out_msg:
 
 out_free:
     xfree(si);
+    if (flag & SCD_LZO) {
+        xfree(data);
+    }
 
     return err;
 }
@@ -5766,6 +5840,7 @@ int hvfs_fwrite(char *path, char *name, int column, void *data,
     {
         struct mdu_update *mu;
         struct mu_column *mc;
+        u32 redo_flag = 0;
 
         mu = xzalloc(sizeof(*mu) + sizeof(struct mu_column));
         if (!mu) {
@@ -5777,18 +5852,27 @@ int hvfs_fwrite(char *path, char *name, int column, void *data,
         mu->valid = MU_COLUMN | MU_SIZE;
         if (flag) {
             mu->valid |= MU_FLAG_ADD;
-            switch (flag) {
-            case SCD_PROXY:
-                mu->flags = HVFS_MDU_IF_PROXY;
-                break;
-            default:;
+            if (flag & SCD_PROXY)
+                mu->flags |= HVFS_MDU_IF_PROXY;
+            else {
+                redo_flag |= HVFS_MDU_IF_PROXY;
             }
+            if (flag & SCD_LZO) {
+                if (len != hs.mc.c.len)
+                    mu->flags |= HVFS_MDU_IF_LZO;
+            } else {
+                redo_flag |= HVFS_MDU_IF_LZO;
+            }
+        } else {
+            mu->valid |= MU_FLAG_CLR;
+            mu->flags |= (HVFS_MDU_IF_PROXY | HVFS_MDU_IF_LZO);
         }
         mu->size = len;
         mu->column_no = 1;
         mc->cno = column;
         mc->c = hs.mc.c;
 
+    retry:
         hs.name = name;
         hs.uuid = 0;
         err = __hvfs_update(puuid, psalt, &hs, mu);
@@ -5797,6 +5881,12 @@ int hvfs_fwrite(char *path, char *name, int column, void *data,
                      name, err);
             xfree(mu);
             goto out;
+        }
+        if (redo_flag) {
+            mu->valid = MU_FLAG_CLR;
+            mu->flags = redo_flag;
+            redo_flag = 0;
+            goto retry;
         }
         xfree(mu);
     }

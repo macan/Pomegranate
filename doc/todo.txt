@@ -268,7 +268,7 @@ Pomegranate TODOs:
     Only compress the ITE region, because there are a lot of ZERO. We 
     should be got a big benefit.
 
-    Schedule @ 1/7/2011
+    Schedule @ 1/7/2011 done!
 
 28. DATA compression w/ LZO
 

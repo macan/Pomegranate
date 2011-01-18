@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-01-06 11:18:43 macan>
+# Time-stamp: <2011-01-18 11:12:47 macan>
 #
 # Armed with EMACS.
 #
@@ -410,7 +410,7 @@ class pamc_shell(cmd.Cmd):
 
     def do_cpin(self, line):
         '''Copy a file from local file system to Pomegranate.
-        Usage: cpin /path/to/local/file /path/to/hvfs'''
+        Usage: cpin /path/to/local/file /path/to/hvfs [flag:zip]'''
         l = shlex.split(line)
         if len(l) < 2:
             print "Invalid argument. See help cpin."
@@ -418,6 +418,11 @@ class pamc_shell(cmd.Cmd):
 
         l[0] = os.path.normpath(l[0])
         l[1] = os.path.normpath(l[1])
+
+        flag = 0
+        if len(l) == 3:
+            if l[2] == "zip":
+                flag = 0x02 # SCD_LZO
 
         path, file = os.path.split(l[1])
         if path == "" or path[0] != '/':
@@ -440,7 +445,7 @@ class pamc_shell(cmd.Cmd):
             c_column = c_int(0)
             c_content = c_char_p(content)
             c_len = c_long(dlen)
-            c_flag = c_int(0)
+            c_flag = c_int(flag)
             self.start_clock()
             err = api.hvfs_fwrite(c_path, c_file, c_column, c_content, c_len, 
                                   c_flag)

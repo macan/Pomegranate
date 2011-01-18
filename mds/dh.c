@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-10 15:31:00 macan>
+ * Time-stamp: <2011-01-18 11:06:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -929,7 +929,7 @@ int mds_dh_reload_nolock(struct dhe *ue)
 
         if (msg->pair->tx.err) {
             hvfs_err(mds, "mds_dh_load(%lx) from site %lx "
-                     "failed w/ %d\n",
+                     "failed w/ %d. (maybe remove it from DH)\n",
                      ue->uuid, tsid, msg->pair->tx.err);
             err = msg->pair->tx.err;
         } else {
