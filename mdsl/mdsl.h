@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-15 22:10:36 macan>
+ * Time-stamp: <2011-01-18 15:11:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -151,7 +151,8 @@ struct fdhash_entry
 {
     struct hlist_node list;
     struct list_head lru;
-    xlock_t lock;
+    xlock_t lock;               /* write lock? */
+    xcond_t cond;               /* cond var for FDE_LOCKED state */
     u64 uuid;
     u64 arg;
     atomic_t ref;
@@ -166,6 +167,7 @@ struct fdhash_entry
 #define FDE_MDISK       6         /* md disk structure accessing */
 #define FDE_ODIRECT     7         /* using the O_DIRECT to write */
 #define FDE_BITMAP      8         /* bitmap of dir */
+#define FDE_LOCKED      9         /* lock this ite */
     int state;
     union 
     {
@@ -449,6 +451,8 @@ int __mdisk_add_range(struct fdhash_entry *, u64, u64, u64);
 int mdsl_storage_toe_commit(struct txg_open_entry *, struct txg_end *);
 int mdsl_storage_update_range(struct txg_open_entry *);
 void mdsl_storage_fd_pagecache_cleanup(void);
+int mdsl_storage_fd_lockup(u64, int, u64);
+int mdsl_storage_fd_unlock(u64, int, u64);
 
 /* defines for buf flush */
 #define ABUF_ASYNC      0x01

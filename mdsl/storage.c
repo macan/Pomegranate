@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-15 22:26:15 macan>
+ * Time-stamp: <2011-01-18 15:08:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -843,6 +843,85 @@ struct fdhash_entry *mdsl_storage_fd_lookup(u64 duuid, int ftype, u64 arg)
     xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
 
     return ERR_PTR(-EINVAL);
+}
+
+/* At this moment, we only support lockup the md file. Other ftype we will
+ * return -EINVAL immediately.
+ */
+int mdsl_storage_fd_lockup(u64 duuid, int ftype, u64 arg)
+{
+    struct fdhash_entry *fde, *pfde;
+    struct hlist_node *pos;
+    int idx, err = 0;
+
+    if (ftype != MDSL_STORAGE_MD)
+        return -EINVAL;
+    
+    fde = mdsl_storage_fd_lookup_create(duuid, ftype, arg);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create duuid %lx ftype %d failed w/ %ld\n",
+                 duuid, ftype, PTR_ERR(fde));
+        err = PTR_ERR(fde);
+        goto out;
+    }
+
+    idx = hvfs_hash_fdht(duuid, ftype) % hmo.conf.storage_fdhash_size;
+    xlock_lock(&(hmo.storage.fdhash + idx)->lock);
+    hlist_for_each_entry(pfde, pos, &(hmo.storage.fdhash + idx)->h, list) {
+        if (pfde == fde) {
+            /* wait for the active references */
+            while (atomic_read(&fde->ref) > 1) {
+                xsleep(1000);   /* wait 1ms */
+            }
+            xcond_lock(&fde->cond);
+            if (fde->state == FDE_MDISK)
+                fde->state = FDE_LOCKED;
+            else
+                err = -ELOCKED;
+            xcond_unlock(&fde->cond);
+            break;
+        }
+    }
+    xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
+
+    if (!err) {
+        if (fde->state == FDE_LOCKED)
+            err = 0;
+        else
+            err = -EFAULT;
+    }
+    mdsl_storage_fd_put(fde);
+
+out:
+    return err;
+}
+
+int mdsl_storage_fd_unlock(u64 duuid, int ftype, u64 arg)
+{
+    struct fdhash_entry *fde;
+    int err = 0;
+
+    if (ftype != MDSL_STORAGE_MD)
+        return -EINVAL;
+
+    fde = mdsl_storage_fd_lookup_create(duuid, ftype, arg);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create duuid %lx ftype %d failed w/ %ld\n",
+                 duuid, ftype, PTR_ERR(fde));
+        err = PTR_ERR(fde);
+        goto out;
+    }
+
+    xcond_lock(&fde->cond);
+    if (fde->state == FDE_LOCKED)
+        fde->state = FDE_MDISK;
+    xcond_broadcast(&fde->cond);
+    xcond_unlock(&fde->cond);
+
+    mdsl_storage_fd_put(fde);
+
+out:
+    return err;
 }
 
 struct fdhash_entry *mdsl_storage_fd_insert(struct fdhash_entry *new)
@@ -2149,6 +2228,16 @@ struct fdhash_entry *mdsl_storage_fd_lookup_create(u64 duuid, int fdtype,
     if (!IS_ERR(fde)) {
         if (fde->state <= FDE_OPEN) {
             goto reinit;
+        } else if (fde->state == FDE_LOCKED) {
+            /* this FDE has already been locked, we should wait it.(Note that
+             * we have already got the reference) */
+            xcond_lock(&fde->cond);
+            do {
+                xcond_wait(&fde->cond);
+            } while (fde->state == FDE_LOCKED);
+            xcond_unlock(&fde->cond);
+            /* ok, we should return this fde to user */
+            return fde;
         } else 
             return fde;
     }
@@ -2165,6 +2254,7 @@ struct fdhash_entry *mdsl_storage_fd_lookup_create(u64 duuid, int fdtype,
         INIT_HLIST_NODE(&fde->list);
         INIT_LIST_HEAD(&fde->lru);
         xlock_init(&fde->lock);
+        xcond_init(&fde->cond);
         atomic_set(&fde->ref, 1);
         fde->uuid = duuid;
         fde->arg = arg;
