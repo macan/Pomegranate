@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-21 16:52:41 macan>
+ * Time-stamp: <2011-01-21 18:05:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -134,10 +134,17 @@ int mdsl_gc_tx_itb(u64 duuid, int gen, struct fdhash_entry *omd)
                     hmo.site_id, duuid, (fde->mdisk.ranges + i)->range_id);
             err = rename(opath, npath);
             if (err) {
-                hvfs_err(mdsl, "Rename '%s' to '%s' failed w/ %d\n",
-                         opath, npath, errno);
-                err = -errno;
-                goto rollback_ranges;
+                if (errno == ENOENT) {
+                    /* I think it is ok that there is a new range created in
+                     * the new metadata file, thus, we just ignore this error */
+                    hvfs_warning(mdsl, "Rename '%s' but it doesn't exist!\n",
+                                 opath);
+                } else {
+                    hvfs_err(mdsl, "Rename '%s' to '%s' failed w/ %d\n",
+                             opath, npath, errno);
+                    err = -errno;
+                    goto rollback_ranges;
+                }
             }
             abort_flag = 1;
             
@@ -220,6 +227,37 @@ int mdsl_gc_tx_itb(u64 duuid, int gen, struct fdhash_entry *omd)
         if (err) {
             hvfs_err(mdsl, "Unlink '%s' failed w/ %d, need human involving\n",
                      path, err);
+        }
+    }
+    {
+        if (omd->mdisk.ranges) {
+            for (i = 0; i < omd->mdisk.size; i++) {
+                char path[256];
+
+                sprintf(path, "%s/%lx/%lx/Brange-%ld", HVFS_MDSL_HOME,
+                        hmo.site_id, duuid, (omd->mdisk.ranges + i)->range_id);
+                err = unlink(path);
+                if (err) {
+                    hvfs_err(mdsl, "Unlink '%s' failed w/ %d, need human "
+                             "involving\n",
+                             path, err);
+                }
+            }
+        }
+        if (omd->mdisk.new_range) {
+            for (i = 0; i < omd->mdisk.new_size; i++) {
+                char path[256];
+
+                sprintf(path, "%s/%lx/%lx/Brange-%ld", HVFS_MDSL_HOME,
+                        hmo.site_id, duuid, 
+                        (omd->mdisk.new_range + i)->range_id);
+                err = unlink(path);
+                if (err) {
+                    hvfs_err(mdsl, "Unlink '%s' failed w/ %d, need human "
+                             "involving\n",
+                             path, err);
+                }
+            }
         }
     }
 
