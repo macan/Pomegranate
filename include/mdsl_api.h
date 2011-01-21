@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-17 15:54:05 macan>
+ * Time-stamp: <2011-01-21 13:46:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -143,6 +143,7 @@ struct itb_info
     u64 duuid;
     u64 itbid;
     u64 location;
+    u64 master;                 /* which itb master file we writen to */
 };
 
 #define ITB_INFO_DISK_SIZE (sizeof(struct itb_info) - sizeof(struct list_head))

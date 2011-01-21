@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-20 14:29:15 macan>
+ * Time-stamp: <2011-01-21 17:06:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,7 +54,8 @@ int main(int argc, char *argv[])
     }
     
     fprintf(stdout, "ITB Analyzer to debug the ITB write-backed "
-            "snapshot.\n");
+            "snapshot. (%sDo NOT support LZO compressed itb!%s)\n",
+            HVFS_COLOR_RED, HVFS_COLOR_END);
 
     while (1) {
         fprintf(stdout, "Please input the file offset to load the "

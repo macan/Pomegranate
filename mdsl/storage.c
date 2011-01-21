@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-18 15:08:55 macan>
+ * Time-stamp: <2011-01-21 15:54:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -270,25 +270,24 @@ void append_buf_destroy(struct fdhash_entry *fde)
     fde->state = FDE_OPEN;
 }
 
-/* Returan value: 0: truely issue request; 1: no request issued
+/* Returan value: 1: truely issue request; 0: no request issued
  */
-static inline
 int append_buf_destroy_async(struct fdhash_entry *fde)
 {
     int res = 0;
     
     if (fde->state == FDE_ABUF) {
         append_buf_flush(fde, ABUF_ASYNC | ABUF_UNMAP | ABUF_TRUNC);
-    } else
         res = 1;
-    
+    }
+
     memset(&fde->abuf, 0, sizeof(fde->abuf));
     fde->state = FDE_OPEN;
 
     return res;
 }
 
-/* Return value: 0: truely drop; 1: actually written */
+/* Return value: 0: truely drop (or no request issued); 1: actually written */
 int append_buf_destroy_drop(struct fdhash_entry *fde)
 {
     char path[HVFS_MAX_NAME_LEN] = {0, };
@@ -322,6 +321,7 @@ int append_buf_destroy_drop(struct fdhash_entry *fde)
                 atomic64_add(fde->abuf.len, &hmo.prof.storage.wbytes);
             }
         }
+        close(fde->fd);
     } else {
         return append_buf_destroy_async(fde);
     }
@@ -769,6 +769,8 @@ void mdsl_storage_destroy(void)
                         append_buf_destroy(fde);
                     } else if (fde->type == MDSL_STORAGE_ITB_ODIRECT) {
                         odirect_destroy(fde);
+                    } else if (fde->type == MDSL_STORAGE_MD) {
+                        __mdisk_write(fde, NULL);
                     } else
                         fsync(fde->fd);
                     close(fde->fd);
@@ -811,7 +813,8 @@ struct fdhash_entry *mdsl_storage_fd_lookup(u64 duuid, int ftype, u64 arg)
             if (ftype == MDSL_STORAGE_RANGE) {
                 struct mmap_args *ma1 = (struct mmap_args *)arg;
 
-                if (ma1->range_id == fde->mwin.arg) {
+                if (ma1->range_id == fde->mwin.arg && 
+                    ma1->flag == fde->mwin.flag) {
                     atomic_inc(&fde->ref);
                     xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
                     /* lru update */
@@ -848,41 +851,23 @@ struct fdhash_entry *mdsl_storage_fd_lookup(u64 duuid, int ftype, u64 arg)
 /* At this moment, we only support lockup the md file. Other ftype we will
  * return -EINVAL immediately.
  */
-int mdsl_storage_fd_lockup(u64 duuid, int ftype, u64 arg)
+int mdsl_storage_fd_lockup(struct fdhash_entry *fde)
 {
-    struct fdhash_entry *fde, *pfde;
-    struct hlist_node *pos;
-    int idx, err = 0;
+    int err = 0;
 
-    if (ftype != MDSL_STORAGE_MD)
+    if (fde->type != MDSL_STORAGE_MD || fde->state == FDE_OPEN)
         return -EINVAL;
     
-    fde = mdsl_storage_fd_lookup_create(duuid, ftype, arg);
-    if (IS_ERR(fde)) {
-        hvfs_err(mdsl, "lookup create duuid %lx ftype %d failed w/ %ld\n",
-                 duuid, ftype, PTR_ERR(fde));
-        err = PTR_ERR(fde);
-        goto out;
+    /* wait for the active references */
+    while (atomic_read(&fde->ref) > 1) {
+        xsleep(1000);   /* wait 1ms */
     }
-
-    idx = hvfs_hash_fdht(duuid, ftype) % hmo.conf.storage_fdhash_size;
-    xlock_lock(&(hmo.storage.fdhash + idx)->lock);
-    hlist_for_each_entry(pfde, pos, &(hmo.storage.fdhash + idx)->h, list) {
-        if (pfde == fde) {
-            /* wait for the active references */
-            while (atomic_read(&fde->ref) > 1) {
-                xsleep(1000);   /* wait 1ms */
-            }
-            xcond_lock(&fde->cond);
-            if (fde->state == FDE_MDISK)
-                fde->state = FDE_LOCKED;
-            else
-                err = -ELOCKED;
-            xcond_unlock(&fde->cond);
-            break;
-        }
-    }
-    xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
+    xcond_lock(&fde->cond);
+    if (fde->state == FDE_MDISK)
+        fde->state = FDE_LOCKED;
+    else
+        err = -ELOCKED;
+    xcond_unlock(&fde->cond);
 
     if (!err) {
         if (fde->state == FDE_LOCKED)
@@ -890,27 +875,16 @@ int mdsl_storage_fd_lockup(u64 duuid, int ftype, u64 arg)
         else
             err = -EFAULT;
     }
-    mdsl_storage_fd_put(fde);
 
-out:
     return err;
 }
 
-int mdsl_storage_fd_unlock(u64 duuid, int ftype, u64 arg)
+int mdsl_storage_fd_unlock(struct fdhash_entry *fde)
 {
-    struct fdhash_entry *fde;
     int err = 0;
 
-    if (ftype != MDSL_STORAGE_MD)
+    if (fde->type != MDSL_STORAGE_MD)
         return -EINVAL;
-
-    fde = mdsl_storage_fd_lookup_create(duuid, ftype, arg);
-    if (IS_ERR(fde)) {
-        hvfs_err(mdsl, "lookup create duuid %lx ftype %d failed w/ %ld\n",
-                 duuid, ftype, PTR_ERR(fde));
-        err = PTR_ERR(fde);
-        goto out;
-    }
 
     xcond_lock(&fde->cond);
     if (fde->state == FDE_LOCKED)
@@ -918,9 +892,6 @@ int mdsl_storage_fd_unlock(u64 duuid, int ftype, u64 arg)
     xcond_broadcast(&fde->cond);
     xcond_unlock(&fde->cond);
 
-    mdsl_storage_fd_put(fde);
-
-out:
     return err;
 }
 
@@ -937,7 +908,19 @@ struct fdhash_entry *mdsl_storage_fd_insert(struct fdhash_entry *new)
             if (new->type == MDSL_STORAGE_RANGE) {
                 struct mmap_args *ma1 = (struct mmap_args *)new->arg;
 
-                if (ma1->range_id == fde->mwin.arg) {
+                if (ma1->range_id == fde->mwin.arg &&
+                    ma1->flag == fde->mwin.flag) {
+                    atomic_inc(&fde->ref);
+                    found = 1;
+                    break;
+                }
+            } else if (new->type == MDSL_STORAGE_NORMAL) {
+                struct proxy_args *pa0, *pa1;
+
+                pa0 = (struct proxy_args *)new->arg;
+                pa1 = (struct proxy_args *)fde->arg;
+
+                if (pa0->uuid == pa1->uuid && pa0->cno == pa1->cno) {
                     atomic_inc(&fde->ref);
                     found = 1;
                     break;
@@ -973,8 +956,16 @@ void mdsl_storage_fd_remove(struct fdhash_entry *new)
 
     idx = hvfs_hash_fdht(new->uuid, new->type) % hmo.conf.storage_fdhash_size;
     xlock_lock(&(hmo.storage.fdhash + idx)->lock);
-    hlist_del(&new->list);
-    list_del(&new->lru);
+    hlist_del_init(&new->list);
+    xlock_lock(&hmo.storage.lru_lock);
+    /* race with mdsl_storage_fd_limit_check() */
+    if (list_empty(&new->lru)) {
+        xlock_unlock(&hmo.storage.lru_lock);
+        xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
+        return;
+    }
+    list_del_init(&new->lru);
+    xlock_unlock(&hmo.storage.lru_lock);
     xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
     atomic_dec(&hmo.storage.active);
 }
@@ -1075,12 +1066,22 @@ void mdsl_storage_fd_limit_check(time_t cur)
                 return;
             }
             fde = list_entry(hmo.storage.lru.prev, struct fdhash_entry, lru);
+            /* check if this fde is referenced */
+            if (atomic_read(&fde->ref) > 0) {
+                xlock_unlock(&hmo.storage.lru_lock);
+                continue;
+            }
             list_del_init(&fde->lru);
             xlock_unlock(&hmo.storage.lru_lock);
             /* do destroy on the file w/ a lock */
             idx = hvfs_hash_fdht(fde->uuid, fde->type) % 
                 hmo.conf.storage_fdhash_size;
             xlock_lock(&(hmo.storage.fdhash + idx)->lock);
+            /* race with mdsl_storage_fd_remove() */
+            if (hlist_unhashed(&fde->list)) {
+                xlock_unlock(&(hmo.storage.fdhash + idx)->lock);
+                continue;
+            }
             remove = mdsl_storage_fd_cleanup(fde);
             if (remove) {
                 /* wait for the last reference, while this broke the original
@@ -1134,10 +1135,11 @@ int mdsl_storage_clean_dir(u64 duuid)
                     list_del(&fde->lru);
                 xlock_unlock(&hmo.storage.lru_lock);
 
-                if (!append_buf_destroy_drop(fde))
+                /* this drop function should close fde->fd */
+                if (append_buf_destroy_drop(fde))
                     j++;
 
-                hlist_del(&fde->list);
+                hlist_del_init(&fde->list);
                 if (fde->state == FDE_NORMAL)
                     xfree((void *)fde->arg);
                 xfree(fde);
@@ -1150,6 +1152,44 @@ int mdsl_storage_clean_dir(u64 duuid)
     }
 
     atomic64_add(j, &hmo.pending_ios);
+
+    return 0;
+}
+
+/* evict dir does hard to evict range files
+ */
+int mdsl_storage_evict_rangef(u64 duuid)
+{
+    struct fdhash_entry *fde;
+    struct hlist_node *pos, *n;
+    int i;
+
+    for (i = 0; i < hmo.conf.storage_fdhash_size; i++) {
+        xlock_lock(&(hmo.storage.fdhash + i)->lock);
+        hlist_for_each_entry_safe(fde, pos, n,
+                                  &(hmo.storage.fdhash + i)->h,
+                                  list) {
+            if (fde->uuid == duuid &&
+                atomic_read(&fde->ref) == 0 &&
+                (fde->type == MDSL_STORAGE_RANGE)) {
+
+                xlock_lock(&hmo.storage.lru_lock);
+                /* Caution: reace with fd_limit_check! */
+                if (list_empty(&fde->lru)) {
+                    xlock_unlock(&hmo.storage.lru_lock);
+                    continue;
+                } else
+                    list_del(&fde->lru);
+                xlock_unlock(&hmo.storage.lru_lock);
+                
+                hlist_del_init(&fde->list);
+                close(fde->fd);
+                xfree(fde);
+                atomic_dec(&hmo.storage.active);
+            }
+        }
+        xlock_unlock(&(hmo.storage.fdhash + i)->lock);
+    }
 
     return 0;
 }
@@ -1478,7 +1518,7 @@ int __mdisk_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
     long bw, bl = 0;
     int err = 0;
     
-    if (fde->state != FDE_MDISK)
+    if (fde->state != FDE_MDISK && fde->state != FDE_LOCKED)
         return 0;
     
     /* we should write the fde.mdisk to disk file */
@@ -1546,7 +1586,7 @@ int __mdisk_add_range_nolock(struct fdhash_entry *fde, u64 begin, u64 end,
     size_t size = fde->mdisk.new_size;
     int err = 0;
     
-    if (fde->state != FDE_MDISK) {
+    if (fde->state != FDE_MDISK && fde->state != FDE_LOCKED) {
         err = -EINVAL;
         goto out_unlock;
     }
@@ -1591,7 +1631,7 @@ int __mdisk_lookup_nolock(struct fdhash_entry *fde, int op, u64 arg,
     int i = 0, found = 0;
     int err = 0;
     
-    if (fde->state != FDE_MDISK) {
+    if (fde->state != FDE_MDISK && fde->state != FDE_LOCKED) {
         err = -EINVAL;
         goto out_unlock;
     }
@@ -1777,6 +1817,7 @@ int mdsl_storage_fd_mmap(struct fdhash_entry *fde, char *path,
         fde->mwin.file_offset = ma->foffset;
         fde->mwin.len = ma->win;
         fde->mwin.arg = ma->range_id;
+        fde->mwin.flag = ma->flag;
         fde->state = FDE_MEMWIN;
     }
 out_unlock:            
@@ -2117,7 +2158,8 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
 
     switch (fde->type) {
     case MDSL_STORAGE_MD:
-        sprintf(path, "%s/%lx/%lx/md", HVFS_MDSL_HOME, hmo.site_id, fde->uuid);
+        sprintf(path, "%s/%lx/%lx/md-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+                fde->uuid, fde->arg);
         err = mdsl_storage_fd_mdisk(fde, path);
         if (err) {
             hvfs_err(mdsl, "change state to open failed w/ %d\n", err);
@@ -2146,8 +2188,8 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
     {
         struct mmap_args *ma = (struct mmap_args *)fde->arg;
         
-        sprintf(path, "%s/%lx/%lx/range-%ld", HVFS_MDSL_HOME, hmo.site_id, 
-                fde->uuid, ma->range_id);
+        sprintf(path, "%s/%lx/%lx/%srange-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+                fde->uuid, ((ma->flag & MA_GC) ? "G" : ""), ma->range_id);
         err = mdsl_storage_fd_mmap(fde, path, ma);
         if (err) {
             hvfs_err(mdsl, "mmap window created failed w/ %d\n", err);
@@ -2226,6 +2268,7 @@ struct fdhash_entry *mdsl_storage_fd_lookup_create(u64 duuid, int fdtype,
     
     fde = mdsl_storage_fd_lookup(duuid, fdtype, arg);
     if (!IS_ERR(fde)) {
+    recheck_state:
         if (fde->state <= FDE_OPEN) {
             goto reinit;
         } else if (fde->state == FDE_LOCKED) {
@@ -2237,7 +2280,7 @@ struct fdhash_entry *mdsl_storage_fd_lookup_create(u64 duuid, int fdtype,
             } while (fde->state == FDE_LOCKED);
             xcond_unlock(&fde->cond);
             /* ok, we should return this fde to user */
-            return fde;
+            goto recheck_state;
         } else 
             return fde;
     }
@@ -2337,6 +2380,7 @@ retry:
         }
         break;
     case FDE_MDISK:
+    case FDE_LOCKED:
         err = __mdisk_write(fde, msa);
         if (err) {
             hvfs_err(mdsl, "__mdisk_write failed w/ %d\n", err);
@@ -2388,7 +2432,7 @@ retry:
             hvfs_err(mdsl, "__mmap_read failed w/ %d\n", err);
             goto out_failed;
         }
-    } else if (fde->state == FDE_MDISK) {
+    } else if (fde->state == FDE_MDISK || fde->state == FDE_LOCKED) {
         hvfs_err(mdsl, "hoo, you should not call this function on this FDE\n");
     } else if (fde->state == FDE_ODIRECT) {
         err = odirect_read(fde, msa);
@@ -2446,6 +2490,9 @@ int mdsl_storage_fd_cleanup(struct fdhash_entry *fde)
             err = 0;
         else
             err = 1;
+        break;
+    case FDE_LOCKED:
+        err = 0;
         break;
     case FDE_MEMWIN:
         err = munmap(fde->mwin.addr, fde->mwin.len);
@@ -2588,6 +2635,8 @@ int mdsl_storage_update_range(struct txg_open_entry *toe)
             err = PTR_ERR(fde);
             continue;
         }
+        if (pos->master < fde->mdisk.itb_master)
+            goto put_fde;
         ma.win = MDSL_STORAGE_DEFAULT_RANGE_SIZE;
     relookup:
         xlock_lock(&fde->lock);
@@ -2606,15 +2655,16 @@ int mdsl_storage_update_range(struct txg_open_entry *toe)
             xlock_unlock(&fde->lock);
             goto relookup;
         } else if (err) {
-                hvfs_err(mdsl, "mdisk_lookup_nolock failed w/ %d\n", err);
-                xlock_unlock(&fde->lock);
-                goto put_fde;
+            hvfs_err(mdsl, "mdisk_lookup_nolock failed w/ %d\n", err);
+            xlock_unlock(&fde->lock);
+            goto put_fde;
         }
         xlock_unlock(&fde->lock);
 
         ma.foffset = 0;
         ma.range_id = range->range_id;
         ma.range_begin = range->begin;
+        ma.flag = MA_OFFICIAL;
 
         hvfs_debug(mdsl, "write II %lx %ld to location %ld\n",
                    pos->duuid, pos->itbid, pos->location);
@@ -2636,4 +2686,30 @@ int mdsl_storage_update_range(struct txg_open_entry *toe)
         xfree(pos);
     }
     return err;
+}
+
+/* Got the current max offset of this file
+ */
+u64 mdsl_storage_fd_max_offset(struct fdhash_entry *fde)
+{
+    u64 offset;
+    
+    switch (fde->state) {
+    case FDE_ABUF_UNMAPPED:
+    case FDE_ABUF:
+        offset = fde->abuf.file_offset + fde->abuf.offset;
+        break;
+    case FDE_ODIRECT:
+        offset = fde->odirect.file_offset;
+        break;
+    default:
+        /* use lseek to detect */
+        offset = lseek(fde->fd, 0, SEEK_END);
+        if (offset == -1UL) {
+            hvfs_err(mdsl, "find the max file %d offset failed w/ %s(%d)\n",
+                     fde->fd, strerror(errno), errno);
+        }
+    }
+
+    return offset;
 }

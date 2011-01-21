@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-01-15 22:09:36 macan>
+# Time-stamp: <2011-01-20 15:24:21 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -83,7 +83,7 @@ LFLAGS += -lrt -ldl -lpthread
 # Region for depend files
 TEST_MDS_SOURCE = cbht.c tx.c dh.c cmd_sender.c misc.c itbsplit.c \
                   itb_analyzer.c bitmapc.c embedpy.c ctrigger.c
-TEST_MDSL_SOURCE = mdsl.c storage.c
+TEST_MDSL_SOURCE = mdsl.c storage.c gc.c
 TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c client.c \
 					root.c r2cli.c amc.c cr.c client_lat.c
 TRIGGERS_SOURCE = example.c
@@ -92,7 +92,7 @@ MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \
 				dispatch.c c2m.c fe.c async.c m2m.c spool.c bitmapc.c \
                 ddc.c scrub.c gossip.c capi.c ft.c trigger.c
 MDSL_AR_SOURCE = mdsl.c spool.c tcc.c dispatch.c m2ml.c prof.c storage.c \
-				 aio.c c2ml.c local.c
+				 aio.c c2ml.c local.c gc.c
 LIB_AR_SOURCE = lib.c ring.c time.c bitmap.c xlock.c segv.c conf.c md5.c \
                 embedpy.c minilzo.c
 XNET_AR_SOURCE = xnet.c xnet_simple.c

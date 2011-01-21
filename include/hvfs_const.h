@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-14 11:05:51 macan>
+ * Time-stamp: <2011-01-20 11:28:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -106,5 +106,6 @@ static char *hvfs_ccolor[] __attribute__((unused)) =
 #define EFWD            1040    /* already forwarded */
 #define ELOCKED         1041    /* lease locked */
 #define ERACE           1042    /* lease raced */
+#define EABORT          1043    /* transaction aborted */
 
 #endif

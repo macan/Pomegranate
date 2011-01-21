@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-07 21:28:40 macan>
+ * Time-stamp: <2011-01-20 19:33:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -184,6 +184,7 @@ void mdsl_itb(struct xnet_msg *msg)
     ma.foffset = 0;
     ma.range_id = range->range_id;
     ma.range_begin = range->begin;
+    ma.flag = MA_OFFICIAL;
 
     err = __range_lookup(msg->tx.arg0, msg->tx.arg1, &ma, &location);
     if (err) {

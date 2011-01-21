@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-18 15:11:26 macan>
+ * Time-stamp: <2011-01-21 11:24:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,6 +50,7 @@ struct mmap_window
     loff_t file_offset;         /* the file offset */
     size_t len;
     u64 arg;
+    u64 flag;
 };
 
 struct mmap_args                /* got from the md file */
@@ -58,6 +59,9 @@ struct mmap_args                /* got from the md file */
     loff_t foffset;             /* foffset */
     u64 range_id;               /* range for select the range file */
     u64 range_begin;
+#define MA_OFFICIAL             0x00
+#define MA_GC                   0x01
+    u32 flag;
 };
 
 /* append buffer */
@@ -93,6 +97,7 @@ struct md_disk
     u32 range_nr[3];            /* primary, secondary, third replicas */
     range_t *new_range;         /* region for new ranges comming in */
     range_t *ranges;            /* ranges loaded from disk file */
+    u64 gc_offset;
     int new_size;
     int size;                   /* total size of the ranges from disk */
     u32 range_aid;              /* alloc id of range */
@@ -436,6 +441,7 @@ void mdsl_storage_fd_put(struct fdhash_entry *fde)
 }
 void mdsl_storage_pending_io(void);
 int mdsl_storage_clean_dir(u64);
+int mdsl_storage_evict_rangef(u64);
 void mdsl_storage_fd_limit_check(time_t);
 int mdsl_storage_fd_cleanup(struct fdhash_entry *fde);
 int append_buf_create(struct fdhash_entry *, char *, int);
@@ -451,8 +457,20 @@ int __mdisk_add_range(struct fdhash_entry *, u64, u64, u64);
 int mdsl_storage_toe_commit(struct txg_open_entry *, struct txg_end *);
 int mdsl_storage_update_range(struct txg_open_entry *);
 void mdsl_storage_fd_pagecache_cleanup(void);
-int mdsl_storage_fd_lockup(u64, int, u64);
-int mdsl_storage_fd_unlock(u64, int, u64);
+int mdsl_storage_fd_lockup(struct fdhash_entry *);
+int mdsl_storage_fd_unlock(struct fdhash_entry *);
+u64 mdsl_storage_fd_max_offset(struct fdhash_entry *);
+void mdsl_storage_fd_remove(struct fdhash_entry *);
+
+/* internal API of storage layer */
+int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path);
+int __mdisk_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa);
+int __mdisk_lookup_nolock(struct fdhash_entry *fde, int op, u64 arg, 
+                          range_t **out);
+int __mdisk_add_range_nolock(struct fdhash_entry *fde, u64 begin, u64 end, 
+                             u64 range_id);
+void __mdisk_range_sort(void *ranges, size_t size);
+int append_buf_destroy_async(struct fdhash_entry *fde);
 
 /* defines for buf flush */
 #define ABUF_ASYNC      0x01
@@ -477,5 +495,8 @@ int mdsl_aio_create(void);
 void mdsl_aio_destroy(void);
 int mdsl_aio_submit_request(void *addr, u64 len, u64, loff_t, int, int);
 void mdsl_aio_start(void);
+
+/* gc.c */
+int mdsl_gc_md(u64);
 
 #endif

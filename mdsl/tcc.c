@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-11 19:14:54 macan>
+ * Time-stamp: <2011-01-21 13:47:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -242,6 +242,7 @@ int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
             goto write_to_tmpfile;
         }
         master = fde->mdisk.itb_master;
+        ii->master = master;
         mdsl_storage_fd_put(fde);
         
         fde = mdsl_storage_fd_lookup_create(itb->h.puuid, MDSL_STORAGE_ITB, 

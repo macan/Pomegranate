@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-06 15:26:22 macan>
+ * Time-stamp: <2011-01-20 19:34:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -175,6 +175,7 @@ int __test_all()
     ma.foffset = 0;
     ma.range_id = range->range_id;
     ma.range_begin = range->begin;
+    ma.flag = MA_OFFICIAL;
 
     err = __range_lookup(0, 0, &ma, &location);
     if (err) {
@@ -247,6 +248,7 @@ int __test_read()
     ma.foffset = 0;
     ma.range_id = range->range_id;
     ma.range_begin = range->begin;
+    ma.flag = MA_OFFICIAL;
 
     err = __range_lookup(1, itbid, &ma, &location);
     if (err) {
