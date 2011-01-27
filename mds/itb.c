@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-12 19:17:35 macan>
+ * Time-stamp: <2011-01-26 13:38:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2395,6 +2395,8 @@ int itb_readdir(struct hvfs_index *hi, struct itb *i,
                 }
             }
         }
+        /* save # of entries to hmr->dnum */
+        hmr->dnum = atomic_read(&i->h.entries);
     } else {
         void *p;
         int idx;
@@ -2445,6 +2447,8 @@ int itb_readdir(struct hvfs_index *hi, struct itb *i,
                 }
             }
         }
+        /* save # of entries to hmr->dnum */
+        hmr->dnum = atomic_read(&i->h.entries);
     }
 
 out:

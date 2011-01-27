@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-01-20 15:24:21 macan>
+# Time-stamp: <2011-01-27 10:21:57 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -25,6 +25,7 @@ BIN = $(HOME_PATH)/bin
 API = $(HOME_PATH)/api
 TRIGGERS = $(HOME_PATH)/triggers
 BRANCH = $(HOME_PATH)/branch
+FUSE = $(HOME_PATH)/fuse
 
 COMPILE_DATE = `date`
 COMPILE_HOST = `hostname`
@@ -63,7 +64,8 @@ CFLAGS += $(XCFLAGS) $(O3_OPT)
 CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" \
 			-DCHOST="\"$(COMPILE_HOST)\"" -I$(INC_PATH) \
 			-I$(PYTHON_INC) -I$(API) -I$(BRANCH) \
-			-I$(LIB_PATH) -I$(MDS) -I$(MDSL) -I$(R2) -D_GNU_SOURCE\
+			-I$(LIB_PATH) -I$(MDS) -I$(MDSL) -I$(R2) \
+			-I$(FUSE) -D_GNU_SOURCE \
 			-DHVFS_TRACING -DHVFS_DEBUG_MEMORY -DHVFS_DEBUG_LOCK_ \
             -D_USE_SPINLOCK_ -DHVFS_DEBUG_LATENCY_ -DXNET_BLOCKING \
 			-DXNET_EAGER_WRITEV -DCPU_CORE=$(__CORES__) \
@@ -72,6 +74,12 @@ CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" \
 ifdef USE_JEMALLOC
 CFLAGS += -DUSE_JEMALLOC
 LFLAGS += -ljemalloc
+endif
+
+ifdef USE_FUSE
+CFLAGS += -D_FILE_OFFSET_BITS=64 -D_REENTRANT
+LFLAGS += -lfuse
+FUSE_AR_SOURCE = fc.c
 endif
 
 ifeq ($(DISABLE_PYTHON),)
@@ -86,6 +94,9 @@ TEST_MDS_SOURCE = cbht.c tx.c dh.c cmd_sender.c misc.c itbsplit.c \
 TEST_MDSL_SOURCE = mdsl.c storage.c gc.c
 TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c client.c \
 					root.c r2cli.c amc.c cr.c client_lat.c
+ifdef USE_FUSE
+TEST_XNET_SOURCE += pfs.c
+endif
 TRIGGERS_SOURCE = example.c
 
 MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \
@@ -110,6 +121,7 @@ R2_H_SOURCE = root.h mgr.h root_config.h rprof.h
 LIB_H_SOURCE = lib.h ring.h minilzo.h
 API_H_SOURCE = 
 BRANCH_H_SOURCE = branch.h bp.h
+FUSE_H_SOURCE = pfs.h
 
 inc_h_depend_files = $(patsubst %.h, $(INC_PATH)/%.h, $(INC_H_SOURCE)) \
 						$(LIB_PATH)/hash.c
@@ -119,9 +131,11 @@ lib_h_depend_files = $(patsubst %.h, $(LIB_PATH)/%.h, $(LIB_H_SOURCE))
 r2_h_depend_files = $(patsubst %.h, $(R2)/%.h, $(R2_H_SOURCE))
 api_h_depend_files = $(patsubst %.h, $(API)/%.h, $(API_H_SOURCE))
 branch_h_depend_files = $(patsubst %.h, $(BRANCH)/%.h, $(BRANCH_H_SOURCE))
+fuse_h_depend_files = $(patsubst %.h, $(FUSE)/%.h, $(FUSE_H_SOURCE))
 header_depend_files = $(inc_h_depend_files) $(mds_h_depend_files) \
 						$(lib_h_depend_files) $(mdsl_h_depend_files) \
-						$(r2_h_depend_files) $(api_h_depend_files)
+						$(r2_h_depend_files) $(api_h_depend_files) \
+						$(fuse_h_depend_files)
 
 ut_depend_files = $(patsubst %.c, $(TEST)/mds/%.c, $(TEST_MDS_SOURCE)) \
 					$(patsubst %.c, $(TEST)/xnet/%.c, $(TEST_XNET_SOURCE)) \
@@ -142,6 +156,8 @@ branch_depend_files = $(patsubst %.c, $(BRANCH)/%.c, $(BRANCH_AR_SOURCE)) \
 					$(header_depend_files)
 triggers_depend_files = $(patsubst %.c, $(TRIGGERS)/%.c, $(TRIGGERS_SOURCE)) \
 					$(header_depend_files)
+fuse_depend_files = $(patsubst %.c, $(FUSE)/%.c, $(FUSE_AR_SOURCE)) \
+					$(header_depend_files)
 triggers_target_files = $(patsubst %.c, $(TRIGGERS)/%.so, $(TRIGGERS_SOURCE))
 
 # shared libs
@@ -160,3 +176,4 @@ R2_LIB = $(R2)/libr2.a
 XNET_LIB = $(XNET)/libxnet.a
 API_LIB = $(API)/libapi.a
 BRANCH_LIB = $(BRANCH)/libbranch.a
+FUSE_LIB = $(FUSE)/libpfuse.a

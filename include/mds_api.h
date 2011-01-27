@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-27 22:45:34 macan>
+ * Time-stamp: <2011-01-25 21:12:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -115,10 +115,17 @@ struct hvfs_index
 struct hvfs_md_reply
 {
     /* FIXME: ABI changed, notify somebody! */
-    u8 mdu_no;                  /* # of MDUs */
-    u8 ls_no;                   /* # of LSs */
-    u8 bitmap_no;               /* # of BITMAPs */
-    u8 dc_no;                   /* # of data columns */
+    union 
+    {
+        struct 
+        {
+            u8 mdu_no;              /* # of MDUs */
+            u8 ls_no;               /* # of LSs */
+            u8 bitmap_no;           /* # of BITMAPs */
+            u8 dc_no;               /* # of data columns */
+        };
+        u32 dnum;
+    };
     int err;
     int len;                    /* the data length */
 
@@ -193,6 +200,7 @@ struct mdu_update
 
 #define MU_NLINK_DELTA  (1 << 14) /* delta update to nlink, almost same as
                                    * linkadd operation */
+#define MU_DEV          (1 << 15)
 
     u64 atime;
     u64 mtime;

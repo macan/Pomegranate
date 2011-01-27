@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-18 13:34:49 macan>
+ * Time-stamp: <2011-01-27 09:18:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3828,7 +3828,7 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
         hi->flag = INDEX_SYMLINK;
         if (imu) {
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) + 
-                                       sizeof(hs->name));
+                                       strlen(hs->name));
             memcpy(mu, imu, sizeof(*mu));
             memcpy((void *)mu + sizeof(*mu), (void *)imu + sizeof(*imu),
                    mu->namelen);
@@ -3844,7 +3844,9 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
         memcpy((void *)hi + sizeof(*hi), &gm, HVFS_MDU_SIZE);
         hi->dlen = HVFS_MDU_SIZE;
     } else if (flag & INDEX_CREATE_DIR) {
-        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+        int namelen = strlen(hs->name);
+        
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen,
                              HASH_SEL_EH);
         hi->puuid = puuid;
         hi->psalt = psalt;
@@ -3853,7 +3855,7 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
             off_t offset = sizeof(*mu);
             
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
-                                       sizeof(hs->name));
+                                       namelen);
             memcpy(mu, imu, sizeof(*mu));
             if (imu->valid & MU_LLFS) {
                 memcpy((void *)mu + offset, (void *)imu + offset,
@@ -3876,13 +3878,15 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
         if (imu) {
             /* ugly code, you can't learn anything correct from the typo :( */
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
-                                       sizeof(hs->name));
+                                       strlen(hs->name));
             
             memcpy(mu, imu, sizeof(struct link_source));
             hi->dlen = sizeof(struct link_source);
         }
     } else {
-        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+        int namelen = strlen(hs->name);
+        
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen,
                              HASH_SEL_EH);
         hi->puuid = puuid;
         hi->psalt = psalt;
@@ -3891,7 +3895,7 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
             off_t offset = sizeof(*mu);
             
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
-                                       sizeof(hs->name));
+                                       namelen);
             memcpy(mu, imu, sizeof(*mu));
             if (imu->valid & MU_LLFS) {
                 memcpy((void *)mu + offset, (void *)imu + offset,
@@ -3909,8 +3913,8 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
 
     if (hs->uuid == 0) {
         hi->flag |= INDEX_BY_NAME;
-        memcpy(hi->name, hs->name, strlen(hs->name));
         hi->namelen = strlen(hs->name);
+        memcpy(hi->name, hs->name, hi->namelen);
     }
 
     err = SET_ITBID(hi);
@@ -5418,17 +5422,61 @@ void hvfs_free(void *p)
     xfree(p);
 }
 
-int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c)
+/* __hvfs_fread() should return the data length we read
+ */
+int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c,
+                 u64 offset, u64 size)
 {
     struct storage_index *si;
     struct xnet_msg *msg;
     u64 dsite;
+    u64 rlen, roffset;
     u32 vid = 0;
-    int err = 0;
+    int err = 0, need_free = 0;
 
-    hvfs_warning(xnet, "Read column itbid %ld len %ld offset %ld "
+    hvfs_warning(xnet, "Read column itbid %ld len %ld(%ld) offset %ld(%ld) "
                  "puuid %lx psalt %lx\n",
-                 c->stored_itbid, c->len, c->offset, hs->puuid, hs->psalt);
+                 c->stored_itbid, size, c->len, offset, c->offset, 
+                 hs->puuid, hs->psalt);
+    
+    if (hs->mdu.flags & HVFS_MDU_IF_LZO) {
+        rlen = c->len;
+        roffset = 0;
+        if (!*data) {
+            *data = xmalloc(size);
+            if (!*data) {
+                hvfs_err(xnet, "xmalloc result buffer failed\n");
+                return -ENOMEM;
+            }
+            need_free = 1;
+        }
+    } else {
+        if (offset + size > c->len) {
+            if (offset > c->len) {
+                hvfs_warning(xnet, "Read offset across the boundary "
+                             "(%ld vs %ld)\n",
+                             offset, c->len);
+                return -EINVAL;
+            } else {
+                /* Convention: for fuse client, it always read for some pages,
+                 * we should truncate the size to validate range */
+                size = c->len - offset;
+            }
+        }
+        if (size == 0)
+            return 0;
+        
+        rlen = size;
+        roffset = offset;
+        if (!*data) {
+            *data = xmalloc(size);
+            if (!*data) {
+                hvfs_err(xnet, "xmalloc result buffer failed\n");
+                return -ENOMEM;
+            }
+            need_free = 1;
+        }
+    }
 
     si = xzalloc(sizeof(*si) + sizeof(struct column_req));
     if (!si) {
@@ -5453,8 +5501,8 @@ int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c)
     si->scd.cr[0].cno = column;
     si->scd.cr[0].stored_itbid = c->stored_itbid;
     si->scd.cr[0].file_offset = c->offset;
-    si->scd.cr[0].req_offset = 0;
-    si->scd.cr[0].req_len = c->len;
+    si->scd.cr[0].req_offset = roffset;
+    si->scd.cr[0].req_len = rlen;
 
     /* select the MDSL site by itbid */
     dsite = SELECT_SITE(c->stored_itbid, hs->psalt, CH_RING_MDSL, &vid);
@@ -5472,12 +5520,12 @@ int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c)
 
     err = xnet_send(hmo.xc, msg);
     if (err) {
-        hvfs_err(xnet, "xnet_send() failed\n");
+        hvfs_err(xnet, "xnet_send() failed w/ %d\n", err);
         goto out_msg;
     }
 
     /* recv the reply, parse the data now */
-    ASSERT(msg->pair->tx.len == c->len, xnet);
+    ASSERT(msg->pair->tx.len == rlen, xnet);
     if (msg->pair->xm_datacheck) {
         /* restore the original data if the data is compressed */
         if (hs->mdu.flags & HVFS_MDU_IF_LZO) {
@@ -5500,29 +5548,43 @@ int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c)
                 hvfs_err(xnet, "LZO decompress failed w/ %d\n", err);
                 goto fallback;
             }
-            *data = orig;
+            /* truncate the size */
+            if (offset + size > olen_cmp) {
+                if (offset > olen_cmp) {
+                    hvfs_err(xnet, "Read offset across the boundary "
+                             "(%ld vs %ld)\n",
+                             offset, olen_cmp);
+                    err = -EINVAL;
+                    goto fallback;
+                } else {
+                    size = olen_cmp - offset;
+                }
+            }
+            /* copy the region to result buffer */
+            memcpy(*data, orig + offset, size);
+            xfree(orig);
         fallback:;
         } else {
-            *data = xmalloc(c->len);
-            if (!*data) {
-                hvfs_err(xnet, "xmalloc value region failed.\n");
-                err = -ENOMEM;
-                goto out_msg;
-            }
-            memcpy(*data, msg->pair->xm_data, c->len);
+            memcpy(*data, msg->pair->xm_data, rlen);
         }
     } else {
         hvfs_err(xnet, "recv data read reply ERROR %d\n",
                  msg->pair->tx.err);
+        err = msg->pair->tx.err;
         goto out_msg;
     }
     xnet_set_auto_free(msg->pair);
+    need_free = 0;
+    /* return the # of bytes we read */
+    err = size;
 
 out_msg:
     xnet_free_msg(msg);
 out_free:
     xfree(si);
-
+    if (need_free)
+        xfree(*data);
+    
     return err;
 }
 
@@ -5733,9 +5795,9 @@ int hvfs_fread(char *path, char *name, int column, void **data, u64 *len)
     }
     
     /* read in the data now */
-    
-    err = __hvfs_fread(&hs, column, data, &hs.mc.c);
-    if (err) {
+    *data = NULL;
+    err = __hvfs_fread(&hs, column, data, &hs.mc.c, 0, hs.mc.c.len);
+    if (err < 0) {
         hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
                  name, err);
         goto out;
@@ -5868,6 +5930,7 @@ int hvfs_fwrite(char *path, char *name, int column, void *data,
             mu->flags |= (HVFS_MDU_IF_PROXY | HVFS_MDU_IF_LZO);
         }
         mu->size = len;
+        /* this means that mc is not used in __hvfs_update() */
         mu->column_no = 1;
         mc->cno = column;
         mc->c = hs.mc.c;
@@ -6070,8 +6133,10 @@ int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
     }
 
     /* read in the dtrig content */
-    err = __hvfs_fread(&hs, HVFS_TRIG_COLUMN, &old_dtrig, &hs.mc.c);
-    if (err) {
+    old_dtrig = NULL;
+    err = __hvfs_fread(&hs, HVFS_TRIG_COLUMN, &old_dtrig, &hs.mc.c, 
+                       0, hs.mc.c.len);
+    if (err < 0) {
         hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
                  name, err);
         goto out;
@@ -6291,10 +6356,12 @@ int hvfs_cat_dtrigger(char *path, char *name, void **data)
     }
 
     /* read in the dtrig content */
-    err = __hvfs_fread(&hs, HVFS_TRIG_COLUMN, &old_dtrig, &hs.mc.c);
-    if (err) {
+    old_dtrig = NULL;
+    err = __hvfs_fread(&hs, HVFS_TRIG_COLUMN, &old_dtrig, &hs.mc.c,
+                       0, hs.mc.c.len);
+    if (err < 0) {
         hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
-                 name ,err);
+                 name, err);
         goto out;
     }
 
@@ -6336,7 +6403,6 @@ out:
     return err;
 }
 
-static
 int __hvfs_statfs(struct statfs *s, u64 dsite)
 {
     struct statfs *ns;
@@ -6431,10 +6497,11 @@ int hvfs_statfs(void **data)
              "\tf_files\t\t%ld\n"
              "\tf_ffree\t\t%ld\n"
              "\tf_fsid\t\t????\n"
-             "\tf_namelen\t%ld\n",
+             "\tf_namelen\t%ld\n"
+             "\tf_afile\t\t%ld\n",
              s.f_type, s.f_bsize, s.f_blocks, s.f_bfree,
              s.f_bavail, s.f_files, s.f_ffree, 
-             s.f_namelen);
+             s.f_namelen, (s.f_files - s.f_ffree));
     *data = p;
 
 out:
@@ -6649,7 +6716,7 @@ int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
         hi->flag = INDEX_SYMLINK;
         if (imu) {
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) + 
-                                       sizeof(hs->name));
+                                       strlen(hs->name));
             memcpy(mu, imu, sizeof(*mu));
             memcpy((void *)mu + sizeof(*mu), (void *)imu + sizeof(*imu),
                    mu->namelen);
@@ -6674,7 +6741,7 @@ int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
             off_t offset = sizeof(*mu);
             
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
-                                       sizeof(hs->name));
+                                       strlen(hs->name));
             memcpy(mu, imu, sizeof(*mu));
             if (imu->valid & MU_LLFS) {
                 memcpy((void *)mu + offset, (void *)imu + offset,
@@ -6697,7 +6764,7 @@ int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
         if (imu) {
             /* ugly code, you can't learn anything correct from the typo :( */
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
-                                       sizeof(hs->name));
+                                       strlen(hs->name));
             
             memcpy(mu, imu, sizeof(struct link_source));
             hi->dlen = sizeof(struct link_source);
@@ -6712,7 +6779,7 @@ int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
             off_t offset = sizeof(*mu);
             
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
-                                       sizeof(hs->name));
+                                       strlen(hs->name));
             memcpy(mu, imu, sizeof(*mu));
             if (imu->valid & MU_LLFS) {
                 memcpy((void *)mu + offset, (void *)imu + offset,
@@ -6730,8 +6797,8 @@ int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
 
     if (hs->uuid == 0) {
         hi->flag |= INDEX_BY_NAME;
-        memcpy(hi->name, hs->name, strlen(hs->name));
         hi->namelen = strlen(hs->name);
+        memcpy(hi->name, hs->name, hi->namelen);
     }
 
     err = SET_ITBID(hi);

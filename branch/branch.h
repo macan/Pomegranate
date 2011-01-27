@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-12 00:54:20 macan>
+ * Time-stamp: <2011-01-24 18:43:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -153,15 +153,6 @@ int branch_subscribe(u64 puuid, u64 uuid, char *branch_name, char *tag,
 int branch_dispatch(void *arg);
 
 /* APIs we nneed from api.c */
-int __hvfs_stat(u64 puuid, u64 psalt, int column, struct hstat *);
-int __hvfs_create(u64 puuid, u64 psalt, struct hstat *, u32 flag,
-                  struct mdu_update *);
-int __hvfs_update(u64 puuid, u64 psalt, struct hstat *,
-                  struct mdu_update *);
-int __hvfs_fwrite(struct hstat *hs, int column, u32 flag, 
-                  void *data, size_t len, struct column *c);
-int __hvfs_fread(struct hstat *hs, int column, void **data, 
-                 struct column *c);
 
 typedef int (*stat_local_t)(u64 puuid, u64 psalt, int column, struct hstat *);
 typedef int (*create_local_t)(u64 puuid, u64 psalt, struct hstat *, u32 flag,

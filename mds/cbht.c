@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-28 19:01:57 macan>
+ * Time-stamp: <2011-01-26 10:41:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -966,11 +966,13 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
             }
         } else {
             /* failed w/ non-kv access mode */
+            hvfs_err(mds, "hi->flag may miss INDEX_KV!\n");
             err = hmr->err = -EINVAL;
         }
         goto out;
     } else {
         if (unlikely(hi->flag & INDEX_KV)) {
+            hvfs_err(mds, "mdu->flag may miss HVFS_KV_NORMAL!\n");
             err = hmr->err = -EINVAL;
             goto out;
         }

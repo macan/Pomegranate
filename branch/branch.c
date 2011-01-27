@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-10 15:30:38 macan>
+ * Time-stamp: <2011-01-26 14:30:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -323,7 +323,7 @@ int hvfs_fread_eh(struct hstat *hs, int column, void **data,
         xfree(iov);
     } else {
         /* call api.c */
-        return __hvfs_fread(hs, column, data, c);
+        return __hvfs_fread(hs, column, data, c, 0, c->len);
     }
 
     return err;
@@ -1517,7 +1517,7 @@ int branch_load(char *branch_name, char *tag, int mode)
 
     /* Step 3: read in the branch data content */
     err = hvfs_fread_eh(&hs, 0, (void **)&bh, &hs.mc.c);
-    if (err) {
+    if (err < 0) {
         hvfs_err(xnet, "read the branch '%s' c[0] failed w/ %d\n",
                  branch_name, err);
         goto out;
@@ -1550,7 +1550,7 @@ int branch_load(char *branch_name, char *tag, int mode)
         nr = hs.mc.c.len / sizeof(*bacd);
         if (nr > 0) {
             err = hvfs_fread_eh(&hs, 1, (void **)&bacd, &hs.mc.c);
-            if (err) {
+            if (err < 0) {
                 hvfs_err(xnet, "read the branch '%s' c[1] failed w/ %d\n",
                          branch_name, err);
                 xfree(bh);
@@ -1576,7 +1576,7 @@ int branch_load(char *branch_name, char *tag, int mode)
         }
         if (hs.mc.c.len > 0) {
             err = hvfs_fread_eh(&hs, 2, (void **)&result, &hs.mc.c);
-            if (err) {
+            if (err < 0) {
                 hvfs_err(xnet, "read the branch '%s' failed w/ %d\n",
                          branch_name, err);
                 xfree(bh);

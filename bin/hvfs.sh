@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-12-30 10:13:47 macan>
+# Time-stamp: <2011-01-24 01:46:36 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -15,6 +15,12 @@ if [ "x$HVFS_HOME" == "x" ]; then
     if [ "x$TAIL" == 'xbin' ]; then
         HVFS_HOME=`dirname $HVFS_HOME`
     fi
+fi
+
+if [ "x$CFILE" == "x" ]; then
+    CONFIG_FILE="$HVFS_HOME/conf/hvfs.conf"
+else
+    CONFIG_FILE="$HVFS_HOME/conf/$CFILE"
 fi
 
 if [ "x$LOG_DIR" == "x" ]; then
@@ -40,7 +46,7 @@ fi
 
 function do_conf_check() {
     if [ -d $HVFS_HOME/conf ]; then
-        if [ -e $HVFS_HOME/conf/hvfs.conf ]; then
+        if [ -e $CONFIG_FILE ]; then
         # It is ok to continue
             return
         else
@@ -107,12 +113,12 @@ fi
 
 CLIENT_CMD=""
 
-ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "r2:" | awk -F: '{print $2":"$4}'`
+ipnr=`cat $CONFIG_FILE | grep "r2:" | awk -F: '{print $2":"$4}'`
 R2IP=`echo $ipnr | awk -F: '{print $1}'`
 
 function start_mdsl() {
     if [ "x$1" == "x" ]; then
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mdsl:" | awk -F: '{print $2":"$4":"$3}'`
+        ipnr=`cat $CONFIG_FILE | grep "mdsl:" | awk -F: '{print $2":"$4":"$3}'`
         for x in $ipnr; do 
             ip=`echo $x | awk -F: '{print $1}'`
             id=`echo $x | awk -F: '{print $2}'`
@@ -121,7 +127,7 @@ function start_mdsl() {
         done
         echo "Start MDSL server done."
     else
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mdsl:.*:$1\$" | awk -F: '{print $2":"$4":"$3}'`
+        ipnr=`cat $CONFIG_FILE | grep "mdsl:.*:$1\$" | awk -F: '{print $2":"$4":"$3}'`
         for x in $ipnr; do 
             ip=`echo $x | awk -F: '{print $1}'`
             id=`echo $x | awk -F: '{print $2}'`
@@ -134,7 +140,7 @@ function start_mdsl() {
 
 function start_mds() {
     if [ "x$1" == "x" ]; then
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mds:" | awk -F: '{print $2":"$4":"$3}'`
+        ipnr=`cat $CONFIG_FILE | grep "mds:" | awk -F: '{print $2":"$4":"$3}'`
         for x in $ipnr; do
             ip=`echo $x | awk -F: '{print $1}'`
             id=`echo $x | awk -F: '{print $2}'`
@@ -143,7 +149,7 @@ function start_mds() {
         done
         echo "Start MDS server done."
     else
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mds:.*:$1\$" | awk -F: '{print $2":"$4":"$3}'`
+        ipnr=`cat $CONFIG_FILE | grep "mds:.*:$1\$" | awk -F: '{print $2":"$4":"$3}'`
         for x in $ipnr; do
             ip=`echo $x | awk -F: '{print $1}'`
             id=`echo $x | awk -F: '{print $2}'`
@@ -156,21 +162,21 @@ function start_mds() {
 
 function start_root() {
     if [ "x$1" == "x" ]; then
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "r2:" | awk -F: '{print $2":"$4":"$3}'`
+        ipnr=`cat $CONFIG_FILE | grep "r2:" | awk -F: '{print $2":"$4":"$3}'`
         for x in $ipnr; do
             ip=`echo $x | awk -F: '{print $1}'`
             id=`echo $x | awk -F: '{print $2}'`
             port=`echo $x | awk -F: '{print $3}'`
-            $SSH $UN$ip "$ROOT_CMD $HVFS_HOME/test/xnet/root.ut $id $HVFS_HOME/conf/hvfs.conf $port > $LOG_DIR/root.$id.log" > /dev/null &
+            $SSH $UN$ip "$ROOT_CMD $HVFS_HOME/test/xnet/root.ut $id $CONFIG_FILE $port > $LOG_DIR/root.$id.log" > /dev/null &
         done
         echo "Start R2 server done. Waiting for 5 seconds to clean up latest instance..."
     else
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "r2:.*:$1\$" | awk -F: '{print $2":"$4":"$3}'`
+        ipnr=`cat $CONFIG_FILE | grep "r2:.*:$1\$" | awk -F: '{print $2":"$4":"$3}'`
         for x in $ipnr; do
             ip=`echo $x | awk -F: '{print $1}'`
             id=`echo $x | awk -F: '{print $2}'`
             port=`echo $x | awk -F: '{print $3}'`
-            $SSH $UN$ip "$ROOT_CMD $HVFS_HOME/test/xnet/root.ut $id $HVFS_HOME/conf/hvfs.conf $port > $LOG_DIR/root.$id.log" > /dev/null &
+            $SSH $UN$ip "$ROOT_CMD $HVFS_HOME/test/xnet/root.ut $id $CONFIG_FILE $port > $LOG_DIR/root.$id.log" > /dev/null &
             echo "Start R2 server %id done. Waiting for 5 seconds to clean up latest instance..."
         done
     fi
@@ -178,7 +184,7 @@ function start_root() {
 }
 
 function check_mdsl() {
-    ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mdsl:" | awk -F: '{print $2":"$4}'`
+    ipnr=`cat $CONFIG_FILE | grep "mdsl:" | awk -F: '{print $2":"$4}'`
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
@@ -190,7 +196,7 @@ function check_mdsl() {
 }
 
 function check_mds() {
-    ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mds:" | awk -F: '{print $2":"$4}'`
+    ipnr=`cat $CONFIG_FILE | grep "mds:" | awk -F: '{print $2":"$4}'`
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
@@ -202,7 +208,7 @@ function check_mds() {
 }
 
 function check_root() {
-    ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "r2:" | awk -F: '{print $2":"$4}'`
+    ipnr=`cat $CONFIG_FILE | grep "r2:" | awk -F: '{print $2":"$4}'`
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
@@ -222,9 +228,9 @@ function check_all() {
 
 function stop_mdsl() {
     if [ "x$1" == "x" ]; then
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mdsl:" | awk -F: '{print $2":"$4}'`
+        ipnr=`cat $CONFIG_FILE | grep "mdsl:" | awk -F: '{print $2":"$4}'`
     else
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mdsl:.*:$1\$" | awk -F: '{print $2":"$4}'`
+        ipnr=`cat $CONFIG_FILE | grep "mdsl:.*:$1\$" | awk -F: '{print $2":"$4}'`
     fi
 
     for x in $ipnr; do 
@@ -238,9 +244,9 @@ function stop_mdsl() {
 
 function stop_mds() {
     if [ "x$1" == "x" ]; then
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mds:" | awk -F: '{print $2":"$4}'`
+        ipnr=`cat $CONFIG_FILE | grep "mds:" | awk -F: '{print $2":"$4}'`
     else
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mds:.*:$1\$" | awk -F: '{print $2":"$4}'`
+        ipnr=`cat $CONFIG_FILE | grep "mds:.*:$1\$" | awk -F: '{print $2":"$4}'`
     fi
 
     for x in $ipnr; do
@@ -254,9 +260,9 @@ function stop_mds() {
 
 function stop_root() {
     if [ "x$1" == "x" ]; then
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "r2:" | awk -F: '{print $2":"$4}'`
+        ipnr=`cat $CONFIG_FILE | grep "r2:" | awk -F: '{print $2":"$4}'`
     else
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "r2:.*:$1\$" | awk -F: '{print $2":"$4}'`
+        ipnr=`cat $CONFIG_FILE | grep "r2:.*:$1\$" | awk -F: '{print $2":"$4}'`
     fi
     sleep 2
     for x in $ipnr; do
@@ -269,9 +275,9 @@ function stop_root() {
 
 function kill_mdsl() {
     if [ "x$1" == "x" ]; then
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mdsl:" | awk -F: '{print $2":"$4}'`
+        ipnr=`cat $CONFIG_FILE | grep "mdsl:" | awk -F: '{print $2":"$4}'`
     else
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mdsl:.*:$1\$" | awk -F: '{print $2":"$4}'`
+        ipnr=`cat $CONFIG_FILE | grep "mdsl:.*:$1\$" | awk -F: '{print $2":"$4}'`
     fi
 
     for x in $ipnr; do 
@@ -285,9 +291,9 @@ function kill_mdsl() {
 
 function kill_mds() {
     if [ "x$1" == "x" ]; then
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mds:" | awk -F: '{print $2":"$4}'`
+        ipnr=`cat $CONFIG_FILE | grep "mds:" | awk -F: '{print $2":"$4}'`
     else
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mds:.*:$1\$" | awk -F: '{print $2":"$4}'`
+        ipnr=`cat $CONFIG_FILE | grep "mds:.*:$1\$" | awk -F: '{print $2":"$4}'`
     fi
 
     for x in $ipnr; do
@@ -301,9 +307,9 @@ function kill_mds() {
 
 function kill_root() {
     if [ "x$1" == "x" ]; then
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "r2:" | awk -F: '{print $2":"$4}'`
+        ipnr=`cat $CONFIG_FILE | grep "r2:" | awk -F: '{print $2":"$4}'`
     else
-        ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "r2:.*:$1\$" | awk -F: '{print $2":"$4}'`
+        ipnr=`cat $CONFIG_FILE | grep "r2:.*:$1\$" | awk -F: '{print $2":"$4}'`
     fi
     sleep 2
     for x in $ipnr; do
@@ -333,7 +339,7 @@ function kill_all() {
 }
 
 function do_clean() {
-    ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mds:" | awk -F: '{print $2":"$4}'`
+    ipnr=`cat $CONFIG_FILE | grep "mds:" | awk -F: '{print $2":"$4}'`
 
     for x in $ipnr; do
         ip=`echo $x | awk -F: '{print $1}'`
@@ -347,7 +353,7 @@ function do_clean() {
 
 function stat_mdsl() {
     echo "----------MDSL----------"
-    ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mdsl:" | awk -F: '{print $2":"$4}'`
+    ipnr=`cat $CONFIG_FILE | grep "mdsl:" | awk -F: '{print $2":"$4}'`
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
@@ -362,7 +368,7 @@ function stat_mdsl() {
 
 function stat_mds() {
     echo "----------MDS----------"
-    ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "mds:" | awk -F: '{print $2":"$4}'`
+    ipnr=`cat $CONFIG_FILE | grep "mds:" | awk -F: '{print $2":"$4}'`
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
@@ -377,7 +383,7 @@ function stat_mds() {
 
 function stat_root() {
     echo "----------R2----------"
-    ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "r2:" | awk -F: '{print $2":"$4}'`
+    ipnr=`cat $CONFIG_FILE | grep "r2:" | awk -F: '{print $2":"$4}'`
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
@@ -392,7 +398,7 @@ function stat_root() {
 
 function stat_client() {
     echo "----------CLIENT----------"
-    ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "client:" | awk -F: '{print $2":"$4}'`
+    ipnr=`cat $CONFIG_FILE | grep "client:" | awk -F: '{print $2":"$4}'`
     for x in $ipnr; do 
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
@@ -408,13 +414,13 @@ function stat_client() {
 function gather_rps() {
     ARGS=`cat $HVFS_HOME/conf/ut.conf | grep -v "^ *#" | grep -v "^$"`
     NR=`cat $HVFS_HOME/conf/ut.conf | grep -v "^ *#" | grep -v "^$" | grep 'nr=' | sed -e 's/nr=//g'`
-    TOTAL=`cat $HVFS_HOME/conf/hvfs.conf | grep "client:" | wc -l`
+    TOTAL=`cat $CONFIG_FILE | grep "client:" | wc -l`
     if [ "x$NR" == 'x-1' ]; then
         NR=$TOTAL
     elif [ "x$NR" == "x" ]; then
         NR=0
     fi
-    ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
+    ipnr=`cat $CONFIG_FILE | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
 
     # issue cmd to clients now
     I=0
@@ -477,13 +483,13 @@ function do_status() {
 function do_ut() {
     ARGS=`cat $HVFS_HOME/conf/ut.conf | grep -v "^ *#" | grep -v "^$"`
     NR=`cat $HVFS_HOME/conf/ut.conf | grep -v "^ *#" | grep -v "^$" | grep 'nr=' | sed -e 's/nr=//g'`
-    TOTAL=`cat $HVFS_HOME/conf/hvfs.conf | grep "client:" | wc -l`
+    TOTAL=`cat $CONFIG_FILE | grep "client:" | wc -l`
     if [ "x$NR" == 'x-1' ]; then
         NR=$TOTAL
     elif [ "x$NR" == "x" ]; then
         NR=0
     fi
-    ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
+    ipnr=`cat $CONFIG_FILE | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
     # prepare the client cmd environment variables
     CLIENT_CMD=`echo $ARGS | sed -e "s/nr=[-0-9]*//g"`
 
@@ -505,13 +511,13 @@ function do_ut() {
 function do_kut() {
     ARGS=`cat $HVFS_HOME/conf/ut.conf | grep -v "^ *#" | grep -v "^$"`
     NR=`cat $HVFS_HOME/conf/ut.conf | grep -v "^ *#" | grep -v "^$" | grep 'nr=' | sed -e 's/nr=//g'`
-    TOTAL=`cat $HVFS_HOME/conf/hvfs.conf | grep "client:" | wc -l`
+    TOTAL=`cat $CONFIG_FILE | grep "client:" | wc -l`
     if [ "x$NR" == 'x-1' ]; then
         NR=$TOTAL
     elif [ "x$NR" == "x" ]; then
         NR=0
     fi
-    ipnr=`cat $HVFS_HOME/conf/hvfs.conf | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
+    ipnr=`cat $CONFIG_FILE | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
     # kill active clients now
     I=0
     for x in $ipnr; do

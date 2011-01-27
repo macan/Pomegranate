@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-12-03 17:06:00 macan>
+# Time-stamp: <2011-01-24 00:08:14 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -52,6 +52,16 @@ $(BRANCH_LIB) : $(branch_depend_files)
 	@echo -e " " MK"\t" $@
 	@$(MAKE) --no-print-directory -C $(BRANCH) -e "HOME_PATH=$(HOME_PATH)"
 
+ifdef USE_FUSE
+$(FUSE_LIB) : $(fuse_depend_files)
+	@echo -e " " CD"\t" $(FUSE)
+	@echo -e " " MK"\t" $@
+	@$(MAKE) --no-print-directory -C $(FUSE) -e "HOME_PATH=$(HOME_PATH)"
+else
+$(FUSE_LIB) : $(fuse_depend_files)
+	@echo -e " " MK"\t" $@ " (Ignored! Use 'USE_FUSE=1' to enable fuse support.)"
+endif
+
 triggers : $(triggers_depend_files) build_triggers
 	@echo "Triggers' dynamic library are ready."
 
@@ -72,6 +82,7 @@ clean :
 	@$(MAKE) --no-print-directory -C $(TEST)/xnet -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(TEST)/result -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(TRIGGERS) -e "HOME_PATH=$(HOME_PATH)" clean
+	@$(MAKE) --no-print-directory -C $(FUSE) -e "HOME_PATH=$(HOME_PATH)" clean
 	-@rm -rf $(LIB_PATH)/ring $(LIB_PATH)/a.out
 
 # Note: the following region is only for UNIT TESTing
@@ -80,11 +91,11 @@ $(LIB_PATH)/ring : $(RING_SOURCES)
 	@echo -e " " CC"\t" $@
 	@$(CC) $(CFLAGS) $^ -o $@ -DUNIT_TEST
 
-lib : $(HVFS_LIB) $(MDS_LIB) $(XNET_LIB) $(MDSL_LIB) $(R2_LIB) $(API_LIB) $(BRANCH_LIB)
+lib : $(HVFS_LIB) $(MDS_LIB) $(XNET_LIB) $(MDSL_LIB) $(R2_LIB) $(API_LIB) $(BRANCH_LIB) $(FUSE_LIB)
 	@echo -e " " Lib is ready.
 
 unit_test : $(ut_depend_files) $(HVFS_LIB) $(MDS_LIB) $(XNET_LIB) \
-			$(MDSL_LIB) $(R2_LIB) $(API_LIB) $(BRANCH_LIB)
+			$(MDSL_LIB) $(R2_LIB) $(API_LIB) $(BRANCH_LIB) $(FUSE_LIB)
 	@echo -e " " CD"\t" $(TEST)/mds
 	@$(MAKE) --no-print-directory -C $(TEST)/mds -e "HOME_PATH=$(HOME_PATH)"
 	@echo -e " " CD"\t" $(TEST)/xnet

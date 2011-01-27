@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-27 22:27:50 macan>
+ * Time-stamp: <2011-01-26 10:43:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -162,8 +162,9 @@ void mds_statfs(struct hvfs_tx *tx)
         mds_free_tx(tx);
         return;
     }
-    s->f_files = atomic64_read(&hmi.mi_dnum) + atomic64_read(&hmi.mi_fnum);
     s->f_ffree = (HVFS_MAX_UUID_PER_MDS - atomic64_read(&hmi.mi_uuid));
+    s->f_files = atomic64_read(&hmi.mi_dnum) + atomic64_read(&hmi.mi_fnum) +
+        s->f_ffree;
 
     tx->rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!tx->rpy) {
@@ -284,7 +285,7 @@ void mds_create(struct hvfs_tx *tx)
         err = -EFAULT;
         goto send_rpy;
     }
-    
+
     if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
         hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 
                              HASH_SEL_EH);
