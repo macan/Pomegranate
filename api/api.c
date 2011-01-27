@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-27 09:18:10 macan>
+ * Time-stamp: <2011-01-27 16:23:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -5456,7 +5456,7 @@ int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c,
                 hvfs_warning(xnet, "Read offset across the boundary "
                              "(%ld vs %ld)\n",
                              offset, c->len);
-                return -EINVAL;
+                return -EFBIG;
             } else {
                 /* Convention: for fuse client, it always read for some pages,
                  * we should truncate the size to validate range */
