@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-01-18 11:12:47 macan>
+# Time-stamp: <2011-02-10 13:28:11 macan>
 #
 # Armed with EMACS.
 #
@@ -330,6 +330,8 @@ class pamc_shell(cmd.Cmd):
             api.hvfs_free(c_data)
         except ValueError, ve:
             print "ValueError %s" % ve
+        except IOError, ie:
+            print "IOError %s" % ie
 
     def do_stat(self, line):
         '''Stat a file. If any of the dir does not exist,
@@ -487,7 +489,7 @@ class pamc_shell(cmd.Cmd):
             self.start_clock()
             err = api.hvfs_fread(c_path, c_file, c_column, byref(c_content), byref(c_len))
             self.stop_clock()
-            if err != 0:
+            if err < 0:
                 print "api.hvfs_fread() failed w/ %d" % err
                 return
             self.echo_clock("Time elasped:")
@@ -547,7 +549,7 @@ class pamc_shell(cmd.Cmd):
             self.start_clock()
             err = api.hvfs_fread(c_path, c_file, c_column, byref(c_content), byref(c_len))
             self.stop_clock()
-            if err != 0:
+            if err < 0:
                 print "api.hvfs_fread() failed w/ %d" % err
                 return
 

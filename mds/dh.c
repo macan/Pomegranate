@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-18 11:06:23 macan>
+ * Time-stamp: <2011-02-10 13:19:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -533,8 +533,8 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     if (p->site_id == hmo.site_id) {
         struct hvfs_txg *txg;
         
-        hvfs_err(mds, "Load DH (self): uuid %lx itbid %ld, site %lx\n", 
-                   thi.uuid, thi.itbid, p->site_id);
+        hvfs_warning(mds, "Load DH (self): uuid %lx itbid %ld, site %lx\n", 
+                     thi.uuid, thi.itbid, p->site_id);
         /* the GDT service MDS server is myself, so we just lookup the entry
          * in my CBHT. */
         hmr = get_hmr();
@@ -628,8 +628,8 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         xfree(hmr);
     } else {
         /* ok, we should send the request to the remote site now */
-        hvfs_err(mds, "Load DH (remote): uuid %lx itbid %ld, site %lx\n", 
-                   thi.uuid, thi.itbid, p->site_id);
+        hvfs_warning(mds, "Load DH (remote): uuid %lx itbid %ld, site %lx\n", 
+                     thi.uuid, thi.itbid, p->site_id);
 
         /* prepare the msg */
         xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.xc->site_id, 

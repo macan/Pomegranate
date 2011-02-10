@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-27 16:26:50 macan>
+ * Time-stamp: <2011-02-10 20:17:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,14 +25,16 @@
 #include "pfs.h"
 #include <fuse.h>
 
-/* We construct a write buffer cache to absort user's write requests and flush
+/* We construct a write buffer cache to absorb user's write requests and flush
  * them as a whole to disk when the file are closed. Thus, we have
  * close-to-open consistency.
  */
 static size_t g_pagesize = 0;
+static void *zero_page = NULL;
 struct __pfs_fuse_mgr
 {
     u32 sync_write:1;
+    u32 use_config:1;
 } pfs_fuse_mgr;
 
 /* We are sure that there is no page hole! */
@@ -45,7 +47,9 @@ struct bhhead
     xrwlock_t clock;
 #define BH_CLEAN        0x00
 #define BH_DIRTY        0x01
+#define BH_CONFIG       0x80
     u32 flag;
+    void *ptr;                  /* private pointer */
 };
 
 struct bh
@@ -70,25 +74,32 @@ static struct bhhead* __get_bhhead(struct hstat *hs)
     return bhh;
 }
 
-static void __set_bhh_dirty(struct bhhead *bhh)
+static inline void __set_bhh_dirty(struct bhhead *bhh)
 {
     bhh->flag = BH_DIRTY;
 }
 
-static int __prepare_bh(struct bh *bh)
+static inline void __set_bhh_config(struct bhhead *bhh)
 {
-    if (bh->data)
-        return 0;
-    
-    bh->data = xzalloc(g_pagesize);
-    if (!bh->data) {
-        return -ENOMEM;
+    bhh->flag = BH_CONFIG;
+}
+
+static int __prepare_bh(struct bh *bh, int alloc)
+{
+    if (!bh->data || bh->data == zero_page) {
+        if (alloc) {
+            bh->data = xzalloc(g_pagesize);
+            if (!bh->data) {
+                return -ENOMEM;
+            }
+        } else
+            bh->data = zero_page;
     }
 
     return 0;
 }
 
-static struct bh* __get_bh(off_t off)
+static struct bh* __get_bh(off_t off, int alloc)
 {
     struct bh *bh;
 
@@ -98,7 +109,7 @@ static struct bh* __get_bh(off_t off)
     }
     INIT_LIST_HEAD(&bh->list);
     bh->offset = off;
-    if (__prepare_bh(bh)) {
+    if (__prepare_bh(bh, alloc)) {
         xfree(bh);
         bh = NULL;
     }
@@ -108,7 +119,7 @@ static struct bh* __get_bh(off_t off)
 
 static void __put_bh(struct bh *bh)
 {
-    if (bh->data)
+    if (bh->data && bh->data != zero_page)
         xfree(bh->data);
 
     xfree(bh);
@@ -177,13 +188,14 @@ static int __bh_fill(struct hstat *hs, int column, struct column *c,
     /* should we loadin the middle holes */
     if (offset >= bhh->size) {
         while (bhh->size < off_end) {
-            bh = __get_bh(bhh->size);
+            bh = __get_bh(bhh->size, 0);
             if (!bh) {
                 err = -ENOMEM;
                 goto out;
             }
             if (offset == bhh->size && size >= g_pagesize) {
-                /* just copy the buffer */
+                /* just copy the buffer, prepare true page */
+                __prepare_bh(bh, 1);
                 _size = min(size, bh->offset + g_pagesize - offset);
                 memcpy(bh->data + offset - bh->offset,
                        buf + loff, _size);
@@ -192,6 +204,9 @@ static int __bh_fill(struct hstat *hs, int column, struct column *c,
                 offset = bh->offset + g_pagesize;
             } else {
                 /* read in the page now */
+                if (bhh->size <= hs->mc.c.len) {
+                    __prepare_bh(bh, 1);
+                }
                 err = __hvfs_fread(hs, 0, &bh->data, &hs->mc.c,
                                    bhh->size, g_pagesize);
                 if (err == -EFBIG) {
@@ -205,6 +220,7 @@ static int __bh_fill(struct hstat *hs, int column, struct column *c,
                 }
                 /* should we fill with buf? */
                 if (size && offset < bh->offset + g_pagesize) {
+                    __prepare_bh(bh, 1);
                     _size = min(size, bh->offset + g_pagesize - offset);
                     memcpy(bh->data + offset - bh->offset,
                            buf + loff, _size);
@@ -220,6 +236,7 @@ static int __bh_fill(struct hstat *hs, int column, struct column *c,
         /* update the cached content */
         list_for_each_entry(bh, &bhh->bh, list) {
             if (offset >= bh->offset && offset < bh->offset + g_pagesize) {
+                __prepare_bh(bh, 1);
                 _size = min(size, bh->offset + g_pagesize - offset);
                 memcpy(bh->data + offset - bh->offset,
                        buf + loff, _size);
@@ -233,7 +250,7 @@ static int __bh_fill(struct hstat *hs, int column, struct column *c,
         if (size) {
             /* fill the last holes */
             while (bhh->size < off_end) {
-                bh = __get_bh(bhh->size);
+                bh = __get_bh(bhh->size, 1);
                 if (!bh) {
                     err = -ENOMEM;
                     goto out;
@@ -377,13 +394,410 @@ out:
     return err;
 }
 
+/* We have a LRU translate cache to resolve file system pathname(only
+ * directory) to uuid and salt pair.
+ */
+struct __pfs_ltc_mgr
+{
+    struct regular_hash *ht;
+    struct list_head lru;
+    xlock_t lru_lock;
+#define PFS_LTC_HSIZE_DEFAULT   (8191)
+    u32 hsize:16;               /* hash table size */
+    u32 ttl:8;                  /* valid ttl. 0 means do not believe the
+                                 * cached value (cache disabled) */
+} pfs_ltc_mgr;
+
+struct ltc_entry
+{
+    struct hlist_node hlist;
+    struct list_head list;
+    char *fullname;             /* full pathname */
+    u64 uuid, salt;
+    u64 born;
+};
+
+static int __ltc_init(int ttl, int hsize)
+{
+    int i;
+    
+    if (hsize)
+        pfs_ltc_mgr.hsize = hsize;
+    else
+        pfs_ltc_mgr.hsize = PFS_LTC_HSIZE_DEFAULT;
+
+    pfs_ltc_mgr.ttl = ttl;
+
+    pfs_ltc_mgr.ht = xmalloc(pfs_ltc_mgr.hsize * sizeof(struct regular_hash));
+    if (!pfs_ltc_mgr.ht) {
+        hvfs_err(xnet, "LRU Translate Cache hash table init failed\n");
+        return -ENOMEM;
+    }
+
+    /* init the hash table */
+    for (i = 0; i < pfs_ltc_mgr.hsize; i++) {
+        INIT_HLIST_HEAD(&pfs_ltc_mgr.ht[i].h);
+        xlock_init(&pfs_ltc_mgr.ht[i].lock);
+    }
+    INIT_LIST_HEAD(&pfs_ltc_mgr.lru);
+    xlock_init(&pfs_ltc_mgr.lru_lock);
+
+    return 0;
+}
+
+static void __ltc_destroy(void)
+{
+    xfree(pfs_ltc_mgr.ht);
+}
+
+#define LE_LIFE_FACTOR          (4)
+#define LE_IS_OLD(le) (                                                 \
+        ((time(NULL) - (le)->born) >                                    \
+         LE_LIFE_FACTOR * pfs_ltc_mgr.ttl)                              \
+        )
+#define LE_IS_VALID(le) ((u64)time(NULL) - (le)->born <= pfs_ltc_mgr.ttl)
+
+static inline
+int __ltc_hash(const char *key)
+{
+    return __murmurhash64a(key, strlen(key), 0xfead31435df3) % 
+        pfs_ltc_mgr.hsize;
+}
+
+static void __ltc_remove(struct ltc_entry *del)
+{
+    struct regular_hash *rh;
+    struct ltc_entry *le;
+    struct hlist_node *pos, *n;
+    int idx;
+
+    idx = __ltc_hash(del->fullname);
+    rh = pfs_ltc_mgr.ht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry_safe(le, pos, n, &rh->h, hlist) {
+        if (del == le && memcmp(del->fullname, le->fullname,
+                                strlen(le->fullname)) == 0) {
+            hlist_del(&le->hlist);
+            break;
+        }
+    }
+    xlock_unlock(&rh->lock);
+}
+
+static struct ltc_entry *
+__ltc_new_entry(char *pathname, void *arg0, void *arg1)
+{
+    struct ltc_entry *le = NULL;
+
+    /* find the least recently used entry */
+    if (!list_empty(&pfs_ltc_mgr.lru)) {
+        xlock_lock(&pfs_ltc_mgr.lru_lock);
+        le = list_entry(pfs_ltc_mgr.lru.prev, struct ltc_entry, list);
+        /* if it is born long time ago, we reuse it! */
+        if (LE_IS_OLD(le)) {
+            /* remove from the tail */
+            list_del_init(&le->list);
+
+            xlock_unlock(&pfs_ltc_mgr.lru_lock);
+            /* remove from the hash table */
+            __ltc_remove(le);
+
+            /* install new values */
+            xfree(le->fullname);
+            le->fullname = strdup(pathname);
+            if (!le->fullname) {
+                /* failed with not enough memory! */
+                xfree(le);
+                le = NULL;
+                goto out;
+            }
+            le->uuid = (u64)arg0;
+            le->salt = (u64)arg1;
+            le->born = time(NULL);
+        } else {
+            xlock_unlock(&pfs_ltc_mgr.lru_lock);
+            goto alloc_one;
+        }
+    } else {
+    alloc_one:
+        le = xmalloc(sizeof(*le));
+        if (!le) {
+            goto out;
+        }
+        le->fullname = strdup(pathname);
+        if (!le->fullname) {
+            xfree(le);
+            le = NULL;
+            goto out;
+        }
+        le->uuid = (u64)arg0;
+        le->salt = (u64)arg1;
+        le->born = time(NULL);
+    }
+
+out:
+    return le;
+}
+
+/* Return value: 1 => hit and up2date; 2 => miss, alloc and up2date; 
+ *               0 => not up2date
+ */
+static int __ltc_update(char *pathname, void *arg0, void *arg1)
+{
+    struct regular_hash *rh;
+    struct ltc_entry *le;
+    struct hlist_node *n;
+    int found = 0, idx;
+
+    /* ABI: arg0, and arg1 is uuid and salt value */
+    idx = __ltc_hash(pathname);
+    rh = pfs_ltc_mgr.ht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry(le, n, &rh->h, hlist) {
+        if (memcmp(le->fullname, pathname, strlen(pathname)) == 0) {
+            /* ok, we update the entry */
+            le->uuid = (u64)arg0;
+            le->salt = (u64)arg1;
+            le->born = time(NULL);
+            found = 1;
+            /* move to the head of lru list */
+            xlock_lock(&pfs_ltc_mgr.lru_lock);
+            list_del_init(&le->list);
+            list_add(&le->list, &pfs_ltc_mgr.lru);
+            xlock_unlock(&pfs_ltc_mgr.lru_lock);
+            break;
+        }
+    }
+    if (!found) {
+        le = __ltc_new_entry(pathname, arg0, arg1);
+        if (likely(le)) {
+            found = 2;
+        }
+        /* insert to this hash list */
+        hlist_add_head(&le->hlist, &rh->h);
+        /* insert to the lru list */
+        xlock_lock(&pfs_ltc_mgr.lru_lock);
+        list_add(&le->list, &pfs_ltc_mgr.lru);
+        xlock_unlock(&pfs_ltc_mgr.lru_lock);
+    }
+    xlock_unlock(&rh->lock);
+    
+    return found;
+}
+
+/* Return value: 0: miss; 1: hit; <0: error
+ */
+static int __ltc_lookup(char *pathname, void *arg0, void *arg1)
+{
+    struct regular_hash *rh;
+    struct ltc_entry *le;
+    struct hlist_node *n;
+    int found = 0, idx;
+
+    idx = __ltc_hash(pathname);
+    rh = pfs_ltc_mgr.ht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry(le, n, &rh->h, hlist) {
+        if (memcmp(pathname, le->fullname, strlen(pathname)) == 0 &&
+            LE_IS_VALID(le)) {
+            *(u64 *)arg0 = le->uuid;
+            *(u64 *)arg1 = le->salt;
+            found = 1;
+            break;
+        }
+    }
+    xlock_unlock(&rh->lock);
+
+    return found;
+}
+
+/* FUSE config support
+ *
+ * Using this dynamic config service, user can change the behaivers
+ * on-the-fly.
+ */
+
+struct pfs_config_entry
+{
+    char *name;
+#define PCE_STRING      0x00
+#define PCE_U64         0x01
+#define PCE_U64X        0x02
+#define PCE_BOOL        0x03
+    u32 flag;
+    union 
+    {
+        char *svalue;
+        u64 uvalue;
+    };
+};
+
+#define PFS_CONFIG_ACTIVE_ENTRY         (3)
+struct pfs_config_entry pfs_ce_default[PFS_CONFIG_ACTIVE_ENTRY] = {
+    {
+        .name = "data_zip", 
+        .flag = PCE_BOOL, 
+        {
+            .uvalue = 0,
+        },
+    },
+    {
+        .name = "lru_translate_cache_ttl",
+        .flag = PCE_U64,
+        {
+            .uvalue = 0,
+        },
+    },
+    {
+        .name = "pfs_fuse_sync_write",
+        .flag = PCE_BOOL,
+        {
+            .uvalue = 0,
+        },
+    },
+};
+
+struct pfs_config_mgr
+{
+#define PCM_BUF_SIZE    4096
+    char buf[PCM_BUF_SIZE];
+    int asize, psize;
+    struct pfs_config_entry pce[0];
+};
+
+static inline
+int hvfs_config_check(const char *pathname, struct stat *stbuf)
+{
+    if (likely(!pfs_fuse_mgr.use_config))
+        return 0;
+    
+    if (unlikely(memcmp(pathname, ".@.$.pfs.conf", 13) == 0)) {
+        stbuf->st_ino = -1UL;
+        stbuf->st_mode = S_IFREG;
+        stbuf->st_nlink = 1;
+        stbuf->st_ctime = 
+            stbuf->st_mtime = 
+            stbuf->st_atime = time(NULL);
+        stbuf->st_size = 4096;
+
+        return 1;
+    } else
+        return 0;
+}
+
+/* config_open check if this is the magic file :) */
+static inline
+int hvfs_config_open(const char *pathname, struct fuse_file_info *fi)
+{
+    struct hstat hs = {0,};
+    struct bhhead *bhh;
+    struct pfs_config_mgr *pcm = NULL;
+    
+    if (likely(!pfs_fuse_mgr.use_config))
+        return 0;
+
+    if (unlikely(memcmp(pathname, ".@.$.pfs.conf", 13) == 0)) {
+        bhh = __get_bhhead(&hs);
+        if (!bhh)
+            return 0;
+
+        pcm = xzalloc(sizeof(*pcm) + 
+                      sizeof(struct pfs_config_entry) * 16);
+        if (!pcm) {
+            xfree(bhh);
+            return 0;
+        }
+
+        memcpy(pcm->pce, pfs_ce_default, sizeof(pfs_ce_default));
+        pcm->psize = 16;
+        pcm->asize = PFS_CONFIG_ACTIVE_ENTRY;
+        
+        __set_bhh_config(bhh);
+        bhh->ptr = pcm;
+        fi->fh = (u64)bhh;
+
+        return 1;
+    }
+
+    return 0;
+}
+
+static inline
+void hvfs_config_release(struct pfs_config_mgr *pcm)
+{
+    if (likely(!pfs_fuse_mgr.use_config))
+        return;
+
+    xfree(pcm);
+}
+
+/* config_read dump the current configs */
+static int hvfs_config_read(struct pfs_config_mgr *pcm, char *buf,
+                            size_t size, off_t offset)
+{
+    char *p;
+    size_t bl, bs;
+    int i;
+    
+    /* re-generate the buffer now */
+    p = pcm->buf;
+    bl = PCM_BUF_SIZE;
+    
+    bs = snprintf(p, bl, 
+                  "PomegranateFS FUSE Client Configurations:\n\n"
+                  "# Defaults\n");
+    p += bs;
+    bl -= bs;
+    
+    for (i = 0; i < pcm->asize; i++) {
+        switch (pcm->pce[i].flag) {
+        case PCE_STRING:
+            bs = snprintf(p, bl, "%s:%s\n", pcm->pce[i].name,
+                          pcm->pce[i].svalue);
+            break;
+        case PCE_U64:
+            bs = snprintf(p, bl, "%s:%ld\n", pcm->pce[i].name,
+                          pcm->pce[i].uvalue);
+            break;
+        case PCE_U64X:
+            bs = snprintf(p, bl, "%s:%lx\n", pcm->pce[i].name,
+                          pcm->pce[i].uvalue);
+            break;
+        case PCE_BOOL:
+            bs = snprintf(p, bl, "%s:%s\n", pcm->pce[i].name,
+                          (pcm->pce[i].uvalue == 0 ? "false" :
+                           "true"));
+            break;
+        default:
+            bs = snprintf(p, bl, "INVALID ENTRY\n");
+        }
+        p += bs;
+        bl -= bs;
+        if (bl <= 0)
+            break;
+    }
+
+    /* check the offset */
+    if (offset >= (PCM_BUF_SIZE - bl))
+        return 0;
+    memcpy(buf, pcm->buf + offset, min(size, 
+                                       PCM_BUF_SIZE - bl 
+                                       - offset));
+
+    return min(size, PCM_BUF_SIZE - bl - offset);
+}
+
 /* GETATTR: 
  * Use xnet to send the request to server
  */
 static int hvfs_getattr(const char *pathname, struct stat *stbuf)
 {
     struct hstat hs = {0,};
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), *path, *name;
+    char *dup = strdup(pathname), *dup2 = strdup(pathname), 
+        *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
@@ -393,6 +807,16 @@ static int hvfs_getattr(const char *pathname, struct stat *stbuf)
     path = dirname(dup);
     name = basename(dup2);
     n = path;
+
+    if (hvfs_config_check(name, stbuf)) {
+        goto out;
+    }
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    if (err > 0) {
+        goto hit;
+    }
 
     /* parse the path and do __stat on each directory */
     do {
@@ -428,6 +852,9 @@ static int hvfs_getattr(const char *pathname, struct stat *stbuf)
     if (err)
         goto out;
 
+    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    xfree(spath);
+hit:
     /* lookup the file in the parent directory now */
     if (name && strlen(name) > 0 && strcmp(name, "/") != 0) {
         /* eh, we have to lookup this file now. Otherwise, what we want to
@@ -436,8 +863,8 @@ static int hvfs_getattr(const char *pathname, struct stat *stbuf)
         hs.uuid = 0;
         err = __hvfs_stat(puuid, psalt, 0, &hs);
         if (err) {
-            hvfs_err(xnet, "do internal file stat (SDT) on '%s' failed w/ %d\n",
-                     name, err);
+            hvfs_debug(xnet, "do internal file stat (SDT) on '%s'"
+                       " failed w/ %d\n", name, err);
             goto out;
         }
         if (S_ISDIR(hs.mdu.mode)) {
@@ -479,6 +906,7 @@ static int hvfs_getattr(const char *pathname, struct stat *stbuf)
         stbuf->st_blocks = 1;
     } else {
         stbuf->st_size = hs.mdu.size;
+        /* FIXME: use column size instead! */
         stbuf->st_blocks = (hs.mdu.size + 511) >> 9;
     }
     /* the blksize is always 4KB */
@@ -672,7 +1100,8 @@ static int hvfs_mkdir(const char *pathname, mode_t mode)
 {
     struct hstat hs = {0,};
     struct mdu_update mu;
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), *path, *name;
+    char *dup = strdup(pathname), *dup2 = strdup(pathname), 
+        *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
@@ -682,6 +1111,12 @@ static int hvfs_mkdir(const char *pathname, mode_t mode)
     path = dirname(dup);
     name = basename(dup2);
     n = path;
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    if (err > 0) {
+        goto hit;
+    }
 
     /* parse the path and do __stat on each directory */
     do {
@@ -714,6 +1149,9 @@ static int hvfs_mkdir(const char *pathname, mode_t mode)
     if (err)
         goto out;
 
+    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    xfree(spath);
+hit:
     /* create the file or dir in the parent directory now */
     if (strlen(name) == 0 || strcmp(name, "/") == 0) {
         hvfs_err(xnet, "Create zero-length named or root directory?\n");
@@ -1427,7 +1865,8 @@ out:
 static int hvfs_open(const char *pathname, struct fuse_file_info *fi)
 {
     struct hstat hs = {0,};
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), *path, *name;
+    char *dup = strdup(pathname), *dup2 = strdup(pathname), 
+        *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
@@ -1438,6 +1877,18 @@ static int hvfs_open(const char *pathname, struct fuse_file_info *fi)
     name = basename(dup2);
     n = path;
 
+    /* check if it is the config file */
+    if (hvfs_config_open(name, fi))
+        goto out;
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    hvfs_debug(xnet, "LTC lookup %s %s\n", spath, 
+               (err == 0 ? "miss" : "hit"));
+    if (err > 0) {
+        goto hit;
+    }
+    
     /* parse the path and do __stat on each directory */
     do {
         p = strtok_r(n, "/", &s);
@@ -1472,6 +1923,13 @@ static int hvfs_open(const char *pathname, struct fuse_file_info *fi)
     if (err)
         goto out;
 
+    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    hvfs_debug(xnet, "LTC update %s %s\n", spath, 
+               (err == 1 ? "hit&up2date" : 
+                (err == 2 ? "miss&alloc&up2date" :
+                 "not up2date")));
+    xfree(spath);
+hit:
     /* lookup the file in the parent directory now */
     if (name && strlen(name) > 0 && strcmp(name, "/") != 0) {
         /* eh, we have to lookup this file now. Otherwise, what we want to
@@ -1524,6 +1982,12 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
     if (!pathname || !buf || !bhh)
         return -EINVAL;
 
+    /* is config_read() ? */
+    if (unlikely(bhh->flag & BH_CONFIG)) {
+        return hvfs_config_read((struct pfs_config_mgr *)
+                                bhh->ptr, buf, size, offset);
+    }
+
     hs = bhh->hs;
 
     err = __bh_read(bhh, buf, offset, size);
@@ -1569,6 +2033,9 @@ static int hvfs_sync_write(const char *pathname, const char *buf,
     int err = 0, flag = 0;
 
     if (!buf)
+        return -EINVAL;
+
+    if (unlikely(bhh->flag & BH_CONFIG))
         return -EINVAL;
 
     hs = bhh->hs;
@@ -1692,6 +2159,9 @@ static int hvfs_cached_write(const char *pathname, const char *buf,
     if (!pathname || !buf)
         return -EINVAL;
 
+    if (unlikely(bhh->flag & BH_CONFIG))
+        return -EINVAL;
+
     hs = bhh->hs;
     __set_bhh_dirty(bhh);
     bhh->asize = offset + size;
@@ -1764,6 +2234,13 @@ out:
 static int hvfs_release(const char *pathname, struct fuse_file_info *fi)
 {
     struct bhhead *bhh = (struct bhhead *)fi->fh;
+
+    if (bhh->flag & BH_CONFIG) {
+        hvfs_config_release((struct pfs_config_mgr *)bhh->ptr);
+        xfree(bhh);
+
+        return 0;
+    }
 
     if (bhh->flag & BH_DIRTY) {
         __bh_sync(bhh);
@@ -2111,14 +2588,31 @@ static int hvfs_release_dir(const char *pathname, struct fuse_file_info *fi)
 static void *hvfs_init(struct fuse_conn_info *conn)
 {
     g_pagesize = getpagesize();
+realloc:
+    zero_page = xzalloc(g_pagesize);
+    if (!zero_page) {
+        goto realloc;
+    }
+
+    /* disable dynamic magic config */
+    pfs_fuse_mgr.use_config = 0;
+    
     pfs_fuse_mgr.sync_write = 0;
+    pfs_ce_default[2].uvalue = 0;
+
+    pfs_ce_default[1].uvalue = 5;
+    if (__ltc_init(5, 0)) {
+        hvfs_err(xnet, "LRU Translate Cache init failed. Cache DISABLED!\n");
+    }
 
     return NULL;
 }
 
 static void hvfs_destroy(void *arg)
 {
-    hvfs_info(xnet, "Exit the fuse client now.\n");
+    __ltc_destroy();
+    
+    hvfs_info(xnet, "Exit the PomegranateFS fuse client now.\n");
 }
 
 struct fuse_operations pfs_ops = {

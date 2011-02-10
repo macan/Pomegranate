@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-27 16:23:34 macan>
+ * Time-stamp: <2011-02-10 13:15:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -4432,8 +4432,8 @@ resend:
         msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err) {
-        hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
-                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        hvfs_debug(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
+                   msg->pair->tx.ssite_id, msg->pair->tx.err);
         err = msg->pair->tx.err;
         atomic64_inc(&lookup_failed);
         goto out;
