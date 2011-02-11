@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-10 13:15:49 macan>
+ * Time-stamp: <2011-02-11 16:50:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1127,7 +1127,7 @@ int hvfs_create_table(char *name)
     memcpy(hi->name, name, strlen(name));
     hi->namelen = strlen(name);
     mu = (struct mdu_update *)((void *)hi + sizeof(struct hvfs_index) +
-                               strlen(name));
+                               hi->namelen);
     mu->valid = MU_FLAG_ADD;
     mu->flags = HVFS_MDU_IF_KV | HVFS_MDU_IF_NORMAL;
     hi->dlen = sizeof(struct mdu_update);
@@ -3765,11 +3765,12 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
     struct mdu_update *mu;
     struct gdt_md gm;
     u64 dsite;
-    u32 vid;
+    u32 vid, namelen = 0;;
     int err = 0;
 
     if (hs->uuid == 0) {
-        dpayload += strlen(hs->name);
+        namelen = strlen(hs->name);
+        dpayload += namelen;
     }
     
     if (flag & INDEX_SYMLINK) {
@@ -3821,14 +3822,14 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
     }
 
     if (flag & INDEX_SYMLINK) {
-        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen,
                              HASH_SEL_EH);
         hi->puuid = puuid;
         hi->psalt = psalt;
         hi->flag = INDEX_SYMLINK;
         if (imu) {
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) + 
-                                       strlen(hs->name));
+                                       namelen);
             memcpy(mu, imu, sizeof(*mu));
             memcpy((void *)mu + sizeof(*mu), (void *)imu + sizeof(*imu),
                    mu->namelen);
@@ -3844,8 +3845,6 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
         memcpy((void *)hi + sizeof(*hi), &gm, HVFS_MDU_SIZE);
         hi->dlen = HVFS_MDU_SIZE;
     } else if (flag & INDEX_CREATE_DIR) {
-        int namelen = strlen(hs->name);
-        
         hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen,
                              HASH_SEL_EH);
         hi->puuid = puuid;
@@ -3870,7 +3869,7 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
             hi->dlen = offset;
         }
     } else if (flag & INDEX_CREATE_LINK) {
-        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen, 
                              HASH_SEL_EH);
         hi->puuid = puuid;
         hi->psalt = psalt;
@@ -3878,14 +3877,12 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
         if (imu) {
             /* ugly code, you can't learn anything correct from the typo :( */
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
-                                       strlen(hs->name));
+                                       namelen);
             
             memcpy(mu, imu, sizeof(struct link_source));
             hi->dlen = sizeof(struct link_source);
         }
     } else {
-        int namelen = strlen(hs->name);
-        
         hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen,
                              HASH_SEL_EH);
         hi->puuid = puuid;
@@ -3913,7 +3910,7 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
 
     if (hs->uuid == 0) {
         hi->flag |= INDEX_BY_NAME;
-        hi->namelen = strlen(hs->name);
+        hi->namelen = namelen;
         memcpy(hi->name, hs->name, hi->namelen);
     }
 
@@ -4014,6 +4011,7 @@ resend:
             hs->puuid = rhi->puuid;
             hs->psalt = rhi->psalt;
             hs->uuid = rhi->uuid;
+            hs->hash = rhi->hash;
             memcpy(&hs->mdu, m, sizeof(hs->mdu));
         }
     }
@@ -4037,12 +4035,13 @@ int __hvfs_update(u64 puuid, u64 psalt, struct hstat *hs,
     struct hvfs_index *hi;
     struct hvfs_md_reply *hmr;
     u64 dsite;
-    u32 vid;
+    u32 vid, namelen = 0;
     int err = 0;
 
     dpayload = sizeof(struct hvfs_index);
     if (!hs->uuid) {
-        dpayload += strlen(hs->name);
+        namelen = strlen(hs->name);
+        dpayload += namelen;
     }
     if (imu) {
         dpayload += sizeof(struct mdu_update);
@@ -4061,7 +4060,7 @@ int __hvfs_update(u64 puuid, u64 psalt, struct hstat *hs,
     }
     if (!hs->uuid) {
         hi->flag = INDEX_BY_NAME;
-        hi->namelen = strlen(hs->name);
+        hi->namelen = namelen;
         hi->hash = hvfs_hash(puuid, (u64)hs->name, hi->namelen, HASH_SEL_EH);
         memcpy(hi->name, hs->name, hi->namelen);
     } else {
@@ -4215,19 +4214,19 @@ int __hvfs_unlink(u64 puuid, u64 psalt, struct hstat *hs)
     struct hvfs_index *hi;
     struct hvfs_md_reply *hmr;
     u64 dsite;
-    u32 vid;
+    u32 vid, namelen;
     int err = 0;
 
-    dpayload = sizeof(struct hvfs_index) + 
-        (hs->uuid == 0 ? strlen(hs->name) : 0);
+    namelen = (hs->uuid == 0 ? strlen(hs->name) : 0);
+    dpayload = sizeof(struct hvfs_index) + namelen;
     hi = (struct hvfs_index *)xzalloc(dpayload);
-    if (!hi) {
+    if (unlikely(!hi)) {
         hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
         return -ENOMEM;
     }
     if (!hs->uuid) {
         hi->flag = INDEX_BY_NAME;
-        hi->namelen = strlen(hs->name);
+        hi->namelen = namelen;
         hi->hash = hvfs_hash(puuid, (u64)hs->name, hi->namelen, HASH_SEL_EH);
         memcpy(hi->name, hs->name, hi->namelen);
     } else {
@@ -4242,7 +4241,7 @@ int __hvfs_unlink(u64 puuid, u64 psalt, struct hstat *hs)
     hi->psalt = psalt;
     /* calculate the itbid now */
     err = SET_ITBID(hi);
-    if (err)
+    if (unlikely(err))
         goto out_free;
     dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
 
@@ -4250,7 +4249,7 @@ int __hvfs_unlink(u64 puuid, u64 psalt, struct hstat *hs)
 
     /* alloc one msg and send it to the peer site */
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
+    if (unlikely(!msg)) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         err = -ENOMEM;
         goto out_free;
@@ -4265,7 +4264,7 @@ int __hvfs_unlink(u64 puuid, u64 psalt, struct hstat *hs)
 
 resend:
     err = xnet_send(hmo.xc, msg);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out;
     }
@@ -4354,19 +4353,19 @@ int __hvfs_stat(u64 puuid, u64 psalt, int column, struct hstat *hs)
     struct hvfs_index *hi;
     struct hvfs_md_reply *hmr;
     u64 dsite;
-    u32 vid;
+    u32 vid, namelen;
     int err = 0;
 
-    dpayload = sizeof(struct hvfs_index) + 
-        (hs->uuid == 0 ? strlen(hs->name) : 0);
+    namelen = (hs->uuid == 0 ? strlen(hs->name) : 0);
+    dpayload = sizeof(struct hvfs_index) + namelen;
     hi = (struct hvfs_index *)xzalloc(dpayload);
-    if (!hi) {
+    if (unlikely(!hi)) {
         hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
         return -ENOMEM;
     }
     if (!hs->uuid) {
         hi->flag = INDEX_BY_NAME;
-        hi->namelen = strlen(hs->name);
+        hi->namelen = namelen;
         hi->hash = hvfs_hash(puuid, (u64)hs->name, hi->namelen, HASH_SEL_EH);
         memcpy(hi->name, hs->name, hi->namelen);
     } else {
@@ -4381,11 +4380,11 @@ int __hvfs_stat(u64 puuid, u64 psalt, int column, struct hstat *hs)
     hi->psalt = psalt;
     /* calculate the itbid now */
     err = SET_ITBID(hi);
-    if (err)
+    if (unlikely(err))
         goto out_free;
     dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
 
-    if (column < 0)
+    if (unlikely(column < 0))
         hi->flag |= INDEX_LOOKUP | INDEX_ITE_ACTIVE;
     else {
         hi->column = column;
@@ -4394,7 +4393,7 @@ int __hvfs_stat(u64 puuid, u64 psalt, int column, struct hstat *hs)
 
     /* alloc one msg and send it to the peer site */
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!msg) {
+    if (unlikely(!msg)) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         err = -ENOMEM;
         goto out_free;
@@ -4409,7 +4408,7 @@ int __hvfs_stat(u64 puuid, u64 psalt, int column, struct hstat *hs)
 
 resend:
     err = xnet_send(hmo.xc, msg);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "xnet_send() lookup to %lx failed w/ %d\n",
                  msg->tx.dsite_id, err);
         goto out;
@@ -4419,6 +4418,10 @@ resend:
     ASSERT(msg->pair, xnet);
     if (!msg->pair->tx.err) {
         /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ENOENT) {
+        err = msg->pair->tx.err;
+        atomic64_inc(&lookup_failed);
+        goto out;
     } else if (msg->pair->tx.err == -ESPLIT) {
         xnet_set_auto_free(msg->pair);
         xnet_free_msg(msg->pair);
@@ -4432,8 +4435,8 @@ resend:
         msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err) {
-        hvfs_debug(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
-                   msg->pair->tx.ssite_id, msg->pair->tx.err);
+        hvfs_err(xnet, "LOOKUP failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
         err = msg->pair->tx.err;
         atomic64_inc(&lookup_failed);
         goto out;
@@ -5434,10 +5437,10 @@ int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c,
     u32 vid = 0;
     int err = 0, need_free = 0;
 
-    hvfs_warning(xnet, "Read column itbid %ld len %ld(%ld) offset %ld(%ld) "
-                 "puuid %lx psalt %lx\n",
-                 c->stored_itbid, size, c->len, offset, c->offset, 
-                 hs->puuid, hs->psalt);
+    hvfs_debug(xnet, "Read column itbid %ld len %ld(%ld) offset %ld(%ld) "
+               "puuid %lx psalt %lx\n",
+               c->stored_itbid, size, c->len, offset, c->offset, 
+               hs->puuid, hs->psalt);
     
     if (hs->mdu.flags & HVFS_MDU_IF_LZO) {
         rlen = c->len;
@@ -5453,9 +5456,9 @@ int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c,
     } else {
         if (offset + size > c->len) {
             if (offset > c->len) {
-                hvfs_warning(xnet, "Read offset across the boundary "
-                             "(%ld vs %ld)\n",
-                             offset, c->len);
+                hvfs_debug(xnet, "Read offset across the boundary "
+                           "(%ld vs %ld)\n",
+                           offset, c->len);
                 return -EFBIG;
             } else {
                 /* Convention: for fuse client, it always read for some pages,
@@ -5600,9 +5603,9 @@ int __hvfs_fwrite(struct hstat *hs, int column, u32 flag,
     u32 vid = 0;
     int err = 0;
 
-    hvfs_warning(xnet, "To write column %d target len %ld itbid %ld "
-                 "puuid %lx psalt %lx\n",
-                 column, len, hs->hash, hs->puuid, hs->psalt);
+    hvfs_debug(xnet, "To write column %d target len %ld itbid %ld "
+               "puuid %lx psalt %lx\n",
+               column, len, hs->hash, hs->puuid, hs->psalt);
 
     if (len <= 0)
         return 0;
@@ -5689,6 +5692,157 @@ int __hvfs_fwrite(struct hstat *hs, int column, u32 flag,
     err = xnet_send(hmo.xc, msg);
     if (err) {
         hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply, parse the offset now */
+    if (msg->pair->xm_datacheck) {
+        location = *((u64 *)msg->pair->xm_data);
+    } else {
+        hvfs_err(xnet, "recv data write reply ERROR!\n");
+        err = -EFAULT;
+        goto out_msg;
+    }
+
+    if (location == 0) {
+        hvfs_warning(xnet, "puuid %lx uuid %lx to %lx C %d L @ %ld len %ld\n",
+                     hs->puuid, hs->uuid, dsite, column, location, len);
+    }
+
+    c->stored_itbid = hs->hash;
+    c->len = len;
+    c->offset = location;
+
+out_msg:
+    xnet_free_msg(msg);
+
+out_free:
+    xfree(si);
+    if (flag & SCD_LZO) {
+        xfree(data);
+    }
+
+    return err;
+}
+
+/* Ugly! hs->hash saves the user provided stored_itbid!
+ */
+int __hvfs_fwritev(struct hstat *hs, int column, u32 flag,
+                   struct iovec *iov, int iovlen, struct column *c)
+{
+    struct storage_index *si;
+    struct xnet_msg *msg;
+    u64 dsite;
+    u64 location;
+    void *data = NULL;
+    size_t len = 0;
+    u32 vid = 0;
+    int err = 0, i;
+
+    if (iovlen <= 0)
+        return 0;
+
+    /* get the total buffer size */
+    for (i = 0; i < iovlen; i++) {
+        len += iov[i].iov_len;
+    }
+
+    hvfs_debug(xnet, "To write column %d target len %ld itbid %ld "
+               "puuid %lx psalt %lx\n",
+               column, len, hs->hash, hs->puuid, hs->psalt);
+
+    /* should we compress the data */
+    if (flag & SCD_LZO) {
+        void *zip, *zip_data;
+        size_t zlen = 0, _tzlen;
+
+        zip = xmalloc(len + sizeof(size_t));
+        if (!zip) {
+            hvfs_warning(xnet, "prepare zip buffer failed, fallback to "
+                         "non-zip\n");
+            /* clear the flag */
+            flag &= ~SCD_LZO;
+            goto fallback;
+        }
+        *(size_t *)zip = len;
+        zip_data = zip + sizeof(size_t);
+        for (i = 0; i < iovlen; i++) {
+            err = lzo1x_1_compress(iov[i].iov_base, iov[i].iov_len,
+                                   zip_data, &_tzlen, lzo_workmem);
+            if (err == LZO_E_OK) {
+                err = 0;
+            } else {
+                hvfs_warning(xnet, "LZO compress failed w/ %d\n", err);
+                xfree(zip);
+                /* clear the flag */
+                flag &= ~SCD_LZO;
+                goto fallback;
+            }
+            zip_data += _tzlen;
+            zlen += _tzlen;
+        }
+        if (zlen + sizeof(size_t) >= len) {
+            xfree(zip);
+            flag &= ~SCD_LZO;
+            goto fallback;
+        }
+        data = zip;
+        len = zlen + sizeof(size_t);
+    fallback:;
+    }
+    
+    si = xzalloc(sizeof(*si) + sizeof(struct column_req));
+    if (!si) {
+        hvfs_err(xnet, "xzalloc() stroage index failed\n");
+        return -ENOMEM;
+    }
+
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+
+    si->sic.uuid = hs->puuid;
+    if (flag & SCD_PROXY)
+        si->sic.arg0 = hs->uuid;
+    else {
+        /* hs->hash saved the itbid. Well, we changed API to save uuid in this
+         * argument */
+        si->sic.arg0 = hs->uuid;
+    }
+    si->scd.flag = flag;
+    si->scd.cnr = 1;
+    si->scd.cr[0].cno = column;
+    si->scd.cr[0].stored_itbid = hs->hash;
+    si->scd.cr[0].req_len = len;
+
+    /* select the MDSL site by itbid */
+    dsite = SELECT_SITE(hs->hash, hs->psalt, CH_RING_MDSL, &vid);
+
+    /* construct the request messagexo */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDSL_WRITE, 0, 0);
+    msg->tx.reserved = vid;
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, si, sizeof(*si) +
+                       sizeof(struct column_req));
+    if (flag & SCD_LZO) {
+        xnet_msg_add_sdata(msg, data, len);
+    } else {
+        for (i = 0; i < iovlen; i++) {
+            xnet_msg_add_sdata(msg, iov[i].iov_base, iov[i].iov_len);
+        }
+    }
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed w/ %d\n", err);
         goto out_msg;
     }
 
@@ -6516,11 +6670,12 @@ int __hvfs_stat_local(u64 puuid, u64 psalt, int column,
     struct hvfs_md_reply *hmr;
     struct hvfs_txg *txg;
     u64 dsite;
-    u32 vid;
+    u32 vid, namelen;
     int err = 0;
 
-    dpayload = sizeof(struct hvfs_index) + 
-        (hs->uuid == 0 ? strlen(hs->name) : 0);
+    namelen = (hs->uuid == 0 ? strlen(hs->name) : 0);
+    dpayload = sizeof(struct hvfs_index) + namelen;
+
     hi = (struct hvfs_index *)xzalloc(dpayload);
     if (!hi) {
         hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
@@ -6537,7 +6692,7 @@ int __hvfs_stat_local(u64 puuid, u64 psalt, int column,
 
     if (!hs->uuid) {
         hi->flag = INDEX_BY_NAME;
-        hi->namelen = strlen(hs->name);
+        hi->namelen = namelen;
         hi->hash = hvfs_hash(puuid, (u64)hs->name, hi->namelen, HASH_SEL_EH);
         memcpy(hi->name, hs->name, hi->namelen);
     } else {
@@ -6645,11 +6800,12 @@ int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
     struct hvfs_txg *txg;
     struct gdt_md gm;
     u64 dsite;
-    u32 vid;
+    u32 vid, namelen = 0;
     int err = 0;
 
     if (hs->uuid == 0) {
-        dpayload += strlen(hs->name);
+        namelen = strlen(hs->name);
+        dpayload += namelen;
     }
     
     if (flag & INDEX_SYMLINK) {
@@ -6709,14 +6865,14 @@ int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
     }
 
     if (flag & INDEX_SYMLINK) {
-        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen,
                              HASH_SEL_EH);
         hi->puuid = puuid;
         hi->psalt = psalt;
         hi->flag = INDEX_SYMLINK;
         if (imu) {
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) + 
-                                       strlen(hs->name));
+                                       namelen);
             memcpy(mu, imu, sizeof(*mu));
             memcpy((void *)mu + sizeof(*mu), (void *)imu + sizeof(*imu),
                    mu->namelen);
@@ -6732,7 +6888,7 @@ int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
         memcpy((void *)hi + sizeof(*hi), &gm, HVFS_MDU_SIZE);
         hi->dlen = HVFS_MDU_SIZE;
     } else if (flag & INDEX_CREATE_DIR) {
-        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen,
                              HASH_SEL_EH);
         hi->puuid = puuid;
         hi->psalt = psalt;
@@ -6741,7 +6897,7 @@ int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
             off_t offset = sizeof(*mu);
             
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
-                                       strlen(hs->name));
+                                       namelen);
             memcpy(mu, imu, sizeof(*mu));
             if (imu->valid & MU_LLFS) {
                 memcpy((void *)mu + offset, (void *)imu + offset,
@@ -6756,7 +6912,7 @@ int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
             hi->dlen = offset;
         }
     } else if (flag & INDEX_CREATE_LINK) {
-        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen,
                              HASH_SEL_EH);
         hi->puuid = puuid;
         hi->psalt = psalt;
@@ -6764,13 +6920,13 @@ int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
         if (imu) {
             /* ugly code, you can't learn anything correct from the typo :( */
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
-                                       strlen(hs->name));
+                                       namelen);
             
             memcpy(mu, imu, sizeof(struct link_source));
             hi->dlen = sizeof(struct link_source);
         }
     } else {
-        hi->hash = hvfs_hash(puuid, (u64)hs->name, strlen(hs->name),
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen,
                              HASH_SEL_EH);
         hi->puuid = puuid;
         hi->psalt = psalt;
@@ -6779,7 +6935,7 @@ int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
             off_t offset = sizeof(*mu);
             
             mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
-                                       strlen(hs->name));
+                                       namelen);
             memcpy(mu, imu, sizeof(*mu));
             if (imu->valid & MU_LLFS) {
                 memcpy((void *)mu + offset, (void *)imu + offset,
@@ -6797,7 +6953,7 @@ int __hvfs_create_local(u64 puuid, u64 psalt, struct hstat *hs,
 
     if (hs->uuid == 0) {
         hi->flag |= INDEX_BY_NAME;
-        hi->namelen = strlen(hs->name);
+        hi->namelen = namelen;
         memcpy(hi->name, hs->name, hi->namelen);
     }
 
@@ -6874,12 +7030,13 @@ int __hvfs_update_local(u64 puuid, u64 psalt, struct hstat *hs,
     struct hvfs_md_reply *hmr;
     struct hvfs_txg *txg;
     u64 dsite;
-    u32 vid;
+    u32 vid, namelen = 0;
     int err = 0;
 
     dpayload = sizeof(struct hvfs_index);
     if (!hs->uuid) {
-        dpayload += strlen(hs->name);
+        namelen = strlen(hs->name);
+        dpayload += namelen;
     }
     if (imu) {
         dpayload += sizeof(struct mdu_update);
@@ -6906,7 +7063,7 @@ int __hvfs_update_local(u64 puuid, u64 psalt, struct hstat *hs,
     
     if (!hs->uuid) {
         hi->flag = INDEX_BY_NAME;
-        hi->namelen = strlen(hs->name);
+        hi->namelen = namelen;
         hi->hash = hvfs_hash(puuid, (u64)hs->name, hi->namelen,
                              HASH_SEL_EH);
         memcpy(hi->name, hs->name, hi->namelen);

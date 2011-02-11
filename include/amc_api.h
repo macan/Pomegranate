@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-24 18:29:41 macan>
+ * Time-stamp: <2011-02-11 13:47:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -163,6 +163,8 @@ int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c,
                  u64 offset, u64 size);
 int __hvfs_fwrite(struct hstat *hs, int column, u32 flag,
                   void *data, size_t len, struct column *c);
+int __hvfs_fwritev(struct hstat *hs, int column, u32 flag,
+                  struct iovec *iov, int iovlen, struct column *c);
 int __hvfs_statfs(struct statfs *s, u64 dsite);
 
 /* Region for BRANCH subsystem */

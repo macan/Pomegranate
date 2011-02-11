@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-30 17:04:39 macan>
+ * Time-stamp: <2011-02-11 16:11:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -78,10 +78,10 @@ struct xnet_msg
 #define XNET_MSG_CACHE          0x02 /* allocation based on cache */
     u8 alloc_flag;
 
-    u8 siov_alen;                /* alloc length */
-    u8 siov_ulen;                /* used number */
     u8 riov_alen;
     u8 riov_ulen;
+    u32 siov_alen;              /* alloc length */
+    u32 siov_ulen;              /* used number */
 
     struct iovec *siov;
     struct iovec *riov;

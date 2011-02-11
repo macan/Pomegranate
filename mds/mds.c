@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-15 22:53:28 macan>
+ * Time-stamp: <2011-02-11 08:42:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -192,11 +192,14 @@ void dynamic_adjust_txg_interval(time_t cur)
 
 void mds_itimer_default(int signo, siginfo_t *info, void *arg)
 {
+    u64 cur = time(NULL);
+    
     sem_post(&hmo.timer_sem);
     /* Note that, we must check the profiling interval at here, otherwise
      * checking the profiling interval at timer_thread will lost some
      * statistics */
-    dump_profiling(time(NULL));
+    dump_profiling(cur);
+    hmo.tick = cur;
     hvfs_verbose(mds, "Did this signal handler called?\n");
 
     return;

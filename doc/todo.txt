@@ -281,7 +281,14 @@ Pomegranate TODOs:
     2. mix MS_SYNC and MS_ASYNC (trigger a MS_SYNC after timeout and 
        lager buffer?)
 
-30. A question for FUSE client
+30. Some questions on FUSE client
 
-    __bh_fill() always reread a partital buffer page, we should avoid 
-    that!
+    1. __bh_fill() always reread a partital buffer page, we should 
+       avoid that!
+
+    2. Add symlink support: <= 16B, saved in the mdu; otherwise, saved
+       in the data file
+
+    3. Add naive rename suport! We want to do truely compiling!
+
+    Scheduled @ 2/10/2011
