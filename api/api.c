@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-11 16:50:42 macan>
+ * Time-stamp: <2011-02-12 13:37:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -113,23 +113,25 @@ void __UNUSED__ hmr_print(struct hvfs_md_reply *hmr)
     if (!p)
         return;
     hi = (struct hvfs_index *)p;
-    hvfs_info(xnet, "hmr-> HI: namelen %d, flag 0x%x, uuid %ld, hash %ld, itbid %ld, "
-              "puuid %ld, psalt %ld\n", hi->namelen, hi->flag, hi->uuid, hi->hash,
+    hvfs_info(xnet, "hmr-> HI: namelen %d, flag 0x%x, uuid %lx, hash %ld, "
+              "itbid %ld, puuid %lx, psalt %ld\n", 
+              hi->namelen, hi->flag, hi->uuid, hi->hash,
               hi->itbid, hi->puuid, hi->psalt);
     p += sizeof(struct hvfs_index);
     if (hmr->flag & MD_REPLY_WITH_MDU) {
         m = (struct mdu *)p;
-        hvfs_info(xnet, "hmr->MDU: size %ld, dev %ld, mode 0x%x, nlink %d, uid %d, "
-                  "gid %d, flags 0x%x, atime %lx, ctime %lx, mtime %lx, dtime %lx, "
-                  "version %d\n", m->size, m->dev, m->mode, m->nlink, m->uid,
-                  m->gid, m->flags, m->atime, m->ctime, m->mtime, m->dtime,
-                  m->version);
+        hvfs_info(xnet, "hmr->MDU: size %ld, dev %d, mode 0x%x, nlink %d, "
+                  "uid %d, gid %d, flags 0x%x, atime %lx, ctime %lx, "
+                  "mtime %lx, dtime %lx, version %d\n", 
+                  m->size, m->dev, m->mode, m->nlink, 
+                  m->uid, m->gid, m->flags, m->atime, m->ctime, 
+                  m->mtime, m->dtime, m->version);
         p += sizeof(struct mdu);
     }
     if (hmr->flag & MD_REPLY_WITH_LS) {
         ls = (struct link_source *)p;
-        hvfs_info(xnet, "hmr-> LS: hash %ld, puuid %ld, uuid %ld\n",
-                  ls->s_hash, ls->s_puuid, ls->s_uuid);
+        hvfs_info(xnet, "hmr-> LS: hash %lx, puuid %lx, psalt %lx, uuid %lx\n",
+                  ls->s_hash, ls->s_puuid, ls->s_psalt, ls->s_uuid);
         p += sizeof(struct link_source);
     }
     if (hmr->flag & MD_REPLY_WITH_BITMAP) {
@@ -3908,6 +3910,9 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
         }
     }
 
+    /* FIXME: we only fail on ACTIVE entry? */
+    hi->flag |= INDEX_ITE_ACTIVE;
+
     if (hs->uuid == 0) {
         hi->flag |= INDEX_BY_NAME;
         hi->namelen = namelen;
@@ -3995,24 +4000,44 @@ resend:
             err = -EFAULT;
             goto out;
         }
-        m = hmr_extract(hmr, EXTRACT_MDU, &no);
-        if (!m) {
-            hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
-            err = -EFAULT;
-            goto out;
-        }
         if (hmr->flag & MD_REPLY_WITH_BFLIP) {
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid,
                                  MDS_BITMAP_SET);
         }
-        /* setup the output values */
-        if (hs) {
-            memset(hs, 0, sizeof(*hs));
-            hs->puuid = rhi->puuid;
-            hs->psalt = rhi->psalt;
-            hs->uuid = rhi->uuid;
-            hs->hash = rhi->hash;
-            memcpy(&hs->mdu, m, sizeof(hs->mdu));
+        if (unlikely(hmr->flag & MD_REPLY_WITH_LS)) {
+            /* this means we have just create a link target, we cant fill the
+             * MDU */
+            struct link_source *ls;
+
+            ls = hmr_extract(hmr, EXTRACT_LS, &no);
+            if (!ls) {
+                hvfs_err(xnet, "Invalid reply w/o LS as expected.\n");
+                err = -EFAULT;
+                goto out;
+            }
+            if (hs) {
+                memset(hs, 0, sizeof(*hs));
+                hs->puuid = ls->s_puuid;
+                hs->psalt = ls->s_psalt;
+                hs->uuid = ls->s_uuid;
+                hs->hash = ls->s_hash;
+            }
+        } else {
+            m = hmr_extract(hmr, EXTRACT_MDU, &no);
+            if (!m) {
+                hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
+                err = -EFAULT;
+                goto out;
+            }
+            /* setup the output values */
+            if (hs) {
+                memset(hs, 0, sizeof(*hs));
+                hs->puuid = rhi->puuid;
+                hs->psalt = rhi->psalt;
+                hs->uuid = rhi->uuid;
+                hs->hash = rhi->hash;
+                memcpy(&hs->mdu, m, sizeof(hs->mdu));
+            }
         }
     }
     
@@ -4026,6 +4051,10 @@ out_free:
 
 /* Note that: hvfs_update do not return the column info in the packed result
  * string, you should call hvfs_stat to get the column info.
+ *
+ * Return value:
+ *
+ *   -EACCES: means a link target has been hit, you should resolve the source!
  */
 int __hvfs_update(u64 puuid, u64 psalt, struct hstat *hs,
                   struct mdu_update *imu)
@@ -4134,6 +4163,11 @@ resend:
     ASSERT(msg->pair, xnet);
     if (!msg->pair->tx.err) {
         /* fall through quickly */;
+    } else if (msg->pair->tx.err == -EACCES) {
+        /* this means we have hit a link target, user should restat and
+         * retry */
+        err = msg->pair->tx.err;
+        goto out;
     } else if (msg->pair->tx.err == -ESPLIT) {
         xnet_free_msg(msg);
         msg->pair = NULL;
@@ -4177,24 +4211,44 @@ resend:
             err = -EFAULT;
             goto out;
         }
-        m = hmr_extract(hmr, EXTRACT_MDU, &no);
-        if (!m) {
-            hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
-            err = -EFAULT;
-            goto out;
-        }
         if (hmr->flag & MD_REPLY_WITH_BFLIP) {
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid,
                                  MDS_BITMAP_SET);
         }
-        /* setup the output values */
-        if (hs) {
-            memset(hs, 0, sizeof(*hs));
-            hs->puuid = rhi->puuid;
-            hs->psalt = rhi->psalt;
-            hs->uuid = rhi->uuid;
-            hs->hash = rhi->hash;
-            memcpy(&hs->mdu, m, sizeof(hs->mdu));
+        if (unlikely(hmr->flag & MD_REPLY_WITH_LS)) {
+            /* this means we have just create a link target, we cant fill the
+             * MDU */
+            struct link_source *ls;
+
+            ls = hmr_extract(hmr, EXTRACT_LS, &no);
+            if (!ls) {
+                hvfs_err(xnet, "Invalid reply w/o LS as expected.\n");
+                err = -EFAULT;
+                goto out;
+            }
+            if (hs) {
+                memset(hs, 0, sizeof(*hs));
+                hs->puuid = ls->s_puuid;
+                hs->psalt = ls->s_psalt;
+                hs->uuid = ls->s_uuid;
+                hs->hash = ls->s_hash;
+            }
+        } else {
+            m = hmr_extract(hmr, EXTRACT_MDU, &no);
+            if (!m) {
+                hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
+                err = -EFAULT;
+                goto out;
+            }
+            /* setup the output values */
+            if (hs) {
+                memset(hs, 0, sizeof(*hs));
+                hs->puuid = rhi->puuid;
+                hs->psalt = rhi->psalt;
+                hs->uuid = rhi->uuid;
+                hs->hash = rhi->hash;
+                memcpy(&hs->mdu, m, sizeof(hs->mdu));
+            }
         }
     }
     
@@ -4314,27 +4368,56 @@ resend:
         if (!rhi) {
             hvfs_err(xnet, "extract HI failed, not found.\n");
         }
-        m = hmr_extract(hmr, EXTRACT_MDU, &no);
-        if (!m) {
-            hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
-            err = -EFAULT;
-            goto out;
-        }
         if (hmr->flag & MD_REPLY_WITH_BFLIP) {
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid,
                                  MDS_BITMAP_SET);
         }
-        /* setup the output values */
-        if (hs) {
-            memset(hs, 0, sizeof(*hs));
-            hs->puuid = rhi->puuid;
-            if (hmr->flag & MD_REPLY_DIR) {
-                hs->ssalt = m->salt;
-            } else
-                hs->psalt = rhi->psalt;
-            hs->uuid = rhi->uuid;
-            hs->hash = rhi->hash;
-            memcpy(&hs->mdu, m, sizeof(hs->mdu));
+        if (unlikely(hmr->flag & MD_REPLY_WITH_LS)) {
+            /* this means we have just unlink a link target, we should unlink
+             * link source */
+            struct link_source *ls;
+
+            ls = hmr_extract(hmr, EXTRACT_LS, &no);
+            if (!ls) {
+                hvfs_err(xnet, "Invalid reply w/o LS as expected.\n");
+                err = -EFAULT;
+                goto out;
+            }
+            /* linkadd -1 */
+            hs->hash = ls->s_hash;
+            hs->uuid = ls->s_uuid;
+            err = __hvfs_linkadd(ls->s_puuid, ls->s_psalt, -1, hs);
+            if (err) {
+                hvfs_err(xnet, "internal linkadd active LS uuid<%lx,%lx> "
+                         "failed w/ %d\n",
+                         ls->s_uuid, ls->s_hash, err);
+                err = __hvfs_linkadd_ext(ls->s_puuid, ls->s_psalt, -1, 
+                                         INDEX_ITE_SHADOW, hs);
+                if (err) {
+                    hvfs_err(xnet, "internal linkadd shadow LS uuid<%lx,%lx> "
+                             "failed w/ %d\n",
+                             ls->s_uuid, ls->s_hash, err);
+                }
+            }
+        } else {
+            m = hmr_extract(hmr, EXTRACT_MDU, &no);
+            if (!m) {
+                hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
+                err = -EFAULT;
+                goto out;
+            }
+            /* setup the output values */
+            if (hs) {
+                memset(hs, 0, sizeof(*hs));
+                hs->puuid = rhi->puuid;
+                if (hmr->flag & MD_REPLY_DIR) {
+                    hs->ssalt = m->salt;
+                } else
+                    hs->psalt = rhi->psalt;
+                hs->uuid = rhi->uuid;
+                hs->hash = rhi->hash;
+                memcpy(&hs->mdu, m, sizeof(hs->mdu));
+            }
         }
     }
 
@@ -4346,7 +4429,9 @@ out_free:
     return err;
 }
 
-int __hvfs_stat(u64 puuid, u64 psalt, int column, struct hstat *hs)
+static inline
+int __hvfs_stat_v2(u64 puuid, u64 psalt, int column, u32 flag, 
+                   struct hstat *hs)
 {
     struct xnet_msg *msg;
     size_t dpayload;
@@ -4385,10 +4470,10 @@ int __hvfs_stat(u64 puuid, u64 psalt, int column, struct hstat *hs)
     dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
 
     if (unlikely(column < 0))
-        hi->flag |= INDEX_LOOKUP | INDEX_ITE_ACTIVE;
+        hi->flag |= INDEX_LOOKUP | flag;
     else {
         hi->column = column;
-        hi->flag |= INDEX_LOOKUP | INDEX_ITE_ACTIVE | INDEX_COLUMN;
+        hi->flag |= INDEX_LOOKUP | INDEX_COLUMN | flag;
     }
 
     /* alloc one msg and send it to the peer site */
@@ -4470,16 +4555,50 @@ resend:
             err = -EFAULT;
             goto out;
         }
-        m = hmr_extract(hmr, EXTRACT_MDU, &no);
-        if (!m) {
-            hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
-            err = -EFAULT;
-            goto out;
-        }
+
         if (hmr->flag & MD_REPLY_WITH_BFLIP) {
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid,
                                  MDS_BITMAP_SET);
         }
+
+        if (unlikely(hmr->flag & MD_REPLY_WITH_LS)) {
+            /* this means we got a link target, we should init another lookup
+             * now */
+            struct link_source *ls;
+
+            ls = hmr_extract(hmr, EXTRACT_LS, &no);
+            if (!ls) {
+                hvfs_err(xnet, "Invalid reply w/o LS as expected.\n");
+                err = -EFAULT;
+                goto out;
+            }
+            hs->hash = ls->s_hash;
+            hs->uuid = ls->s_uuid;
+            err = __hvfs_stat(ls->s_puuid, ls->s_psalt, 0 /* column ZERO */, 
+                              hs);
+            if (err) {
+                hvfs_err(xnet, "internal stat LS active uuid<%lx,%lx> "
+                         "failed w/ %d\n",
+                         ls->s_uuid, ls->s_hash, err);
+                err = __hvfs_stat_ext(ls->s_puuid, ls->s_psalt, 
+                                      0 /* column ZERO */, INDEX_ITE_SHADOW, hs);
+                if (err) {
+                    hvfs_err(xnet, "internal stat LS shadow uuid<%lx,%lx> "
+                             "failed w/ %d\n",
+                             ls->s_uuid, ls->s_hash, err);
+                }
+            }
+            /* we have already set the input argument: hs! */
+            goto out;
+        } else {
+            m = hmr_extract(hmr, EXTRACT_MDU, &no);
+            if (!m) {
+                hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
+                err = -EFAULT;
+                goto out;
+            }
+        }
+        
         if (hmr->flag & MD_REPLY_WITH_DC) {
             c = hmr_extract(hmr, EXTRACT_DC, &no);
             if (!c) {
@@ -4511,6 +4630,221 @@ out:
 out_free:
     xfree(hi);
     return err;
+}
+
+int __hvfs_stat(u64 puuid, u64 psalt, int column, struct hstat *hs)
+{
+    return __hvfs_stat_v2(puuid, psalt, column, INDEX_ITE_ACTIVE, hs);
+}
+
+int __hvfs_stat_ext(u64 puuid, u64 psalt, int column, u32 flag, 
+                    struct hstat *hs)
+{
+    return __hvfs_stat_v2(puuid, psalt, column, flag, hs);
+}
+
+static inline
+int __hvfs_linkadd_v2(u64 puuid, u64 psalt, int nlink, u32 flag, 
+                      struct hstat *hs)
+{
+    struct xnet_msg *msg;
+    size_t dpayload;
+    struct hvfs_index *hi;
+    struct hvfs_md_reply *hmr;
+    u64 dsite;
+    u32 vid, namelen;
+    int err = 0;
+
+    namelen = (hs->uuid == 0 ? strlen(hs->name) : 0);
+    dpayload = sizeof(struct hvfs_index) + namelen;
+    hi = (struct hvfs_index *)xzalloc(dpayload);
+    if (unlikely(!hi)) {
+        hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
+        return -ENOMEM;
+    }
+    if (!hs->uuid) {
+        hi->flag = INDEX_BY_NAME;
+        hi->namelen = namelen;
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, hi->namelen, HASH_SEL_EH);
+        memcpy(hi->name, hs->name, hi->namelen);
+    } else {
+        hi->flag = INDEX_BY_UUID;
+        hi->uuid = hs->uuid;
+        if (!hs->hash)
+            hi->hash = hvfs_hash(hs->uuid, psalt, 0, HASH_SEL_GDT);
+        else
+            hi->hash = hs->hash;
+    }
+    hi->puuid = puuid;
+    hi->psalt = psalt;
+    /* calculate the itbid now */
+    err = SET_ITBID(hi);
+    if (unlikely(err))
+        goto out_free;
+    dsite = SELECT_SITE(hi->itbid, hi->psalt, CH_RING_MDS, &vid);
+
+    hi->flag |= INDEX_LINK_ADD | flag;
+
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (unlikely(!msg)) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE |
+                     XNET_NEED_REPLY, hmo.xc->site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_LINKADD, nlink, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, hi, dpayload);
+
+resend:
+    err = xnet_send(hmo.xc, msg);
+    if (unlikely(err)) {
+        hvfs_err(xnet, "xnet_send() lookup to %lx failed w/ %d\n",
+                 msg->tx.dsite_id, err);
+        goto out;
+    }
+
+    /* this means we have got the reply, parse it */
+    ASSERT(msg->pair, xnet);
+    if (!msg->pair->tx.err) {
+        /* fall through quickly */;
+    } else if (msg->pair->tx.err == -ENOENT) {
+        err = msg->pair->tx.err;
+        atomic64_inc(&lookup_failed);
+        goto out;
+    } else if (msg->pair->tx.err == -ESPLIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        sched_yield();
+        goto resend;
+    } else if (msg->pair->tx.err == -ERESTART ||
+               msg->pair->tx.err == -EHWAIT) {
+        xnet_set_auto_free(msg->pair);
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+        goto resend;
+    } else if (msg->pair->tx.err) {
+        hvfs_err(xnet, "LINKADD failed @ MDS site %lx w/ %d\n",
+                 msg->pair->tx.ssite_id, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        atomic64_inc(&lookup_failed);
+        goto out;
+    }
+    if (msg->pair->xm_datacheck)
+        hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
+    else {
+        hvfs_err(xnet, "Invalid LINKADD reply from site %lx\n",
+                 msg->pair->tx.ssite_id);
+        err = -EFAULT;
+        goto out;
+    }
+    /* now, checking the hmr err */
+    if (hmr->err) {
+        /* hoo, something wrong on the MDS */
+        hvfs_err(xnet, "MDS site %lx reply w/ %d\n",
+                 msg->pair->tx.ssite_id, hmr->err);
+        xnet_set_auto_free(msg->pair);
+        err = hmr->err;
+        goto out;
+    } else if (hmr->len) {
+        struct hvfs_index *rhi;
+        struct column *c = NULL;
+        struct gdt_md *m;
+        int no = 0;
+
+        hmr->data = ((void *)hmr) + sizeof(struct hvfs_md_reply);
+        rhi = hmr_extract(hmr, EXTRACT_HI, &no);
+        if (!rhi) {
+            hvfs_err(xnet, "extract HI failed, not found.\n");
+            err = -EFAULT;
+            goto out;
+        }
+
+        if (hmr->flag & MD_REPLY_WITH_BFLIP) {
+            mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid,
+                                 MDS_BITMAP_SET);
+        }
+
+        if (hmr->flag & MD_REPLY_WITH_LS) {
+            /* this means we got a link target, we should init another linkadd
+             * now */
+            struct link_source *ls;
+
+            ls = hmr_extract(hmr, EXTRACT_LS, &no);
+            if (!ls) {
+                hvfs_err(xnet, "Invalid reply w/o LS as expected.\n");
+                err = -EFAULT;
+                goto out;
+            }
+            hs->hash = ls->s_hash;
+            hs->uuid = ls->s_uuid;
+            err = __hvfs_linkadd(ls->s_puuid, ls->s_psalt, nlink,
+                                 hs);
+            if (err) {
+                hvfs_err(xnet, "internal linkadd LS active uuid<%lx,%lx> "
+                         "failed w/ %d\n",
+                         ls->s_uuid, ls->s_hash, err);
+                err = __hvfs_linkadd_ext(ls->s_puuid, ls->s_psalt, nlink,
+                                         INDEX_ITE_SHADOW, hs);
+                if (err) {
+                    hvfs_err(xnet, "internal linkadd LS shadow uuid<%lx,%lx> "
+                             "failed w/ %d\n",
+                             ls->s_uuid, ls->s_hash, err);
+                }
+            }
+            /* we have already set the input argument: hs! */
+            goto out;
+        } else {
+            m = hmr_extract(hmr, EXTRACT_MDU, &no);
+            if (!m) {
+                hvfs_err(xnet, "Invalid reply w/o MDU as expected.\n");
+                err = -EFAULT;
+                goto out;
+            }
+        }
+        
+        if (hmr->flag & MD_REPLY_WITH_DC) {
+            c = hmr_extract(hmr, EXTRACT_DC, &no);
+            if (!c) {
+                hvfs_err(xnet, "extract DC failed, not found.\n");
+            }
+        }
+        /* setup the output values */
+        if (hs) {
+            memset(hs, 0, sizeof(*hs));
+            hs->puuid = rhi->puuid;
+            if (hmr->flag & MD_REPLY_DIR ||
+                puuid == hmi.gdt_uuid) {
+                hs->ssalt = m->salt;
+            } else 
+                hs->psalt = rhi->psalt;
+            hs->uuid = rhi->uuid;
+            hs->hash = rhi->hash;
+            memcpy(&hs->mdu, m, sizeof(hs->mdu));
+        }
+    }
+
+out:
+    xnet_free_msg(msg);
+    return err;
+out_free:
+    xfree(hi);
+    return err;
+}
+
+int __hvfs_linkadd(u64 puuid, u64 psalt, int nlink, struct hstat *hs)
+{
+    return __hvfs_linkadd_v2(puuid, psalt, nlink, INDEX_ITE_ACTIVE, hs);
+}
+int __hvfs_linkadd_ext(u64 puuid, u64 psalt, int nlink, u32 flag, 
+                       struct hstat *hs)
+{
+    return __hvfs_linkadd_v2(puuid, psalt, nlink, flag, hs);
 }
 
 int __hvfs_readdir(u64 duuid, u64 salt, char **buf)
@@ -4643,7 +4977,8 @@ int __hvfs_readdir(u64 duuid, u64 salt, char **buf)
                     p += tdi->namelen;
                     idx += tdi->namelen + sizeof(*tdi);
                     offset += sprintf(np, "%s %06o %20lx %s\n",
-                                      S_ISDIR(tdi->mode) ? "d" : "-",
+                                      S_ISDIR(tdi->mode) ? "d" : 
+                                      (S_ISLNK(tdi->mode) ? "l" : "-"),
                                       tdi->mode, tdi->uuid, 
                                       kbuf);
                     np = *buf + offset;
@@ -4676,7 +5011,7 @@ int __hvfs_pack_result(struct hstat *hs, void **data)
     }
     n = p;
     p += snprintf(p, 1023, "%lx %lx %lx %x "
-                  "%d %d %o %d %ld %ld %ld %ld %ld %ld "
+                  "%d %d %o %d %ld %d %ld %ld %ld %ld "
                   "%d ",
                   hs->puuid, hs->psalt, hs->uuid, hs->mdu.flags,
                   hs->mdu.uid, hs->mdu.gid, hs->mdu.mode,

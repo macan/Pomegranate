@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-11 17:32:50 macan>
+ * Time-stamp: <2011-02-12 13:22:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1052,25 +1052,26 @@ hit:
             }
         }
     } else {
-        /* check if it the root directory */
-        if (puuid == hmi.root_uuid) {
-            /* stat root w/o any file name, it is ROOT we want to state */
-            err = __hvfs_fill_root(&hs);
-            if (err) {
-                hvfs_err(xnet, "fill root entry failed w/ %d\n", err);
-                goto out;
-            }
-        }
+        hvfs_err(xnet, "Readlink from a directory is not allowed\n");
+        err = -EINVAL;
+        goto out;
     }
 
     /* ok to parse the symname */
     if (hs.mdu.size > sizeof(hs.mdu.symname)) {
-        hvfs_err(xnet, "Long SYMLINK not supported yet!\n");
-        err = -EINVAL;
+        /* read the symname from storage server */
+        err = __hvfs_fread(&hs, 0 /* column is ZERO */, (void **)&buf, 
+                           &hs.mc.c, 0, min(hs.mdu.size, size));
+        if (err < 0) {
+            hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
+        err = 0;
     } else {
-        memcpy(buf, hs.mdu.symname, size);
-        buf[size] = '\0';
+        memcpy(buf, hs.mdu.symname, min(hs.mdu.size, size));
     }
+    buf[min(hs.mdu.size, size)] = '\0';
 
 out:
     xfree(dup);
@@ -1487,7 +1488,145 @@ out:
 
 static int hvfs_symlink(const char *from, const char *to)
 {
-    return -ENOSYS;
+    struct hstat hs;
+    struct mdu_update *mu;
+    char *dup = strdup(to), *dup2 = strdup(to), 
+        *path, *name, *spath;
+    char *p = NULL, *n, *s = NULL;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0, namelen;
+
+    path = dirname(dup);
+    name = basename(dup2);
+    n = path;
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    if (err > 0) {
+        goto hit;
+    }
+
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hs.name = p;
+        hs.uuid = 0;
+        /* Step 1: find in the SDT */
+        err = __hvfs_stat(puuid, psalt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err)
+        goto out;
+
+    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    xfree(spath);
+hit:
+    /* create the file or dir in the parent directory now */
+    if (strlen(name) == 0 || strcmp(name, "/") == 0) {
+        hvfs_err(xnet, "Create zero-length named file or root directory?\n");
+        err = -EINVAL;
+        goto out;
+    }
+    
+    hs.name = name;
+    hs.uuid = 0;
+    /* switch here for 16B symname */
+    namelen = strlen(from);
+
+    if (namelen <= sizeof(hs.mdu.symname)) {
+        mu = xzalloc(sizeof(*mu) + namelen);
+        if (unlikely(!mu)) {
+            hvfs_err(xnet, "xzalloc() mdu_update failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        mu->valid = MU_SYMNAME | MU_SIZE;
+        mu->namelen = namelen;
+        mu->size = namelen;
+        memcpy((void *)mu + sizeof(*mu), from, namelen);
+
+        err = __hvfs_create(puuid, psalt, &hs, INDEX_SYMLINK, mu);
+        if (err) {
+            hvfs_err(xnet, "do internal create (SDT) on '%s' failed w/ %d\n",
+                     name, err);
+            xfree(mu);
+            goto out;
+        }
+        xfree(mu);
+    } else {
+        struct column saved_c;
+
+        /* write to the MDSL and create symlink file with the column info */
+        hs.puuid = puuid;
+        hs.psalt = psalt;
+        hs.hash = 0;            /* default to zero itb */
+        err = __hvfs_fwrite(&hs, 0 /* ZERO */, 0, (void *)from, 
+                            namelen, &hs.mc.c);
+        if (err) {
+            hvfs_err(xnet, "do internal fwrite on '%s' failed w/ %d\n",
+                     to, err);
+            goto out;
+        }
+        saved_c = hs.mc.c;
+        mu = xzalloc(sizeof(*mu) + 4);
+        if (unlikely(!mu)) {
+            hvfs_err(xnet, "xzalloc() mdu_update failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        mu->valid = MU_SYMNAME;
+        mu->namelen = 4;
+        sprintf((char *)mu + sizeof(*mu), "NaN");
+
+        hs.uuid = 0;
+        err = __hvfs_create(puuid, psalt, &hs, INDEX_SYMLINK, mu);
+        if (err) {
+            hvfs_err(xnet, "do internal create (SDT) on '%s' failed w/ %d\n",
+                     name, err);
+            xfree(mu);
+            goto out;
+        }
+
+        /* finally, update the newly created symlink file */
+        mu->valid = MU_SIZE | MU_COLUMN;
+        mu->size = namelen;
+        mu->column_no = 1;
+        hs.mc.c = saved_c;
+
+        err = __hvfs_update(puuid, psalt, &hs, mu);
+        if (err) {
+            hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
+                     to, err);
+            xfree(mu);
+            goto out;
+        }
+        xfree(mu);
+    }
+
+out:
+    xfree(dup);
+    xfree(dup2);
+    
+    return err;
 }
 
 static int hvfs_rename(const char *from, const char *to)
@@ -1497,7 +1636,189 @@ static int hvfs_rename(const char *from, const char *to)
 
 static int hvfs_link(const char *from, const char *to)
 {
-    return -ENOSYS;
+    struct link_source ls;
+    struct hstat hs;
+    char *dup = strdup(from), *dup2 = strdup(from), 
+        *path, *name, *spath;
+    char *p = NULL, *n, *s = NULL;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0;
+
+    /* Step 1: get the stat info of 'from' file */
+    path = dirname(dup);
+    name = basename(dup2);
+    n = path;
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    if (err > 0) {
+        goto hit;
+    }
+
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hvfs_debug(xnet, "token: %s\n", p);
+        /* ok, we should do stat on this directory based on the puuid, psalt
+         * we got */
+        /* Step 1: find in the SDT, zero uuid means using name to lookup */
+        hs.name = p;
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err) {
+        xfree(spath);
+        goto out;
+    }
+
+    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    xfree(spath);
+hit:
+    if (name && strlen(name) > 0 && strcmp(name, "/") != 0) {
+        /* eh, we have to lookup this file now. Otherwise, what we want to
+         * lookup is the last directory, just return a result string now */
+        hs.name = name;
+        hs.uuid = 0;
+        err = __hvfs_linkadd(puuid, psalt, 0, &hs);
+        if (err == -EACCES) {
+            /* we should stat hard and retry! */
+            hs.uuid = 0;
+            err = __hvfs_stat(puuid, psalt, 0, &hs);
+            if (err) {
+                hvfs_err(xnet, "do internal stat on '%s' failed w/ %d\n",
+                         name, err);
+                goto out;
+            }
+            err = __hvfs_linkadd(puuid, psalt, 0, &hs);
+            if (err) {
+                hvfs_err(xnet, "do internal file linkadd (SDT) on '%s'"
+                         " failed w/ %d\n", name, err);
+                goto out;
+            }
+        } else if (err) {
+            hvfs_err(xnet, "do internal file linkadd (SDT) on '%s'"
+                     " failed w/ %d\n", name, err);
+            goto out;
+        }
+        if (S_ISDIR(hs.mdu.mode)) {
+            hvfs_err(xnet, "hard link on directory is not allowed\n");
+            err = -EPERM;
+            goto out;
+        }
+    } else {
+        hvfs_err(xnet, "hard link on directory is not allowed\n");
+        err = -EPERM;
+        goto out;
+    }
+
+    ls.flags = 0;
+    ls.uid = hs.mdu.uid;
+    ls.gid = hs.mdu.gid;
+    ls.mode = hs.mdu.mode;
+    ls.nlink = hs.mdu.nlink;
+    ls.s_puuid = hs.puuid;
+    ls.s_psalt = hs.psalt;
+    ls.s_uuid = hs.uuid;
+    ls.s_hash = hs.hash;
+
+    /* cleanup */
+    xfree(dup);
+    xfree(dup2);
+
+    /* Step 2: construct the new LS entry */
+    dup = strdup(to);
+    dup2 = strdup(to);
+    puuid = hmi.root_uuid;
+    psalt = hmi.root_salt;
+    
+    path = dirname(dup);
+    name = basename(dup2);
+    n = path;
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    if (err > 0) {
+        goto hit2;
+    }
+
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hs.name = p;
+        hs.uuid = 0;
+        /* Step 1: find in the SDT */
+        err = __hvfs_stat(puuid, psalt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err) {
+        xfree(spath);
+        goto out;
+    }
+
+    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    xfree(spath);
+hit2:
+    /* create the file or dir in the parent directory now */
+    if (strlen(name) == 0 || strcmp(name, "/") == 0) {
+        hvfs_err(xnet, "Create zero-length named file or root directory?\n");
+        err = -EINVAL;
+        goto out;
+    }
+    
+    hs.name = name;
+    hs.uuid = 0;
+    err = __hvfs_create(puuid, psalt, &hs, INDEX_CREATE_LINK, 
+                        (struct mdu_update *)&ls);
+    if (err) {
+        hvfs_err(xnet, "do internal create (SDT) on '%s' failed w/ %d\n",
+                 name, err);
+        goto out;
+    }
+
+out:
+    xfree(dup);
+    xfree(dup2);
+    
+    return err;
 }
 
 static int hvfs_chmod(const char *pathname, mode_t mode)
@@ -1566,7 +1887,22 @@ static int hvfs_chmod(const char *pathname, mode_t mode)
         hs.name = name;
         hs.uuid = 0;
         err = __hvfs_update(puuid, psalt, &hs, &mu);
-        if (err) {
+        if (err == -EACCES) {
+            hs.uuid = 0;
+            err = __hvfs_stat(puuid, psalt, 0, &hs);
+            if (err) {
+                hvfs_err(xnet, "do internal stat on '%s' failed w/ %d\n",
+                         name, err);
+                goto out;
+            }
+            err = __hvfs_update(puuid, psalt, &hs, &mu);
+            if (err) {
+                hvfs_err(xnet, "do internal update on uuid<%lx,%lx> "
+                         "failed w/ %d\n",
+                         hs.uuid, hs.hash, err);
+                goto out;
+            }
+        } else if (err) {
             hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
                      name, err);
             goto out;
@@ -1647,7 +1983,22 @@ static int hvfs_chown(const char *pathname, uid_t uid, gid_t gid)
         hs.name = name;
         hs.uuid = 0;
         err = __hvfs_update(puuid, psalt, &hs, &mu);
-        if (err) {
+        if (err == -EACCES) {
+            hs.uuid = 0;
+            err = __hvfs_stat(puuid, psalt, 0, &hs);
+            if (err) {
+                hvfs_err(xnet, "do internal stat on '%s' failed w/ %d\n",
+                         name, err);
+                goto out;
+            }
+            err = __hvfs_update(puuid, psalt, &hs, &mu);
+            if (err) {
+                hvfs_err(xnet, "do internal update on uuid<%lx,%lx> "
+                         "failed w/ %d\n",
+                         hs.uuid, hs.hash, err);
+                goto out;
+            }
+        } else if (err) {
             hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
                      name, err);
             goto out;
@@ -1795,7 +2146,22 @@ static int hvfs_truncate(const char *pathname, off_t size)
     hs.uuid = 0;
     /* use INDEX_BY_UUID to got the entry */
     err = __hvfs_update(puuid, psalt, &hs, &mu);
-    if (err) {
+    if (err == -EACCES) {
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal stat on '%s' failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
+        err = __hvfs_update(puuid, psalt, &hs, &mu);
+        if (err) {
+            hvfs_err(xnet, "do internal update on uuid<%lx,%lx> "
+                     "failed w/ %d\n",
+                     hs.uuid, hs.hash, err);
+            goto out;
+        }
+    } else if (err) {
         hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
                  name, err);
         goto out;
@@ -1874,7 +2240,22 @@ static int hvfs_utime(const char *pathname, struct utimbuf *buf)
         hs.name = name;
         hs.uuid = 0;
         err = __hvfs_update(puuid, psalt, &hs, &mu);
-        if (err) {
+        if (err == -EACCES) {
+            hs.uuid = 0;
+            err = __hvfs_stat(puuid, psalt, 0, &hs);
+            if (err) {
+                hvfs_err(xnet, "do internal stat on '%s' failed w/ %d\n",
+                         name, err);
+                goto out;
+            }
+            err = __hvfs_update(puuid, psalt, &hs, &mu);
+            if (err) {
+                hvfs_err(xnet, "do internal update on uuid<%lx,%lx> "
+                         "failed w/ %d\n",
+                         hs.uuid, hs.hash, err);
+                goto out;
+            }
+        } else if (err) {
             hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
                      name, err);
             goto out;
@@ -2022,11 +2403,12 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
         err = __hvfs_fread(&hs, 0 /* column is ZERO */, (void **)&buf, 
                            &hs.mc.c, offset, size);
         if (err < 0) {
-            hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
-                     pathname, err);
             if (err == -EFBIG) {
                 /* translate EFBIG to EINVAL */
                 err = -EINVAL;
+            } else {
+                hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
+                         pathname, err);
             }
             goto out;
         }

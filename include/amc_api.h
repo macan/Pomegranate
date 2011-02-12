@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-11 13:47:23 macan>
+ * Time-stamp: <2011-02-12 12:12:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -153,6 +153,11 @@ void hvfs_free(void *p);
 
 /* internal APIs */
 int __hvfs_stat(u64 puuid, u64 psalt, int column, struct hstat *hs);
+int __hvfs_stat_ext(u64 puuid, u64 psalt, int column, u32 flag, 
+                    struct hstat *hs);
+int __hvfs_linkadd(u64 puuid, u64 psalt, int nlink, struct hstat *hs);
+int __hvfs_linkadd_ext(u64 puuid, u64 psalt, int nlink, u32 flag,
+                       struct hstat *hs);
 int __hvfs_fill_root(struct hstat *hs);
 int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs, 
                   u32 flag, struct mdu_update *imu);

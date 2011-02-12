@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-26 13:38:00 macan>
+ * Time-stamp: <2011-02-12 12:06:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -740,13 +740,7 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             memcpy(&e->s.mdu, hi->data, sizeof(struct mdu));
     } else if (unlikely(hi->flag & INDEX_CREATE_LINK)) {
         /* hi->data is LS */
-        struct timeval tv;
-
         memcpy(&e->s.ls, hi->data, sizeof(struct link_source));
-        gettimeofday(&tv, NULL);
-        e->s.ls.atime = tv.tv_sec;
-        e->s.ls.ctime = tv.tv_sec;
-        e->s.ls.mtime = tv.tv_sec;
         e->s.ls.dtime = 0;
         e->s.ls.flags |= (HVFS_MDU_IF_LINKT | HVFS_MDU_IF_NORMAL);
     } else if (unlikely(hi->flag & INDEX_SYMLINK)) {
@@ -768,7 +762,7 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
         if (mu->valid & MU_MODE)
             e->s.mdu.mode = mu->mode;
         else
-            e->s.mdu.mode = HVFS_DEFAULT_UMASK | S_IFREG;
+            e->s.mdu.mode = HVFS_DEFAULT_UMASK | S_IFLNK;
         if (mu->valid & MU_UID)
             e->s.mdu.uid = mu->uid;
         if (mu->valid & MU_GID)
@@ -1751,6 +1745,12 @@ retry:
         } else if (hi->flag & INDEX_MDU_UPDATE) {
             /* setattr, no failure */
             hvfs_verbose(mds, "Find the ITE and update the MDU.\n");
+            /* if it is a link target, client should restat the truely link
+             * source! */
+            if (itb->ite[ii->entry].flag & ITE_FLAG_LS) {
+                ret = -EACCES;
+                goto out;
+            }
             *oi = itb_dirty(itb, txg, l, otxg);
             if (unlikely((*oi) != itb)) {
                 if (!(*oi)) {
@@ -2071,6 +2071,12 @@ retry:
         } else if (hi->flag & INDEX_MDU_UPDATE) {
             /* setattr, no failure */
             hvfs_verbose(mds, "Find the ITE and update the MDU.\n");
+            /* if it is a link target, client should restat the truely link
+             * source! */
+            if (itb->ite[ii->entry].flag & ITE_FLAG_LS) {
+                ret = -EACCES;
+                goto out;
+            }
             *oi = itb_dirty(itb, txg, l, otxg);
             if (unlikely((*oi) != itb)) {
                 if (!(*oi)) {
@@ -2434,6 +2440,7 @@ int itb_readdir(struct hvfs_index *hi, struct itb *i,
                 if (((i->ite[idx].flag & ITE_STATE_MASK) !=
                      ITE_ACTIVE) ||
                     (i->ite[idx].flag & ITE_FLAG_KV)) {
+                    err++;
                     continue;
                 } else {
                     struct dentry_info *di = p;
@@ -2448,7 +2455,8 @@ int itb_readdir(struct hvfs_index *hi, struct itb *i,
             }
         }
         /* save # of entries to hmr->dnum */
-        hmr->dnum = atomic_read(&i->h.entries);
+        hmr->dnum = atomic_read(&i->h.entries) - err;
+        err = 0;
     }
 
 out:

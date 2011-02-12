@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-18 13:32:46 macan>
+ * Time-stamp: <2011-02-12 10:01:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -72,7 +72,8 @@ struct mdu
     u16 mode;                   /* the same as VFS */
     u16 nlink;
     u64 size;
-    u64 dev;
+    u32 dev;
+    u32 version;
 
     /* section for time: 32B */
     u64 atime;                  /* access time */
@@ -81,7 +82,6 @@ struct mdu
     u64 dtime;                  /* delete time */
     
     /* section for advance function: 20B */
-    u32 version;
     union 
     {
         struct llfs_ref lr;
@@ -97,20 +97,17 @@ struct link_source
     u32 uid;
     u32 gid;
     u16 mode;
-    u16 nlink;
+    u16 nlink;                  /* nlink should be exactly the same postion as
+                                 * in struct mdu! */
     
-    /* section for time: 32B */
-    u64 atime;                  /* access time */
-    u64 ctime;                  /* change time */
-    u64 mtime;                  /* modify time */
-    u64 dtime;                  /* delete time */
-    
-    /* section for advance function: 20B */
-    u32 version;
-
-    u64 s_hash;
+    /* u64 size + u64 (dev+version) */
     u64 s_puuid;
+    u64 s_psalt;
     u64 s_uuid;
+    u64 s_hash;
+    /* the next u64 is ready to FAIL! becaust in LEASE operations, we write to
+     * mdu.dtime field w/o any checking */
+    u64 dtime;
 };
 
 #endif

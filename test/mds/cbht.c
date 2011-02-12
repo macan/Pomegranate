@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-15 20:06:51 macan>
+ * Time-stamp: <2011-02-12 10:12:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,23 +49,25 @@ void hmr_print(struct hvfs_md_reply *hmr)
     if (!p)
         return;
     hi = (struct hvfs_index *)p;
-    hvfs_info(mds, "hmr-> HI: len %d, flag 0x%x, uuid %ld, hash %ld, itbid %ld, "
-              "puuid %ld, psalt %ld\n", hi->namelen, hi->flag, hi->uuid, 
-              hi->hash, hi->itbid, hi->puuid, hi->psalt);
+    hvfs_info(mds, "hmr-> HI: len %d, flag 0x%x, uuid %lx, hash %ld, "
+              "itbid %ld, puuid %ld, psalt %ld\n", 
+              hi->namelen, hi->flag, hi->uuid, hi->hash, 
+              hi->itbid, hi->puuid, hi->psalt);
     p += sizeof(struct hvfs_index);
     if (hmr->flag & MD_REPLY_WITH_MDU) {
         m = (struct mdu *)p;
-        hvfs_info(mds, "hmr->MDU: size %ld, dev %ld, mode 0x%x, nlink %d, uid %d, "
-                  "gid %d, flags 0x%x, atime %lx, ctime %lx, mtime %lx, dtime %lx, "
-                  "version %d\n", m->size, m->dev, m->mode, m->nlink, m->uid,
-                  m->gid, m->flags, m->atime, m->ctime, m->mtime, m->dtime,
-                  m->version);
+        hvfs_info(mds, "hmr->MDU: size %ld, dev %d, mode 0x%x, nlink %d, "
+                  "uid %d, gid %d, flags 0x%x, atime %lx, ctime %lx, "
+                  "mtime %lx, dtime %lx, version %d\n", 
+                  m->size, m->dev, m->mode, m->nlink, 
+                  m->uid, m->gid, m->flags, m->atime, m->ctime, 
+                  m->mtime, m->dtime, m->version);
         p += sizeof(struct mdu);
     }
     if (hmr->flag & MD_REPLY_WITH_LS) {
         ls = (struct link_source *)p;
-        hvfs_info(mds, "hmr-> LS: hash %ld, puuid %ld, uuid %ld\n",
-                  ls->s_hash, ls->s_puuid, ls->s_uuid);
+        hvfs_info(mds, "hmr-> LS: hash %ld, puuid %lx, psalt %lx uuid %ld\n",
+                  ls->s_hash, ls->s_puuid, ls->s_psalt, ls->s_uuid);
         p += sizeof(struct link_source);
     }
     if (hmr->flag & MD_REPLY_WITH_BITMAP) {
