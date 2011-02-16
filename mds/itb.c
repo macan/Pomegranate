@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-12 12:06:30 macan>
+ * Time-stamp: <2011-02-16 09:21:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -920,32 +920,44 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
     } else if (hi->flag & INDEX_MDU_UPDATE) {
         /* hi->data is mdu_update */
         struct mdu_update *mu = (struct mdu_update *)hi->data;
+        struct timeval tv;
         int coffset = 0;
 
-        if (mu->valid & MU_MODE)
+        /* time update */
+        gettimeofday(&tv, NULL);
+
+        if (mu->valid & MU_MODE) {
             e->s.mdu.mode = mu->mode;
-        if (mu->valid & MU_UID)
+            e->s.mdu.ctime = tv.tv_sec;
+        }
+        if (mu->valid & MU_UID) {
             e->s.mdu.uid = mu->uid;
-        if (mu->valid & MU_GID)
+            e->s.mdu.ctime = tv.tv_sec;
+        }
+        if (mu->valid & MU_GID) {
             e->s.mdu.gid = mu->gid;
+            e->s.mdu.ctime = tv.tv_sec;
+        }
         if (mu->valid & MU_FLAG_ADD)
             e->s.mdu.flags |= mu->flags;
         if (mu->valid & MU_FLAG_CLR)
             e->s.mdu.flags &= ~(mu->flags);
-        if (mu->valid & MU_ATIME)
-            e->s.mdu.atime = mu->atime;
-        if (mu->valid & MU_CTIME)
-            e->s.mdu.ctime = mu->ctime;
-        if (mu->valid & MU_MTIME)
-            e->s.mdu.mtime = mu->mtime;
+
         if (mu->valid & MU_VERSION)
             e->s.mdu.version = mu->version;
-        if (mu->valid & MU_SIZE)
+        if (mu->valid & MU_SIZE) {
             e->s.mdu.size = mu->size;
-        if (mu->valid & MU_NLINK)
+            e->s.mdu.mtime = tv.tv_sec;
+        }
+        if (mu->valid & MU_NLINK) {
             e->s.mdu.nlink = mu->nlink;
-        if (mu->valid & MU_NLINK_DELTA)
+            e->s.mdu.ctime = tv.tv_sec;
+        }
+        if (mu->valid & MU_NLINK_DELTA) {
             e->s.mdu.nlink += mu->nlink;
+            e->s.mdu.ctime = tv.tv_sec;
+        }
+
         if (mu->valid & MU_LLFS) {
             e->s.mdu.lr = *(struct llfs_ref *)(hi->data +
                             sizeof(struct mdu_update));
@@ -960,7 +972,15 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
                 /* copy to the dst location */
                 e->column[(mc + i)->cno] = (mc + i)->c;
             }
+            e->s.mdu.mtime = tv.tv_sec;
         }
+
+        if (mu->valid & MU_ATIME)
+            e->s.mdu.atime = mu->atime;
+        if (mu->valid & MU_CTIME)
+            e->s.mdu.ctime = mu->ctime;
+        if (mu->valid & MU_MTIME)
+            e->s.mdu.mtime = mu->mtime;
     } else if (hi->flag & INDEX_CREATE_COPY) {
         /* hi->data is MDU */
         memcpy(&e->s.mdu, hi->data, sizeof(struct mdu));

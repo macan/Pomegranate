@@ -272,6 +272,8 @@ Pomegranate TODOs:
 
 28. DATA compression w/ LZO
 
+    Done? (Not test well)
+
 29. Tune MDSL append buffer performance (Priority: High)
 
     Schedule @ 1/10/2011
@@ -290,5 +292,11 @@ Pomegranate TODOs:
        in the data file
 
     3. Add naive rename suport! We want to do truely compiling!
+
+       1. rename regular file is ok;
+
+       2. rename hard link target is ok;
+
+       3. rename hard link source is ok;
 
     Scheduled @ 2/10/2011

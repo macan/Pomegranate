@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-25 21:12:10 macan>
+ * Time-stamp: <2011-02-12 14:33:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,6 +57,8 @@ struct hvfs_index
 #define INDEX_BY_ITB            0x00000004 /* for READDIR, start address in
                                             * .hash and current depth of ITB
                                             * is in the low bits of .itb */
+#define INDEX_SUPERFICIAL       0x00000008 /* superficial stat! valid only on
+                                            * clients */
 
 #define INDEX_LOOKUP            0x00000010 /* LOOKUP */
 #define INDEX_INTENT_OPEN       0x00000020 /* open with ITE.ct++ */

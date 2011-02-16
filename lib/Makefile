@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-01-04 12:51:10 macan>
+# Time-stamp: <2011-02-14 16:37:31 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -26,4 +26,4 @@ clean :
 	-@rm -rf $(LIB_AR_SOURCE:.c=.o)
 	-@rm -rf libhvfs.a libhvfs.so.1.0 libmds.so.1.0 \
 			libmdsl.so.1.0 libxnet.so.1.0 libr2.so.1.0 \
-			libapi.so.1.0 libranch.so.1.0
+			libapi.so.1.0 libbranch.so.1.0

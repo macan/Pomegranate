@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-12 12:12:43 macan>
+ * Time-stamp: <2011-02-14 14:20:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -164,6 +164,7 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
 int __hvfs_update(u64 puuid, u64 psalt, struct hstat *hs,
                   struct mdu_update *imu);
 int __hvfs_unlink(u64 puuid, u64 psalt, struct hstat *hs);
+int __hvfs_unlink_ext(u64 puuid, u64 psalt, u32 flag, struct hstat *hs);
 int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c,
                  u64 offset, u64 size);
 int __hvfs_fwrite(struct hstat *hs, int column, u32 flag,
@@ -171,6 +172,7 @@ int __hvfs_fwrite(struct hstat *hs, int column, u32 flag,
 int __hvfs_fwritev(struct hstat *hs, int column, u32 flag,
                   struct iovec *iov, int iovlen, struct column *c);
 int __hvfs_statfs(struct statfs *s, u64 dsite);
+int __hvfs_is_empty_dir(u64 puuid, u64 psalt, struct hstat *hs);
 
 /* Region for BRANCH subsystem */
 

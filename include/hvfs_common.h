@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-12 10:01:01 macan>
+ * Time-stamp: <2011-02-14 09:36:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -72,7 +72,8 @@ struct mdu
     u16 mode;                   /* the same as VFS */
     u16 nlink;
     u64 size;
-    u32 dev;
+    u32 dev;                    /* NOTE: KV salt value should not extend 32
+                                 * bits */
     u32 version;
 
     /* section for time: 32B */

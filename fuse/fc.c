@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-12 13:22:14 macan>
+ * Time-stamp: <2011-02-16 13:53:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,18 +37,30 @@ struct __pfs_fuse_mgr
     u32 use_config:1;
 } pfs_fuse_mgr;
 
+#define PFS_FUSE_CONFIG_UUID            0xffff000000000000
+
 /* We are sure that there is no page hole! */
+struct __pfs_odc_mgr
+{
+#define PFS_ODC_HSIZE_DEFAULT   (8191)
+    struct regular_hash *ht;
+    u32 hsize;
+} pfs_odc_mgr;
+
 struct bhhead
 {
+    struct hlist_node hlist;
     struct list_head bh;
     size_t size;                /* total buffer size */
     size_t asize;               /* actually size for release use */
     struct hstat hs;
     xrwlock_t clock;
+    u64 uuid;                   /* who am i? */
 #define BH_CLEAN        0x00
 #define BH_DIRTY        0x01
 #define BH_CONFIG       0x80
     u32 flag;
+    atomic_t ref;
     void *ptr;                  /* private pointer */
 };
 
@@ -59,17 +71,153 @@ struct bh
     void *data;                 /* this is always a page */
 };
 
+static int __odc_init(int hsize)
+{
+    int i;
+
+    if (hsize)
+        pfs_odc_mgr.hsize = hsize;
+    else
+        pfs_odc_mgr.hsize = PFS_ODC_HSIZE_DEFAULT;
+
+    pfs_odc_mgr.ht = xmalloc(pfs_odc_mgr.hsize * sizeof(struct regular_hash));
+    if (!pfs_odc_mgr.ht) {
+        hvfs_err(xnet, "OpeneD Cache(ODC) hash table init failed\n");
+        return -ENOMEM;
+    }
+
+    /* init the hash table */
+    for (i = 0; i < pfs_odc_mgr.hsize; i++) {
+        INIT_HLIST_HEAD(&pfs_odc_mgr.ht[i].h);
+        xlock_init(&pfs_odc_mgr.ht[i].lock);
+    }
+
+    return 0;
+}
+
+static void __odc_destroy(void)
+{
+    xfree(pfs_odc_mgr.ht);
+}
+
+static inline
+int __odc_hash(u64 uuid)
+{
+    return __murmurhash64a(&uuid, sizeof(uuid), 0xfade8419edfa) %
+        pfs_odc_mgr.hsize;
+}
+
+/* Return value: 0: not really removed; 1: truely removed
+ */
+static int __odc_remove(struct bhhead *del)
+{
+    struct regular_hash *rh;
+    struct bhhead *bhh;
+    struct hlist_node *pos, *n;
+    int idx;
+
+    idx = __odc_hash(del->uuid);
+    rh = pfs_odc_mgr.ht + idx;
+
+    idx = 0;
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry_safe(bhh, pos, n, &rh->h, hlist) {
+        if (del == bhh && del->uuid == bhh->uuid) {
+            if (atomic_dec_return(&bhh->ref) <= 0) {
+                idx = 1;
+                hlist_del_init(&bhh->hlist);
+            }
+            break;
+        }
+    }
+    xlock_unlock(&rh->lock);
+
+    return idx;
+}
+
+static struct bhhead *__odc_insert(struct bhhead *new)
+{
+    struct regular_hash *rh;
+    struct bhhead *bhh;
+    struct hlist_node *pos, *n;
+    int idx, found = 0;
+
+    idx = __odc_hash(new->uuid);
+    rh = pfs_odc_mgr.ht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry_safe(bhh, pos, n, &rh->h, hlist) {
+        if (new->uuid == bhh->uuid) {
+            /* already exist */
+            atomic_inc(&bhh->ref);
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        hlist_add_head(&new->hlist, &rh->h);
+        bhh = new;
+    }
+    xlock_unlock(&rh->lock);
+
+    return bhh;
+}
+
+/* Return value: NULL: miss; other: hit
+ */
+static inline
+struct bhhead *__odc_lookup(u64 uuid)
+{
+    struct regular_hash *rh;
+    struct bhhead *bhh;
+    struct hlist_node *n;
+    int idx, found = 0;
+
+    idx = __odc_hash(uuid);
+    rh = pfs_odc_mgr.ht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry(bhh, n, &rh->h, hlist) {
+        if (bhh->uuid == uuid) {
+            atomic_inc(&bhh->ref);
+            found = 1;
+            break;
+        }
+    }
+    xlock_unlock(&rh->lock);
+
+    if (found)
+        return bhh;
+    else
+        return NULL;
+}
+
 static struct bhhead* __get_bhhead(struct hstat *hs)
 {
-    struct bhhead *bhh;
+    struct bhhead *bhh, *tmp_bhh;
 
-    bhh = xzalloc(sizeof(struct bhhead));
+    bhh = __odc_lookup(hs->uuid);
     if (!bhh) {
-        return NULL;
+        /* create it now */
+        bhh = xzalloc(sizeof(struct bhhead));
+        if (!bhh) {
+            return NULL;
+        }
+        INIT_LIST_HEAD(&bhh->bh);
+        xrwlock_init(&bhh->clock);
+        bhh->hs = *hs;
+        bhh->uuid = hs->uuid;
+        bhh->asize = hs->mc.c.len;
+        atomic_set(&bhh->ref, 1);
+
+        /* try to insert into the table */
+        tmp_bhh = __odc_insert(bhh);
+        if (tmp_bhh != bhh) {
+            /* someone ahead me, free myself */
+            xfree(bhh);
+            bhh = tmp_bhh;
+        }
     }
-    INIT_LIST_HEAD(&bhh->bh);
-    xrwlock_init(&bhh->clock);
-    bhh->hs = *hs;
 
     return bhh;
 }
@@ -129,45 +277,14 @@ static void __put_bhhead(struct bhhead *bhh)
 {
     struct bh *bh, *n;
 
-    list_for_each_entry_safe(bh, n, &bhh->bh, list) {
-        list_del(&bh->list);
-        __put_bh(bh);
-    }
-    
-    xfree(bhh);
-}
-
-static int __bh_read(struct bhhead *bhh, void *buf, off_t offset, 
-                     size_t size)
-{
-    struct bh *bh;
-    off_t loff = 0;
-    size_t _size;
-    
-    if (offset + size > bhh->size || list_empty(&bhh->bh)) {
-        return -EFBIG;
-    }
-    
-    xrwlock_rlock(&bhh->clock);
-    list_for_each_entry(bh, &bhh->bh, list) {
-        if (offset >= bh->offset && offset < bh->offset + g_pagesize) {
-            _size = min(size, bh->offset + g_pagesize - offset);
-            memcpy(buf + loff, bh->data + offset - bh->offset,
-                   _size);
-            /* adjust the offset and size */
-            size -= _size;
-            loff += _size;
-            offset = bh->offset + g_pagesize;
-            if (size <= 0)
-                break;
+    if (__odc_remove(bhh)) {
+        list_for_each_entry_safe(bh, n, &bhh->bh, list) {
+            list_del(&bh->list);
+            __put_bh(bh);
         }
-    }
-    xrwlock_runlock(&bhh->clock);
 
-    if (size)
-        size = -EFAULT;
-    
-    return size;
+        xfree(bhh);
+    }
 }
 
 /* __bh_fill() will fill the buffer cache w/ buf. if there are holes, it will
@@ -197,8 +314,9 @@ static int __bh_fill(struct hstat *hs, int column, struct column *c,
                 /* just copy the buffer, prepare true page */
                 __prepare_bh(bh, 1);
                 _size = min(size, bh->offset + g_pagesize - offset);
-                memcpy(bh->data + offset - bh->offset,
-                       buf + loff, _size);
+                if (buf)
+                    memcpy(bh->data + offset - bh->offset,
+                           buf + loff, _size);
                 size -= _size;
                 loff += _size;
                 offset = bh->offset + g_pagesize;
@@ -223,8 +341,9 @@ static int __bh_fill(struct hstat *hs, int column, struct column *c,
                 if (size && offset < bh->offset + g_pagesize) {
                     __prepare_bh(bh, 1);
                     _size = min(size, bh->offset + g_pagesize - offset);
-                    memcpy(bh->data + offset - bh->offset,
-                           buf + loff, _size);
+                    if (buf)
+                        memcpy(bh->data + offset - bh->offset,
+                               buf + loff, _size);
                     size -= _size;
                     loff += _size;
                     offset = bh->offset + g_pagesize;
@@ -239,8 +358,9 @@ static int __bh_fill(struct hstat *hs, int column, struct column *c,
             if (offset >= bh->offset && offset < bh->offset + g_pagesize) {
                 __prepare_bh(bh, 1);
                 _size = min(size, bh->offset + g_pagesize - offset);
-                memcpy(bh->data + offset - bh->offset,
-                       buf + loff, _size);
+                if (buf)
+                    memcpy(bh->data + offset - bh->offset,
+                           buf + loff, _size);
                 size -= _size;
                 loff += _size;
                 offset = bh->offset + g_pagesize;
@@ -256,26 +376,41 @@ static int __bh_fill(struct hstat *hs, int column, struct column *c,
                     err = -ENOMEM;
                     goto out;
                 }
-                /* read in the page now */
-                err = __hvfs_fread(hs, 0, &bh->data, &hs->mc.c,
-                                   bhh->size, g_pagesize);
-                if (err < 0) {
-                    hvfs_err(xnet, "bh_fill() read the file range [%ld, %ld] "
-                             "failed w/ %d",
-                             bhh->size, bhh->size + g_pagesize, err);
-                    goto out;
-                }
-                /* should we fill with buf? */
-                if (size && offset < bh->offset + g_pagesize) {
+                if (offset == bhh->size && size >= g_pagesize) {
+                    /* just copy the buffer */
                     _size = min(size, bh->offset + g_pagesize - offset);
-                    memcpy(bh->data + offset - bh->offset,
-                           buf + loff, _size);
+                    if (buf)
+                        memcpy(bh->data + offset - bh->offset,
+                               buf + loff, _size);
                     size -= _size;
                     loff += _size;
                     offset = bh->offset + g_pagesize;
+                } else {
+                    /* read in the page now */
+                    err = __hvfs_fread(hs, 0, &bh->data, &hs->mc.c,
+                                       bhh->size, g_pagesize);
+                    if (err == -EFBIG) {
+                        /* it is ok, we just zero the page */
+                        err = 0;
+                    } else if (err < 0) {
+                        hvfs_err(xnet, "bh_fill() read the file range [%ld, %ld] "
+                                 "failed w/ %d",
+                                 bhh->size, bhh->size + g_pagesize, err);
+                        goto out;
+                    }
+                    /* should we fill with buf? */
+                    if (size && offset < bh->offset + g_pagesize) {
+                        _size = min(size, bh->offset + g_pagesize - offset);
+                        if (buf)
+                            memcpy(bh->data + offset - bh->offset,
+                                   buf + loff, _size);
+                        size -= _size;
+                        loff += _size;
+                        offset = bh->offset + g_pagesize;
+                    }
+                    list_add_tail(&bh->list, &bhh->bh);
+                    bhh->size += g_pagesize;
                 }
-                list_add_tail(&bh->list, &bhh->bh);
-                bhh->size += g_pagesize;
             }
         }
     }
@@ -286,8 +421,49 @@ out:
     return err;
 }
 
+/* Return the cached bytes we can read or minus errno
+ */
+static int __bh_read(struct bhhead *bhh, void *buf, off_t offset, 
+                     size_t size)
+{
+    struct bh *bh;
+    off_t loff = 0, saved_offset = offset;
+    size_t _size, saved_size = size;
+    
+    if (offset + size > bhh->size || list_empty(&bhh->bh)) {
+        return -EFBIG;
+    }
+    
+    xrwlock_rlock(&bhh->clock);
+    list_for_each_entry(bh, &bhh->bh, list) {
+        if (offset >= bh->offset && offset < bh->offset + g_pagesize) {
+            _size = min(size, bh->offset + g_pagesize - offset);
+            memcpy(buf + loff, bh->data + offset - bh->offset,
+                   _size);
+            /* adjust the offset and size */
+            size -= _size;
+            loff += _size;
+            offset = bh->offset + g_pagesize;
+            if (size <= 0)
+                break;
+        }
+    }
+    xrwlock_runlock(&bhh->clock);
+
+    size = saved_size - size;
+    /* adjust the return size to valid file range */
+    if (saved_offset + size > bhh->asize) {
+        size = bhh->asize - saved_offset;
+        if ((ssize_t)size < 0)
+            size = 0;
+    }
+    
+    return size;
+}
+
 static int __bh_sync(struct bhhead *bhh)
 {
+    struct hstat hs;
     struct bh *bh;
     struct iovec *iov;
     off_t offset = 0;
@@ -306,6 +482,8 @@ static int __bh_sync(struct bhhead *bhh)
             goto out;
         }
     }
+
+    hs = bhh->hs;
 
     size = bhh->asize;
     i = 0;
@@ -359,32 +537,32 @@ static int __bh_sync(struct bhhead *bhh)
     {
         struct dhe *e;
 
-        e = mds_dh_search(&hmo.dh, bhh->hs.puuid);
+        e = mds_dh_search(&hmo.dh, hs.puuid);
         if (IS_ERR(e)) {
             hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
             err = PTR_ERR(e);
             goto out_free;
         }
-        hash = bhh->hs.hash;
-        bhh->hs.hash = mds_get_itbid(e, bhh->hs.hash);
+        hash = hs.hash;
+        hs.hash = mds_get_itbid(e, hs.hash);
         mds_dh_put(e);
     }
 
     /* write out the data now */
     if (data) {
-        err = __hvfs_fwrite(&bhh->hs, 0 /* ZERO */, 0, data, bhh->asize, 
-                             &bhh->hs.mc.c);
+        err = __hvfs_fwrite(&hs, 0 /* ZERO */, 0, data, bhh->asize, 
+                             &hs.mc.c);
         if (err) {
             hvfs_err(xnet, "do internal fwrite on ino'%lx' failed w/ %d\n",
-                     bhh->hs.uuid, err);
+                     hs.uuid, err);
             goto out_free;
         }
     } else {
-        err = __hvfs_fwritev(&bhh->hs, 0 /* ZERO */, 0, iov, i, 
-                             &bhh->hs.mc.c);
+        err = __hvfs_fwritev(&hs, 0 /* ZERO */, 0, iov, i, 
+                             &hs.mc.c);
         if (err) {
             hvfs_err(xnet, "do internal fwrite on ino'%lx' failed w/ %d\n",
-                     bhh->hs.uuid, err);
+                     hs.uuid, err);
             goto out_free;
         }
     }
@@ -393,7 +571,6 @@ static int __bh_sync(struct bhhead *bhh)
     {
         struct mdu_update *mu;
         struct mu_column *mc;
-        u32 redo_flag = 0;
 
         mu = xzalloc(sizeof(*mu) + sizeof(struct mu_column));
         if (!mu) {
@@ -410,24 +587,19 @@ static int __bh_sync(struct bhhead *bhh)
         mu->size = bhh->asize;
         mu->column_no = 1;
         mc->cno = 0;            /* zero column */
-        mc->c = bhh->hs.mc.c;
+        mc->c = hs.mc.c;
+        hs.hash = hash;
 
-    retry:
-        bhh->hs.hash = hash;
-        err = __hvfs_update(bhh->hs.puuid, bhh->hs.psalt, &bhh->hs, mu);
+        err = __hvfs_update(hs.puuid, hs.psalt, &hs, mu);
         if (err) {
-            hvfs_err(xnet, "do internal update on ino'%lx' failed w/ %d\n",
-                     bhh->hs.uuid, err);
+            hvfs_err(xnet, "do internal update on ino<%lx,%lx> failed w/ %d\n",
+                     bhh->hs.uuid, bhh->hs.hash, err);
             xfree(mu);
             goto out_free;
         }
-        if (redo_flag) {
-            mu->valid = MU_FLAG_CLR;
-            mu->flags = redo_flag;
-            redo_flag = 0;
-            goto retry;
-        }
         xfree(mu);
+        /* finally, update bhh->hs */
+        bhh->hs = hs;
     }
 
     err = size;
@@ -742,7 +914,10 @@ int hvfs_config_check(const char *pathname, struct stat *stbuf)
 static inline
 int hvfs_config_open(const char *pathname, struct fuse_file_info *fi)
 {
-    struct hstat hs = {0,};
+    struct hstat hs = {
+        .uuid = PFS_FUSE_CONFIG_UUID, /* special uuid */
+        .mc.c.len = 0,
+    };
     struct bhhead *bhh;
     struct pfs_config_mgr *pcm = NULL;
     
@@ -940,6 +1115,22 @@ hit:
             }
         }
     }
+    /* update hs w/ local ODC cached hstat */
+    {
+        struct bhhead *bhh = __odc_lookup(hs.uuid);
+
+        if (unlikely(bhh)) {
+            if (hs.mdu.mtime > bhh->hs.mdu.mtime) {
+                bhh->hs.mdu = hs.mdu;
+                bhh->hs.mc = hs.mc;
+            } else {
+                hs.mdu = bhh->hs.mdu;
+                hs.mc = bhh->hs.mc;
+                hs.mdu.size = bhh->asize;
+            }
+            __put_bhhead(bhh);
+        }
+    }
 
     /* pack the result to stat buffer */
     stbuf->st_ino = hs.uuid;
@@ -948,7 +1139,8 @@ hit:
     stbuf->st_nlink = hs.mdu.nlink;
     stbuf->st_uid = hs.mdu.uid;
     stbuf->st_gid = hs.mdu.gid;
-    stbuf->st_ctime = max(hs.mdu.ctime, hs.mdu.mtime);
+    stbuf->st_ctime = max((time_t)hs.mdu.ctime, 
+                          (time_t)hs.mdu.mtime);
     stbuf->st_atime = (time_t)hs.mdu.atime;
     stbuf->st_mtime = (time_t)hs.mdu.mtime;
     if (unlikely(S_ISDIR(hs.mdu.mode))) {
@@ -1366,7 +1558,7 @@ static int hvfs_rmdir(const char *pathname)
     u64 saved_puuid = hmi.root_uuid, saved_psalt = hmi.root_salt;
     u64 saved_hash = 0;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
-    int err = 0, is_dir = 1;
+    int err = 0;
 
     if (!pathname)
         return -EINVAL;
@@ -1412,14 +1604,19 @@ static int hvfs_rmdir(const char *pathname)
     /* finally, do delete now */
     if (!name || strlen(name) == 0 || strcmp(name, "/") == 0) {
         /* what we want to delete is a directory, double check it */
-        if (!S_ISDIR(hs.mdu.mode) || !is_dir) {
+        if (!S_ISDIR(hs.mdu.mode)) {
             hvfs_err(xnet, "It is a dir you want to delete, isn't it?\n");
-            err = -EINVAL;
+            err = -ENOTDIR;
             goto out;
         }
         /* FIXME: check if it is a empty directory? Yup, but how? */
-        hs.name = NULL;
+        if (!__hvfs_is_empty_dir(puuid, psalt, NULL)) {
+            err = -ENOTEMPTY;
+            goto out;
+        }
+        
         /* Step 1: delete the SDT entry by UUID */
+        hs.name = NULL;
         hs.uuid = puuid;
         hs.hash = saved_hash;
         err = __hvfs_unlink(saved_puuid, saved_psalt, &hs);
@@ -1439,6 +1636,9 @@ static int hvfs_rmdir(const char *pathname)
         }
     } else {
         /* confirm what it is firstly! */
+        struct hstat tmp_hs;
+        u64 duuid, dsalt;
+        
         hs.name = name;
         hs.uuid = 0;
         err = __hvfs_stat(puuid, psalt, -1, &hs);
@@ -1448,14 +1648,29 @@ static int hvfs_rmdir(const char *pathname)
                      name, err);
             goto out;
         }
-        if ((S_ISDIR(hs.mdu.mode) && !is_dir) ||
-            (!S_ISDIR(hs.mdu.mode) && is_dir)) {
-            hvfs_err(xnet, "is directory or file but not "
-                     "matched with your argument\n");
-            err = -EINVAL;
+        if (!S_ISDIR(hs.mdu.mode)) {
+            hvfs_err(xnet, "not a directory, we expect dir here\n");
+            err = -ENOTDIR;
             goto out;
         }
+        duuid = hs.uuid;
+
+        tmp_hs = hs;
+        tmp_hs.hash = 0;
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, &tmp_hs);
+        if (err) {
+            hvfs_err(xnet, "do last dir stat (SDT) on '%s' "
+                     "failed w/ %d\n", name, err);
+            goto out;
+        }
+        dsalt = tmp_hs.ssalt;
         
+        /* is this directory empty? */
+        if (!__hvfs_is_empty_dir(duuid, dsalt, NULL)) {
+            err = -ENOTEMPTY;
+            goto out;
+        }
+
         /* delete a normal file or dir, it is easy */
         hs.name = name;
         hs.uuid = 0;
@@ -1466,16 +1681,15 @@ static int hvfs_rmdir(const char *pathname)
                      name, err);
             goto out;
         }
-        if (is_dir) {
-            /* ok, delete the GDT entry */
-            hs.hash = 0;
-            err = __hvfs_unlink(hmi.gdt_uuid, hmi.gdt_salt, &hs);
-            if (err) {
-                hvfs_err(xnet, "do internal delete (GDT) on '%s' "
-                         "failed w/ %d\n",
-                         name, err);
-                goto out;
-            }
+
+        /* ok, delete the GDT entry */
+        hs.hash = 0;
+        err = __hvfs_unlink(hmi.gdt_uuid, hmi.gdt_salt, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal delete (GDT) on '%s' "
+                     "failed w/ %d\n",
+                     name, err);
+            goto out;
         }
     }
 
@@ -1629,9 +1843,428 @@ out:
     return err;
 }
 
+/* Rational for (atomic) rename:
+ *
+ * Basically, we stat and copy the file info to the target location; and
+ * finally, unlink the original entry.
+ */
 static int hvfs_rename(const char *from, const char *to)
 {
-    return -ENOSYS;
+    struct link_source ls;
+    struct hstat hs, saved_hs, deleted_hs = {.uuid = 0, .mdu.mode = 0,};
+    char *dup = strdup(from), *dup2 = strdup(from), 
+        *path, *name, *spath, *sname;
+    char *p = NULL, *n, *s = NULL;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0, create_link = 0;
+
+    /* Step 1: get the stat info of 'from' file */
+    path = dirname(dup);
+    name = basename(dup2);
+    sname = strdup(name);
+    n = path;
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    if (err > 0) {
+        goto hit;
+    }
+
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hvfs_debug(xnet, "token: %s\n", p);
+        /* ok, we should do stat on this directory based on the puuid, psalt
+         * we got */
+        /* Step 1: find in the SDT, zero uuid means using name to lookup */
+        hs.name = p;
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err) {
+        xfree(spath);
+        goto out;
+    }
+
+    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    xfree(spath);
+hit:
+    if (name && strlen(name) > 0 && strcmp(name, "/") != 0) {
+        /* eh, we have to lookup this file now. Otherwise, what we want to
+         * lookup is the last directory, just return a result string now */
+        hs.name = name;
+        hs.uuid = 0;
+        err = __hvfs_stat_ext(puuid, psalt, 0, INDEX_SUPERFICIAL |
+                              INDEX_ITE_ACTIVE, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal stat on '%s' failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
+    } else {
+        /* rename a directory, it is ok */
+        if (!S_ISDIR(hs.mdu.mode) ||
+            hs.puuid == hmi.root_uuid) {
+            hvfs_err(xnet, "directory or not-directory, it is a question!\n");
+            err = -EPERM;
+            goto out;
+        }
+    }
+
+    /* if the source file has been opened, we should use the latest hstat info
+     * cached in it */
+    {
+        struct bhhead *bhh = __odc_lookup(hs.uuid);
+        
+        if (bhh) {
+            hs = bhh->hs;
+            hs.name = name;
+            __put_bhhead(bhh);
+        }
+    }
+
+    if (hs.mdu.flags & HVFS_MDU_IF_LINKT) {
+        /* this is a link target, just copy it to the new location */
+        ls = *(struct link_source *)&hs.mdu;
+        create_link = 1;
+        saved_hs = hs;
+    } else {
+        /* for other types (file or dir), we increase the nlink and unlink
+         * them */
+        struct mu_column saved_mc;
+        
+        hs.name = name;
+        hs.uuid = 0;
+        saved_mc = hs.mc;
+        err = __hvfs_linkadd(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal file linkadd (SDT) on '%s' "
+                     "failed w/ %d\n", name, err);
+            goto out;
+        }
+        saved_hs = hs;
+
+        /* for dir, the puuid and psalt is not always correct */
+        saved_hs.puuid = puuid;
+        saved_hs.psalt = psalt;
+        saved_hs.mdu.nlink -= 1;
+        saved_hs.mc = saved_mc;
+
+        if (!S_ISDIR(saved_hs.mdu.mode) && saved_hs.mdu.nlink > 1) {
+            /* we are a link source, somebody refer to me, we should pretend
+             * to be a link target? */
+            create_link = 1;
+            ls.flags = 0;
+            ls.uid = hs.mdu.uid;
+            ls.gid = hs.mdu.gid;
+            ls.mode = hs.mdu.mode;
+            ls.nlink = hs.mdu.nlink;
+            ls.s_puuid = hs.puuid;
+            ls.s_psalt = hs.psalt;
+            ls.s_uuid = hs.uuid;
+            ls.s_hash = hs.hash;
+        }
+    }
+
+    /* cleanup */
+    xfree(dup);
+    xfree(dup2);
+
+    /* do new create now */
+    dup = strdup(to);
+    dup2 = strdup(to);
+    puuid = hmi.root_uuid;
+    psalt = hmi.root_salt;
+
+    path = dirname(dup);
+    name = basename(dup2);
+    n = path;
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    if (err > 0) {
+        goto hit2;
+    }
+
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hs.name = p;
+        hs.uuid = 0;
+        /* Step 1: find in the SDT */
+        err = __hvfs_stat(puuid, psalt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err) {
+        xfree(spath);
+        goto out_rollback;
+    }
+
+    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    xfree(spath);
+hit2:
+    if (name && strlen(name) > 0 && strcmp(name, "/") != 0) {
+        /* final stat on target */
+        hs.name = name;
+        hs.uuid = 0;
+        err = __hvfs_stat_ext(puuid, psalt, 0, INDEX_SUPERFICIAL |
+                              INDEX_ITE_ACTIVE, &hs);
+        if (err == -ENOENT) {
+            /* it is ok to continue */
+        } else if (err) {
+            hvfs_err(xnet, "do internal stat on '%s' failed w/ %d\n",
+                     name, err);
+            goto out_rollback;
+        } else {
+            /* target file or directory do exist */
+            if (S_ISDIR(hs.mdu.mode)) {
+                struct hstat tmp_hs;
+                u64 duuid, dsalt;
+                
+                if (!S_ISDIR(saved_hs.mdu.mode)) {
+                    err = -EISDIR;
+                    goto out_rollback;
+                }
+                /* stat GDT to get the salt value */
+                duuid = hs.uuid;
+                tmp_hs = hs;
+                err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, &tmp_hs);
+                if (err) {
+                    hvfs_err(xnet, "do last dir stat (GDT) on '%s'"
+                             " failed w/ %d\n",
+                             name, err);
+                    goto out_rollback;
+                }
+                dsalt = tmp_hs.ssalt;
+                
+                /* check if it is empty */
+                if (__hvfs_is_empty_dir(duuid, dsalt, &hs)) {
+                    /* FIXME: delete the directory now, only SDT entry. SAVED
+                     * it to deleted_hs */
+                    deleted_hs = hs;
+                    err = __hvfs_unlink(puuid, psalt, &hs);
+                    if (err) {
+                        hvfs_err(xnet, "do internal unlink (SDT) "
+                                 "on uuid<%lx,%lx> failed w/ %d\n",
+                                 hs.uuid, hs.hash, err);
+                        goto out_rollback;
+                    }
+                } else {
+                    err = -ENOTEMPTY;
+                    goto out_rollback;
+                }
+            } else {
+                if (S_ISDIR(saved_hs.mdu.mode)) {
+                    err = -ENOTDIR;
+                    goto out_rollback;
+                }
+                /* FIXME: delete the file now */
+                deleted_hs = hs;
+                err = __hvfs_unlink(puuid, psalt, &hs);
+                if (err) {
+                    hvfs_err(xnet, "do internal unlink (SDT) on "
+                             "uuid<%lx,%lx> failed w/ %d\n",
+                             hs.uuid, hs.hash, err);
+                    goto out_rollback;
+                }
+            }
+        }
+    } else {
+        /* this means the target is a directory and do exist */
+        if (S_ISDIR(hs.mdu.mode)) {
+            /* check if it is empty */
+            if (__hvfs_is_empty_dir(puuid, psalt, &hs)) {
+                /* FIXME: delete the directory now, only SDT entry. SAVED it
+                 * to deleted_hs */
+                deleted_hs = hs;
+                err = __hvfs_unlink(puuid, psalt, &hs);
+                if (err) {
+                    hvfs_err(xnet, "do internal unlink (SDT) on "
+                             "uuid<%lx,%lx> failed w/ %d\n",
+                             hs.uuid, hs.hash, err);
+                    goto out_rollback;
+                }
+            } else {
+                err = -ENOTEMPTY;
+                goto out_rollback;
+            }
+        } else {
+            hvfs_err(xnet, "directory or not-directory, it is a question\n");
+            goto out_rollback;
+        }
+    }
+    
+    hs.name = name;
+    hs.uuid = 0;
+    if (create_link) {
+        err = __hvfs_create(puuid, psalt, &hs, INDEX_CREATE_LINK,
+                            (struct mdu_update *)&ls);
+        if (err) {
+            hvfs_err(xnet, "do internal create link (SDT) on '%s' "
+                     "failed w/ %d\n", name, err);
+            goto out_rollback2;
+        }
+    } else {
+        hs.uuid = saved_hs.uuid;
+        err = __hvfs_create(puuid, psalt, &hs, INDEX_CREATE_COPY,
+                            (struct mdu_update *)&saved_hs.mdu);
+        if (err) {
+            hvfs_err(xnet, "do internal create link (SDT) on '%s' "
+                     "failed w/ %d\n", name, err);
+            goto out_rollback2;
+        }
+
+        /* update the column info */
+        if (!S_ISDIR(saved_hs.mdu.mode)) {
+            struct mdu_update mu = {
+                .valid = MU_COLUMN,
+                .column_no = 1,
+            };
+            hs.mc = saved_hs.mc;
+            
+            err = __hvfs_update(puuid, psalt, &hs, &mu);
+            if (err) {
+                hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
+                         name, err);
+                goto out_rollback3;
+            }
+        }
+        /* if the target file has been opened, we should update the ODC
+         * cached info */
+        {
+            struct bhhead *bhh = __odc_lookup(hs.uuid);
+            
+            if (bhh) {
+                bhh->hs.puuid = puuid;
+                bhh->hs.psalt = psalt;
+                /* new name means a new hash value */
+                bhh->hs.hash = hs.hash;
+                __put_bhhead(bhh);
+            }
+        }
+
+        /* revert the linkadd operation for the source file */
+        {
+            u64 saved_psalt = saved_hs.psalt;
+            
+            err = __hvfs_linkadd(saved_hs.puuid, saved_hs.psalt, -1, &saved_hs);
+            if (err) {
+                hvfs_err(xnet, "do internal linkadd -1 on uuid<%lx,%lx> "
+                         "failed w/ %d\n",
+                         saved_hs.uuid, saved_hs.hash, err);
+                /* should we ignore this error? */
+                goto out_rollback3;
+            }
+            saved_hs.psalt = saved_psalt;
+        }
+    }
+    /* unlink the old file or directory now */
+    err = __hvfs_unlink_ext(saved_hs.puuid, saved_hs.psalt, INDEX_SUPERFICIAL |
+                            INDEX_ITE_ACTIVE, 
+                            &saved_hs);
+    if (err) {
+        hvfs_err(xnet, "do internal unlink (SDT) on uuid<%lx,%lx> "
+                 "failed w/ %d\n",
+                 saved_hs.uuid, saved_hs.hash, err);
+        goto out_rollback4;
+    }
+
+    /* FIXME: remove the deleted_hs's GDT entry */
+    if (S_ISDIR(deleted_hs.mdu.mode)) {
+        /* for GDT operations, set hash to ZERO */
+        deleted_hs.hash = 0;
+        err = __hvfs_unlink(deleted_hs.puuid, deleted_hs.psalt,
+                            &deleted_hs);
+        if (err) {
+            hvfs_err(xnet, "do internal unlink (GDT) on uuid<%lx,%lx> "
+                     "failed w/ %d\n",
+                     deleted_hs.uuid, deleted_hs.hash, err);
+            /* ignore this error */
+        }
+    }
+
+    hvfs_err(xnet, "rename from %s(%lx,%lx) to %s(%lx,%lx)\n",
+             from, saved_hs.uuid, saved_hs.hash, to, hs.uuid, hs.hash);
+out:
+    xfree(sname);
+    xfree(dup);
+    xfree(dup2);
+
+    return err;
+out_rollback4:
+    /* reverse the linkadd -1 */
+    create_link = 1;
+out_rollback3:
+    /* remove the new created entry */
+    hs.name = name;
+    hs.uuid = 0;
+    err = __hvfs_unlink(puuid, psalt, &hs);
+    if (err) {
+        hvfs_err(xnet, "do internal unlink on '%s' failed w/ %d\n",
+                 name, err);
+    }
+out_rollback2:
+    /* re-create the deleted_hs SDT entry */
+    if (S_ISDIR(deleted_hs.mdu.mode)) {
+        deleted_hs.name = name;
+        err = __hvfs_create(deleted_hs.puuid, deleted_hs.psalt, &deleted_hs,
+                            INDEX_CREATE_COPY,
+                            (struct mdu_update *)&deleted_hs.mdu);
+        if (err) {
+            hvfs_err(xnet, "do internal re-create on '%s' failed w/ %d\n",
+                     name, err);
+        }
+    }
+out_rollback:
+    /* reverse-linkadd for saved_hs */
+    if (!create_link) {
+        err = __hvfs_linkadd(saved_hs.puuid, saved_hs.psalt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal file linkadd (SDT) on uuid<%lx,%lx> "
+                     "failed w/ %d\n",
+                     saved_hs.uuid, saved_hs.hash, err);
+        }
+    }
+    goto out;
 }
 
 static int hvfs_link(const char *from, const char *to)
@@ -2173,6 +2806,108 @@ out:
     return err;
 }
 
+static int hvfs_ftruncate(const char *pathname, off_t size, 
+                          struct fuse_file_info *fi)
+{
+    struct hstat hs;
+    struct mdu_update mu = {.valid = 0,};
+    struct bhhead *bhh = (struct bhhead *)fi->fh;
+    u64 saved_hash = 0;
+    int err = 0;
+
+    if (unlikely(!bhh))
+        return -EBADF;
+
+    if (unlikely(bhh->flag & BH_CONFIG)) {
+        return -EINVAL;
+    }
+
+    hs = bhh->hs;
+
+    /* check the file length now */
+    if (size > hs.mdu.size) {
+        void *data;
+
+        data = xmalloc(size);
+        if (!data) {
+            hvfs_err(xnet, "Expanding the file content w/ xmalloc failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+
+        err = __hvfs_fread(&hs, 0 /* column is ZERO */, &data, &hs.mc.c,
+                           0, hs.mdu.size);
+        if (err < 0) {
+            hvfs_err(xnet, "do internal fread on uuid<%lx,%lx> failed w/ %d\n",
+                     hs.uuid, hs.hash, err);
+            goto local_out;
+        }
+        memset(data + hs.mdu.size, 0, size - hs.mdu.size);
+
+        /* calculate the new itbid */
+        {
+            struct dhe *e;
+            
+            e = mds_dh_search(&hmo.dh, hs.puuid);
+            if (IS_ERR(e)) {
+                hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
+                err = PTR_ERR(e);
+                goto local_out;
+            }
+            saved_hash = hs.hash;
+            hs.hash = mds_get_itbid(e, hs.hash);
+            mds_dh_put(e);
+        }
+
+        err = __hvfs_fwrite(&hs, 0 /* column is ZERO */, 0, data, size, 
+                            &hs.mc.c);
+        if (err) {
+            hvfs_err(xnet, "do internal fwrite on uuid<%lx,%lx> failed w/ %d\n",
+                     hs.uuid, hs.hash, err);
+            goto local_out;
+        }
+        mu.valid = MU_COLUMN;
+        mu.column_no = 1;
+    local_out:
+        xfree(data);
+        if (err < 0)
+            goto out;
+    } else if (size == hs.mdu.size) {
+        goto out;
+    }
+    /* finally update the metadata */
+    mu.valid |= MU_SIZE | MU_COLUMN;
+    mu.size = size;
+    mu.column_no = 1;
+    hs.mc.c.len = size;
+    hs.hash = saved_hash;
+    /* use INDEX_BY_UUID to got the entry */
+    err = __hvfs_update(hs.puuid, hs.psalt, &hs, &mu);
+    if (err == -EACCES) {
+        hs.uuid = 0;
+        err = __hvfs_stat(hs.puuid, hs.psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal stat on uuid<%lx,%lx> failed w/ %d\n",
+                     hs.uuid, hs.hash, err);
+            goto out;
+        }
+        err = __hvfs_update(hs.puuid, hs.psalt, &hs, &mu);
+        if (err) {
+            hvfs_err(xnet, "do internal update on uuid<%lx,%lx> "
+                     "failed w/ %d\n",
+                     hs.uuid, hs.hash, err);
+            goto out;
+        }
+    } else if (err) {
+        hvfs_err(xnet, "do internal update on uuid<%lx,%lx> failed w/ %d\n",
+                 hs.uuid, hs.hash, err);
+        goto out;
+    }
+out:
+
+    return err;
+}
+
 static int hvfs_utime(const char *pathname, struct utimbuf *buf)
 {
     struct hstat hs = {0,};
@@ -2350,13 +3085,8 @@ hit:
             goto out;
         }
         if (S_ISDIR(hs.mdu.mode)) {
-            hs.hash = 0;
-            err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 1, &hs);
-            if (err) {
-                hvfs_err(xnet, "do last dir stat (GDT) on '%s' failed w/ %d\n",
-                         name, err);
-                goto out;
-            }
+            err = -EISDIR;
+            goto out;
         }
     } else {
         /* check if it the root directory */
@@ -2371,7 +3101,7 @@ hit:
     }
 
     fi->fh = (u64)__get_bhhead(&hs);
-    
+
 out:
     xfree(dup);
     xfree(dup2);
@@ -2404,8 +3134,8 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
                            &hs.mc.c, offset, size);
         if (err < 0) {
             if (err == -EFBIG) {
-                /* translate EFBIG to EINVAL */
-                err = -EINVAL;
+                /* translate EFBIG to OK */
+                err = 0;
             } else {
                 hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
                          pathname, err);
@@ -2421,12 +3151,10 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
         }
         /* restore the bytes */
         err = bytes;
-    } else if (err) {
+    } else if (err < 0) {
         hvfs_err(xnet, "buffer cache read '%s' failed w/ %d\n", 
                  pathname, err);
         goto out;
-    } else {
-        err = size;
     }
     /* return the # of bytes we read */
     
@@ -2576,7 +3304,8 @@ static int hvfs_cached_write(const char *pathname, const char *buf,
 
     hs = bhh->hs;
     __set_bhh_dirty(bhh);
-    bhh->asize = offset + size;
+    if (offset + size > bhh->asize)
+        bhh->asize = offset + size;
 
     err = __bh_fill(&hs, 0, &hs.mc.c, bhh, (void *)buf, offset, size);
     if (err < 0) {
@@ -3009,11 +3738,16 @@ static int hvfs_release_dir(const char *pathname, struct fuse_file_info *fi)
 
 static void *hvfs_init(struct fuse_conn_info *conn)
 {
+    int err = 0;
+    
     g_pagesize = getpagesize();
 realloc:
-    zero_page = xzalloc(g_pagesize);
-    if (!zero_page) {
+    err = posix_memalign(&zero_page, g_pagesize, g_pagesize);
+    if (err || !zero_page) {
         goto realloc;
+    }
+    if (mprotect(zero_page, g_pagesize, PROT_READ) < 0) {
+        hvfs_err(xnet, "mprotect ZERO page failed w/ %d\n", errno);
     }
 
     /* disable dynamic magic config */
@@ -3027,6 +3761,11 @@ realloc:
         hvfs_err(xnet, "LRU Translate Cache init failed. Cache DISABLED!\n");
     }
 
+    if (__odc_init(0)) {
+        hvfs_err(xnet, "OpeneD Cache(ODC) init failed. FATAL ERROR!\n");
+        HVFS_BUGON("ODC init failed!");
+    }
+
     return NULL;
 }
 
@@ -3036,7 +3775,7 @@ realloc:
 static int hvfs_create_plus(const char *pathname, mode_t mode, 
                             struct fuse_file_info *fi)
 {
-    struct hstat hs;
+    struct hstat hs = {.mc.c.len = 0,};
     struct mdu_update mu;
     char *dup = strdup(pathname), *dup2 = strdup(pathname), 
         *path, *name, *spath;
@@ -3121,6 +3860,7 @@ out:
 static void hvfs_destroy(void *arg)
 {
     __ltc_destroy();
+    __odc_destroy();
     
     hvfs_info(xnet, "Exit the PomegranateFS fuse client now.\n");
 }
@@ -3152,4 +3892,5 @@ struct fuse_operations pfs_ops = {
     .init = hvfs_init,
     .destroy = hvfs_destroy,
     .create = hvfs_create_plus,
+    .ftruncate = hvfs_ftruncate,
 };

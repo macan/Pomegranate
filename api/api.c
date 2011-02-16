@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-12 13:37:45 macan>
+ * Time-stamp: <2011-02-14 14:20:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3766,7 +3766,7 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
     struct hvfs_md_reply *hmr;
     struct mdu_update *mu;
     struct gdt_md gm;
-    u64 dsite;
+    u64 dsite, saved_uuid = 0;
     u32 vid, namelen = 0;;
     int err = 0;
 
@@ -3806,6 +3806,18 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
             return -EINVAL;
         }
         dpayload += sizeof(struct link_source);
+    } else if (flag & INDEX_CREATE_COPY) {
+        /* imu is actually a mdu struct, adjust the dpayload length */
+        saved_uuid = hs->uuid;
+        hs->uuid = 0;
+        namelen = strlen(hs->name);
+        dpayload += namelen;
+
+        if (!imu) {
+            hvfs_err(xnet, "do link w/o mdu?\n");
+            return -EINVAL;
+        }
+        dpayload += sizeof(struct mdu);
     } else {
         /* normal file create */
         if (imu) {
@@ -3883,6 +3895,22 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
             
             memcpy(mu, imu, sizeof(struct link_source));
             hi->dlen = sizeof(struct link_source);
+        }
+    } else if (flag & INDEX_CREATE_COPY) {
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen, 
+                             HASH_SEL_EH);
+        hi->puuid = puuid;
+        hi->psalt = psalt;
+        /* important line: set the uuid */
+        hi->uuid = saved_uuid;
+        hi->flag = INDEX_CREATE | INDEX_CREATE_COPY;
+        if (imu) {
+            /* ugly code, you can't learn anything correct from the typo :( */
+            mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
+                                       namelen);
+            
+            memcpy(mu, imu, sizeof(struct mdu));
+            hi->dlen = sizeof(struct mdu);
         }
     } else {
         hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen,
@@ -4261,7 +4289,8 @@ out_free:
     return err;
 }
 
-int __hvfs_unlink(u64 puuid, u64 psalt, struct hstat *hs)
+static inline
+int __hvfs_unlink_v2(u64 puuid, u64 psalt, u32 flag, struct hstat *hs)
 {
     struct xnet_msg *msg;
     size_t dpayload;
@@ -4383,20 +4412,31 @@ resend:
                 err = -EFAULT;
                 goto out;
             }
-            /* linkadd -1 */
-            hs->hash = ls->s_hash;
-            hs->uuid = ls->s_uuid;
-            err = __hvfs_linkadd(ls->s_puuid, ls->s_psalt, -1, hs);
-            if (err) {
-                hvfs_err(xnet, "internal linkadd active LS uuid<%lx,%lx> "
-                         "failed w/ %d\n",
-                         ls->s_uuid, ls->s_hash, err);
-                err = __hvfs_linkadd_ext(ls->s_puuid, ls->s_psalt, -1, 
-                                         INDEX_ITE_SHADOW, hs);
+            if (unlikely(flag & INDEX_SUPERFICIAL)) {
+                if (hs) {
+                    memset(hs, 0, sizeof(*hs));
+                    hs->puuid = rhi->puuid;
+                    hs->psalt = rhi->psalt;
+                    hs->uuid = rhi->uuid;
+                    hs->hash = rhi->hash;
+                    memcpy(&hs->mdu, ls, sizeof(*ls));
+                }
+            } else {
+                /* linkadd -1 */
+                hs->hash = ls->s_hash;
+                hs->uuid = ls->s_uuid;
+                err = __hvfs_linkadd(ls->s_puuid, ls->s_psalt, -1, hs);
                 if (err) {
-                    hvfs_err(xnet, "internal linkadd shadow LS uuid<%lx,%lx> "
+                    hvfs_err(xnet, "internal linkadd active LS uuid<%lx,%lx> "
                              "failed w/ %d\n",
                              ls->s_uuid, ls->s_hash, err);
+                    err = __hvfs_linkadd_ext(ls->s_puuid, ls->s_psalt, -1, 
+                                             INDEX_ITE_SHADOW, hs);
+                    if (err) {
+                        hvfs_err(xnet, "internal linkadd shadow LS "
+                                 "uuid<%lx,%lx> failed w/ %d\n",
+                                 ls->s_uuid, ls->s_hash, err);
+                    }
                 }
             }
         } else {
@@ -4427,6 +4467,16 @@ out:
 out_free:
     xfree(hi);
     return err;
+}
+
+int __hvfs_unlink(u64 puuid, u64 psalt, struct hstat *hs)
+{
+    return __hvfs_unlink_v2(puuid, psalt, INDEX_ITE_ACTIVE, hs);
+}
+
+int __hvfs_unlink_ext(u64 puuid, u64 psalt, u32 flag, struct hstat *hs)
+{
+    return __hvfs_unlink_v2(puuid, psalt, flag, hs);
 }
 
 static inline
@@ -4572,23 +4622,35 @@ resend:
                 err = -EFAULT;
                 goto out;
             }
-            hs->hash = ls->s_hash;
-            hs->uuid = ls->s_uuid;
-            err = __hvfs_stat(ls->s_puuid, ls->s_psalt, 0 /* column ZERO */, 
-                              hs);
-            if (err) {
-                hvfs_err(xnet, "internal stat LS active uuid<%lx,%lx> "
-                         "failed w/ %d\n",
-                         ls->s_uuid, ls->s_hash, err);
-                err = __hvfs_stat_ext(ls->s_puuid, ls->s_psalt, 
-                                      0 /* column ZERO */, INDEX_ITE_SHADOW, hs);
+            if (unlikely(flag & INDEX_SUPERFICIAL)) {
+                if (hs) {
+                    memset(hs, 0, sizeof(*hs));
+                    hs->puuid = rhi->puuid;
+                    hs->psalt = rhi->psalt;
+                    hs->uuid = rhi->uuid;
+                    hs->hash = rhi->hash;
+                    memcpy(&hs->mdu, ls, sizeof(*ls));
+                }
+            } else {
+                hs->hash = ls->s_hash;
+                hs->uuid = ls->s_uuid;
+                err = __hvfs_stat(ls->s_puuid, ls->s_psalt, 0 /* column ZERO */, 
+                                  hs);
                 if (err) {
-                    hvfs_err(xnet, "internal stat LS shadow uuid<%lx,%lx> "
+                    hvfs_err(xnet, "internal stat LS active uuid<%lx,%lx> "
                              "failed w/ %d\n",
                              ls->s_uuid, ls->s_hash, err);
+                    err = __hvfs_stat_ext(ls->s_puuid, ls->s_psalt, 
+                                          0 /* column ZERO */, 
+                                          INDEX_ITE_SHADOW, hs);
+                    if (err) {
+                        hvfs_err(xnet, "internal stat LS shadow uuid<%lx,%lx> "
+                                 "failed w/ %d\n",
+                                 ls->s_uuid, ls->s_hash, err);
+                    }
                 }
+                /* we have already set the input argument: hs! */
             }
-            /* we have already set the input argument: hs! */
             goto out;
         } else {
             m = hmr_extract(hmr, EXTRACT_MDU, &no);
@@ -5705,6 +5767,114 @@ int hvfs_readdir(char *path, char *name, void **data)
         goto out;
     }
 
+out:
+    return err;
+}
+
+/* Note that, hstat is NOT used!
+ */
+int __hvfs_is_empty_dir(u64 duuid, u64 salt, struct hstat *hs)
+{
+    struct xnet_msg *msg;
+    struct hvfs_index hi;
+    u64 dsite, itbid = 0;
+    u32 vid;
+    int err = 0, retry_nr;
+
+    /* Step 1: we should refresh the bitmap of the directory */
+    mds_bitmap_refresh_all(duuid);
+
+    /* Step 2: we send the INDEX_BY_ITB requests to each MDS in serial or
+     * parallel mode */
+    do {
+        err = mds_bitmap_find_next(duuid, &itbid);
+        if (err < 0) {
+            hvfs_err(xnet, "mds_bitmap_find_next() failed @ %ld w/ %d\n",
+                     itbid, err);
+            break;
+        } else if (err > 0) {
+            /* this means we can safely stop now */
+            break;
+        } else {
+            /* ok, we can issue the request to the dest site now */
+            hvfs_debug(xnet, "Issue request %ld to site ...\n",
+                       itbid);
+            /* Step 3: we print the results to the console */
+            memset(&hi, 0, sizeof(hi));
+            hi.puuid = duuid;
+            hi.psalt = salt;
+            hi.hash = -1UL;
+            hi.itbid = itbid;
+            hi.flag = INDEX_BY_ITB;
+
+            dsite = SELECT_SITE(itbid, hi.psalt, CH_RING_MDS, &vid);
+            msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+            if (!msg) {
+                hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+                err = -ENOMEM;
+                goto out;
+            }
+            xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                             hmo.xc->site_id, dsite);
+            xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_LIST, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+            xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+            xnet_msg_add_sdata(msg, &hi, sizeof(hi));
+
+            retry_nr = 0;
+        retry:
+            err = xnet_send(hmo.xc, msg);
+            if (err) {
+                hvfs_err(xnet, "xnet_send() failed\n");
+                xnet_free_msg(msg);
+                goto out;
+            }
+
+            ASSERT(msg->pair, xnet);
+            if (msg->pair->tx.err) {
+                /* Note that, if the itbid is less than 8, then we ignore the
+                 * ENOENT error */
+                if (itbid < 8 && msg->pair->tx.err == -ENOENT) {
+                    xnet_free_msg(msg);
+                    itbid++;
+                    continue;
+                }
+                if (msg->pair->tx.err == -EHWAIT) {
+                    if (retry_nr < 60) {
+                        retry_nr++;
+                        sleep(1);
+                        goto retry;
+                    }
+                }
+                hvfs_err(mds, "list dir %lx slice %ld failed w/ %d\n",
+                         duuid, itbid, msg->pair->tx.err);
+                err = msg->pair->tx.err;
+                xnet_free_msg(msg);
+                goto out;
+            }
+            if (msg->pair->xm_datacheck) {
+                if (msg->pair->tx.len - sizeof(struct hvfs_md_reply) == 0) {
+                    xnet_free_msg(msg);
+                    itbid++;
+                    continue;
+                } else {
+                    /* ok, unempty reply, unempty directory */
+                    err = 0;
+                    xnet_free_msg(msg);
+                    goto out;
+                }
+            } else {
+                hvfs_err(xnet, "Invalid LIST reply from site %lx.\n",
+                         msg->pair->tx.ssite_id);
+                /* ignore this error reply */
+            }
+            xnet_free_msg(msg);
+        }
+        itbid += 1;
+    } while (1);
+
+    err = 1;
 out:
     return err;
 }
