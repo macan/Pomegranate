@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-15 21:01:03 macan>
+ * Time-stamp: <2011-02-18 19:03:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,6 +30,19 @@
 #define MDSL_AIO_SYNC_SIZE_DEFAULT      (8 * 1024 * 1024)
 #define MDSL_AIO_MAX_QDEPTH             (8)
 #define MDSL_AIO_EXPECT_BW              (64 * 1024 * 1024)
+#define MDSL_AIO_SYNC_SIZE_MAX          (MDSL_AIO_EXPECT_BW)
+
+#define AIO_MGR_INCREASE(length) do {                                   \
+        if (length + (aio_mgr.bw_stride << 1) <=                        \
+            MDSL_AIO_SYNC_SIZE_MAX) {                                   \
+            length += (aio_mgr.bw_stride << 1);                         \
+        }                                                               \
+    } while (0)
+#define AIO_MGR_DECREASE(length) do {                \
+        if (length - aio_mgr.bw_stride >= 0) {       \
+            length -= aio_mgr.bw_stride;             \
+        }                                            \
+    } while (0)
 
 struct aio_mgr
 {
@@ -38,9 +51,9 @@ struct aio_mgr
     xlock_t bwlock;
     sem_t qsem;
     sem_t qdsem;                /* pause the submiting! */
-    u64 sync_len;
+    s64 sync_len;
     u64 expect_bw;
-    u64 observe_bw;
+    s64 observe_bw;
     u64 pending_writes;
 #define MDSL_AIO_BW_STRIDE              (2 * 1024 * 1024)
     u32 bw_stride;
@@ -81,7 +94,7 @@ void aio_tune_bw(void)
 {
     static u64 last_bytes = 0;
     static struct timeval last_ts = {0, 0};
-    static u64 last_bw = 0;
+    static s64 last_bw = 0;
     struct timeval cur_ts;
     u64 saved_bytes;
     int err = 0;
@@ -124,6 +137,7 @@ void aio_tune_bw(void)
     if (aio_mgr.observe_bw < aio_mgr.expect_bw) {
         /* try to increase the disk bandwidth. But, there should be an
          * inspection error (say 10KB) */
+#if MDSL_CONSERVATIVE_ADJUST    /* old adjustment algorithm */
         if (aio_mgr.observe_bw < last_bw - (10 << 10)) {
             /* bw decrease after last adjust, try to redo our operation */
             if (aio_mgr.bw_adjust_rounds) {
@@ -153,10 +167,33 @@ void aio_tune_bw(void)
                 if (aio_mgr.bw_direction) {
                     aio_mgr.sync_len -= aio_mgr.bw_stride;
                 } else {
-                    aio_mgr.sync_len += (aio_mgr.bw_stride << 1);
+                    /* if sync_len is too large, we reject more adjustments */
+                    if (aio_mgr.sync_len >= MDSL_AIO_SYNC_SIZE_MAX)
+                        aio_mgr.bw_adjust_rounds--;
+                    else
+                        aio_mgr.sync_len += (aio_mgr.bw_stride << 1);
                 }
             }
         }
+#else  /* new adjustment algorithm */
+        if (aio_mgr.observe_bw < last_bw - (10 << 10)) {
+            /* rollback our last operation */
+            if (aio_mgr.bw_direction) {
+                AIO_MGR_INCREASE(aio_mgr.sync_len);
+                aio_mgr.bw_direction = 0;
+            } else {
+                AIO_MGR_DECREASE(aio_mgr.sync_len);
+                aio_mgr.bw_direction = 1;
+            }
+        } else if (aio_mgr.ovserve_bw > last_bw) {
+            /* redo our last operation */
+            if (aio_mgr.bw_direction) {
+                AIO_MGR_DECREASE(aio_mgr.sync_len);
+            } else {
+                AIO_MGR_INCREASE(aio_mgr.sync_len);
+            }
+        }
+#endif
         hvfs_warning(mdsl, "AIO chagne sync_len to %ld\n", 
                      aio_mgr.sync_len);
     }

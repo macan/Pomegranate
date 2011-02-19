@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-22 21:59:26 macan>
+ * Time-stamp: <2011-02-18 09:50:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,19 +50,19 @@ int txg_ddc_send_request(struct dir_delta_au *dda)
 
     err = xnet_send(hmo.xc, msg);
     if (err) {
-        hvfs_err(mds, "Request to AU dir delta the uuid %ld flag 0x%x nlink %d"
+        hvfs_err(mds, "Request to AU dir delta the uuid %lx flag 0x%x nlink %d"
                  " failed w/ %d\n",
                  dda->dd.duuid, dda->dd.flag, 
                  atomic_read(&dda->dd.nlink), err);
         goto out_free_msg;
     }
 
-    hvfs_err(mds, "Send AUDD uuid %ld nlink %d to site %lx salt %ld\n",
+    hvfs_err(mds, "Send AUDD uuid %lx nlink %d to site %lx salt %ld\n",
              dda->dd.duuid, atomic_read(&dda->dd.nlink), dda->dd.site_id,
              dda->dd.salt);
     /* We should got the reply to confirm and delete the dir delta au, but we
      * do not do this operation here. We us send w/o XNET_NEED_REPLY because
-     * the reply mayb delievered very late. */
+     * the reply maybe delievered very late. */
 out_free_msg:
     xnet_free_msg(msg);
 out:

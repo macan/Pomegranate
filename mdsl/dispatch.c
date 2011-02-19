@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-05 00:32:51 macan>
+ * Time-stamp: <2011-02-18 11:41:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 /* control the itb_loads to N - 1 spool threads */
 atomic_t itb_loads = {.counter = 0,};
 
-static
+static inline
 int mdsl_mds_dispatch(struct xnet_msg *msg)
 {
     switch (msg->tx.cmd) {
@@ -60,7 +60,7 @@ int mdsl_mds_dispatch(struct xnet_msg *msg)
     return 0;
 }
 
-static
+static inline
 int mdsl_client_dispatch(struct xnet_msg *msg)
 {
     switch (msg->tx.cmd) {
@@ -126,14 +126,14 @@ int mdsl_dispatch(struct xnet_msg *msg)
         return mdsl_mds_dispatch(msg);
     } else if (HVFS_IS_CLIENT(msg->tx.ssite_id)) {
         return mdsl_client_dispatch(msg);
+    } else if (HVFS_IS_AMC(msg->tx.ssite_id)) {
+        return mdsl_client_dispatch(msg);
     } else if (HVFS_IS_MDSL(msg->tx.ssite_id)) {
         return mdsl_mdsl_dispatch(msg);
     } else if (HVFS_IS_RING(msg->tx.ssite_id)) {
         return mdsl_ring_dispatch(msg);
     } else if (HVFS_IS_ROOT(msg->tx.ssite_id)) {
         return mdsl_root_dispatch(msg);
-    } else if (HVFS_IS_AMC(msg->tx.ssite_id)) {
-        return mdsl_client_dispatch(msg);
     }
     hvfs_err(mdsl, "MDSL core dispatcher handle INVALID request <0x%lx %d>\n",
              msg->tx.ssite_id, msg->tx.reqno);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-16 13:53:02 macan>
+ * Time-stamp: <2011-02-18 18:51:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,25 @@
 #include "hvfs.h"
 #include "pfs.h"
 #include <fuse.h>
+
+/* we only accept this format: "/path/to/name" */
+#define SPLIT_PATHNAME(pathname, path, name) do {                       \
+        int __len = strlen(pathname);                                   \
+        char *__tmp = (char *)pathname + __len - 1;                     \
+        while (*__tmp != '/')                                           \
+            __tmp--;                                                    \
+        if (__tmp == pathname) {                                        \
+            path = "/";                                                 \
+        } else {                                                        \
+            path = pathname;                                            \
+            *__tmp = '\0';                                              \
+        }                                                               \
+        if ((__tmp + 1) == (pathname + __len)) {                        \
+            name = "";                                                  \
+        } else {                                                        \
+            name = __tmp + 1;                                           \
+        }                                                               \
+    } while (0)
 
 /* We construct a write buffer cache to absorb user's write requests and flush
  * them as a whole to disk when the file are closed. Thus, we have
@@ -192,7 +211,8 @@ struct bhhead *__odc_lookup(u64 uuid)
         return NULL;
 }
 
-static struct bhhead* __get_bhhead(struct hstat *hs)
+static inline
+struct bhhead* __get_bhhead(struct hstat *hs)
 {
     struct bhhead *bhh, *tmp_bhh;
 
@@ -200,7 +220,7 @@ static struct bhhead* __get_bhhead(struct hstat *hs)
     if (!bhh) {
         /* create it now */
         bhh = xzalloc(sizeof(struct bhhead));
-        if (!bhh) {
+        if (unlikely(!bhh)) {
             return NULL;
         }
         INIT_LIST_HEAD(&bhh->bh);
@@ -225,6 +245,10 @@ static struct bhhead* __get_bhhead(struct hstat *hs)
 static inline void __set_bhh_dirty(struct bhhead *bhh)
 {
     bhh->flag = BH_DIRTY;
+}
+static inline void __clr_bhh_dirty(struct bhhead *bhh)
+{
+    bhh->flag &= ~BH_DIRTY;
 }
 
 static inline void __set_bhh_config(struct bhhead *bhh)
@@ -499,7 +523,8 @@ static int __bh_sync(struct bhhead *bhh)
         /* sadly fallback to memcpy approach */
         data = xmalloc(bhh->asize);
         if (!data) {
-            hvfs_err(xnet, "xmalloc() data buffer failed\n");
+            hvfs_err(xnet, "xmalloc(%ld) data buffer failed\n", 
+                     bhh->asize);
             return -ENOMEM;
         }
 
@@ -593,16 +618,19 @@ static int __bh_sync(struct bhhead *bhh)
         err = __hvfs_update(hs.puuid, hs.psalt, &hs, mu);
         if (err) {
             hvfs_err(xnet, "do internal update on ino<%lx,%lx> failed w/ %d\n",
-                     bhh->hs.uuid, bhh->hs.hash, err);
+                     hs.uuid, hs.hash, err);
             xfree(mu);
             goto out_free;
         }
-        xfree(mu);
         /* finally, update bhh->hs */
         bhh->hs = hs;
+        bhh->hs.mc = *mc;
+        xfree(mu);
     }
 
+    __clr_bhh_dirty(bhh);
     err = size;
+
 out_free:
     xfree(iov);
     xfree(data);
@@ -823,7 +851,7 @@ int __ltc_lookup(char *pathname, void *arg0, void *arg1)
     xlock_lock(&rh->lock);
     hlist_for_each_entry(le, n, &rh->h, hlist) {
         if (LE_IS_VALID(le) && 
-            memcmp(pathname, le->fullname, strlen(pathname)) == 0
+            strcmp(pathname, le->fullname) == 0
             ) {
             *(u64 *)arg0 = le->uuid;
             *(u64 *)arg1 = le->salt;
@@ -834,6 +862,27 @@ int __ltc_lookup(char *pathname, void *arg0, void *arg1)
     xlock_unlock(&rh->lock);
 
     return found;
+}
+
+static inline
+void __ltc_invalid(const char *pathname)
+{
+    struct regular_hash *rh;
+    struct ltc_entry *le;
+    struct hlist_node *pos, *n;
+    int idx;
+
+    idx = __ltc_hash(pathname);
+    rh = pfs_ltc_mgr.ht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry_safe(le, pos, n, &rh->h, hlist) {
+        if (strcmp(pathname, le->fullname) == 0) {
+            le->born -= pfs_ltc_mgr.ttl;
+            break;
+        }
+    }
+    xlock_unlock(&rh->lock);
 }
 
 /* FUSE config support
@@ -1024,19 +1073,15 @@ static int hvfs_config_read(struct pfs_config_mgr *pcm, char *buf,
 static int hvfs_getattr(const char *pathname, struct stat *stbuf)
 {
     struct hstat hs = {0,};
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), 
-        *path, *name, *spath;
+    char *dup = strdup(pathname), *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
-    if (unlikely(!pathname || !stbuf))
-        return -EINVAL;
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
 
-    if (hvfs_config_check(name, stbuf)) {
+    if (unlikely(hvfs_config_check(name, stbuf))) {
         goto out;
     }
 
@@ -1077,14 +1122,16 @@ static int hvfs_getattr(const char *pathname, struct stat *stbuf)
         psalt = hs.ssalt;
     } while (!(n = NULL));
 
-    if (err)
+    if (unlikely(err)) {
+        xfree(spath);
         goto out;
+    }
 
-    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
 hit:
     /* lookup the file in the parent directory now */
-    if (name && strlen(name) > 0 && strcmp(name, "/") != 0) {
+    if (strlen(name) > 0) {
         /* eh, we have to lookup this file now. Otherwise, what we want to
          * lookup is the last directory, just return a result string now */
         hs.name = name;
@@ -1092,7 +1139,9 @@ hit:
         err = __hvfs_stat(puuid, psalt, 0, &hs);
         if (err) {
             hvfs_debug(xnet, "do internal file stat (SDT) on '%s'"
-                       " failed w/ %d\n", name, err);
+                       " failed w/ %d puuid %lx psalt %lx (%s RT %lx %lx)\n", 
+                       name, err, puuid, psalt,
+                       path, hmi.root_uuid, hmi.root_salt);
             goto out;
         }
         if (S_ISDIR(hs.mdu.mode)) {
@@ -1115,12 +1164,20 @@ hit:
             }
         }
     }
+
     /* update hs w/ local ODC cached hstat */
     {
         struct bhhead *bhh = __odc_lookup(hs.uuid);
 
         if (unlikely(bhh)) {
-            if (hs.mdu.mtime > bhh->hs.mdu.mtime) {
+            if (MDU_VERSION_COMPARE(hs.mdu.version, bhh->hs.mdu.version)) {
+#if 0
+                hvfs_err(xnet, "<%lx,%lx> new %lx %ld %d old %lx %ld %d\n", 
+                         hs.uuid, hs.hash,
+                         hs.mdu.mtime, hs.mdu.size, hs.mdu.version,
+                         bhh->hs.mdu.mtime, bhh->hs.mdu.size, 
+                         bhh->hs.mdu.version);
+#endif
                 bhh->hs.mdu = hs.mdu;
                 bhh->hs.mc = hs.mc;
             } else {
@@ -1156,7 +1213,6 @@ hit:
     
 out:
     xfree(dup);
-    xfree(dup2);
 
     return err;
 }
@@ -1219,7 +1275,7 @@ static int hvfs_readlink(const char *pathname, char *buf, size_t size)
     if (err)
         goto out;
 
-    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
 hit:
     /* lookup the file in the parent directory now */
@@ -1322,19 +1378,15 @@ static int hvfs_mknod(const char *pathname, mode_t mode, dev_t rdev)
         psalt = hs.ssalt;
     } while (!(n = NULL));
 
-    if (err)
+    if (err) {
+        xfree(spath);
         goto out;
+    }
 
-    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
 hit:
     /* create the file or dir in the parent directory now */
-    if (strlen(name) == 0 || strcmp(name, "/") == 0) {
-        hvfs_err(xnet, "Create zero-length named file or root directory?\n");
-        err = -EINVAL;
-        goto out;
-    }
-    
     hs.name = name;
     hs.uuid = 0;
     /* FIXME: should we not drop rdev? */
@@ -1361,11 +1413,9 @@ static int hvfs_mkdir(const char *pathname, mode_t mode)
     char *dup = strdup(pathname), *dup2 = strdup(pathname), 
         *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
-    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt, duuid;
     int err = 0;
 
-    if (!pathname)
-        return -EINVAL;
     path = dirname(dup);
     name = basename(dup2);
     n = path;
@@ -1407,16 +1457,10 @@ static int hvfs_mkdir(const char *pathname, mode_t mode)
     if (err)
         goto out;
 
-    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
 hit:
     /* create the file or dir in the parent directory now */
-    if (strlen(name) == 0 || strcmp(name, "/") == 0) {
-        hvfs_err(xnet, "Create zero-length named or root directory?\n");
-        err = -EINVAL;
-        goto out;
-    }
-
     hs.name = name;
     hs.uuid = 0;
     mu.valid = MU_MODE;
@@ -1427,6 +1471,7 @@ hit:
                  name, err);
         goto out;
     }
+    duuid = hs.uuid;
 
     /* create the gdt entry now */
     err = __hvfs_create(hmi.gdt_uuid, hmi.gdt_salt, &hs, 
@@ -1436,6 +1481,7 @@ hit:
                  name, err);
         goto out;
     }
+    __ltc_update((char *)pathname, (void *)hs.uuid, (void *)hs.ssalt);
 
 out:
     xfree(dup);
@@ -1447,18 +1493,14 @@ out:
 static int hvfs_unlink(const char *pathname)
 {
     struct hstat hs = {0,};
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), 
-        *path, *name, *spath;
+    char *dup = strdup(pathname), *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 saved_puuid = hmi.root_uuid, saved_psalt = hmi.root_salt;
     u64 saved_hash = 0;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
-    if (unlikely(!pathname))
-        return -EINVAL;
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
 
     spath = strdup(path);
@@ -1499,53 +1541,27 @@ static int hvfs_unlink(const char *pathname)
         psalt = hs.ssalt;
     } while (!(n = NULL));
 
-    if (err)
+    if (err) {
+        xfree(spath);
         goto out;
+    }
 
-    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
 hit:
     /* finally, do delete now */
-    if (!(name && strlen(name) > 0 && strcmp(name, "/") != 0)) {
-        /* what we want to delete is a directory, double check it */
-        hvfs_err(xnet, "It is a dir you want to delete, isn't it?\n");
-        err = -EINVAL;
+    hs.name = name;
+    hs.uuid = 0;
+    err = __hvfs_unlink(puuid, psalt, &hs);
+    if (err) {
+        hvfs_err(xnet, "do internal delete (SDT) on '%s' "
+                 "failed w/ %d\n",
+                 name, err);
         goto out;
-    } else {
-        /* confirm what it is firstly! now ignore this check! */
-#if 0
-        hs.name = name;
-        hs.uuid = 0;
-        err = __hvfs_stat(puuid, psalt, -1, &hs);
-        if (err) {
-            hvfs_err(xnet, "do internal stat (SDT) on '%s' "
-                     "failed w/ %d\n",
-                     name, err);
-            goto out;
-        }
-        if (S_ISDIR(hs.mdu.mode)) {
-            hvfs_err(xnet, "is directory or file but not "
-                     "matched with your argument\n");
-            err = -EINVAL;
-            goto out;
-        }
-#endif
-        
-        /* delete a normal file or dir, it is easy */
-        hs.name = name;
-        hs.uuid = 0;
-        err = __hvfs_unlink(puuid, psalt, &hs);
-        if (err) {
-            hvfs_err(xnet, "do internal delete (SDT) on '%s' "
-                     "failed w/ %d\n",
-                     name, err);
-            goto out;
-        }
     }
 
 out:
     xfree(dup);
-    xfree(dup2);
     
     return err;
 }
@@ -1553,18 +1569,21 @@ out:
 static int hvfs_rmdir(const char *pathname)
 {
     struct hstat hs = {0,};
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), *path, *name;
+    char *dup = strdup(pathname), *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 saved_puuid = hmi.root_uuid, saved_psalt = hmi.root_salt;
     u64 saved_hash = 0;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
-    if (!pathname)
-        return -EINVAL;
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    if (err > 0) {
+        goto hit;
+    }
 
     /* parse the path and do __stat on each directory */
     do {
@@ -1598,11 +1617,16 @@ static int hvfs_rmdir(const char *pathname)
         psalt = hs.ssalt;
     } while (!(n = NULL));
 
-    if (err)
+    if (err) {
+        xfree(spath);
         goto out;
+    }
 
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
+    xfree(spath);
+hit:
     /* finally, do delete now */
-    if (!name || strlen(name) == 0 || strcmp(name, "/") == 0) {
+    if (strlen(name) == 0 || strcmp(name, "/") == 0) {
         /* what we want to delete is a directory, double check it */
         if (!S_ISDIR(hs.mdu.mode)) {
             hvfs_err(xnet, "It is a dir you want to delete, isn't it?\n");
@@ -1691,11 +1715,11 @@ static int hvfs_rmdir(const char *pathname)
                      name, err);
             goto out;
         }
+        __ltc_invalid(pathname);
     }
 
 out:
     xfree(dup);
-    xfree(dup2);
     
     return err;
 }
@@ -1704,14 +1728,12 @@ static int hvfs_symlink(const char *from, const char *to)
 {
     struct hstat hs;
     struct mdu_update *mu;
-    char *dup = strdup(to), *dup2 = strdup(to), 
-        *path, *name, *spath;
+    char *dup = strdup(to), *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0, namelen;
 
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
 
     spath = strdup(path);
@@ -1751,7 +1773,7 @@ static int hvfs_symlink(const char *from, const char *to)
     if (err)
         goto out;
 
-    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
 hit:
     /* create the file or dir in the parent directory now */
@@ -1838,7 +1860,6 @@ hit:
 
 out:
     xfree(dup);
-    xfree(dup2);
     
     return err;
 }
@@ -1906,7 +1927,7 @@ static int hvfs_rename(const char *from, const char *to)
         goto out;
     }
 
-    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
 hit:
     if (name && strlen(name) > 0 && strcmp(name, "/") != 0) {
@@ -2039,7 +2060,7 @@ hit:
         goto out_rollback;
     }
 
-    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
 hit2:
     if (name && strlen(name) > 0 && strcmp(name, "/") != 0) {
@@ -2324,7 +2345,7 @@ static int hvfs_link(const char *from, const char *to)
         goto out;
     }
 
-    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
 hit:
     if (name && strlen(name) > 0 && strcmp(name, "/") != 0) {
@@ -2427,7 +2448,7 @@ hit:
         goto out;
     }
 
-    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
 hit2:
     /* create the file or dir in the parent directory now */
@@ -2458,16 +2479,19 @@ static int hvfs_chmod(const char *pathname, mode_t mode)
 {
     struct hstat hs = {0,};
     struct mdu_update mu;
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), *path, *name;
+    char *dup = strdup(pathname), *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
-    if (!pathname)
-        return -EINVAL;
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    if (err > 0) {
+        goto hit;
+    }
 
     /* parse the path and do __stat on each directory */
     do {
@@ -2498,14 +2522,19 @@ static int hvfs_chmod(const char *pathname, mode_t mode)
         psalt = hs.ssalt;
     } while (!(n = NULL));
 
-    if (err)
+    if (err) {
+        xfree(spath);
         goto out;
+    }
     
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
+    xfree(spath);
+hit:
     mu.valid = MU_MODE;
     mu.mode = mode;
 
     /* finally, do update now */
-    if (!name || strlen(name) == 0 || strcmp(name, "/") == 0) {
+    if (strlen(name) == 0 || strcmp(name, "/") == 0) {
         /* update the final directory by uuid */
         hs.name = NULL;
         hs.hash = 0;
@@ -2544,7 +2573,6 @@ static int hvfs_chmod(const char *pathname, mode_t mode)
 
 out:
     xfree(dup);
-    xfree(dup2);
     
     return err;    
 }
@@ -2553,15 +2581,12 @@ static int hvfs_chown(const char *pathname, uid_t uid, gid_t gid)
 {
     struct hstat hs = {0,};
     struct mdu_update mu;
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), *path, *name;
+    char *dup = strdup(pathname), *path, *name;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
-    if (!pathname)
-        return -EINVAL;
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
 
     /* parse the path and do __stat on each directory */
@@ -2640,7 +2665,6 @@ static int hvfs_chown(const char *pathname, uid_t uid, gid_t gid)
 
 out:
     xfree(dup);
-    xfree(dup2);
     
     return err;    
 }
@@ -2649,17 +2673,14 @@ static int hvfs_truncate(const char *pathname, off_t size)
 {
     struct hstat hs = {0,};
     struct mdu_update mu = {.valid = 0,};
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), *path, *name;
+    char *dup = strdup(pathname), *path, *name;
     char *p = NULL, *n, *s = NULL;
     u64 saved_puuid = hmi.root_uuid, saved_psalt = hmi.root_salt;
     u64 saved_hash = 0;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
-    if (!pathname)
-        return -EINVAL;
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
 
     /* parse the path and do __stat on each directory */
@@ -2801,7 +2822,6 @@ static int hvfs_truncate(const char *pathname, off_t size)
     }
 out:
     xfree(dup);
-    xfree(dup2);
 
     return err;
 }
@@ -2912,15 +2932,12 @@ static int hvfs_utime(const char *pathname, struct utimbuf *buf)
 {
     struct hstat hs = {0,};
     struct mdu_update mu;
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), *path, *name;
+    char *dup = strdup(pathname), *path, *name;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
-    if (!pathname || !buf)
-        return -EINVAL;
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
 
     /* parse the path and do __stat on each directory */
@@ -2999,7 +3016,6 @@ static int hvfs_utime(const char *pathname, struct utimbuf *buf)
 
 out:
     xfree(dup);
-    xfree(dup2);
     
     return err;    
 }
@@ -3007,16 +3023,12 @@ out:
 static int hvfs_open(const char *pathname, struct fuse_file_info *fi)
 {
     struct hstat hs = {0,};
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), 
-        *path, *name, *spath;
+    char *dup = strdup(pathname), *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
-    if (!pathname)
-        return -EINVAL;
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
 
     /* check if it is the config file */
@@ -3025,8 +3037,6 @@ static int hvfs_open(const char *pathname, struct fuse_file_info *fi)
 
     spath = strdup(path);
     err = __ltc_lookup(spath, &puuid, &psalt);
-    hvfs_debug(xnet, "LTC lookup %s %s\n", spath, 
-               (err == 0 ? "miss" : "hit"));
     if (err > 0) {
         goto hit;
     }
@@ -3062,14 +3072,12 @@ static int hvfs_open(const char *pathname, struct fuse_file_info *fi)
         psalt = hs.ssalt;
     } while (!(n = NULL));
 
-    if (err)
+    if (err) {
+        xfree(spath);
         goto out;
+    }
 
-    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
-    hvfs_debug(xnet, "LTC update %s %s\n", spath, 
-               (err == 1 ? "hit&up2date" : 
-                (err == 2 ? "miss&alloc&up2date" :
-                 "not up2date")));
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
 hit:
     /* lookup the file in the parent directory now */
@@ -3104,7 +3112,6 @@ hit:
 
 out:
     xfree(dup);
-    xfree(dup2);
 
     return err;
 }
@@ -3115,9 +3122,6 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
     struct hstat hs;
     struct bhhead *bhh = (struct bhhead *)fi->fh;
     int err = 0, bytes = 0;
-
-    if (!pathname || !buf || !bhh)
-        return -EINVAL;
 
     /* is config_read() ? */
     if (unlikely(bhh->flag & BH_CONFIG)) {
@@ -3171,9 +3175,6 @@ static int hvfs_sync_write(const char *pathname, const char *buf,
     void *data = NULL;
     u64 len, hash;
     int err = 0, flag = 0;
-
-    if (!buf)
-        return -EINVAL;
 
     if (unlikely(bhh->flag & BH_CONFIG))
         return -EINVAL;
@@ -3295,9 +3296,6 @@ static int hvfs_cached_write(const char *pathname, const char *buf,
     struct hstat hs;
     struct bhhead *bhh = (struct bhhead *)fi->fh;
     int err = 0;
-
-    if (!pathname || !buf)
-        return -EINVAL;
 
     if (unlikely(bhh->flag & BH_CONFIG))
         return -EINVAL;
@@ -3448,6 +3446,8 @@ static int __hvfs_readdir_plus(u64 duuid, u64 salt, void *buf,
     /* check if the cached entries can serve the request */
     if (off < dir->goffset) {
         /* seek backward is not allowed */
+        hvfs_err(xnet, "Sorry, in PomegranateFS, seek backward readdir "
+                 "is not allowed\n");
         return -EINVAL;
     }
     hvfs_debug(xnet, "readdir_plus itbid %ld off %ld goff %ld csize %d\n", 
@@ -3678,10 +3678,12 @@ static int hvfs_readdir_plus(const char *pathname, void *buf,
         psalt = hs.ssalt;
     } while (!(n = NULL));
 
-    if (err)
+    if (err) {
+        xfree(spath);
         goto out;
+    }
 
-    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
 hit:
     if (name && strlen(name) > 0 && strcmp(name, "/") != 0) {
@@ -3756,6 +3758,8 @@ realloc:
     pfs_fuse_mgr.sync_write = 0;
     pfs_ce_default[2].uvalue = 0;
 
+    /* increase this ttl value can increase performance greatly (5->60 +~20%)
+     */
     pfs_ce_default[1].uvalue = 5;
     if (__ltc_init(5, 0)) {
         hvfs_err(xnet, "LRU Translate Cache init failed. Cache DISABLED!\n");
@@ -3777,16 +3781,12 @@ static int hvfs_create_plus(const char *pathname, mode_t mode,
 {
     struct hstat hs = {.mc.c.len = 0,};
     struct mdu_update mu;
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), 
-        *path, *name, *spath;
+    char *dup = strdup(pathname), *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
-    if (!pathname)
-        return -EINVAL;
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
 
     spath = strdup(path);
@@ -3823,26 +3823,22 @@ static int hvfs_create_plus(const char *pathname, mode_t mode,
         psalt = hs.ssalt;
     } while (!(n = NULL));
 
-    if (err)
+    if (err) {
+        xfree(spath);
         goto out;
+    }
 
-    err = __ltc_update(spath, (void *)puuid, (void *)psalt);
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
 hit:
     /* create the file or dir in the parent directory now */
-    if (strlen(name) == 0 || strcmp(name, "/") == 0) {
-        hvfs_err(xnet, "Create zero-length named file or root directory?\n");
-        err = -EINVAL;
-        goto out;
-    }
-    
     hs.name = name;
     hs.uuid = 0;
     /* FIXME: should we not drop rdev? */
     mu.valid = MU_MODE;
     mu.mode = mode;
     err = __hvfs_create(puuid, psalt, &hs, 0, &mu);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "do internal create (SDT) on '%s' failed w/ %d\n",
                  name, err);
         goto out;
@@ -3852,7 +3848,6 @@ hit:
 
 out:
     xfree(dup);
-    xfree(dup2);
     
     return err;
 }

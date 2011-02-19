@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-16 02:09:26 macan>
+ * Time-stamp: <2011-02-18 11:35:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -794,7 +794,7 @@ int mds_bc_backend_commit(void)
         txg_put(txg);
         if (err) {
             if (err == -EAGAIN || err == -ESPLIT ||
-                err == -ERESTART) {
+                err == -ERESTART || err == -EHWAIT) {
                 /* have a breath */
                 sched_yield();
                 goto retry;

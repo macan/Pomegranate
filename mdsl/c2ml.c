@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-19 16:11:41 macan>
+ * Time-stamp: <2011-02-18 11:43:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,7 +34,7 @@ void __mdsl_send_rpy(struct xnet_msg *msg, struct iovec iov[], int nr,
     int i;
 
     rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
-    if (!rpy) {
+    if (unlikely(!rpy)) {
         hvfs_err(mdsl, "xnet_alloc_msg() failed\n");
         /* do not retry myself */
         return;
@@ -62,7 +62,8 @@ void __mdsl_send_rpy(struct xnet_msg *msg, struct iovec iov[], int nr,
 
     err = xnet_send(hmo.xc, rpy);
     if (err) {
-        hvfs_err(mdsl, "xnet_send() failed w/ %d.\n", err);
+        hvfs_err(mdsl, "xnet_send() to %lx failed w/ %d.\n", 
+                 rpy->tx.dsite_id, err);
     }
     xnet_free_msg(rpy);
 }
@@ -228,7 +229,7 @@ void mdsl_write(struct xnet_msg *msg)
     /* We should iterate on the client's column_req vector and write each
      * entry to the result buffer */
     location = xzalloc(sizeof(u64) * si->scd.cnr);
-    if (!location) {
+    if (unlikely(!location)) {
         hvfs_err(mdsl, "xzalloc() location failed.\n");
         err = -ENOMEM;
         goto send_rpy;
@@ -273,7 +274,7 @@ void mdsl_write(struct xnet_msg *msg)
         msa.iov = &iov;
         msa.iov_nr = 1;
         err = mdsl_storage_fd_write(fde, &msa);
-        if (err) {
+        if (unlikely(err)) {
             hvfs_err(mdsl, "write the dir %ld data column %ld failed w/ %d\n",
                      si->sic.uuid, si->scd.cr[i].cno, err);
             mdsl_storage_fd_put(fde);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 20:02:11 macan>
+ * Time-stamp: <2011-02-18 09:51:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -415,7 +415,7 @@ int __aur_dir_delta(struct async_update_request *aur)
             /* Step 1: allco the dir_delta_au */
             dda = txg_dda_alloc();
             if (!dda) {
-                hvfs_err(mds, "dir delta au alloc failed on uuid %ld\n",
+                hvfs_err(mds, "dir delta au alloc failed on uuid %lx\n",
                          pos->buf[i].duuid);
                 continue;
             }

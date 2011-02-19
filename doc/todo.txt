@@ -299,4 +299,10 @@ Pomegranate TODOs:
 
        3. rename hard link source is ok;
 
-    Scheduled @ 2/10/2011
+    Scheduled @ 2/10/2011 done 2/17/2011
+
+    4. rename a regular file across directory is not work!
+
+       Although we have copied the column info, client could't use this
+       info to access the file data in new directory. It did not exist!
+

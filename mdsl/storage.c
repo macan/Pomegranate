@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-21 15:54:03 macan>
+ * Time-stamp: <2011-02-18 16:06:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1436,7 +1436,7 @@ void random_read_control_down(size_t len)
     if (len < HVFS_TINY_FILE_LEN)
         return;
     xcond_lock(&hmo.storage.cond);
-    while (atomic_read(&hmo.prof.storage.pread) >= 1) {
+    while (atomic_read(&hmo.prof.storage.pread) >= 2) {
         /* we should wait now */
         xcond_wait(&hmo.storage.cond);
     }

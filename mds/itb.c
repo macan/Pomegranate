@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-16 09:21:51 macan>
+ * Time-stamp: <2011-02-18 09:38:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -649,16 +649,7 @@ void ite_unlink(struct ite *e, struct itb *i, u64 offset, u64 pos)
 
         /* unlink the entry now */
         if (likely(e->s.mdu.nlink == 0)) {
-            /* ok, we add this itb in the async_unlink list if the
-             * configration saied that :) */
-            if (hmo.conf.async_unlink) {
-                e->flag = ((e->flag & ~ITE_STATE_MASK) | ITE_UNLINKED);
-                if (unlikely(list_empty(&i->h.unlink)))
-                    list_add_tail(&i->h.unlink, &hmo.async_unlink);
-            } else {
-                /* delete the entry imediately */
-                itb_del_ite(i,e, offset, pos);
-            }
+            ASSERT(e->flag & ITE_FLAG_NORMAL, mds);
         do_delta:
             /* then, update the dir delta to remote site */
             txg = mds_get_open_txg(&hmo);
@@ -759,18 +750,27 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             return;
         gettimeofday(&tv, NULL);
 
-        if (mu->valid & MU_MODE)
-            e->s.mdu.mode = mu->mode;
-        else
-            e->s.mdu.mode = HVFS_DEFAULT_UMASK | S_IFLNK;
-        if (mu->valid & MU_UID)
-            e->s.mdu.uid = mu->uid;
-        if (mu->valid & MU_GID)
-            e->s.mdu.gid = mu->gid;
         if (mu->valid & MU_FLAG_ADD)
             e->s.mdu.flags |= mu->flags;
         if (mu->valid & MU_FLAG_CLR)
             e->s.mdu.flags &= ~(mu->flags);
+
+        if (mu->valid & MU_UID)
+            e->s.mdu.uid = mu->uid;
+        if (mu->valid & MU_GID)
+            e->s.mdu.gid = mu->gid;
+
+        if (mu->valid & MU_MODE)
+            e->s.mdu.mode = mu->mode;
+        else
+            e->s.mdu.mode = HVFS_DEFAULT_UMASK | S_IFLNK;
+
+        if (mu->valid & MU_SIZE)
+            e->s.mdu.size = mu->size;
+
+        if (mu->valid & MU_VERSION)
+            e->s.mdu.version = mu->version;
+
         if (mu->valid & MU_ATIME)
             e->s.mdu.atime = mu->atime;
         else
@@ -783,10 +783,6 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.mtime = mu->mtime;
         else
             e->s.mdu.mtime = tv.tv_sec;
-        if (mu->valid & MU_VERSION)
-            e->s.mdu.version = mu->version;
-        if (mu->valid & MU_SIZE)
-            e->s.mdu.size = mu->size;
 
         if (mu->valid & MU_SYMNAME) {
             if (mu->namelen > sizeof(e->s.mdu.symname)) {
@@ -840,18 +836,26 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             return;
         }
 
-        if (mu->valid & MU_MODE)
-            e->s.mdu.mode = mu->mode;
-        else
-            e->s.mdu.mode = HVFS_DEFAULT_UMASK | S_IFREG;
-        if (mu->valid & MU_UID)
-            e->s.mdu.uid = mu->uid;
-        if (mu->valid & MU_GID)
-            e->s.mdu.gid = mu->gid;
         if (mu->valid & MU_FLAG_ADD)
             e->s.mdu.flags |= mu->flags;
         if (mu->valid & MU_FLAG_CLR)
             e->s.mdu.flags &= ~(mu->flags);
+
+        if (mu->valid & MU_UID)
+            e->s.mdu.uid = mu->uid;
+        if (mu->valid & MU_GID)
+            e->s.mdu.gid = mu->gid;
+
+        if (mu->valid & MU_MODE)
+            e->s.mdu.mode = mu->mode;
+        else
+            e->s.mdu.mode = HVFS_DEFAULT_UMASK | S_IFREG;
+
+        if (mu->valid & MU_SIZE)
+            e->s.mdu.size = mu->size;
+        if (mu->valid & MU_VERSION)
+            e->s.mdu.version = mu->version;
+
         if (mu->valid & MU_ATIME)
             e->s.mdu.atime = mu->atime;
         else
@@ -864,10 +868,7 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.mtime = mu->mtime;
         else
             e->s.mdu.mtime = tv.tv_sec;
-        if (mu->valid & MU_VERSION)
-            e->s.mdu.version = mu->version;
-        if (mu->valid & MU_SIZE)
-            e->s.mdu.size = mu->size;
+
         if (mu->valid & MU_LLFS) {
             e->s.mdu.lr = *((struct llfs_ref *)hi->data +
                             sizeof(struct mdu_update));
@@ -926,37 +927,49 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
         /* time update */
         gettimeofday(&tv, NULL);
 
-        if (mu->valid & MU_MODE) {
-            e->s.mdu.mode = mu->mode;
+        if (mu->valid & (MU_MODE | MU_UID | MU_GID | 
+                         MU_NLINK | MU_NLINK_DELTA)) {
             e->s.mdu.ctime = tv.tv_sec;
         }
-        if (mu->valid & MU_UID) {
-            e->s.mdu.uid = mu->uid;
-            e->s.mdu.ctime = tv.tv_sec;
+        if (mu->valid & (MU_SIZE | MU_COLUMN)) {
+            e->s.mdu.mtime = tv.tv_sec;
         }
-        if (mu->valid & MU_GID) {
-            e->s.mdu.gid = mu->gid;
-            e->s.mdu.ctime = tv.tv_sec;
-        }
+        
         if (mu->valid & MU_FLAG_ADD)
             e->s.mdu.flags |= mu->flags;
         if (mu->valid & MU_FLAG_CLR)
             e->s.mdu.flags &= ~(mu->flags);
 
-        if (mu->valid & MU_VERSION)
-            e->s.mdu.version = mu->version;
-        if (mu->valid & MU_SIZE) {
-            e->s.mdu.size = mu->size;
-            e->s.mdu.mtime = tv.tv_sec;
+        if (mu->valid & MU_UID) {
+            e->s.mdu.uid = mu->uid;
+        }
+        if (mu->valid & MU_GID) {
+            e->s.mdu.gid = mu->gid;
+        }
+        if (mu->valid & MU_MODE) {
+            e->s.mdu.mode = mu->mode;
         }
         if (mu->valid & MU_NLINK) {
             e->s.mdu.nlink = mu->nlink;
-            e->s.mdu.ctime = tv.tv_sec;
         }
         if (mu->valid & MU_NLINK_DELTA) {
             e->s.mdu.nlink += mu->nlink;
-            e->s.mdu.ctime = tv.tv_sec;
         }
+        if (mu->valid & MU_SIZE) {
+            e->s.mdu.size = mu->size;
+        }
+
+        if (mu->valid & MU_VERSION)
+            e->s.mdu.version = mu->version;
+        else
+            e->s.mdu.version++;
+
+        if (mu->valid & MU_ATIME)
+            e->s.mdu.atime = mu->atime;
+        if (mu->valid & MU_CTIME)
+            e->s.mdu.ctime = mu->ctime;
+        if (mu->valid & MU_MTIME)
+            e->s.mdu.mtime = mu->mtime;
 
         if (mu->valid & MU_LLFS) {
             e->s.mdu.lr = *(struct llfs_ref *)(hi->data +
@@ -972,15 +985,8 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
                 /* copy to the dst location */
                 e->column[(mc + i)->cno] = (mc + i)->c;
             }
-            e->s.mdu.mtime = tv.tv_sec;
         }
 
-        if (mu->valid & MU_ATIME)
-            e->s.mdu.atime = mu->atime;
-        if (mu->valid & MU_CTIME)
-            e->s.mdu.ctime = mu->ctime;
-        if (mu->valid & MU_MTIME)
-            e->s.mdu.mtime = mu->mtime;
     } else if (hi->flag & INDEX_CREATE_COPY) {
         /* hi->data is MDU */
         memcpy(&e->s.mdu, hi->data, sizeof(struct mdu));
@@ -1828,7 +1834,8 @@ retry:
              * msg->tx.arg0, and mds_linkadd() copy it to hi->dlen, because in
              * this function we cant access the msg :( */
             itb->ite[ii->entry].s.mdu.nlink += (int)hi->dlen;
-            if (unlikely(itb->ite[ii->entry].s.mdu.nlink == 0)) {
+            if (unlikely(itb->ite[ii->entry].s.mdu.nlink == 0 &&
+                         !(itb->ite[ii->entry].flag & ITE_FLAG_GDT))) {
                 /* Hoo, we should unlink the entry now, make sure that you
                  * must not unlink the directory entry */
                 itb_del_ite(itb, &itb->ite[ii->entry], offset, pos);

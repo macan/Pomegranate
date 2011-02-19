@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-14 09:36:24 macan>
+ * Time-stamp: <2011-02-17 09:47:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -110,5 +110,19 @@ struct link_source
      * mdu.dtime field w/o any checking */
     u64 dtime;
 };
+
+/* how to detect a new version?
+ *
+ * the following macro compare 'a' and 'b'. if a newer than b, return true,
+ * otherwise, return false.
+ */
+#define MDU_VERSION_COMPARE(a, b) ({                    \
+            int __res = 0;                              \
+            if ((u32)(a) > (u32)(b))                    \
+                __res = 1;                              \
+            else if (((u32)(b) - (u32)(a)) > (2 << 30)) \
+                __res = 1;                              \
+            __res;                                      \
+        })
 
 #endif

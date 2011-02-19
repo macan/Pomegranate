@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-14 14:20:14 macan>
+ * Time-stamp: <2011-02-18 15:04:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3775,7 +3775,17 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
         dpayload += namelen;
     }
     
-    if (flag & INDEX_SYMLINK) {
+    if (flag == 0) {
+        /* fast path */
+    normal_create:
+        if (imu) {
+            dpayload += sizeof(struct mdu_update);
+            if (imu->valid & MU_LLFS)
+                dpayload += sizeof(struct llfs_ref);
+            if (imu->valid & MU_COLUMN)
+                dpayload += imu->column_no * sizeof(struct mu_column);
+        }
+    } else if (flag & INDEX_SYMLINK) {
         /* ignore the column argument */
         if (!imu || !imu->namelen) {
             hvfs_err(xnet, "Create symlink need the mdu_update "
@@ -3820,13 +3830,7 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
         dpayload += sizeof(struct mdu);
     } else {
         /* normal file create */
-        if (imu) {
-            dpayload += sizeof(struct mdu_update);
-            if (imu->valid & MU_LLFS)
-                dpayload += sizeof(struct llfs_ref);
-            if (imu->valid & MU_COLUMN)
-                dpayload += imu->column_no * sizeof(struct mu_column);
-        }
+        goto normal_create;
     }
 
     hi = (struct hvfs_index *)xzalloc(dpayload);
@@ -3835,7 +3839,33 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
         return -ENOMEM;
     }
 
-    if (flag & INDEX_SYMLINK) {
+    if (flag == 0) {
+        /* fast path */
+    normal_create2:
+        hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen,
+                             HASH_SEL_EH);
+        hi->puuid = puuid;
+        hi->psalt = psalt;
+        hi->flag = INDEX_CREATE;
+        if (imu) {
+            off_t offset = sizeof(*mu);
+            
+            mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
+                                       namelen);
+            memcpy(mu, imu, sizeof(*mu));
+            if (imu->valid & MU_LLFS) {
+                memcpy((void *)mu + offset, (void *)imu + offset,
+                       sizeof(struct llfs_ref));
+                offset += sizeof(struct llfs_ref);
+            }
+            if (imu->valid & MU_COLUMN) {
+                memcpy((void *)mu + offset, (void *)imu + offset,
+                       imu->column_no + sizeof(struct mu_column));
+                offset += imu->column_no + sizeof(struct mu_column);
+            }
+            hi->dlen = offset;
+        }
+    } else if (flag & INDEX_SYMLINK) {
         hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen,
                              HASH_SEL_EH);
         hi->puuid = puuid;
@@ -3913,29 +3943,7 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
             hi->dlen = sizeof(struct mdu);
         }
     } else {
-        hi->hash = hvfs_hash(puuid, (u64)hs->name, namelen,
-                             HASH_SEL_EH);
-        hi->puuid = puuid;
-        hi->psalt = psalt;
-        hi->flag = INDEX_CREATE;
-        if (imu) {
-            off_t offset = sizeof(*mu);
-            
-            mu = (struct mdu_update *)((void *)hi + sizeof(*hi) +
-                                       namelen);
-            memcpy(mu, imu, sizeof(*mu));
-            if (imu->valid & MU_LLFS) {
-                memcpy((void *)mu + offset, (void *)imu + offset,
-                       sizeof(struct llfs_ref));
-                offset += sizeof(struct llfs_ref);
-            }
-            if (imu->valid & MU_COLUMN) {
-                memcpy((void *)mu + offset, (void *)imu + offset,
-                       imu->column_no + sizeof(struct mu_column));
-                offset += imu->column_no + sizeof(struct mu_column);
-            }
-            hi->dlen = offset;
-        }
+        goto normal_create2;
     }
 
     /* FIXME: we only fail on ACTIVE entry? */
@@ -3972,7 +3980,7 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
 
 resend:
     err = xnet_send(hmo.xc, msg);
-    if (err) {
+    if (unlikely(err)) {
         hvfs_err(xnet, "xnet_send() failed\n");
         goto out;
     }
@@ -4009,7 +4017,7 @@ resend:
         goto out;
     }
     /* now, checking the hmr err */
-    if (hmr->err) {
+    if (unlikely(hmr->err)) {
         /* hoo, something wrong on the MDS */
         hvfs_err(xnet, "MDS site %lx reply w/ %d\n",
                  msg->pair->tx.ssite_id, hmr->err);
@@ -4061,7 +4069,10 @@ resend:
             if (hs) {
                 memset(hs, 0, sizeof(*hs));
                 hs->puuid = rhi->puuid;
-                hs->psalt = rhi->psalt;
+                if (flag & INDEX_CREATE_GDT) {
+                    hs->ssalt = m->salt;
+                } else 
+                    hs->psalt = rhi->psalt;
                 hs->uuid = rhi->uuid;
                 hs->hash = rhi->hash;
                 memcpy(&hs->mdu, m, sizeof(hs->mdu));
@@ -4195,7 +4206,7 @@ resend:
         /* this means we have hit a link target, user should restat and
          * retry */
         err = msg->pair->tx.err;
-        goto out;
+        goto out_msg;
     } else if (msg->pair->tx.err == -ESPLIT) {
         xnet_free_msg(msg);
         msg->pair = NULL;
@@ -4210,7 +4221,7 @@ resend:
         hvfs_err(xnet, "UPDATE failed @ MDS site %lx w/ %d\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
         err = msg->pair->tx.err;
-        goto out;
+        goto out_msg;
     }
     if (msg->pair->xm_datacheck)
         hmr = (struct hvfs_md_reply *)msg->pair->xm_data;
@@ -4218,7 +4229,7 @@ resend:
         hvfs_err(xnet, "Invalid UPDATE reply from site %lx\n",
                  msg->pair->tx.ssite_id);
         err = -EFAULT;
-        goto out;
+        goto out_msg;
     }
     /* now, checking the hmr err */
     if (hmr->err) {
@@ -4226,7 +4237,7 @@ resend:
         hvfs_err(xnet, "MDS site %lx reply w/ %d\n",
                  msg->pair->tx.ssite_id, hmr->err);
         err = hmr->err;
-        goto out;
+        goto out_msg;
     } else if (hmr->len) {
         struct hvfs_index *rhi;
         struct gdt_md *m;
@@ -4237,7 +4248,7 @@ resend:
         if (!rhi) {
             hvfs_err(xnet, "extract HI failed, not found.\n");
             err = -EFAULT;
-            goto out;
+            goto out_msg;
         }
         if (hmr->flag & MD_REPLY_WITH_BFLIP) {
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid,
