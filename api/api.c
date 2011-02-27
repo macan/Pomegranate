@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-18 15:04:36 macan>
+ * Time-stamp: <2011-02-26 21:01:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3760,8 +3760,8 @@ out:
 int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs, 
                   u32 flag, struct mdu_update *imu)
 {
-    size_t dpayload = sizeof(struct hvfs_index);
     struct xnet_msg *msg;
+    size_t dpayload;
     struct hvfs_index *hi;
     struct hvfs_md_reply *hmr;
     struct mdu_update *mu;
@@ -3770,10 +3770,8 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
     u32 vid, namelen = 0;;
     int err = 0;
 
-    if (hs->uuid == 0) {
-        namelen = strlen(hs->name);
-        dpayload += namelen;
-    }
+    namelen = (hs->uuid == 0 ? strlen(hs->name) : 0);
+    dpayload = sizeof(struct hvfs_index) + namelen;
     
     if (flag == 0) {
         /* fast path */
@@ -3953,6 +3951,8 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
         hi->flag |= INDEX_BY_NAME;
         hi->namelen = namelen;
         memcpy(hi->name, hs->name, hi->namelen);
+    } else {
+        hi->flag |= INDEX_BY_UUID;
     }
 
     err = SET_ITBID(hi);
@@ -4208,13 +4208,13 @@ resend:
         err = msg->pair->tx.err;
         goto out_msg;
     } else if (msg->pair->tx.err == -ESPLIT) {
-        xnet_free_msg(msg);
+        xnet_free_msg(msg->pair);
         msg->pair = NULL;
         sched_yield();
         goto resend;
     } else if (msg->pair->tx.err == -ERESTART ||
                msg->pair->tx.err == -EHWAIT) {
-        xnet_free_msg(msg);
+        xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err) {
@@ -4368,12 +4368,12 @@ resend:
     if (!msg->pair->tx.err) {
         /* fall through quickly */;
     } else if (msg->pair->tx.err == -ESPLIT) {
-        xnet_free_msg(msg);
+        xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err == -ERESTART ||
                msg->pair->tx.err == -EHWAIT) {
-        xnet_free_msg(msg);
+        xnet_free_msg(msg->pair);
         msg->pair = NULL;
         goto resend;
     } else if (msg->pair->tx.err) {

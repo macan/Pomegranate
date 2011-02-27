@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-18 16:06:29 macan>
+ * Time-stamp: <2011-02-24 14:04:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1221,11 +1221,21 @@ void mdsl_storage_fd_pagecache_cleanup(void)
     struct hlist_node *pos;
     int idx;
 
+#ifdef MDSL_DROP_CACHE
     if (atomic64_read(&hmo.prof.storage.rbytes) - last_rbytes 
         < hmo.conf.pcct) {
         return;
     }
     last_rbytes = atomic64_read(&hmo.prof.storage.rbytes);
+#else
+    if (atomic64_read(&hmo.prof.storage.rbytes) +
+        atomic64_read(&hmo.prof.storage.wbytes) - last_rbytes
+        < hmo.conf.pcct) {
+        return;
+    }
+    last_rbytes = atomic64_read(&hmo.prof.storage.rbytes) +
+        atomic64_read(&hmo.prof.storage.wbytes);
+#endif
 
     for (idx = 0; idx < hmo.conf.storage_fdhash_size; idx++) {
         xlock_lock(&(hmo.storage.fdhash + idx)->lock);

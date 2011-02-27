@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-23 11:50:28 macan>
+ * Time-stamp: <2011-02-25 13:02:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2479,6 +2479,7 @@ int root_write_bitmap(void *data, u64 len, u64 *ooffset)
 void *root_bitmap_enlarge(void *data, u64 len)
 {
     void *new;
+    u64 olen = len;
     
     len = BITMAP_ROUNDUP(len + XTABLE_BITMAP_BYTES);
 
@@ -2486,6 +2487,8 @@ void *root_bitmap_enlarge(void *data, u64 len)
     if (!new) {
         hvfs_err(root, "xrealloc bitmap region failed\n");
     }
+    memset(new + olen, 0, len - olen);
+    
     return new;
 }
 

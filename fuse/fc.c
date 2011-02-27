@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-18 18:51:44 macan>
+ * Time-stamp: <2011-02-27 11:50:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,11 +44,140 @@
         }                                                               \
     } while (0)
 
+/* We construct a Stat-Oneshot-Cache (SOC) to boost the performance of VFS
+ * create. By saving the mdu info in SOC, we can eliminate one network rtt for
+ * the stat-after-create. */
+struct __pfs_soc_mgr
+{
+#define PFS_SOC_HSIZE_DEFAULT   (8192)
+    struct regular_hash *ht;
+    u32 hsize;
+    atomic_t nr;
+} pfs_soc_mgr;
+
+struct soc_entry
+{
+    struct hlist_node hlist;
+    char *key;
+    struct hstat hs;
+};
+
+static int __soc_init(int hsize)
+{
+    int i;
+
+    if (hsize)
+        pfs_soc_mgr.hsize = hsize;
+    else
+        pfs_soc_mgr.hsize = PFS_SOC_HSIZE_DEFAULT;
+
+    pfs_soc_mgr.ht = xmalloc(pfs_soc_mgr.hsize * sizeof(struct regular_hash));
+    if (!pfs_soc_mgr.ht) {
+        hvfs_err(xnet, "Stat Oneshot Cache(SOC) hash table init failed\n");
+        return -ENOMEM;
+    }
+
+    /* init the hash table */
+    for (i = 0; i < pfs_soc_mgr.hsize; i++) {
+        INIT_HLIST_HEAD(&pfs_soc_mgr.ht[i].h);
+        xlock_init(&pfs_soc_mgr.ht[i].lock);
+    }
+    atomic_set(&pfs_soc_mgr.nr, 0);
+
+    return 0;
+}
+
+static void __soc_destroy(void)
+{
+    xfree(pfs_soc_mgr.ht);
+}
+
+static inline
+int __soc_hash(const char *key)
+{
+    return __murmurhash64a(key, strlen(key), 0xf467eaddaf9) %
+        pfs_soc_mgr.hsize;
+}
+
+static inline
+struct soc_entry *__se_alloc(const char *key, struct hstat *hs)
+{
+    struct soc_entry *se;
+
+    se = xzalloc(sizeof(*se));
+    if (!se) {
+        hvfs_err(xnet, "xzalloc() soc_entry failed\n");
+        return NULL;
+    }
+    se->key = strdup(key);
+    se->hs = *hs;
+
+    return se;
+}
+
+static inline
+void __soc_insert(struct soc_entry *new)
+{
+    struct regular_hash *rh;
+    struct soc_entry *se;
+    struct hlist_node *pos, *n;
+    int idx, found = 0;
+
+    idx = __soc_hash(new->key);
+    rh = pfs_soc_mgr.ht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry_safe(se, pos, n, &rh->h, hlist) {
+        if (strcmp(new->key, se->key) == 0) {
+            /* already exist, then update the hstat */
+            se->hs = new->hs;
+            found = 1;
+            break;
+        }
+    }
+    if (!found) {
+        hlist_add_head(&new->hlist, &rh->h);
+    }
+    xlock_unlock(&rh->lock);
+    atomic_inc(&pfs_soc_mgr.nr);
+}
+
+static inline
+struct soc_entry *__soc_lookup(const char *key)
+{
+    struct regular_hash *rh;
+    struct soc_entry *se;
+    struct hlist_node *pos, *n;
+    int idx, found = 0;
+
+    if (atomic_read(&pfs_soc_mgr.nr) <= 0)
+        return NULL;
+    
+    idx = __soc_hash(key);
+    rh = pfs_soc_mgr.ht + idx;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry_safe(se, pos, n, &rh->h, hlist) {
+        if (strcmp(se->key, key) == 0) {
+            hlist_del(&se->hlist);
+            atomic_dec(&pfs_soc_mgr.nr);
+            found = 1;
+            break;
+        }
+    }
+    xlock_unlock(&rh->lock);
+
+    if (found)
+        return se;
+    else
+        return NULL;
+}
+
 /* We construct a write buffer cache to absorb user's write requests and flush
  * them as a whole to disk when the file are closed. Thus, we have
  * close-to-open consistency.
  */
-static size_t g_pagesize = 0;
+size_t g_pagesize = 0;
 static void *zero_page = NULL;
 struct __pfs_fuse_mgr
 {
@@ -128,7 +257,8 @@ int __odc_hash(u64 uuid)
 
 /* Return value: 0: not really removed; 1: truely removed
  */
-static int __odc_remove(struct bhhead *del)
+static inline
+int __odc_remove(struct bhhead *del)
 {
     struct regular_hash *rh;
     struct bhhead *bhh;
@@ -144,7 +274,7 @@ static int __odc_remove(struct bhhead *del)
         if (del == bhh && del->uuid == bhh->uuid) {
             if (atomic_dec_return(&bhh->ref) <= 0) {
                 idx = 1;
-                hlist_del_init(&bhh->hlist);
+                hlist_del(&bhh->hlist);
             }
             break;
         }
@@ -623,8 +753,8 @@ static int __bh_sync(struct bhhead *bhh)
             goto out_free;
         }
         /* finally, update bhh->hs */
+        hs.mc = *mc;
         bhh->hs = hs;
-        bhh->hs.mc = *mc;
         xfree(mu);
     }
 
@@ -1078,6 +1208,16 @@ static int hvfs_getattr(const char *pathname, struct stat *stbuf)
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
+    {
+        struct soc_entry *se = __soc_lookup(pathname);
+
+        if (unlikely(se)) {
+            hs = se->hs;
+            xfree(se);
+            goto pack;
+        }
+    }
+
     SPLIT_PATHNAME(dup, path, name);
     n = path;
 
@@ -1148,8 +1288,9 @@ hit:
             hs.hash = 0;
             err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 1, &hs);
             if (err) {
-                hvfs_err(xnet, "do last dir stat (GDT) on '%s' failed w/ %d\n",
-                         name, err);
+                hvfs_err(xnet, "do last dir stat (GDT) on '%s'<%lx,%lx> "
+                         "failed w/ %d\n",
+                         name, hs.uuid, hs.hash, err);
                 goto out;
             }
         }
@@ -1189,6 +1330,7 @@ hit:
         }
     }
 
+pack:
     /* pack the result to stat buffer */
     stbuf->st_ino = hs.uuid;
     stbuf->st_mode = hs.mdu.mode;
@@ -3741,8 +3883,9 @@ static int hvfs_release_dir(const char *pathname, struct fuse_file_info *fi)
 static void *hvfs_init(struct fuse_conn_info *conn)
 {
     int err = 0;
-    
-    g_pagesize = getpagesize();
+
+    if (!g_pagesize)
+        g_pagesize = getpagesize();
 realloc:
     err = posix_memalign(&zero_page, g_pagesize, g_pagesize);
     if (err || !zero_page) {
@@ -3768,6 +3911,11 @@ realloc:
     if (__odc_init(0)) {
         hvfs_err(xnet, "OpeneD Cache(ODC) init failed. FATAL ERROR!\n");
         HVFS_BUGON("ODC init failed!");
+    }
+
+    if (__soc_init(0)) {
+        hvfs_err(xnet, "Stat Oneshot Cache(SOC) init failed. FATAL ERROR!\n");
+        HVFS_BUGON("SOC init failed!");
     }
 
     return NULL;
@@ -3845,6 +3993,12 @@ hit:
     }
 
     fi->fh = (u64)__get_bhhead(&hs);
+    /* Save the hstat in SOC cache */
+    {
+        struct soc_entry *se = __se_alloc(pathname, &hs);
+
+        __soc_insert(se);
+    }
 
 out:
     xfree(dup);
@@ -3856,6 +4010,7 @@ static void hvfs_destroy(void *arg)
 {
     __ltc_destroy();
     __odc_destroy();
+    __soc_destroy();
     
     hvfs_info(xnet, "Exit the PomegranateFS fuse client now.\n");
 }

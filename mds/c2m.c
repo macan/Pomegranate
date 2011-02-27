@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-26 10:43:44 macan>
+ * Time-stamp: <2011-02-26 20:49:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -301,12 +301,14 @@ void mds_create(struct hvfs_tx *tx)
     }
 
     /* create in the CBHT */
-    hi->flag |= INDEX_CREATE | INDEX_BY_NAME;
-    if (!hi->dlen) {
+    hi->flag |= INDEX_CREATE;
+    if (hi->dlen) {
+        hi->data = tx->req->xm_data + sizeof(*hi) + hi->namelen;
+    } else {
         /* we may got zero payload create */
         hi->data = NULL;
-    } else
-        hi->data = tx->req->xm_data + sizeof(*hi) + hi->namelen;
+    }
+
     err = mds_cbht_search(hi, hmr, tx->txg, &tx->txg);
 
 #ifdef HVFS_DEBUG_LATENCY

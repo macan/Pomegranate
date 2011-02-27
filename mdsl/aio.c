@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-18 19:03:12 macan>
+ * Time-stamp: <2011-02-24 12:11:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,6 +42,12 @@
         if (length - aio_mgr.bw_stride >= 0) {       \
             length -= aio_mgr.bw_stride;             \
         }                                            \
+    } while (0)
+#define AIO_MGR_CHANGE_DIRECTION(dir) do {      \
+        if (dir > 0)                            \
+            dir = 0;                            \
+        else                                    \
+            dir = 1;                            \
     } while (0)
 
 struct aio_mgr
@@ -132,8 +138,10 @@ void aio_tune_bw(void)
     last_bytes = saved_bytes;
     last_ts = cur_ts;
 
-    if (aio_mgr.observe_bw < 50 * 1024)
+    if (aio_mgr.observe_bw < 50 * 1024) {
+        /* should we change the direction? */
         goto out_unlock;
+    }
     if (aio_mgr.observe_bw < aio_mgr.expect_bw) {
         /* try to increase the disk bandwidth. But, there should be an
          * inspection error (say 10KB) */
@@ -185,7 +193,7 @@ void aio_tune_bw(void)
                 AIO_MGR_DECREASE(aio_mgr.sync_len);
                 aio_mgr.bw_direction = 1;
             }
-        } else if (aio_mgr.ovserve_bw > last_bw) {
+        } else if (aio_mgr.observe_bw >= last_bw + (10 << 10)) {
             /* redo our last operation */
             if (aio_mgr.bw_direction) {
                 AIO_MGR_DECREASE(aio_mgr.sync_len);
@@ -339,15 +347,23 @@ int __serv_sync_unmap_request(struct aio_request *ar)
 #endif
     atomic64_add(ar->len, &hmo.prof.storage.wbytes);
     posix_madvise(ar->addr, ar->mlen, POSIX_MADV_DONTNEED);
+
 #ifdef MDSL_ACC_SYNC
     err = ar->foff - aio_sync_length() - ar->mlen;
     if (err < 0)
         err = 0;
+#ifdef MDSL_DROP_CACHE
     posix_fadvise(ar->fd, err, 
                   (ar->mlen << 1) + aio_sync_length(), POSIX_FADV_DONTNEED);
-#else
+#endif
+
+#else  /* MDSL_ACC_SYNC */
+
+#ifdef MDSL_DROP_CACHE
     posix_fadvise(ar->fd, ar->foff, ar->mlen, POSIX_FADV_DONTNEED);
 #endif
+
+#endif  /* MDSL_ACC_SYNC */
     err = munmap(ar->addr, ar->mlen);
     if (err) {
         hvfs_err(mdsl, "AIO UNMAP region [%p,%ld] failed w/ %d\n",

@@ -306,3 +306,7 @@ Pomegranate TODOs:
        Although we have copied the column info, client could't use this
        info to access the file data in new directory. It did not exist!
 
+    5. Add SOC(Stat Oneshot Cache) cache for create/mknod operation
+
+       SOC cache records the just created mdu info for files and 
+       serve for next stat operation. It should boost mdtest results.

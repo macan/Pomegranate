@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-11 16:36:08 macan>
+ * Time-stamp: <2011-02-24 17:00:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -199,6 +199,9 @@ struct xnet_context *__find_xc(u64 site_id)
 
 int st_update_sockfd(struct site_table *st, int fd, u64 dsid);
 int st_clean_sockfd(struct site_table *st, int fd);
+int st_update_sockfd_lock(struct site_table *st, int fd, u64 dsid, 
+                          struct xnet_addr **oxa);
+void st_update_sockfd_unlock(struct xnet_addr *xa);
 
 /*
  * Return value: 0 => 
@@ -306,17 +309,10 @@ int __xnet_handle_tx(int fd)
                     .msg_iov = &__iov,
                     .msg_iovlen = 1,
                 };
+                struct xnet_addr *xa = NULL;
                 int bt;
 
-                bt = sendmsg(fd, &__msg, MSG_NOSIGNAL);
-                if (bt < 0 || bt < sizeof(htx)) {
-                    hvfs_err(xnet, "sendmsg do not support redo now(%s) :(\n",
-                             strerror(errno));
-                    next = -1;
-                    goto out_raw_free;
-                }
-
-                err = st_update_sockfd(&gst, fd, msg->tx.ssite_id);
+                err = st_update_sockfd_lock(&gst, fd, msg->tx.ssite_id, &xa);
                 if (err) {
 #if 0
                     struct accept_conn *ac;
@@ -343,6 +339,15 @@ int __xnet_handle_tx(int fd)
                     next = -1;
                     goto out_raw_free;
 #endif
+                } else {
+                    bt = sendmsg(fd, &__msg, MSG_NOSIGNAL);
+                    st_update_sockfd_unlock(xa);
+                    if (bt < 0 || bt < sizeof(htx)) {
+                        hvfs_err(xnet, "sendmsg do not support redo now(%s) :(\n",
+                                 strerror(errno));
+                        next = -1;
+                        goto out_raw_free;
+                    }
                 }
             } else {
                 hvfs_err(xnet, "hello msg w/o accept entry %d\n", fd);
@@ -819,6 +824,40 @@ int st_update_sockfd(struct site_table *st, int fd, u64 dsid)
     }
 
     return 0;
+}
+
+/* st_update_sockfd_lock() update the related addr with the new connection fd
+ */
+int st_update_sockfd_lock(struct site_table *st, int fd, u64 dsid, 
+                          struct xnet_addr **oxa)
+{
+    struct xnet_addr *xa;
+
+    if (st->site[dsid]) {
+        if (st->site[dsid]->flag & XNET_SITE_LOCAL)
+            return 0;
+        list_for_each_entry(xa, &st->site[dsid]->addr, list) {
+            xlock_lock(&xa->lock);
+            /* ok, find it */
+            hvfs_debug(xnet, "Hoo, find it @ %lx{%d} <- %d.\n", 
+                       dsid, xa->index, fd);
+            if (xa->index == XNET_CONNS) {
+                xlock_unlock(&xa->lock);
+                return -1;
+            }
+            xa->sockfd[xa->index++] = fd;
+            *oxa = xa;
+            atomic64_inc(&g_xnet_prof.active_links);
+        }
+    }
+
+    return 0;
+}
+
+void st_update_sockfd_unlock(struct xnet_addr *xa)
+{
+    if (xa)
+        xlock_unlock(&xa->lock);
 }
 
 /* st_clean_sockfd() clean the related addr with the same fd
@@ -1806,7 +1845,8 @@ reselect_conn:
                 bt = sendmsg(ssock, &__msg, MSG_NOSIGNAL);
                 if (bt < 0 || msg->tx.len > bt) {
                     if (bt >= 0) {
-                        /* ok, we should adjust the iov */
+                        /* ok, we should adjust the iov. FIXME: memory leak
+                         * here! */
                         __iov_recal(msg->siov, &__msg.msg_iov, msg->siov_ulen,
                                     &__msg.msg_iovlen, bt + bw);
                         bw += bt;
@@ -1814,10 +1854,10 @@ reselect_conn:
                     } else if (errno == EINTR || errno == EAGAIN) {
                         continue;
                     }
-                    hvfs_err(xnet, "sendmsg(%d[%lx],%d,%x) err %d, "
+                    hvfs_err(xnet, "sendmsg(%d[%lx],%d,%x,flag %x) err %d, "
                              "for now we do support redo:)\n", 
                              ssock, msg->tx.dsite_id, bt,
-                             msg->tx.len, 
+                             msg->tx.len, msg->tx.flag, 
                              errno);
                     if (errno == ECONNRESET || errno == EBADF || 
                         errno == EPIPE) {

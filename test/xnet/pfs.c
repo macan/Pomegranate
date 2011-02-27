@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-27 10:25:54 macan>
+ * Time-stamp: <2011-02-24 11:43:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -74,6 +74,17 @@ int main(int argc, char *argv[])
         hargc = 11;
     } else {
         hargc = 9;
+    }
+    /* set page size of internal page cache */
+    value = getenv("ps");
+    if (value) {
+        size_t ps = atol(value);
+
+        g_pagesize = getpagesize();
+        if (ps > g_pagesize) {
+            g_pagesize = PAGE_ROUNDUP(ps, g_pagesize);
+        } else
+            g_pagesize = 0;
     }
     
     err = __core_main(hargc, hargv);

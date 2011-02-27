@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-06 11:29:12 macan>
+ * Time-stamp: <2011-02-25 13:03:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -818,6 +818,18 @@ int root_do_bitmap(struct xnet_msg *msg)
 
     /* FIXME!!!: should we enlarge the gdt bitmap? */
     /* flip the bit now */
+    if ((msg->tx.arg1 >> 3) >= re->gdt_flen) {
+        void *nb = root_bitmap_enlarge(re->gdt_bitmap, re->gdt_flen);
+
+        if (!nb) {
+            hvfs_err(root, "Enlarge bitmap region from %ld failed\n",
+                     re->gdt_flen);
+            err = -ENOMEM;
+            goto out;
+        }
+        re->gdt_bitmap = nb;
+        re->gdt_flen = BITMAP_ROUNDUP(re->gdt_flen + XTABLE_BITMAP_BYTES);
+    }
     __set_bit(msg->tx.arg1, (unsigned long *)re->gdt_bitmap);
     
     /* Step 2: we reply the caller w/ AUBITMAP_R */

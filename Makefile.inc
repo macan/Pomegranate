@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-01-27 10:21:57 macan>
+# Time-stamp: <2011-02-24 12:12:18 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -69,7 +69,7 @@ CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" \
 			-DHVFS_TRACING -DHVFS_DEBUG_MEMORY -DHVFS_DEBUG_LOCK_ \
             -D_USE_SPINLOCK_ -DHVFS_DEBUG_LATENCY_ -DXNET_BLOCKING \
 			-DXNET_EAGER_WRITEV -DCPU_CORE=$(__CORES__) \
-			-DMDSL_ACC_SYNC -DMDSL_RADICAL_DEL
+			-DMDSL_ACC_SYNC -DMDSL_RADICAL_DEL -DMDSL_DROP_CACHE_
 
 ifdef USE_JEMALLOC
 CFLAGS += -DUSE_JEMALLOC

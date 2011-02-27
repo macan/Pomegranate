@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-27 10:27:41 macan>
+ * Time-stamp: <2011-02-24 11:40:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,4 +37,5 @@
 #include <fuse.h>
 
 extern struct fuse_operations pfs_ops;
+extern size_t g_pagesize;
 #endif
