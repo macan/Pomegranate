@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-10 16:09:27 macan>
+ * Time-stamp: <2011-03-02 13:22:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,11 +43,12 @@ void dump_profiling_plot(time_t t)
      * xnet.inbytes, xnet.outbytes, xnet.active_links, storage.wbytes,
      * storage.rbytes, storage.wreq, storage.rreq, storage.cpbytes,
      * storage.aio_submitted, storage.aio_handled misc.tcc_size misc.tcc_used
-     * storage.active stroage.memcache hmo.pending_ios"
+     * storage.active stroage.memcache hmo.pending_ios hmi.mi_bused
+     * hmi.mi_bfree hmi.mi_bwrite hmi.mi_bread"
      */
     hvfs_pf("PLOT %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
             "%ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %d %d %d %ld "
-            "%ld \n", 
+            "%ld %ld %ld %ld %ld\n", 
             t, 
             atomic64_read(&hmo.prof.ring.reqout),
             atomic64_read(&hmo.prof.ring.update),
@@ -81,7 +82,11 @@ void dump_profiling_plot(time_t t)
             atomic_read(&hmo.prof.misc.tcc_used),
             atomic_read(&hmo.storage.active),
             atomic64_read(&hmo.storage.memcache),
-            atomic64_read(&hmo.pending_ios)
+            atomic64_read(&hmo.pending_ios),
+            atomic64_read(&hmi.mi_bused),
+            atomic64_read(&hmi.mi_bfree),
+            atomic64_read(&hmi.mi_bwrite),
+            atomic64_read(&hmi.mi_bread)
         );
 }
 

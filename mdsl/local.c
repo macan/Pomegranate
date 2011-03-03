@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-03 16:26:15 macan>
+ * Time-stamp: <2011-03-02 13:13:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -147,6 +147,8 @@ int __mdsl_write_local(struct storage_index *si, void *data,
 
         /* put the fde */
         mdsl_storage_fd_put(fde);
+        /* accumulate to hmi */
+        atomic64_add(iov.iov_len, &hmi.mi_bused);
     }
 
     *olocation = location;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-27 11:50:55 macan>
+ * Time-stamp: <2011-03-03 07:04:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -619,7 +619,7 @@ static int __bh_sync(struct bhhead *bhh)
 {
     struct hstat hs;
     struct bh *bh;
-    struct iovec *iov;
+    struct iovec *iov = NULL;
     off_t offset = 0;
     void *data = NULL;
     size_t size, _size;
@@ -639,6 +639,7 @@ static int __bh_sync(struct bhhead *bhh)
 
     hs = bhh->hs;
 
+    xrwlock_wlock(&bhh->clock);
     size = bhh->asize;
     i = 0;
     list_for_each_entry(bh, &bhh->bh, list) {
@@ -655,6 +656,7 @@ static int __bh_sync(struct bhhead *bhh)
         if (!data) {
             hvfs_err(xnet, "xmalloc(%ld) data buffer failed\n", 
                      bhh->asize);
+            xrwlock_wunlock(&bhh->clock);
             return -ENOMEM;
         }
 
@@ -671,6 +673,7 @@ static int __bh_sync(struct bhhead *bhh)
         iov = xmalloc(sizeof(*iov) * i);
         if (!iov) {
             hvfs_err(xnet, "xmalloc() iov buffer failed\n");
+            xrwlock_wunlock(&bhh->clock);
             return -ENOMEM;
         }
         
@@ -679,14 +682,16 @@ static int __bh_sync(struct bhhead *bhh)
         list_for_each_entry(bh, &bhh->bh, list) {
             _size = min(size, g_pagesize);
             
-            iov[i].iov_base = bh->data;
-            iov[i++].iov_len = _size;
-            
+            (iov + i)->iov_base = bh->data;
+            (iov + i)->iov_len = _size;
+            i++;
             size -= _size;
             if (size <= 0)
                 break;
         }
     }
+    __clr_bhh_dirty(bhh);
+    xrwlock_wunlock(&bhh->clock);
 
     /* calculate which itbid we should stored it in */
     {
@@ -758,7 +763,6 @@ static int __bh_sync(struct bhhead *bhh)
         xfree(mu);
     }
 
-    __clr_bhh_dirty(bhh);
     err = size;
 
 out_free:
@@ -1474,16 +1478,12 @@ static int hvfs_mknod(const char *pathname, mode_t mode, dev_t rdev)
 {
     struct hstat hs;
     struct mdu_update mu;
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), 
-        *path, *name, *spath;
+    char *dup = strdup(pathname), *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
-    if (!pathname)
-        return -EINVAL;
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
 
     spath = strdup(path);
@@ -1543,7 +1543,6 @@ hit:
 
 out:
     xfree(dup);
-    xfree(dup2);
     
     return err;
 }
@@ -3074,13 +3073,19 @@ static int hvfs_utime(const char *pathname, struct utimbuf *buf)
 {
     struct hstat hs = {0,};
     struct mdu_update mu;
-    char *dup = strdup(pathname), *path, *name;
+    char *dup = strdup(pathname), *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
     SPLIT_PATHNAME(dup, path, name);
     n = path;
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    if (err > 0) {
+        goto hit;
+    }
 
     /* parse the path and do __stat on each directory */
     do {
@@ -3111,25 +3116,21 @@ static int hvfs_utime(const char *pathname, struct utimbuf *buf)
         psalt = hs.ssalt;
     } while (!(n = NULL));
 
-    if (err)
+    if (err) {
+        xfree(spath);
         goto out;
+    }
+
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
+    xfree(spath);
+hit:
     
     mu.valid = MU_ATIME | MU_MTIME;
     mu.atime = buf->actime;
     mu.mtime = buf->modtime;
 
     /* finally, do update now */
-    if (!name || strlen(name) == 0 || strcmp(name, "/") == 0) {
-        /* update the final directory by uuid */
-        hs.name = NULL;
-        hs.hash = 0;
-        err = __hvfs_update(hmi.gdt_uuid, hmi.gdt_salt, &hs, &mu);
-        if (err) {
-            hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
-                     name, err);
-            goto out;
-        }
-    } else {
+    if (strlen(name) > 0) {
         /* update the final file by name */
         hs.name = name;
         hs.uuid = 0;
@@ -3150,6 +3151,16 @@ static int hvfs_utime(const char *pathname, struct utimbuf *buf)
                 goto out;
             }
         } else if (err) {
+            hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
+    } else {
+        /* update the final directory by uuid */
+        hs.name = NULL;
+        hs.hash = 0;
+        err = __hvfs_update(hmi.gdt_uuid, hmi.gdt_salt, &hs, &mu);
+        if (err) {
             hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
                      name, err);
             goto out;

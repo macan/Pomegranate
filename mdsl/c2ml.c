@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-18 11:43:58 macan>
+ * Time-stamp: <2011-03-02 13:11:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -155,6 +155,8 @@ void mdsl_read(struct xnet_msg *msg)
         }
         /* put the fde */
         mdsl_storage_fd_put(fde);
+        /* accumulate to hmi */
+        atomic64_add(si->scd.cr[i].req_len, &hmi.mi_bread);
     }
 
     /* we have got all the data in the iovec and now it is ok to send the data
@@ -283,6 +285,9 @@ void mdsl_write(struct xnet_msg *msg)
 
         /* put the fde */
         mdsl_storage_fd_put(fde);
+        /* accumulate to hmi */
+        atomic64_add(si->scd.cr[i].req_len, &hmi.mi_bwrite);
+        atomic64_add(si->scd.cr[i].req_len, &hmi.mi_bused);
     }
 
     /* we have written all the data region and now it is ok to send the
@@ -303,4 +308,12 @@ send_rpy:
     xnet_free_msg(msg);
     
     return;
+}
+
+/* STATFS */
+void mdsl_statfs(struct xnet_msg *msg)
+{
+    /* ABI:
+     * tx.arg0:
+     */
 }

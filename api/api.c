@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-26 21:01:37 macan>
+ * Time-stamp: <2011-03-01 12:20:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3832,7 +3832,7 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
     }
 
     hi = (struct hvfs_index *)xzalloc(dpayload);
-    if (!hi) {
+    if (unlikely(!hi)) {
         hvfs_err(xnet, "xzalloc() hvfs_index failed\n");
         return -ENOMEM;
     }

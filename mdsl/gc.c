@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-21 18:05:39 macan>
+ * Time-stamp: <2011-03-02 13:12:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,6 +68,8 @@ int itb_gc_append(int gen, struct itb *itb, struct itb_info *ii)
             HVFS_BUGON("zero location!");
         }
         mdsl_storage_fd_put(fde);
+        /* accumulate to hmi */
+        atomic64_add(itb_iov.iov_len, &hmi.mi_bused);
     }
 
 out:

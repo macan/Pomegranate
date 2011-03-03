@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-24 14:04:14 macan>
+ * Time-stamp: <2011-03-03 11:19:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1230,7 +1230,7 @@ void mdsl_storage_fd_pagecache_cleanup(void)
 #else
     if (atomic64_read(&hmo.prof.storage.rbytes) +
         atomic64_read(&hmo.prof.storage.wbytes) - last_rbytes
-        < hmo.conf.pcct) {
+        < (hmo.conf.pcct << 1)) {
         return;
     }
     last_rbytes = atomic64_read(&hmo.prof.storage.rbytes) +
