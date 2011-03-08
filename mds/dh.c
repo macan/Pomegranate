@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-10 13:19:36 macan>
+ * Time-stamp: <2011-03-08 06:37:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -337,8 +337,8 @@ void mds_dh_check(time_t cur)
     u64 tsc = lib_rdtsc(), gap;
     int i, err = 0;
 
-    /* we trigger the check every 60 seconds */
-    if (cur - last_chk < 60) {
+    /* we trigger the check every 30 seconds */
+    if (cur - last_chk < 30) {
         last_chk = cur;
         return;
     }
@@ -378,12 +378,19 @@ void mds_dh_check(time_t cur)
                            atomic_read(&tpos->ref));
                 err = mds_dh_reload_nolock(tpos);
                 if (err == -ENOENT) {
-                    /* we should remove this DHE from the table */
+                    /* we should remove this DHE from the table, we have to
+                     * relock the dh table */
+                    xlock_lock(&rh->lock);
                     mds_dh_put(tpos);
-                    while (atomic_read(&tpos->ref) > 0)
-                        xsleep(10);
+                    while (atomic_read(&tpos->ref) > 0) {
+                        xlock_unlock(&rh->lock);
+                        xsleep(20);
+                        xlock_lock(&rh->lock);
+                    }
 
                     hlist_del_init(&tpos->hlist);
+                    xlock_unlock(&rh->lock);
+
                     list_for_each_entry_safe(b, m, &tpos->bitmap, list) {
                         xfree(b);
                     }

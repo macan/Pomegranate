@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-21 14:46:11 macan>
+ * Time-stamp: <2011-03-07 19:31:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -311,6 +311,10 @@ void mds_bitmap_refresh(struct hvfs_index *hi)
     u64 offset;
     int err = 0;
     
+    /* if itbid is less than 8, we know that there is no need to refresh the
+     * bitmap */
+    if (hi->itbid < 8)
+        return;
     hvfs_info(mds, "refresh uuid %lx bitmap slice offset %ld.\n",
               hi->puuid, hi->itbid);
 
@@ -412,8 +416,8 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
     if (unlikely(e->uuid == hmi.gdt_uuid)) {
         /* ok, we should send the request to the ROOT server */
         /* FIXME: set the dsite_id!!! */
-        hvfs_err(mds, "Auto load GDT bitmap from ROOT server is not "
-                 "supported yet.\n");
+        hvfs_err(mds, "Auto load GDT bitmap %ld from ROOT server is "
+                 "sometimes broken.\n", offset);
         tsid = HVFS_RING(0);
 
         /* prepare the msg */
