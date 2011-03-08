@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-24 17:00:04 macan>
+ * Time-stamp: <2011-03-07 10:13:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1414,6 +1414,11 @@ retry:
                             close(csock);
                             csock = 0;
                             goto retry;
+                        } else if (bt == 0) {
+                            xlock_unlock(&xa->clock);
+                            close(csock);
+                            csock = 0;
+                            goto retry;
                         }
                         br += bt;
                     } while (br < sizeof(htx));
@@ -1724,6 +1729,11 @@ retry:
                             }
                             xlock_unlock(&xa->clock);
                             hvfs_err(xnet, "recv error: %s\n", strerror(errno));
+                            close(csock);
+                            csock = 0;
+                            goto retry;
+                        } else if (bt == 0) {
+                            xlock_unlock(&xa->clock);
                             close(csock);
                             csock = 0;
                             goto retry;
