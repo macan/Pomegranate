@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-08 06:37:05 macan>
+ * Time-stamp: <2011-03-09 09:51:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -182,9 +182,11 @@ void mds_dh_evict(struct dh *dh)
             /* we should iterate the bitmap list and release all the
              * bitmap slices */
             list_for_each_entry_safe(b, m, &tpos->bitmap, list) {
+                list_del(&b->list);
                 xfree(b);
             }
             xfree(tpos);
+            atomic_dec(&dh->asize);
         }
         xlock_unlock(&rh->lock);
     }
@@ -366,9 +368,11 @@ void mds_dh_check(time_t cur)
                 /* we should iterate the bitmap list and release all the
                  * bitmap slices */
                 list_for_each_entry_safe(b, m, &tpos->bitmap, list) {
+                    list_del(&b->list);
                     xfree(b);
                 }
                 xfree(tpos);
+                atomic_dec(&dh->asize);
             } else if (last_idx == i && 
                        (cur - tpos->update > hmo.conf.dhupdatei)) {
                 atomic_inc(&tpos->ref);
@@ -392,9 +396,11 @@ void mds_dh_check(time_t cur)
                     xlock_unlock(&rh->lock);
 
                     list_for_each_entry_safe(b, m, &tpos->bitmap, list) {
+                        list_del(&b->list);
                         xfree(b);
                     }
                     xfree(tpos);
+                    atomic_dec(&dh->asize);
                     goto retry;
                 }
                 hvfs_debug(mds, "POSTReload %lx @ %ld w/ %p ref %d\n", 
@@ -547,7 +553,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         hmr = get_hmr();
         if (!hmr) {
             hvfs_err(mds, "get_hmr() failed\n");
-            err = -ENOMEM;
+            e = ERR_PTR(-ENOMEM);
             goto out_free;
         }
         
@@ -571,6 +577,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
             }
             hvfs_err(mds, "lookup uuid %lx failed w/ %d.\n",
                      thi.uuid, err);
+            e = ERR_PTR(err);
             goto out_free_hmr;
         }
 
@@ -583,6 +590,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
             m = hmr_extract_local(hmr, EXTRACT_MDU, &no);
             if (!m) {
                 hvfs_err(mds, "Extract MDU failed\n");
+                e = ERR_PTR(-EFAULT);
                 goto out_free_hmr;
             }
             if (hmr->flag & MD_REPLY_WITH_DC) {
@@ -678,13 +686,16 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
             }
             rhi = hmr_extract(hmr, EXTRACT_HI, &no);
             if (!rhi) {
-                hvfs_err(mds, "hmr_extract MDU failed, do not found this "
+                hvfs_err(mds, "hmr_extract HI failed, do not found this "
                          "subregion.\n");
+                e = ERR_PTR(-EFAULT);
                 goto out_free;
             }
             m = hmr_extract(hmr, EXTRACT_MDU, &no);
             if (!m) {
                 hvfs_err(mds, "Extract MDU failed\n");
+                e = ERR_PTR(-EFAULT);
+                goto out_free;
             }
             saved_salt = rhi->ssalt;
             if (rhi->uuid == hmi.root_uuid)
@@ -1098,6 +1109,7 @@ void mds_dh_gossip(struct dh *dh)
         /* ok, we find the dhe, we just send all the bitmap slices for now */
         hvfs_debug(mds, "selected the dhe %lx to gossip (%d/%d)\n", 
                    e->uuid, stop, atomic_read(&dh->asize));
+        /* FIXME: maybe there is a race with new bitmap slice inserting. */
         list_for_each_entry(b, &e->bitmap, list) {
             __dh_gossip_bitmap(b, e->uuid);
         }
