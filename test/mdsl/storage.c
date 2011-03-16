@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-20 19:34:11 macan>
+ * Time-stamp: <2011-03-15 10:15:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -371,14 +371,14 @@ out:
 int __test_normal_rw()
 {
     struct fdhash_entry *fde;
-    struct proxy_args pa;
+    struct proxy_args *pa = xzalloc(sizeof(struct proxy_args));
     int err = 0;
 
-    pa.uuid = 1;
-    pa.cno = 0;
+    pa->uuid = 1;
+    pa->cno = 0;
     /* the proxy file we got is '$HOME/0/.proxy.1.0' */
     fde = mdsl_storage_fd_lookup_create(0, MDSL_STORAGE_NORMAL,
-                                        (u64)&pa);
+                                        (u64)pa);
     if (IS_ERR(fde)) {
         hvfs_err(mdsl, "lookup create normal file failed w/ %ld\n",
                  PTR_ERR(fde));

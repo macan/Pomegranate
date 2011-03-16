@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-26 14:30:13 macan>
+ * Time-stamp: <2011-03-16 11:25:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,6 +32,14 @@
 
 #define BRANCH_HT_DEFAULT_SIZE          (1024)
 
+static struct branch_local_op branch_default_blo = {
+    .stat = __hvfs_stat,
+    .create = __hvfs_create,
+    .update = __hvfs_update,
+    .read = __hvfs_fread_local,
+    .write = __hvfs_fwrite_local,
+};
+
 struct branch_mgr
 {
     struct regular_hash *bht;
@@ -39,12 +47,26 @@ struct branch_mgr
     atomic_t asize;
     struct branch_local_op op;
     struct branch_processor *bp;
+    struct list_head qin;
+    xlock_t qlock;
+    sem_t qsem;
     
-#define BRANCH_MGR_DEFAULT_BTO          (600) /* ten minutes */
-    int bto;                    /* branch entry timeout value */
+    pthread_t schedt;           /* scheduler thread */
+    pthread_t processt;         /* processor thread */
+    
     /* the following region is the branch memory table */
 #define BRANCH_MGR_DEFAULT_MEMLIMIT     (64 * 1024 * 1024)
     u64 memlimit;
+
+#define BRANCH_MGR_DEFAULT_BTO          (600) /* ten minutes */
+    int bto;                    /* branch entry timeout value */
+#define BRANCH_MGR_DEFAULT_DIRTY_TO     (10)
+    int dirty_to;               /* branch entry dirty timeout value */
+#define BRANCH_MGR_DEFAULT_SENT_TO      (30)
+    int sent_to;                /* branch entry sent timeout value */
+
+    u8 schedt_stop:1;
+    u8 processt_stop:1;
 };
 
 static inline
@@ -63,17 +85,6 @@ int BL_IS_CKPTED(struct branch_line *bl)
         (bl)->state |= BL_CKPTED;               \
     } while (0)
 
-struct branch_line_push_header
-{
-    int name_len;               /* length of branch name */
-    int nr;                     /* # of branch line in this packet */
-};
-
-struct branch_line_ack_header
-{
-    int name_len;               /* length of branch name */
-};
-
 struct branch_mgr bmgr;
 
 static inline
@@ -82,6 +93,26 @@ u32 __branch_hash(char *str, u32 len)
     return JSHash(str, len) % bmgr.hsize;
 }
 
+/* Region for BP primary site locating (BP is always co-located w/ MDSL)
+ *
+ * We use branch_name and current site's id to locate a BP site. Thus, we can
+ * use bulk push for the source site.
+ */
+static inline
+u64 SELECT_BP_SITE(char *branch_name, u64 site_id)
+{
+    struct chp *p;
+    u64 hash;
+    
+    hash = __murmurhash64a(branch_name, strlen(branch_name), site_id);
+    p = ring_get_point(hash, site_id, hmo.chring[CH_RING_BP]);
+    if (IS_ERR(p)) {
+        hvfs_err(xnet, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
+        return -1UL;
+    }
+
+    return p->site_id;
+}
 
 static 
 void __branch_err_reply(struct xnet_msg *msg, int err)
@@ -99,7 +130,7 @@ void __branch_err_reply(struct xnet_msg *msg, int err)
     xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
 #endif
     xnet_msg_set_err(rpy, err);
-    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0, hmo.site_id,
+    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0, hmo.xc->site_id,
                      msg->tx.ssite_id);
     xnet_msg_fill_reqno(rpy, msg->tx.reqno);
     xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, 0, 0);
@@ -113,13 +144,19 @@ void __branch_err_reply(struct xnet_msg *msg, int err)
     xnet_free_msg(rpy);
 }
 
+void *branch_scheduler(void *arg);
+void *branch_processor(void *arg);
+
 int branch_init(int hsize, int bto, u64 memlimit, 
                 struct branch_local_op *op)
 {
     int err = 0, i;
 
     /* local operations */
-    bmgr.op = *op;
+    if (op)
+        bmgr.op = *op;
+    else
+        bmgr.op = branch_default_blo;
 
     /* regular hash init */
     hsize = (hsize == 0) ? BRANCH_HT_DEFAULT_SIZE : hsize;
@@ -144,15 +181,41 @@ int branch_init(int hsize, int bto, u64 memlimit,
         bmgr.memlimit = memlimit;
     else
         bmgr.memlimit = BRANCH_MGR_DEFAULT_MEMLIMIT;
+
+    bmgr.dirty_to = BRANCH_MGR_DEFAULT_DIRTY_TO;
+    INIT_LIST_HEAD(&bmgr.qin);
+    xlock_init(&bmgr.qlock);
+    sem_init(&bmgr.qsem, 0, 0);
+
+    err = pthread_create(&bmgr.schedt, NULL, &branch_scheduler, NULL);
+    if (err)
+        goto out;
+    err = pthread_create(&bmgr.processt, NULL, &branch_processor, NULL);
+    if (err)
+        goto out;
     
 out:
     return err;
 }
 
+int branch_final_flush(void);
+
 void branch_destroy(void)
 {
+    bmgr.schedt_stop = 1;
+    bmgr.processt_stop = 1;
+    if (!HVFS_IS_BP(hmo.site_id)) {
+        pthread_kill(bmgr.schedt, SIGUSR1);
+    }
+    pthread_join(bmgr.schedt, NULL);
+    sem_post(&bmgr.qsem);
+    pthread_join(bmgr.processt, NULL);
+    
+    branch_final_flush();
+
     if (bmgr.bht)
         xfree(bmgr.bht);
+    sem_destroy(&bmgr.qsem);
 }
 
 void branch_install_bp(struct branch_entry *be,
@@ -353,9 +416,10 @@ int hvfs_fwrite_eh(struct hstat *hs, int column, u32 flag,
         u64 *location;
 
         si.sic.uuid = hs->puuid;
-        if (flag & SCD_PROXY)
+        if (flag & SCD_PROXY) {
+            si.scd.cr[0].file_offset = c->offset; /* maybe in append mode */
             si.sic.arg0 = hs->uuid;
-        else
+        } else
             si.sic.arg0 = hs->uuid;
         si.scd.flag = flag;
         si.scd.cnr = 1;
@@ -406,8 +470,7 @@ int __branch_insert(char *branch_name, struct branch_header *bh)
     xlock_lock(&rh->lock);
     hlist_for_each_entry(tpos, pos, &rh->h, hlist) {
         if (strlen(branch_name) == strlen(tpos->branch_name) &&
-            memcmp(tpos->branch_name, branch_name, 
-                   strlen(branch_name))) {
+            strcmp(tpos->branch_name, branch_name) == 0) {
             i = 1;
             break;
         }
@@ -439,8 +502,7 @@ retry:
     xlock_lock(&rh->lock);
     hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {
         if (strlen(branch_name) == strlen(tpos->branch_name) &&
-            memcmp(tpos->branch_name, branch_name,
-                   strlen(branch_name))) {
+            strcmp(tpos->branch_name, branch_name) == 0) {
             /* wait for the last reference */
             if (atomic_read(&tpos->ref) > 1) {
                 xlock_unlock(&rh->lock);
@@ -476,7 +538,7 @@ struct branch_entry *__branch_lookup(char *branch_name)
     xlock_lock(&rh->lock);
     hlist_for_each_entry(be, pos, &rh->h, hlist) {
         if (strlen(be->branch_name) == len &&
-            memcmp(be->branch_name, branch_name, len)) {
+            memcmp(be->branch_name, branch_name, len) == 0) {
             atomic_inc(&be->ref);
             i = 1;
             break;
@@ -547,21 +609,36 @@ int branch_cleanup(time_t cur)
     struct regular_hash *rh;
     struct branch_entry *tpos;
     struct hlist_node *pos, *n;
-    int i, err = 0;
+    int i, err = 0, errstate;
 
     for (i = 0; i < bmgr.hsize; i++) {
         rh = bmgr.bht + i;
         xlock_lock(&rh->lock);
         hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {
-            if (tpos->update - cur > bmgr.bto) {
+            if (cur - tpos->update > bmgr.bto) {
                 hlist_del(&tpos->hlist);
+                errstate = BO_FLUSH;
+                if (tpos->bp) {
+                    err = tpos->bp->bo_root.input(tpos->bp,
+                                                  &tpos->bp->bo_root,
+                                                  NULL, -1UL, 0, &errstate);
+                    if (errstate == BO_STOP) {
+                        /* ignore any errors */
+                        if (err) {
+                            hvfs_err(xnet, "Final flush on root branch "
+                                     "failed w/ %d\n",
+                                     err);
+                        }
+                    }
+                    bp_destroy(tpos->bp);
+                }
                 err = __branch_destroy(tpos);
                 if (!err) {
                     xfree(tpos->branch_name);
                     xfree(tpos);
                     atomic_dec(&bmgr.asize);
                 } else {
-                    hvfs_err(xnet, "Branch '%s' lingering too long\n",
+                    hvfs_err(xnet, "Branch '%s' lingering too long (busy?)\n",
                              tpos->branch_name);
                 }
             }
@@ -569,6 +646,48 @@ int branch_cleanup(time_t cur)
         xlock_unlock(&rh->lock);
     }
     
+    return 0;
+}
+
+int branch_final_flush(void)
+{
+    struct regular_hash *rh;
+    struct branch_entry *tpos;
+    struct hlist_node *pos, *n;
+    int i, err = 0, errstate;
+
+    for (i = 0; i < bmgr.hsize; i++) {
+        rh = bmgr.bht + i;
+        xlock_lock(&rh->lock);
+        hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {
+            hlist_del(&tpos->hlist);
+            /* for each branch_entry, we call root flush, left flush, and
+             * right flush */
+            errstate = BO_FLUSH;
+            if (tpos->bp) {
+                err = tpos->bp->bo_root.input(tpos->bp,
+                                              &tpos->bp->bo_root,
+                                              NULL, -1UL, 0, &errstate);
+                if (errstate == BO_STOP) {
+                    /* ignore any errors */
+                    if (err) {
+                        hvfs_err(xnet, "Final flush on root branch "
+                                 "failed w/ %d\n",
+                                 err);
+                    }
+                }
+                bp_destroy(tpos->bp);
+            }
+            err = __branch_destroy(tpos);
+            if (!err) {
+                xfree(tpos->branch_name);
+                xfree(tpos);
+                atomic_dec(&bmgr.asize);
+            }
+        }
+        xlock_unlock(&rh->lock);
+    }
+
     return 0;
 }
 
@@ -619,6 +738,8 @@ reselect:
     return dsite;
 }
 
+/* __branch_replicate() replicate one branch_line to dsite
+ */
 int __branch_replicate(struct branch_entry *be,
                        struct branch_line *bl, u64 dsite)
 {
@@ -673,6 +794,8 @@ out:
     return err;
 }
 
+/* do_replicate() handle the replicate request from other sites
+ */
 int __branch_do_replicate(struct xnet_msg *msg, 
                           struct branch_line_disk *bld)
 {
@@ -719,6 +842,7 @@ int __branch_do_replicate(struct xnet_msg *msg,
     xlock_lock(&be->lock);
     list_add_tail(&bl->list, &be->replica_lines);
     xlock_unlock(&be->lock);
+    be->update = time(NULL);
 
     branch_put(be);
 
@@ -752,10 +876,12 @@ int __branch_push(struct branch_entry *be,
     if (be->state == BE_SENDING) {
         /* another thread is sending, give up */
         err = -EBUSY;
+        xlock_unlock(&be->lock);
         goto out;
     } else {
         be->state = BE_SENDING;
     }
+    xlock_unlock(&be->lock);
 
     /* setup the rest bld fields */
     if (bl->tag)
@@ -768,9 +894,10 @@ int __branch_push(struct branch_entry *be,
     if (!msg) {
         hvfs_err(xnet, "xnet_alloc_msg() failed\n");
         err = -ENOMEM;
-        goto out;
+        /* reset state to BE_FREE */
+        goto be_free;
     }
-    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0,
                      hmo.xc->site_id, dsite);
     xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_BRANCH, BRANCH_CMD_PUSH,
                       be->last_ack);
@@ -797,12 +924,17 @@ int __branch_push(struct branch_entry *be,
     xlock_lock(&be->lock);
     if ((bl->state & BL_STATE_MASK) == BL_NEW) {
         bl->state |= BL_SENT;
+        bl->sent = time(NULL);
     }
     xlock_unlock(&be->lock);
 
 out_free:
     xnet_free_msg(msg);
-
+be_free:
+    xlock_lock(&be->lock);
+    be->state = BE_FREE;
+    xlock_unlock(&be->lock);
+    
 out:
     return err;
 }
@@ -823,6 +955,8 @@ int __branch_pack_bulk_push_header(struct xnet_msg *msg,
     return 0;
 }
 
+/* |->name|->tag|->data|
+ */
 static inline
 int __branch_pack_msg(struct xnet_msg *msg, 
                       struct branch_line_disk *bld,
@@ -857,7 +991,7 @@ int __branch_bulk_push(struct branch_entry *be, u64 dsite)
         err = -EBUSY;
     } else {
         list_for_each_entry(bl, &be->primary_lines, list) {
-            if (bl->state == BL_NEW) {
+            if ((bl->state & BL_STATE_MASK) == BL_NEW) {
                 if (nr == 0) {
                     start_bl = bl;
                 }
@@ -882,7 +1016,8 @@ int __branch_bulk_push(struct branch_entry *be, u64 dsite)
         struct xnet_msg *msg;
         struct branch_line_disk *bld_array;
         struct branch_line_push_header blph;
-        int max = (g_xnet_conf.siov_nr - 3) / 3;
+        time_t __cur_ts = time(NULL);
+        int iter = 0;
 
         msg = xnet_alloc_msg(XNET_MSG_NORMAL);
         if (!msg) {
@@ -893,13 +1028,11 @@ int __branch_bulk_push(struct branch_entry *be, u64 dsite)
 #ifdef XNET_EAGER_WRITEV
         xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
-        xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+        xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0,
                          hmo.xc->site_id, dsite);
         xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_BRANCH, 
-                          BRANCH_CMD_BULK_PUSH, 0);
+                          BRANCH_CMD_BULK_PUSH, be->last_ack);
         
-        nr = min(max, nr);
-        max = nr;
         bld_array = xzalloc(nr * sizeof(*bld_array));
         if (!bld_array) {
             hvfs_err(xnet, "xzalloc() bld array failed\n");
@@ -918,10 +1051,11 @@ int __branch_bulk_push(struct branch_entry *be, u64 dsite)
 
         ASSERT(start_bl, xnet);
         bl = start_bl;
-        while (nr-- > 0) {
-            err = __branch_pack_msg(msg, bld_array + nr, bl);
+        while (iter < nr) {
+            err = __branch_pack_msg(msg, bld_array + iter, bl);
             bl = list_entry(bl->list.next, struct branch_line, 
                             list);
+            iter++;
         }
 
         /* Step 2: do sending now */
@@ -929,26 +1063,32 @@ int __branch_bulk_push(struct branch_entry *be, u64 dsite)
         if (err) {
             hvfs_err(xnet, "xnet_send() BULK PUSH '%s' nr %d to "
                      "%lx failed w/ %d\n",
-                     be->branch_name, max, dsite, err);
-            /* just fallback */
+                     be->branch_name, nr, dsite, err);
+            /* just fallback? do not set the BL_SENT flag! */
         }
         
         xfree(bld_array);
-    out_free_msg:
-        xnet_free_msg(msg);
 
         /* Step 3: on receiving the reply, we set the bl->state to SENT. need
          * be->lock */
-        bl = start_bl;
-        xlock_lock(&be->lock);
-        while (max-- > 0) {
-            ASSERT((bl->state & BL_STATE_MASK) == BL_NEW, xnet);
-            bl->state |= BL_SENT;
-            bl = list_entry(bl->list.next, struct branch_line,
-                            list);
+        if (!err) {
+            bl = start_bl;
+            xlock_lock(&be->lock);
+            iter = 0;
+            while (iter < nr) {
+                ASSERT((bl->state & BL_STATE_MASK) == BL_NEW, xnet);
+                bl->state |= BL_SENT;
+                bl->sent = __cur_ts;
+                bl = list_entry(bl->list.next, struct branch_line,
+                                list);
+                iter++;
+            }
+            xlock_unlock(&be->lock);
         }
-        xlock_unlock(&be->lock);
         
+    out_free_msg:
+        xnet_free_msg(msg);
+
         /* Step 4: finally, we change be->state to FREE */
     exit_to_free:
         xlock_lock(&be->lock);
@@ -964,6 +1104,9 @@ int __branch_line_bcast_ack(char *branch_name, u64 ack_id,
 {
     struct xnet_msg *msg;
     int err = 0, i;
+
+    if (!xg)
+        return 0;
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!msg) {
@@ -1051,6 +1194,8 @@ out_free:
     return err;
 }
 
+/* do_ack() handle the ACK request
+ */
 int __branch_do_ack(struct xnet_msg *msg,
                     struct branch_line_ack_header *blah)
 {
@@ -1059,7 +1204,6 @@ int __branch_do_ack(struct xnet_msg *msg,
     struct xnet_group *xg = NULL;
     struct list_head ack_bcast;
     char *branch_name;
-    u64 *ack_id;
     int err = 0, i;
 
     branch_name = xzalloc(blah->name_len + 1);
@@ -1068,13 +1212,14 @@ int __branch_do_ack(struct xnet_msg *msg,
         return -ENOMEM;
     }
 
-    ack_id = (void *)blah + sizeof(*blah) + blah->name_len;
+    memcpy(branch_name, (void *)blah + sizeof(*blah), blah->name_len);
 
     be = branch_lookup_load(branch_name);
     if (IS_ERR(be)) {
         err = PTR_ERR(be);
         goto out_free;
     }
+    INIT_LIST_HEAD(&ack_bcast);
 
     /* Note that, we know the ACK is accumulative */
 retry:
@@ -1085,20 +1230,20 @@ retry:
         goto retry;
     }
     list_for_each_entry_safe(bl, n, &be->primary_lines, list) {
-        if (bl->id <= *ack_id) {
+        if (bl->id <= blah->ack_id) {
             if ((bl->state & BL_STATE_MASK) == BL_SENT) {
                 /* we can remove it now */
                 list_del_init(&bl->list);
                 list_add_tail(&bl->list, &ack_bcast);
             } else if ((bl->state & BL_STATE_MASK) == BL_NEW) {
                 hvfs_err(xnet, "ACK a NEW state line %ld ACK %ld\n",
-                         bl->id, *ack_id);
+                         bl->id, blah->ack_id);
             } else {
                 /* ACKed state ? remove it now */
                 list_del_init(&bl->list);
                 list_add_tail(&bl->list, &ack_bcast);
             }
-            if (bl->id == *ack_id) {
+            if (bl->id == blah->ack_id) {
                 break;
             }
         } else {
@@ -1107,7 +1252,7 @@ retry:
         }
     }
     /* update the last_ack value */
-    be->last_ack = *ack_id;
+    be->last_ack = blah->ack_id;
     
     xlock_unlock(&be->lock);
     
@@ -1120,14 +1265,14 @@ retry:
         }
         list_del(&bl->list);
         xfree(bl->tag);
-        xfree(bl->data);
+        /* there is no need to free bl->data */
         xfree(bl);
     }
     
-    err = __branch_line_bcast_ack(branch_name, *ack_id, xg);
+    err = __branch_line_bcast_ack(branch_name, blah->ack_id, xg);
     if (err) {
         hvfs_err(xnet, "bcast ACK %ld to many sites failed w/ %d\n",
-                 *ack_id, err);
+                 blah->ack_id, err);
         /* ignore the error */
     }
     
@@ -1138,6 +1283,282 @@ out_free:
     xfree(branch_name);
     
     return err;
+}
+
+/* do_adjust() handle the ADJUST request. It change the branch_entry's
+ * last_ack to the specific ack_id, and reset branch lines' state to BL_NEW.
+ */
+int __branch_do_adjust(struct xnet_msg *msg, 
+                       struct branch_adjust_entry *bae)
+{
+    struct branch_entry *be;
+    struct branch_line *bl;
+    int namelen = msg->tx.len - sizeof(*bae), err = 0;
+    char __bname[namelen + 1];
+
+    memcpy(__bname, (void *)bae + sizeof(*bae), namelen);
+    __bname[namelen] = '\0';
+
+    be = branch_lookup_load(__bname);
+    if (IS_ERR(be)) {
+        err = PTR_ERR(be);
+        goto out;
+    }
+
+    /* reset branch lines' state */
+retry:
+    xlock_lock(&be->lock);
+    if (be->state == BE_SENDING) {
+        xlock_unlock(&be->lock);
+        sleep(1);
+        goto retry;
+    }
+    if (be->last_ack > bae->ack_id) {
+        hvfs_err(xnet, "branch '%s' last_ack has been updated to %ld(%ld)\n",
+                 __bname, be->last_ack, bae->ack_id);
+        err = -EIGNORE;
+        goto out_unlock;
+    }
+    
+    list_for_each_entry(bl, &be->primary_lines, list) {
+        if (bl->id < bae->lid)
+            continue;
+        if ((bl->state & BL_STATE_MASK) == BL_NEW)
+            break;
+        if ((bl->state & BL_STATE_MASK) == BL_SENT) {
+            bl->state &= (BL_STATE_MASK & ~(BL_SENT));
+        }
+    }
+
+    be->last_ack = bae->ack_id;
+
+out_unlock:
+    xlock_unlock(&be->lock);
+    branch_put(be);
+
+    /* finally, send the reply now */
+    __branch_err_reply(msg, 0);
+
+out:
+    return err;
+}
+
+int branch_send_bor(struct xnet_msg *msg, struct branch_op_result *bor,
+                    size_t len)
+{
+    struct xnet_msg *rpy;
+
+    rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!rpy) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        /* do not retry myself */
+        return -ENOMEM;
+    }
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
+    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0, hmo.xc->site_id,
+                     msg->tx.ssite_id);
+    xnet_msg_fill_reqno(rpy, msg->tx.reqno);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, len, 0);
+    /* match the original request at the source site */
+    rpy->tx.handle = msg->tx.handle;
+    xnet_msg_add_sdata(rpy, bor, len);
+
+    if (xnet_send(hmo.xc, rpy)) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        /* do not retry my self */
+    }
+    xnet_free_msg(rpy);
+
+    return 0;
+}
+
+int __branch_do_getbor(struct xnet_msg *msg, char *branch_name)
+{
+    struct branch_entry *be;
+    struct branch_op_result *bor;
+    struct branch_line_disk *bld = NULL;
+    int errstate = 0;
+    int len = 0, err = 0;
+
+    be = branch_lookup_load(branch_name);
+    if (IS_ERR(be)) {
+        err = PTR_ERR(be);
+        return err;
+    }
+
+    if (!be->bp) {
+        hvfs_err(xnet, "BE %s's BP is not installed properly.\n",
+                 branch_name);
+        return -EFAULT;
+    }
+
+    err = be->bp->bo_root.output(be->bp,
+                                 &be->bp->bo_root,
+                                 NULL,
+                                 &bld, &len, &errstate);
+    if (errstate == BO_STOP) {
+        if (err) {
+            hvfs_err(xnet, "root's output failed w/ %d, still "
+                     "trying to retrieve BLD\n", 
+                     err);
+        }
+    }
+    branch_put(be);
+    if (len > 0) {
+        struct branch_line_disk *p;
+        struct branch_op_result_entry *bore;
+        int nr = 0;
+        
+        /* we do have some BLD to return */
+        bor = xzalloc(sizeof(*bor) + len);
+        if (!bor) {
+            hvfs_err(xnet, "xzalloc() BOR region failed\n");
+            xfree(bld);
+            return -ENOMEM;
+        }
+
+        p = bld;
+        bore = (void *)bor + sizeof(*bor);
+        while ((void *)p < (void *)bld + len) {
+            bore->id = p->bl.id;
+            bore->len = p->bl.data_len;
+            memcpy(bore->data, p->data, bore->len);
+            p = (void *)p + sizeof(*bld) + bore->len;
+            bore = (void *)bore + sizeof(*bore) + bore->len;
+            nr++;
+        }
+        bor->nr = nr;
+        hvfs_err(xnet, "construct BOR w/ %d BORE len %d\n", nr, len);
+        xfree(bld);
+        
+        err = branch_send_bor(msg, bor, (void *)bore - (void *)bor);
+        if (err) {
+            hvfs_err(xnet, "branch_send_bor(%d) to %lx BE %s "
+                     "failed w/ %d\n",
+                     bor->nr, msg->tx.ssite_id, branch_name, err);
+        }
+        xfree(bor);
+    } else {
+        err = branch_send_bor(msg, NULL, 0);
+        if (err) {
+            hvfs_err(xnet, "branch_send_bor(0) to %lx BE %s "
+                     "failed w/ %d\n",
+                     msg->tx.ssite_id, branch_name, err);
+        }
+    }
+
+    return err;
+}
+
+int branch_send_ack(struct xnet_msg *msg, char *branch_name, 
+                    u64 ack_id)
+{
+    struct xnet_msg *rpy;
+    struct branch_line_ack_header blah = {
+        .ack_id = ack_id,
+        .name_len = strlen(branch_name),
+    };
+    int err = 0;
+
+    rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!rpy) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        /* do not retry myself */
+        return -ENOMEM;
+    }
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
+    xnet_msg_fill_tx(rpy, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.site_id,
+                     msg->tx.ssite_id);
+    xnet_msg_fill_cmd(rpy, HVFS_MDS2MDS_BRANCH, BRANCH_CMD_ACK, 0);
+    xnet_msg_add_sdata(rpy, &blah, sizeof(blah));
+    xnet_msg_add_sdata(rpy, branch_name, blah.name_len);
+
+    err = xnet_send(hmo.xc, rpy);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() ACK '%s' %ld failed w/ %d\n",
+                 branch_name, ack_id, err);
+        goto out;
+    }
+
+    ASSERT(rpy->pair, xnet);
+    if (rpy->pair->tx.err) {
+        hvfs_err(xnet, "Remote handle ACK failed w/ %d\n", 
+                 rpy->pair->tx.err);
+    }
+
+out:
+    xnet_free_msg(rpy);
+
+    return 0;
+}
+
+/* Request BP.mode=0 to adjust its last_ack to ack_id, and reset branch
+ * lines's state to BL_NEW (whose line id begin from lid).
+ */
+int branch_send_adjust(struct xnet_msg *msg, char *branch_name,
+                       u64 ack_id, u64 lid)
+{
+    struct xnet_msg *rpy;
+    struct branch_adjust_entry bae = {
+        .ack_id = ack_id,
+        .lid = lid,
+    };
+    int err = 0;
+
+    rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!rpy) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        /* do not retry myself */
+        return -ENOMEM;
+    }
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
+    xnet_msg_fill_tx(rpy, XNET_MSG_REQ, XNET_NEED_REPLY, 
+                     hmo.xc->site_id, msg->tx.ssite_id);
+    xnet_msg_fill_cmd(rpy, HVFS_MDS2MDS_BRANCH, BRANCH_CMD_ADJUST, 0);
+    xnet_msg_add_sdata(rpy, &bae, sizeof(bae));
+    xnet_msg_add_sdata(rpy, branch_name, strlen(branch_name));
+
+    err = xnet_send(hmo.xc, rpy);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() ADJUST '%s' (%ld,%ld) failed w/ %d\n",
+                 branch_name, ack_id, lid, err);
+        goto out;
+    }
+
+    ASSERT(rpy->pair, xnet);
+    if (rpy->pair->tx.err) {
+        hvfs_err(xnet, "Remote handle ACK failed w/ %d\n", 
+                 rpy->pair->tx.err);
+    }
+
+out:
+    xnet_free_msg(rpy);
+
+    return err;
+}
+
+/* branch_dispatch_split() works for BP mode or test AMC client to split the
+ * message handling with message receiving.
+ */
+int branch_dispatch_split(void *arg)
+{
+    struct xnet_msg *msg = (struct xnet_msg *)arg;
+
+    xlock_lock(&bmgr.qlock);
+    list_add_tail(&msg->list, &bmgr.qin);
+    xlock_unlock(&bmgr.qlock);
+    sem_post(&bmgr.qsem);
+
+    return 0;
 }
 
 /* branch_dispatch() act on the incomming message
@@ -1151,9 +1572,9 @@ int branch_dispatch(void *arg)
     int err = 0;
 
     switch (msg->tx.arg0) {
-    case BRANCH_CMD_NOPE:
+    case BRANCH_CMD_NOPE:       /* no need to reply */
         break;
-    case BRANCH_CMD_PUSH:
+    case BRANCH_CMD_PUSH:       /* no need to reply */
     {
         /* oh, this must be the process node */
         struct branch_line_disk *bld;
@@ -1164,19 +1585,131 @@ int branch_dispatch(void *arg)
             hvfs_err(xnet, "Invalid PUSH request from %lx\n",
                      msg->tx.ssite_id);
             err = -EINVAL;
-            __branch_err_reply(msg, err);
             goto out;
         }
         
         /* Step 1: call the branch processor to do actions */
-        err = bp_handle_push(bmgr.bp, msg, bld);
-        /* Step 2: send the reply message, arg1 is errno */
-        __branch_err_reply(msg, err);
-        
+        {
+            struct branch_entry *be;
+            u64 ack_id;
+            char __bname[bld->name_len + 1];
+
+            memcpy(__bname, (void *)bld + sizeof(*bld), bld->name_len);
+            __bname[bld->name_len] = '\0';
+            
+            be = branch_lookup_load(__bname);
+            if (IS_ERR(be)) {
+                err = PTR_ERR(be);
+                goto out;
+            }
+            
+            err = bp_handle_push(be->bp, msg, bld);
+            if (err == -EADJUST) {
+                ack_id = bp_get_ack(be->bp, msg->tx.ssite_id);
+                ack_id == 0 ? ack_id = 1 : 0;
+                err = branch_send_adjust(msg, __bname, ack_id, bld->bl.id);
+                if (err) {
+                    hvfs_err(xnet, "Branch send ADJUST (%ld,%ld) "
+                             "failed w/ %d\n",
+                             ack_id, bld->bl.id, err);
+                }
+                goto push_exit;
+            } else if (err) {
+                hvfs_err(xnet, "BP handle push for %s failed w/ %d\n",
+                         __bname, err);
+            }
+            ack_id = bp_get_ack(be->bp, msg->tx.ssite_id);
+            err = branch_send_ack(msg, __bname, ack_id);
+            if (err) {
+                hvfs_err(xnet, "Branch send ACK %ld to %lx failed w/ %d\n",
+                         ack_id, msg->tx.ssite_id, err);
+            }
+        push_exit:        
+            branch_put(be);
+        }
         break;
     }
-    case BRANCH_CMD_BULK_PUSH:
+    case BRANCH_CMD_BULK_PUSH:  /* no need to reply */
     {
+        /* this should be the process node */
+        struct branch_line_push_header *blph;
+
+        if (msg->xm_datacheck) {
+            blph = (struct branch_line_push_header *)msg->xm_data;
+        } else {
+            hvfs_err(xnet, "Invalid BULK PUSH request from %lx\n",
+                     msg->tx.ssite_id);
+            err = -EINVAL;
+            goto out;
+        }
+
+        /* Step 1: call the branch processor to do actions */
+        {
+            struct branch_entry *be;
+            u64 ack_id;
+            struct branch_line_disk *bld;
+            char __bname[blph->name_len + 1];
+
+            memcpy(__bname, (void *)blph + sizeof(*blph), blph->name_len);
+            __bname[blph->name_len] = '\0';
+
+            be = branch_lookup_load(__bname);
+            if (IS_ERR(be)) {
+                err = PTR_ERR(be);
+                goto out;
+            }
+
+            err = bp_handle_bulk_push(be->bp, msg, blph);
+            if (err == -EADJUST) {
+                ack_id = bp_get_ack(be->bp, msg->tx.ssite_id);
+                ack_id == 0 ? ack_id = 1 : 0;
+                bld = (struct branch_line_disk *)((void *)blph + 
+                                                  sizeof(*blph) +
+                                                  blph->name_len);
+                err = branch_send_adjust(msg, __bname, ack_id, bld->bl.id);
+                if (err) {
+                    hvfs_err(xnet, "Branch send ADJUST (%ld,%ld) "
+                             "failed w/ %d\n",
+                             ack_id, bld->bl.id, err);
+                }
+                goto bulk_push_exit;
+            } else if (err) {
+                hvfs_err(xnet, "BP handle bulk push for '%s' failed w/ %d\n",
+                         __bname, err);
+            }
+            ack_id = bp_get_ack(be->bp, msg->tx.ssite_id);
+            err = branch_send_ack(msg, __bname, ack_id);
+            if (err) {
+                hvfs_err(xnet, "Branch send ACK %ld to %lx failed w/ %d\n",
+                         ack_id, msg->tx.ssite_id, err);
+            }
+        bulk_push_exit:        
+            branch_put(be);
+        }
+        break;
+    }
+    case BRANCH_CMD_ADJUST:     /* need to reply */
+    {
+        /* adjust branch_entry's last_ack and reset some branch lines' state
+         * to BL_NEW to trigger resend */
+        struct branch_adjust_entry *bae;
+
+        if (msg->xm_datacheck) {
+            bae = (struct branch_adjust_entry *)msg->xm_data;
+        } else {
+            hvfs_err(xnet, "Invalid ADJUST request from %lx\n",
+                     msg->tx.ssite_id);
+            err = -EINVAL;
+            __branch_err_reply(msg, err);
+            goto out;
+        }
+
+        err = __branch_do_adjust(msg, bae);
+        if (err) {
+            hvfs_err(xnet, "Self do ADJUST <%ld,%ld> failed w/ %d\n",
+                     bae->ack_id, bae->lid, err);
+            __branch_err_reply(msg, err);
+        }
         break;
     }
     case BRANCH_CMD_PULL:
@@ -1184,7 +1717,7 @@ int branch_dispatch(void *arg)
         /* pull command is just a reserved cmd */
         break;
     }
-    case BRANCH_CMD_ACK:
+    case BRANCH_CMD_ACK:        /* need to reply */
     {
         struct branch_line_ack_header *blah;
 
@@ -1207,7 +1740,34 @@ int branch_dispatch(void *arg)
         }
         break;
     }
-    case BRANCH_CMD_REPLICA:
+    case BRANCH_CMD_GETBOR:
+    {
+        /* ABI:
+         * tx.arg1: name length
+         * xmdata: branch name
+         */
+        char __bname[msg->tx.arg1 + 1];
+
+        if (!msg->xm_datacheck) {
+            hvfs_err(xnet, "Invalid GETBOR request from %lx\n",
+                     msg->tx.ssite_id);
+            err = -EINVAL;
+            __branch_err_reply(msg, err);
+            goto out;
+        }
+        
+        memcpy(__bname, msg->xm_data, msg->tx.arg1);
+        __bname[msg->tx.arg1] = '\0';
+
+        err = __branch_do_getbor(msg, __bname);
+        if (err) {
+            hvfs_err(xnet, "Self do GETBOR for BE %s failed w/ %d\n",
+                     __bname, err);
+            __branch_err_reply(msg, err);
+        }
+        break;
+    }
+    case BRANCH_CMD_REPLICA:    /* need to reply */
     {
         struct branch_line_disk *bld;
 
@@ -1230,7 +1790,7 @@ int branch_dispatch(void *arg)
         }
         break;
     }
-    case BRANCH_CMD_ACK_REPLICA:
+    case BRANCH_CMD_ACK_REPLICA: /* need to reply */
     {
         if (!msg->xm_datacheck) {
             hvfs_err(xnet, "Invalid REPLICA ACK request from %lx\n",
@@ -1258,6 +1818,122 @@ int branch_dispatch(void *arg)
     xnet_free_msg(msg);
 out:    
     return err;
+}
+
+/* branch_scheduler is a standalone thread for branch handling
+ */
+void *branch_scheduler(void *arg)
+{
+    sigset_t set;
+    struct branch_entry *be;
+    struct regular_hash *rh;
+    struct hlist_node *pos;
+    time_t cur;
+    int i, wait, err = 0;
+
+    /* first, let us block the SIGALRM and SIGCHLD */
+    sigemptyset(&set);
+    sigaddset(&set, SIGALRM);
+    sigaddset(&set, SIGCHLD);
+    pthread_sigmask(SIG_BLOCK, &set, NULL);
+    sigemptyset(&set);
+    sigaddset(&set, SIGUSR1);
+    pthread_sigmask(SIG_UNBLOCK, &set, NULL);
+
+    while (!bmgr.schedt_stop) {
+        /* begin timing */
+        wait = bmgr.dirty_to;
+        cur = time(NULL);
+
+        /* check the branch entries */
+        for (i = 0; i < bmgr.hsize; i++) {
+            rh = bmgr.bht + i;
+            xlock_lock(&rh->lock);
+            hlist_for_each_entry(be, pos, &rh->h, hlist) {
+                /* for bp.mode=0: we should push the branch lines to BP
+                 * node */
+                if (cur >= be->update + bmgr.dirty_to) {
+                    err = __branch_bulk_push(be, 
+                                             SELECT_BP_SITE(be->branch_name,
+                                                            hmo.site_id));
+                    if (err) {
+                        hvfs_err(xnet, "branch bulk push for %s "
+                                 "failed w/ %d\n",
+                                 be->branch_name, err);
+                    }
+                } else {
+                    wait = min(wait, (int)(cur - be->update));
+                }
+                /* for bp.mode=1: we should do the flush for every 3*dirty_to
+                 * seconds */
+                if (cur >= be->update + bmgr.dirty_to * 3) {
+                    int errstate = BO_FLUSH;
+
+                    if (be->bp && BE_ISDIRTY(be)) {
+                        err = be->bp->bo_root.input(be->bp,
+                                                    &be->bp->bo_root,
+                                                    NULL, -1UL, 0, &errstate);
+                        if (errstate == BO_STOP) {
+                            /* ignore any errors */
+                            if (err) {
+                                hvfs_err(xnet, "scheduled flush on BE %s "
+                                         "failed w/ %d\n",
+                                         be->branch_name, err);
+                            }
+                        }
+                    }
+                }
+            }
+            xlock_unlock(&rh->lock);
+        }
+        /* check if we should do some cleanups */
+        branch_cleanup(cur);
+
+        /* finally, wait for several seconds */
+        do {
+            wait = sleep(wait);
+        } while (wait > 0 && !bmgr.schedt_stop);
+    }
+    
+    pthread_exit(NULL);
+}
+
+/* branch_processor is a standalone thread for branch request handling
+ */
+void *branch_processor(void *arg)
+{
+    sigset_t set;
+    struct xnet_msg *pos, *n;
+    int err = 0;
+
+    /* first, let us block the SIGALRM and SIGCHLD */
+    sigemptyset(&set);
+    sigaddset(&set, SIGALRM);
+    sigaddset(&set, SIGCHLD);
+    pthread_sigmask(SIG_BLOCK, &set, NULL);
+    sigemptyset(&set);
+    sigaddset(&set, SIGUSR1);
+    pthread_sigmask(SIG_UNBLOCK, &set, NULL);
+
+    while (!bmgr.processt_stop) {
+        err = sem_wait(&bmgr.qsem);
+        if (err == EINTR)
+            continue;
+
+        xlock_lock(&bmgr.qlock);
+        list_for_each_entry_safe(pos, n, &bmgr.qin, list) {
+            list_del_init(&pos->list);
+            err = branch_dispatch(pos);
+            if (err) {
+                hvfs_err(xnet, "Dispatch branch msg from %lx: cmd %lx"
+                         " failed w/ %d\n", 
+                         pos->tx.ssite_id, pos->tx.cmd, err);
+            }
+        }
+        xlock_unlock(&bmgr.qlock);
+    }
+    
+    pthread_exit(NULL);
 }
 
 /* branch_create()
@@ -1363,20 +2039,18 @@ relookup:
     memcpy(bh->tag, tag, strlen(tag));
     bh->level = level;
     bh->ops.nr = nr;
+    bh->id = (hmo.site_id << 44) | atomic64_read(&hmi.mi_bid);
 
     offset = (void *)bh + sizeof(*bh) + 
         nr * sizeof(struct branch_op);
     for (i = 0; i < nr; i++) {
         bh->ops.ops[i] = ops->ops[i];
-        /* setup the id now, if you update the branch ops, make sure do not
-         * overwrite the id! */
-        bh->ops.ops[i].id = i;
         memcpy(offset, ops->ops[i].data, ops->ops[i].len);
         offset += ops->ops[i].len;
     }
 
     /* calculate which itbid we should stored it in */
-    hs.hash = hvfs_hash(hs.puuid, (u64)hs.name, strlen(hs.name),
+    hs.hash = hvfs_hash(hs.puuid, (u64)branch_name, strlen(branch_name),
                         HASH_SEL_EH);
     {
         struct dhe *e;
@@ -1415,7 +2089,8 @@ relookup:
             err = -ENOMEM;
             goto out;
         }
-        mu->valid = MU_COLUMN;
+        mu->valid = MU_COLUMN | MU_SIZE;
+        mu->size = hs.mc.c.len;
         mu->column_no = 1;
         hs.mc.cno = 0;
 
@@ -1472,7 +2147,7 @@ int branch_adjust_bid(struct branch_ack_cache_disk *bacd, int nr)
 int branch_load(char *branch_name, char *tag, int mode)
 {
     struct hstat hs;
-    struct branch_header *bh;
+    struct branch_header *bh = NULL;
     struct branch_ack_cache_disk *bacd = NULL;
     struct branch_op_result *result = NULL;
     u64 buuid, bsalt;
@@ -1505,8 +2180,6 @@ int branch_load(char *branch_name, char *tag, int mode)
     buuid = hs.uuid;
     bsalt = hs.ssalt;
     memset(&hs, 0, sizeof(hs));
-    hs.puuid = buuid;
-    hs.psalt = bsalt;
     hs.name = branch_name;
     err = hvfs_stat_eh(buuid, bsalt, 0, &hs);
     if (err) {
@@ -1528,16 +2201,23 @@ int branch_load(char *branch_name, char *tag, int mode)
             sizeof(struct branch_op);
         int i;
         for (i = 0; i < bh->ops.nr; i++) {
-            bh->ops.ops[i].data = offset;
+            if (bh->ops.ops[i].len)
+                bh->ops.ops[i].data = offset;
+            else
+                bh->ops.ops[i].data = NULL;
             offset += bh->ops.ops[i].len;
+            hvfs_err(xnet, "i=%d ID=%d rid=%d lor=%d dl %d data %s\n", 
+                     i, bh->ops.ops[i].id,
+                     bh->ops.ops[i].rid,
+                     bh->ops.ops[i].lor,
+                     bh->ops.ops[i].len,
+                     (char *)bh->ops.ops[i].data);
         }
     }
 
     /* Step 3.1 read in the branch cache data */
     {
         memset(&hs, 0, sizeof(hs));
-        hs.puuid = buuid;
-        hs.psalt = bsalt;
         hs.name = branch_name;
         err = hvfs_stat_eh(buuid, bsalt, 1, &hs);
         if (err) {
@@ -1559,29 +2239,34 @@ int branch_load(char *branch_name, char *tag, int mode)
         }
     }
 
-    /* Step 3.2 read in the branch operation result data */
+    /* Step 3.2 read in the branch operation result data from this site's
+     * result file (if it exists) */
     if (mode == 1) {
+        char __fname[256];
+
         memset(&hs, 0, sizeof(hs));
-        hs.puuid = buuid;
-        hs.psalt = bsalt;
-        hs.name = branch_name;
-        err = hvfs_stat_eh(buuid, bsalt, 1, &hs);
-        if (err) {
+        snprintf(__fname, 255, ".%s.%lx", branch_name, hmo.site_id);
+        hs.name = __fname;
+        err = hvfs_stat_eh(buuid, bsalt, 0, &hs);
+        if (err == -ENOENT) {
+            /* it is ok, just do not do read */
+        } else if (err) {
             hvfs_err(xnet, "do internal file stat (SDT) on "
                      "branch '%s' failed w/ %d\n", 
-                     branch_name, err);
+                     __fname, err);
             xfree(bh);
             xfree(bacd);
             goto out;
-        }
-        if (hs.mc.c.len > 0) {
-            err = hvfs_fread_eh(&hs, 2, (void **)&result, &hs.mc.c);
-            if (err < 0) {
-                hvfs_err(xnet, "read the branch '%s' failed w/ %d\n",
-                         branch_name, err);
-                xfree(bh);
-                xfree(bacd);
-                goto out;
+        } else {
+            if (hs.mc.c.len > 0) {
+                err = hvfs_fread_eh(&hs, 0, (void **)&result, &hs.mc.c);
+                if (err < 0) {
+                    hvfs_err(xnet, "read the branch '%s' failed w/ %d\n",
+                             branch_name, err);
+                    xfree(bh);
+                    xfree(bacd);
+                    goto out;
+                }
             }
         }
     }
@@ -1665,7 +2350,7 @@ int branch_publish(u64 puuid, u64 uuid, char *branch_name,
     struct branch_entry *be;
     int err = 0;
 
-    bl = xzalloc(sizeof(*bl));
+    bl = xzalloc(sizeof(*bl) + data_len);
     if (!bl) {
         hvfs_err(xnet, "xzalloc() branch_line failed\n");
         return -ENOMEM;
@@ -1674,7 +2359,8 @@ int branch_publish(u64 puuid, u64 uuid, char *branch_name,
     /* construct the branch_line and add it to the memory hash table */
     bl->life = time(NULL);
     INIT_LIST_HEAD(&bl->list);
-    bl->data = data;
+    bl->data = (void *)bl + sizeof(*bl);
+    memcpy(bl->data, data, data_len);
     bl->data_len = data_len;
     /* get the global unique id */
     bl->id = BRANCH_GET_ID();
@@ -1741,6 +2427,7 @@ int branch_publish(u64 puuid, u64 uuid, char *branch_name,
     xlock_lock(&be->lock);
     list_add_tail(&bl->list, &be->primary_lines);
     xlock_unlock(&be->lock);
+    BE_UPDATE_TS(be, time(NULL));
     
 out_put:
     branch_put(be);
@@ -1749,7 +2436,7 @@ out:
     return err;
 out_reject:
     xfree(bl);
-    err = -EFAULT;
+    err = -EINVAL;
     goto out_put;
 }
 
@@ -1757,6 +2444,85 @@ int branch_subscribe(u64 puuid, u64 uuid, char *branch_name,
                      char *tag, u8 level, branch_callback_t bc)
 {
     int err = 0;
+
+    return err;
+}
+
+int branch_getbor(char *branch_name, u64 bpsite, 
+                  struct branch_op_result **bor)
+{
+    struct xnet_msg *msg;
+    int err = 0;
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        /* do not retry myself */
+        return -ENOMEM;
+    }
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_BRANCH, BRANCH_CMD_GETBOR, 
+                      strlen(branch_name));
+    xnet_msg_add_sdata(msg, branch_name, strlen(branch_name));
+    
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
+                     hmo.site_id, bpsite);
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() GETBOR '%s' failed w/ %d\n",
+                 branch_name, err);
+        goto out_free;
+    }
+    ASSERT(msg->pair, xnet);
+    ASSERT(msg->pair->tx.len == msg->pair->tx.arg0, xnet);
+    *bor = msg->pair->xm_data;
+    xnet_clear_auto_free(msg->pair);
+
+out_free:
+    xnet_free_msg(msg);
+    
+    return err;
+}
+
+int branch_dumpbor(char *branch_name, u64 bpsite)
+{
+    struct branch_op_result *bor = NULL;
+    struct branch_op_result_entry *bore;
+    int err = 0, i;
+    
+    if (bpsite < HVFS_SITE_N_MASK)
+        bpsite += HVFS_BP(0);
+    err = branch_getbor(branch_name, bpsite, &bor);
+    if (err) {
+        hvfs_err(xnet, "branch_getbor() failed w/ %d\n", err);
+        return err;
+    }
+    bore = (void *)bor + sizeof(*bor);
+    for (i = 0; i < bor->nr; i++) {
+        switch (bore->len) {
+        case 1:
+        case 2:
+        case 4:
+            hvfs_err(xnet, "BO %8d dlen %8d => D(%d) X(%x)\n",
+                     bore->id, bore->len,
+                     bore->data[0], bore->data[0]);
+            break;
+        case 8:
+            hvfs_err(xnet, "BO %8d dlen %8d => D(%ld) X(%lx)\n",
+                     bore->id, bore->len,
+                     *(u64 *)bore->data, *(u64 *)bore->data);
+            break;
+        default:
+            hvfs_err(xnet, "BO %8d dlen %8d => S(%s)\n",
+                     bore->id, bore->len,
+                     (char *)bore->data);
+        }
+        bore = (void *)bore + sizeof(*bore) + bore->len;
+    }
+    xfree(bor);
 
     return err;
 }

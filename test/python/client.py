@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-02-10 13:28:11 macan>
+# Time-stamp: <2011-03-15 15:13:53 macan>
 #
 # Armed with EMACS.
 #
@@ -23,6 +23,7 @@ try:
     mds = CDLL("../../lib/libmds.so.1.0", mode=RTLD_GLOBAL)
     root = CDLL("../../lib/libr2.so.1.0", mode=RTLD_GLOBAL)
     api = CDLL("../../lib/libapi.so.1.0", mode=RTLD_GLOBAL)
+    branch = CDLL("../../lib/libbranch.so.1.0", mode=RTLD_GLOBAL)
 except OSError, oe:
     print "Can not load shared library: %s" % oe
     sys.exit()
@@ -71,11 +72,49 @@ class bcolors:
         else:
             print str(string)
 
+class struct_hmo(Structure):
+    _fields_ = [("others", c_char * 1568),
+                ("branch_dispatch", c_void_p),
+                ("cb_exit", c_void_p),
+                ("cb_hb", c_void_p),
+                ("cb_ring_update", c_void_p),
+                ("cb_addr_table_update", c_void_p),
+                ("cb_branch_init", c_void_p),
+                ("cb_branch_destroy", c_void_p),
+                ]
+
+class struct_branch_op(Structure):
+    FILTER = 0x0001
+    SUM = 0x0002
+    MAX = 0x0003
+    MIN = 0x0004
+    TOPN = 0x0005
+    GROUPBY = 0x0006
+    RANK = 0x0007
+    INDEXER = 0x0008
+    CODEC = 0x0010
+    _fields_ = [("op", c_uint32),
+                ("len", c_uint32),
+                ("id", c_uint32),
+                ("rid", c_uint32),
+                ("lor", c_uint32),
+                ("data", c_void_p),
+                ]
+
+class struct_branch_ops(Structure):
+    _fields_ = [("nr", c_uint32),
+                ("ops", struct_branch_op * 10),
+                ]
+
+def client_cb_branch_destroy():
+    '''callback function for branch destroy'''
+    branch.branch_destroy()
+
 def main(argv):
     try:
-        opts, args = getopt.getopt(argv, "ht:i:r:",
+        opts, args = getopt.getopt(argv, "ht:i:r:b",
                                    ["help", "thread=", "id=", 
-                                    "ring="])
+                                    "ring=", "use_branch"])
     except getopt.GetoptError:
         sys.exit()
 
@@ -86,6 +125,7 @@ def main(argv):
     fsid = 0
     port = 8412
     ring = "127.0.0.1"
+    use_branch = False
 
     try:
         for opt, arg in opts:
@@ -98,6 +138,8 @@ def main(argv):
                 id = int(arg)
             elif opt in ("-r", "--ring"):
                 ring = arg
+            elif opt in ("-b", "--use_branch"):
+                use_branch = True
     except ValueError, ve:
         print "Value error: %s" % ve
         sys.exit()
@@ -105,17 +147,31 @@ def main(argv):
     print "FS Client %d Running w/ (%d threads)..." % (id, thread)
 
     # init the FS client
-    CSTR_ARRAY = c_char_p * 11
+    CSTR_ARRAY = c_char_p * 12
     argv = CSTR_ARRAY("pyAMC", "-d", str(id), "-r", ring, "-p", 
                       str(port + id), "-f", str(fsid), 
-                      "-y", "client")
-    err = api.__core_main(11, argv)
+                      "-y", "client", '-b')
+    err = api.__core_main(12, argv)
     if err != 0:
         print "api.__core_main() failed w/ %d" % err
         return
+    if use_branch:
+        print bcolors.OKGREEN + "Enable branch feeder mode" + bcolors.ENDC
+        err = branch.branch_init(c_int(0), c_int(0), c_uint64(0), 
+                                 c_void_p(None))
+        if err != 0:
+            print "branch.branch_init() failed w/ %d" % err
+            return
+        hmo = struct_hmo.in_dll(mds, "hmo")
+        # The following line is fully of magic :)
+        hmo.branch_dispatch = cast(branch.branch_dispatch_split, 
+                                   c_void_p).value
+        hmo.cb_branch_destroy = cast(CFUNCTYPE(None)
+                                     (client_cb_branch_destroy), 
+                                     c_void_p).value
 
-    pamc_shell().cmdloop("Welcome to Python FS Client Shell, " + 
-                         "for help please input ? or help")
+    pamc_shell(use_branch).cmdloop("Welcome to Python FS Client Shell, " + 
+                                   "for help please input ? or help")
 
     api.__core_exit(None)
 
@@ -124,18 +180,21 @@ class pamc_shell(cmd.Cmd):
     table = None
     clock_start = 0.0
     clock_stop = 0.0
+    use_branch = False
     keywords = ["EOF", "touch", "delete", "stat", "mkdir",
                 "rmdir", "cpin", "cpout", "online", "offline",
                 "quit", "ls", "commit", "getcluster", "cat", 
                 "regdtrigger", "catdtrigger", "statfs", "setattr",
-                "getactivesite", "addsite", "rmvsite", "shutdown"]
+                "getactivesite", "addsite", "rmvsite", "shutdown",
+                "cbranch", "bc", "bp", "getbor", ]
 
-    def __init__(self):
+    def __init__(self, ub = False):
         cmd.Cmd.__init__(self)
         # Issue reported by Nikhil Agrawal. On machines without readline
         # module, use_rawinput should be True either.
         cmd.Cmd.use_rawinput = True
         self.bc = bcolors()
+        self.use_branch = ub
 
     def emptyline(self):
         return
@@ -828,6 +887,172 @@ class pamc_shell(cmd.Cmd):
             self.echo_clock("Time elasped:")
             # free the region
             api.hvfs_free(c_data)
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_cbranch(self, line):
+        '''Create a new branch.
+        Usage: cbranch branch_name tag level "op,op,..."
+               filter:id:rid:[l|r]
+        '''
+        l = shlex.split(line)
+        if len(l) < 3:
+            print "Invalid arguments. See help cbranch/bc!"
+            return
+        ops = None
+        if len(l) >= 4:
+            l[3] = l[3].replace(",", " ")
+            l[3] = shlex.split(l[3])
+            nr = 0
+            ops = struct_branch_ops()
+            for x in l[3]:
+                # split the operator description
+                y = x.replace(":", " ")
+                y = y.replace(";", " ")
+                y = shlex.split(y)
+                if len(y) < 4:
+                    print "Ignore this OP '%s'" % x
+                    continue
+
+                x = y[0]
+                op = struct_branch_op()
+                op.len = 0
+                op.data = c_void_p(None)
+                op.id = c_uint32(int(y[1]))
+                op.rid = c_uint32(int(y[2]))
+                if y[3].lower() == "l":
+                    op.lor = 0
+                elif y[3].lower() == "r":
+                    op.lor = 1
+                else:
+                    print "Invalid op lor value '%s'" % y[3]
+                    continue
+
+                if x.lower() == "filter":
+                    if len(y) == 5:
+                        s = "rule:" + y[4] + ";output_filename:f" + y[1]
+                    else:
+                        s = "rule:.*;output_filename:log" + y[1]
+                    op.op = op.FILTER
+                    op.data = cast(c_char_p(s), c_void_p)
+                    op.len = c_uint32(len(s))
+                    ops.ops[nr] = op
+                    nr += 1
+                elif x.lower() == "sum":
+                    if len(y) == 6:
+                        s = "rule:" + y[4] + ";lor:" + y[5]
+                    elif len(y) == 5:
+                        s = "rule:" + y[4] + ";lor:all"
+                    else:
+                        s = "rule:.*;lor:all"
+                    op.op = op.SUM
+                    op.data = cast(c_char_p(s), c_void_p)
+                    op.len = c_uint32(len(s))
+                    ops.ops[nr] = op
+                    nr += 1
+                elif x.lower() == "max":
+                    op.op = op.MAX
+                    ops.ops[nr] = op
+                    nr += 1
+                elif x.lower() == "min":
+                    op.op = op.MIN
+                    ops.ops[nr] = op
+                    nr += 1
+                elif x.lower() == "topn":
+                    op.op = op.TOPN
+                    ops.ops[nr] = op
+                    nr += 1
+                elif x.lower() == "groupby":
+                    op.op = op.GROUPBY
+                    ops.ops[nr] = op
+                    nr += 1
+                elif x.lower() == "rank":
+                    op.op = op.RANK
+                    ops.ops[nr] = op
+                    nr += 1
+                elif x.lower() == "indexer":
+                    op.op = op.INDEXER
+                    ops.ops[nr] = op
+                    nr += 1
+                elif x.lower() == "codec":
+                    op.op = op.CODEC
+                    ops.ops[nr] = op
+                    nr += 1
+                if nr >= 10:
+                    print "At most ten valid operators, ignore others!"
+                    break
+            ops.nr = c_uint32(nr)
+
+        # ok
+        try:
+            self.start_clock()
+            if ops == None:
+                err = branch.branch_create(c_int(0), c_int(0), c_char_p(l[0]), 
+                                           c_char_p(l[1]), c_int(int(l[2])), 
+                                           c_void_p(None))
+            else:
+                err = branch.branch_create(c_int(0), c_int(0), c_char_p(l[0]), 
+                                           c_char_p(l[1]), c_int(int(l[2])), 
+                                           cast(pointer(ops), c_void_p))
+            if err != 0:
+                print "branch.branch_create() failed w/ %d" % err
+                return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
+        except TypeError, te:
+            print "TypeError %s" % te
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_bc(self, line):
+        '''Create a new branch, same as cbranch.
+        Usage: bc branch_name tag level "op,op,..."'''
+        return self.do_cbranch(line)
+
+    def do_bp(self, line):
+        '''Publish a new branch line.
+        Usage: bp branch_name tag level DATA_STRING'''
+        if not self.use_branch:
+            print "You have to enable branch feeder mode."
+            return
+        l = shlex.split(line)
+        if len(l) < 4:
+            print "Invalid arguments, See help bp!"
+            return
+        # ok
+        try:
+            self.start_clock()
+            err = branch.branch_publish(c_uint64(0), c_uint64(0), c_char_p(l[0]),
+                                        c_char_p(l[1]), c_uint8(int(l[2])),
+                                        c_char_p(l[3]), c_uint64(len(l[3])))
+            if err != 0:
+                print "branch.branch_publish() failed w/ %d" % err
+                return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
+        except TypeError, te:
+            print "TypeError %s" % te
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_getbor(self, line):
+        '''Get a BOR from a BP site.
+        Usage: getbor branch_name bpsite'''
+        l = shlex.split(line)
+        if len(l) < 2:
+            print "Invalid arguments, See help getbor!"
+            return
+        # ok
+        try:
+            self.start_clock()
+            err = branch.branch_dumpbor(c_char_p(l[0]), c_uint64(int(l[1])))
+            if err != 0:
+                print "branch.branch_dumpbor() failed w/ %d" % err
+                return
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
+        except TypeError, te:
+            print "TypeError %s" % te
         except ValueError, ve:
             print "ValueError %s" % ve
 

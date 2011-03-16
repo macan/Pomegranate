@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-11 08:44:30 macan>
+ * Time-stamp: <2011-03-09 17:56:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -178,9 +178,10 @@ struct hvfs_mds_object
     struct eh cbht;               /* memory hash table */
     struct dh dh;                 /* directory hash table */
 
-#define CH_RING_NUM     2
+#define CH_RING_NUM     3
 #define CH_RING_MDS     0
 #define CH_RING_MDSL    1
+#define CH_RING_BP      2
     struct chring *chring[CH_RING_NUM];
     struct mds_prof prof;
     struct mds_conf conf;
@@ -255,6 +256,8 @@ struct hvfs_mds_object
     void (*cb_hb)(void *);
     void (*cb_ring_update)(void *);
     void (*cb_addr_table_update)(void *);
+    void (*cb_branch_init)(void *);
+    void (*cb_branch_destroy)(void *);
     u64 fsid;
 };
 

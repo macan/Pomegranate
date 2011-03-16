@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-14 14:09:28 macan>
+ * Time-stamp: <2011-03-09 18:04:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -147,7 +147,7 @@ int main(int argc, char *argv[])
     struct sockaddr_in sin = {
         .sin_family = AF_INET,
     };
-    int nr = 1000;
+    int nr = 10000;
     struct conf_site cs[nr];
 
     hvfs_info(xnet, "R2 Unit Testing ...\n");
@@ -338,6 +338,7 @@ int main(int argc, char *argv[])
     } else {
         struct ring_entry *re, *res;
 
+        /* Add mds sites to the ring */
         re = ring_mgr_alloc_re();
         if (!re) {
             hvfs_err(xnet, "alloc ring entry failed\n");
@@ -364,6 +365,7 @@ int main(int argc, char *argv[])
         ring_resort_nolock(&re->ring);
         ring_mgr_put(re);
 
+        /* Add mdsl sites to the ring */
         re = ring_mgr_alloc_re();
         if (!re) {
             hvfs_err(xnet, "alloc ring entry failed\n");
@@ -375,6 +377,31 @@ int main(int argc, char *argv[])
         for (i = 0; i < nr; i++) {
             if (strcmp(cs[i].type, "mdsl") == 0) {
                 ring_add(&re->ring, HVFS_MDSL(cs[i].id), "mdsl-$-");
+            }
+        }
+        res = ring_mgr_insert(&hro.ring, re);
+        if (IS_ERR(res)) {
+            hvfs_err(xnet, "ring_mgr_insert %d failed w/ %ld\n",
+                     re->ring.group, PTR_ERR(res));
+            err = PTR_ERR(res);
+            goto out;
+        }
+        ASSERT(res == re, xnet);
+        ring_resort_nolock(&re->ring);
+        ring_mgr_put(re);
+
+        /* Add bp sites to the ring */
+        re = ring_mgr_alloc_re();
+        if (!re) {
+            hvfs_err(xnet, "alloc ring entry failed\n");
+            err = ENOMEM;
+            goto out;
+        }
+        re->ring.group = CH_RING_BP;
+
+        for (i = 0; i < nr; i++) {
+            if (strcmp(cs[i].type, "bp") == 0) {
+                ring_add(&re->ring, HVFS_BP(cs[i].id), "bp-#-");
             }
         }
         res = ring_mgr_insert(&hro.ring, re);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-12 01:36:19 macan>
+ * Time-stamp: <2011-03-16 11:19:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,7 +42,7 @@ struct branch_ack_cache_entry
 struct branch_ack_cache
 {
     struct regular_hash *ht;
-#define BAC_DEFAULT_SIZE        (1024)
+#define BAC_DEFAULT_SIZE        (4096)
     int hsize;
     atomic_t asize;
 };
@@ -68,7 +68,7 @@ typedef int (*output_line_t)(struct branch_processor *,
                              struct branch_operator *,
                              struct branch_line_disk *,
                              struct branch_line_disk **,
-                             int *);
+                             int *len, int *);
 typedef int (*feed_tree_t)(struct branch_processor *,
                            struct branch_operator *,
                            struct branch_line_disk *,
@@ -88,7 +88,9 @@ struct branch_operator
     struct branch_operator *left, *right;
     
     char *name;
-    u64 id;
+    u32 id;
+    u32 rid;
+    u32 lor;
     
     /* ack cache */
     struct branch_ack_cache bac;
@@ -108,26 +110,39 @@ struct branch_operator
 
 struct branch_op_result_entry 
 {
-    u64 id;
-    int len;
+    u32 id;
+    u32 len;                    /* at most 4GB */
     u8 data[0];
 };
 
 struct branch_op_result
 {
     int nr;
+    u32 reserved;
     struct branch_op_result_entry bore[0];
 };
+
+#define BP_DO_FLUSH(nr) ({                      \
+    int __res = 0;                              \
+    if (nr % BP_DEFAULT_FLUSH == 0)             \
+        __res = 1;                              \
+    __res;                                      \
+})
 
 struct branch_processor
 {
     struct list_head oplist;    /* op list */
+    void *bor;                  /* bor result buffer */
     atomic_t bonr;              /* # of branch operators */
+    int bor_len;                /* region length of bor area */
     
     xlock_t lock;               /* protect bp update */
     
 #define BP_DEFAULT_BTO          (30) /* 30 seconds */
     int bpto;
+#define BP_DEFAULT_FLUSH        (30) /* for every 30 branch line, we issue a
+                                      * flush command */
+    int blnr;
 
     /* the following region is the branch processor memory table */
 #define BP_DEFAULT_MEMLIMIT     (64 * 1024 * 1024)
@@ -137,21 +152,35 @@ struct branch_processor
     struct branch_operator bo_root; /* the root operator */
 };
 
+/* bo_filter structure pointed by bo->gdata */
 struct bo_filter
 {
-    /* pointed by bo->gdata */
-    int accept_all;
     /* accept_all:
      * -1: ignore this filter!
      *  1: accept all the input
      *  0: do regex
      */
+    int accept_all;
+#define BO_FILTER_CHUNK         (1024)
+    int size, offset;
+
     regex_t preg;
+    xlock_t lock;
     char *filename;
     /* internal buffer */
     void *buffer;
-#define BO_FILTER_CHUNK         (1024)
-    int size, offset;
+};
+
+struct bo_sum
+{
+#define BS_LEFT         0
+#define BS_RIGHT        1
+#define BS_ALL          2
+#define BS_MATCH        3
+    int lor;
+
+    regex_t preg;
+    u64 value;
 };
 
 /* APIs */
@@ -162,5 +191,6 @@ struct branch_processor *bp_alloc_init(struct branch_entry *,
 int bac_load(struct branch_operator *, 
              struct branch_ack_cache_disk *, int);
 int __bo_install_cb(struct branch_operator *bo, char *name);
+void bp_destroy(struct branch_processor *bp);
 
 #endif

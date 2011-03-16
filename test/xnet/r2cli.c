@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-04 17:45:30 macan>
+ * Time-stamp: <2011-03-09 19:15:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -225,6 +225,12 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
         __dump_hxi(request_site);
         data += err;
         /* parse ring */
+        err = bparse_ring(data, &ct);
+        if (err < 0) {
+            hvfs_err(root, "bparse_ring failed w/ %d\n", err);
+            goto out;
+        }
+        data += err;
         err = bparse_ring(data, &ct);
         if (err < 0) {
             hvfs_err(root, "bparse_ring failed w/ %d\n", err);

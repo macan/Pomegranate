@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-24 18:43:52 macan>
+ * Time-stamp: <2011-03-15 10:43:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,8 +24,9 @@
 #ifndef __BRANCH_H__
 #define __BRANCH_H__
 
-#include "mds.h"
+#include "hvfs.h"
 #include "mdsl_api.h"
+#include "mds_api.h"
 #include "amc_api.h"
 #include "bp.h"
 
@@ -64,7 +65,9 @@ struct branch_op
 #define BRANCH_OP_CODEC         0x0010
     u32 op;
     u32 len;                    /* length of data */
-    u64 id;                     /* unique id of this OP */
+    u32 id;                     /* unique id of this OP */
+    u32 rid;                    /* root id of this OP */
+    u32 lor;                    /* left(0) or right(1) */
     void *data;
 };
 
@@ -79,6 +82,8 @@ struct branch_header
     /* who created this branch? */
     u64 puuid;
     u64 uuid;
+    /* id of this branch */
+    u64 id;
     /* init tag attached w/ this branch */
     char tag[35];
     /* init level attached w/ this branch */
@@ -91,6 +96,7 @@ struct branch_line
     struct list_head list;
     u64 sites[16];              /* we support at most 16 replicas */
     time_t life;                /* when this bl comes in */
+    time_t sent;                /* when did this bl be sent */
     u64 id;                     /* howto get a unique id? I think hmi.mi_tx is
                                  * a monotonous increasing value */
     char *tag;
@@ -111,6 +117,24 @@ struct branch_line
 #define BL_SELF_SITE(bl)    (bl)->sites[0]
 };
 
+struct branch_line_push_header
+{
+    int name_len;               /* length of branch name */
+    int nr;                     /* # of branch line in this packet */
+};
+
+struct branch_line_ack_header
+{
+    u64 ack_id;
+    int name_len;               /* length of branch name */
+};
+
+struct branch_adjust_entry
+{
+    u64 ack_id;                 /* which ack_id we want to adjust to */
+    u64 lid;                    /* branch line id */
+};
+
 struct branch_line_disk
 {
     /* branch line must be the first field */
@@ -126,6 +150,7 @@ struct branch_entry
     struct branch_header *bh;
     char *branch_name;
     time_t update;
+    atomic_t dirty;
     atomic_t ref;
     xlock_t lock;
     struct branch_processor *bp;
@@ -140,6 +165,23 @@ struct branch_entry
     u32 state;                  /* state protected by lock */
 };
 
+#define BE_UPDATE_TS(be, time) do {                 \
+        if (atomic_inc_return(&(be)->dirty) == 1) { \
+            (be)->update = (time);                  \
+        } else {                                    \
+            atomic_dec(&(be)->dirty);               \
+        }                                           \
+    } while (0)
+
+#define BE_ISDIRTY(be) ({                           \
+            int __res = atomic_read(&(be)->dirty);  \
+            __res;                                  \
+})
+
+#define BE_UNDIRTY(be) do {                     \
+        atomic_dec(&(be)->dirty);               \
+    } while (0)
+
 typedef void *(*branch_callback_t)(void *);
 
 /* APIs */
@@ -151,32 +193,35 @@ int branch_publish(u64 puuid, u64 uuid, char *branch_name, char *tag,
 int branch_subscribe(u64 puuid, u64 uuid, char *branch_name, char *tag,
                      u8 level, branch_callback_t bc);
 int branch_dispatch(void *arg);
+int branch_dispatch_split(void *arg);
 
 /* APIs we nneed from api.c */
 
-typedef int (*stat_local_t)(u64 puuid, u64 psalt, int column, struct hstat *);
-typedef int (*create_local_t)(u64 puuid, u64 psalt, struct hstat *, u32 flag,
+typedef int (stat_local_t)(u64 puuid, u64 psalt, int column, struct hstat *);
+typedef int (create_local_t)(u64 puuid, u64 psalt, struct hstat *, u32 flag,
                               struct mdu_update *);
-typedef int (*update_local_t)(u64 puuid, u64 psalt, struct hstat *,
+typedef int (update_local_t)(u64 puuid, u64 psalt, struct hstat *,
                               struct mdu_update *);
-typedef int (*fread_local_t)(struct storage_index *, struct iovec**);
-typedef int (*fwrite_local_t)(struct storage_index *, void *,
+typedef int (fread_local_t)(struct storage_index *, struct iovec**);
+typedef int (fwrite_local_t)(struct storage_index *, void *,
                               u64 **);
 
 extern stat_local_t __hvfs_stat_local;
 extern create_local_t __hvfs_create_local;
 extern update_local_t __hvfs_update_local;
 extern fread_local_t __hvfs_fread_local, __mdsl_read_local;
-extern fwrite_local_t __hvfs_fwrite_loca, __mdsl_write_local;
+extern fwrite_local_t __hvfs_fwrite_local, __mdsl_write_local;
 
 struct branch_local_op
 {
-    stat_local_t stat;
-    create_local_t create;
-    update_local_t update;
-    fread_local_t read;
-    fwrite_local_t write;
+    stat_local_t *stat;
+    create_local_t *create;
+    update_local_t *update;
+    fread_local_t *read;
+    fwrite_local_t *write;
 };
+int branch_init(int hsize, int bto, u64 memlimit, struct branch_local_op *op);
+void branch_destroy(void);
 
 /* enhanced APIs we export based the version from api.c */
 int hvfs_stat_eh(u64 puuid, u64 psalt, int column, struct hstat *);
@@ -188,5 +233,10 @@ int hvfs_fwrite_eh(struct hstat *hs, int column, u32 flag,
                    void *data, size_t len, struct column *c);
 int hvfs_fread_eh(struct hstat *hs, int column, void **data, 
                   struct column *c);
+
+/* APIs from bp.c */
+u64 bp_get_ack(struct branch_processor *bp, u64 site);
+int bp_handle_bulk_push(struct branch_processor *bp, struct xnet_msg *msg,
+                        struct branch_line_push_header *blph);
 
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-18 11:41:42 macan>
+ * Time-stamp: <2011-03-09 17:00:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -127,6 +127,8 @@ int mdsl_dispatch(struct xnet_msg *msg)
     } else if (HVFS_IS_CLIENT(msg->tx.ssite_id)) {
         return mdsl_client_dispatch(msg);
     } else if (HVFS_IS_AMC(msg->tx.ssite_id)) {
+        return mdsl_client_dispatch(msg);
+    } else if (HVFS_IS_BP(msg->tx.ssite_id)) {
         return mdsl_client_dispatch(msg);
     } else if (HVFS_IS_MDSL(msg->tx.ssite_id)) {
         return mdsl_mdsl_dispatch(msg);

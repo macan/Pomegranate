@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-07 10:13:03 macan>
+ * Time-stamp: <2011-03-15 15:48:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,7 +65,12 @@ struct xnet_addr
 };
 struct xnet_site
 {
+#define XNET_LOCAL_CHECK        /* enable this check */
+#ifdef XNET_LOCAL_CHECK
 #define XNET_SITE_LOCAL         0x01
+#else
+#define XNET_SITE_LOCAL         0x00
+#endif
     u32 flag;
     struct list_head addr;
 };
@@ -766,6 +771,9 @@ void st_list(char *type)
     } else if (strncmp(type, "amc", 3) == 0) {
         begin = HVFS_AMC(0);
         end = HVFS_AMC(HVFS_SITE_N_MASK);
+    } else if (strncmp(type, "bp", 2) == 0) {
+        begin = HVFS_BP(0);
+        end = HVFS_BP(HVFS_SITE_N_MASK);
     } else {
         hvfs_err(xnet, "Type '%s' not supported.\n", type);
         return;

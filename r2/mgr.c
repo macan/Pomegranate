@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-25 13:02:31 macan>
+ * Time-stamp: <2011-03-09 15:28:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1409,7 +1409,8 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *hxi)
     if (!hxi)
         return -EINVAL;
 
-    if (HVFS_IS_CLIENT(site_id)) {
+    if (HVFS_IS_CLIENT(site_id) |
+        HVFS_IS_BP(site_id)) {
         /* we should reject if root->root_salt is -1UL */
         /* Step 1: find site state in the site_mgr */
         se = site_mgr_lookup(&hro.site, site_id);
@@ -2003,7 +2004,8 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
             hvfs_err(root, "create fs %ld on-the-fly\n", fsid);
             err = 0;
         }
-    } else if (HVFS_IS_CLIENT(site_id) || HVFS_IS_AMC(site_id)) {
+    } else if (HVFS_IS_CLIENT(site_id) || HVFS_IS_AMC(site_id) ||
+               HVFS_IS_BP(site_id)) {
         /* Bug-xxxx: we approve create requests from client and amc sites, it
          * is really need. */
         err = root_mgr_lookup_create2(&hro.root, fsid, &root);
@@ -2062,7 +2064,7 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
         err = -EFAULT;
         goto out;
     }
-    if (HVFS_IS_CLIENT(site_id)) {
+    if (HVFS_IS_CLIENT(site_id) | HVFS_IS_BP(site_id)) {
         struct hvfs_client_info *hci = (struct hvfs_client_info *)hxi;
 
         memcpy(hxi, &sd.hxi, sizeof(*hci));
@@ -2231,7 +2233,8 @@ int root_create_hxi(struct site_entry *se)
         err = PTR_ERR(root);
         goto out;
     }
-    if (HVFS_IS_CLIENT(se->site_id)) {
+    if (HVFS_IS_CLIENT(se->site_id) |
+        HVFS_IS_BP(se->site_id)) {
         struct hvfs_client_info *hci = (struct hvfs_client_info *)&se->hxi;
 
         memset(hci, 0, sizeof(*hci));

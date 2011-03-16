@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-05 13:19:22 macan>
+ * Time-stamp: <2011-03-08 16:58:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -930,7 +930,7 @@ void mds_gossip_bitmap(struct xnet_msg *msg)
     /* find the dh firstly */
     e = mds_dh_search(&hmo.dh, msg->tx.arg0);
     if (IS_ERR(e)) {
-        hvfs_err(mds, "mds_dh_search() duuid %ld failed w/ %ld\n",
+        hvfs_err(mds, "mds_dh_search() duuid %lx failed w/ %ld\n",
                  msg->tx.arg0, PTR_ERR(e));
         goto out;
     }

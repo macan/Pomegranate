@@ -310,3 +310,10 @@ Pomegranate TODOs:
 
        SOC cache records the just created mdu info for files and 
        serve for next stat operation. It should boost mdtest results.
+
+30. Branch subsystem is working now, some notes bellow:
+
+    1. We have many BP sites, thus, we should split the BP.result 
+       [originally in column 2] by BP's site id. DONE!
+
+    2. 

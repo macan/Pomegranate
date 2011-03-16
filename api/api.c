@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-01 12:20:40 macan>
+ * Time-stamp: <2011-03-15 15:50:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@
 #include "root.h"
 #include "amc_api.h"
 #include <getopt.h>
+#include "branch.h"
 
 /* internal functions from c2ml.c */
 int __mdsl_read_local(struct storage_index *si, struct iovec **);
@@ -48,6 +49,7 @@ void *lzo_workmem;
 #define HVFS_R2_DEFAULT_PORT    8710
 #define HVFS_AMC_DEFAULT_PORT   9001
 #define HVFS_CLT_DEFAULT_PORT   8412
+#define HVFS_BP_DEFAULT_PORT    7900
 
 static inline char *__toupper(char *str)
 {
@@ -55,6 +57,8 @@ static inline char *__toupper(char *str)
         return "Client";
     else if (strcmp(str, "amc") == 0)
         return "AMC";
+    else if (strcmp(str, "bp") == 0)
+        return "BP";
     
     return "Unknown";
 }
@@ -399,7 +403,8 @@ out_free:
 
 /* ring_add() add one site to the CH ring
  */
-int ring_add(struct chring **r, u64 site)
+static
+int __UNUSED__ ring_add(struct chring **r, u64 site)
 {
     struct chp *p;
     char buf[256];
@@ -436,6 +441,7 @@ int ring_add(struct chring **r, u64 site)
     return 0;
 }
 
+static
 struct chring *chring_tx_to_chring(struct chring_tx *ct)
 {
     struct chring *ring;
@@ -472,6 +478,7 @@ out:
  *
  * @gid: already right shift 2 bits
  */
+static
 int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
 {
     struct xnet_msg *msg;
@@ -567,6 +574,17 @@ resend:
             goto out;
         }
         data += err;
+        err = bparse_ring(data, &ct);
+        if (err < 0) {
+            hvfs_err(root, "bparse_ring failed w/ %d\n", err);
+            goto out;
+        }
+        hmo.chring[CH_RING_BP] = chring_tx_to_chring(ct);
+        if (!hmo.chring[CH_RING_BP]) {
+            hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
+            goto out;
+        }
+        data += err;
         /* parse root_tx */
         err = bparse_root(data, &rt);
         if (err < 0) {
@@ -618,6 +636,7 @@ out_nofree:
  *
  * @gid: already right shift 2 bits
  */
+static
 int r2cli_do_unreg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
 {
     struct xnet_msg *msg;
@@ -897,11 +916,21 @@ int amc_dispatch(struct xnet_msg *msg)
     case HVFS_FR2_AU:
         err = mds_addr_table_update(msg);
         break;
+    case HVFS_MDS2MDS_BRANCH:
+        if (hmo.branch_dispatch)
+            hmo.branch_dispatch(msg);
+        else {
+            hvfs_err(mds, "No valid branch dispatcher, we just "
+                     "reject the caller.\n");
+            xnet_free_msg(msg);
+        }
+        break;
     default:
         hvfs_err(xnet, "AMC core dispatcher handle INVALID "
-                 "request <0x%lx %d %lx>\n",
+                 "request <%lx %d %lx>\n",
                  msg->tx.ssite_id, msg->tx.reqno, msg->tx.cmd);
         err = -EINVAL;
+        xnet_free_msg(msg);
     }
 
     return err;
@@ -919,10 +948,11 @@ int __core_main(int argc, char *argv[])
     int self = -1, sport = -1;
     int thread = 1;
     int fsid = 1;               /* default to fsid 1 for kv store */
+    int use_branch = 0;
     char *r2_ip = NULL;
     char *type = NULL;
     short r2_port = HVFS_R2_DEFAULT_PORT;
-    char *shortflags = "d:p:t:h?r:y:f:";
+    char *shortflags = "d:p:t:h?r:y:f:b";
     struct option longflags[] = {
         {"id", required_argument, 0, 'd'},
         {"port", required_argument, 0, 'p'},
@@ -930,6 +960,7 @@ int __core_main(int argc, char *argv[])
         {"root", required_argument, 0, 'r'},
         {"type", required_argument, 0, 'y'},
         {"fsid", required_argument, 0, 'f'},
+        {"branch", no_argument, 0, 'b'},
         {"help", no_argument, 0, '?'},
     };
     char profiling_fname[256];
@@ -958,6 +989,9 @@ int __core_main(int argc, char *argv[])
         case 'f':
             fsid = atoi(optarg);
             break;
+        case 'b':
+            use_branch = 1;
+            break;
         case 'h':
         case '?':
             hvfs_info(xnet, "help menu:\n");
@@ -966,7 +1000,8 @@ int __core_main(int argc, char *argv[])
             hvfs_info(xnet, "    -t,--thread  thread number.\n");
             hvfs_info(xnet, "    -r,--root    root server.\n");
             hvfs_info(xnet, "    -f,--fsid    file system id.\n");
-            hvfs_info(xnet, "    -y,--type    client type: client/amc.\n");
+            hvfs_info(xnet, "    -y,--type    client type: client/amc/bp.\n");
+            hvfs_info(xnet, "    -b,--branch  use branch.\n");
             hvfs_info(xnet, "    -h,--help    print this menu.\n");
             return 0;
             break;
@@ -983,6 +1018,8 @@ int __core_main(int argc, char *argv[])
         type = "client";
     } else if (strncmp("amc", type, 3) == 0) {
         type = "amc";
+    } else if (strncmp("bp", type, 2) == 0) {
+        type = "bp";
     } else
         return EINVAL;
     
@@ -994,6 +1031,8 @@ int __core_main(int argc, char *argv[])
     if (sport == -1) {
         if (strncmp("client", type, 6) == 0) {
             sport = HVFS_CLT_DEFAULT_PORT;
+        } else if (strncmp("bp", type, 2) == 0) {
+            sport = HVFS_BP_DEFAULT_PORT;
         } else 
             sport = HVFS_AMC_DEFAULT_PORT;
     }
@@ -1038,6 +1077,8 @@ int __core_main(int argc, char *argv[])
         self = HVFS_AMC(self);
     } else if (strcmp(type, "client") == 0) {
         self = HVFS_CLIENT(self);
+    } else if (strcmp(type, "bp") == 0) {
+        self = HVFS_BP(self);
     } else {
         return EINVAL;
     }
@@ -3423,6 +3464,10 @@ int hvfs_get_cluster(char *type)
         st_list("client");
     } else if (strncmp(type, "amc", 3) == 0) {
         st_list("amc");
+    } else if (strncmp(type, "bp", 2) == 0) {
+        st_list("bp");
+    } else if (strncmp(type, "r2", 2) == 0) {
+        st_list("r2");
     } else {
         hvfs_err(xnet, "Type '%s' not supported yet.\n", type);
     }
@@ -3450,6 +3495,15 @@ char *hvfs_active_site(char *type)
         base = HVFS_MDS(0);
         hvfs_info(xnet, "Active MDS Sites:\n");
         xg = cli_get_active_site(hmo.chring[CH_RING_MDS]);
+        if (!xg) {
+            hvfs_err(xnet, "cli_get_active_site() failed\n");
+            err = "Error: No memory.";
+            goto out;
+        }
+    } else if (strncmp(type, "bp", 2) == 0) {
+        base = HVFS_BP(0);
+        hvfs_info(xnet, "Active BP Sites:\n");
+        xg = cli_get_active_site(hmo.chring[CH_RING_BP]);
         if (!xg) {
             hvfs_err(xnet, "cli_get_active_site() failed\n");
             err = "Error: No memory.";
@@ -3490,6 +3544,8 @@ int hvfs_online(char *type, int id)
         site_id = HVFS_MDSL(id);
     } else if (strncmp(type, "mds", 3) == 0) {
         site_id = HVFS_MDS(id);
+    } else if (strncmp(type, "bp", 2) == 0) {
+        site_id = HVFS_BP(id);
     } else {
         hvfs_err(xnet, "Invalid site type '%s'\n", type);
         err = -EINVAL;
@@ -3541,6 +3597,8 @@ int hvfs_offline(char *type, int id)
         site_id = HVFS_MDSL(id);
     } else if (strncmp(type, "mds", 3) == 0) {
         site_id = HVFS_MDS(id);
+    } else if (strncmp(type, "bp", 2) == 0) {
+        site_id = HVFS_BP(id);
     } else {
         hvfs_err(xnet, "Invalid site type '%s'\n", type);
         err = -EINVAL;
@@ -6177,9 +6235,10 @@ int __hvfs_fwrite(struct hstat *hs, int column, u32 flag,
     }
 
     si->sic.uuid = hs->puuid;
-    if (flag & SCD_PROXY)
+    if (flag & SCD_PROXY) {
+        si->scd.cr[0].file_offset = c->offset; /* maybe in append mode */
         si->sic.arg0 = hs->uuid;
-    else {
+    } else {
         /* hs->hash saved the itbid. Well, we changed API to save uuid in this
          * argument */
         si->sic.arg0 = hs->uuid;
@@ -7976,3 +8035,9 @@ int hvfs_supdate_v2(u64 ptid, u64 psalt, char *key, char *value,
 {
     return __hvfs_supdate(ptid, psalt, key, value, column);
 }
+
+/* Region for branch operations
+ *
+ * Note: branch operations should ALL in the branch.c for not confusing
+ * python's shared library loading.
+ */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-27 14:33:20 macan>
+ * Time-stamp: <2011-03-09 16:38:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -242,6 +242,15 @@ int mds_amc_dispatch(struct xnet_msg *msg)
         xtable_handle_req(msg);
         break;
     case HVFS_AMC2MDS_EXT:
+        break;
+    case HVFS_MDS2MDS_BRANCH:
+        if (hmo.branch_dispatch)
+            hmo.branch_dispatch(msg);
+        else {
+            hvfs_err(mds, "No valid branch dispatcher, we just "
+                     "reject the caller.\n");
+            mds_do_reject(msg);
+        }
         break;
     default:
         hvfs_err(mds, "Invalid AMC2MDS command: 0x%lx\n", msg->tx.cmd);

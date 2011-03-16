@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-02-24 12:12:18 macan>
+# Time-stamp: <2011-03-14 10:10:41 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -12,6 +12,7 @@ CC = gcc
 LD = gcc
 AR = ar
 PYTHON = /bin/env python
+GIT = /bin/env git
 
 INC_PATH = $(HOME_PATH)/include
 LIB_PATH = $(HOME_PATH)/lib
@@ -26,6 +27,10 @@ API = $(HOME_PATH)/api
 TRIGGERS = $(HOME_PATH)/triggers
 BRANCH = $(HOME_PATH)/branch
 FUSE = $(HOME_PATH)/fuse
+
+ifdef USE_GIT_TAG
+GIT_SHA = `$(GIT) rev-parse HEAD`
+endif
 
 COMPILE_DATE = `date`
 COMPILE_HOST = `hostname`
@@ -61,7 +66,7 @@ DEADCODESTRIP := -fdata-sections -ffunction-sections \
 O3_OPT = -frename-registers -funroll-loops
 
 CFLAGS += $(XCFLAGS) $(O3_OPT)
-CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" \
+CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" -DGIT_SHA="\"$(GIT_SHA)\""\
 			-DCHOST="\"$(COMPILE_HOST)\"" -I$(INC_PATH) \
 			-I$(PYTHON_INC) -I$(API) -I$(BRANCH) \
 			-I$(LIB_PATH) -I$(MDS) -I$(MDSL) -I$(R2) \
@@ -93,7 +98,7 @@ TEST_MDS_SOURCE = cbht.c tx.c dh.c cmd_sender.c misc.c itbsplit.c \
                   itb_analyzer.c bitmapc.c embedpy.c ctrigger.c
 TEST_MDSL_SOURCE = mdsl.c storage.c gc.c
 TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c client.c \
-					root.c r2cli.c amc.c cr.c client_lat.c
+					root.c r2cli.c amc.c cr.c client_lat.c bp.c
 ifdef USE_FUSE
 TEST_XNET_SOURCE += pfs.c
 endif

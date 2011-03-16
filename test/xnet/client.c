@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-12 10:10:42 macan>
+ * Time-stamp: <2011-03-16 11:36:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -792,7 +792,7 @@ void __data_read(struct hvfs_index *hi, struct column *c)
     }
 
     si->sic.uuid = hi->puuid;
-    si->sic.arg0 = hi->uuid;
+    si->sic.arg0 = c->stored_itbid;
     si->scd.cnr = 1;
     si->scd.cr[0].cno = 0;
     si->scd.cr[0].stored_itbid = c->stored_itbid;
@@ -2317,6 +2317,17 @@ resend:
         }
         hmo.chring[CH_RING_MDSL] = chring_tx_to_chring(ct);
         if (!hmo.chring[CH_RING_MDS]) {
+            hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
+            goto out;
+        }
+        data += err;
+        err = bparse_ring(data, &ct);
+        if (err < 0) {
+            hvfs_err(root, "bparse_ring failed w/ %d\n", err);
+            goto out;
+        }
+        hmo.chring[CH_RING_BP] = chring_tx_to_chring(ct);
+        if (!hmo.chring[CH_RING_BP]) {
             hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
             goto out;
         }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-22 18:38:08 macan>
+ * Time-stamp: <2011-03-09 19:13:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -264,6 +264,17 @@ resend:
         }
         hmo.chring[CH_RING_MDSL] = chring_tx_to_chring(ct);
         if (!hmo.chring[CH_RING_MDS]) {
+            hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
+            goto out;
+        }
+        data += err;
+        err = bparse_ring(data, &ct);
+        if (err < 0) {
+            hvfs_err(root, "bparse_ring failed w/ %d\n", err);
+            goto out;
+        }
+        hmo.chring[CH_RING_BP] = chring_tx_to_chring(ct);
+        if (!hmo.chring[CH_RING_BP]) {
             hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
             goto out;
         }

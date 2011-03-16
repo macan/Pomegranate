@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-25 13:03:35 macan>
+ * Time-stamp: <2011-03-11 15:40:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -133,10 +133,11 @@ int root_do_reg(struct xnet_msg *msg)
     struct ring_entry *ring;
     struct addr_entry *addr;
     struct root_tx *root_tx;
-    void *addr_data = NULL, *ring_data = NULL, *ring_data2 = NULL;
+    void *addr_data = NULL, *ring_data = NULL, *ring_data2 = NULL,
+        *ring_data3 = NULL;
     u32 gid;
     u64 fsid;
-    int addr_len, ring_len, ring_len2;
+    int addr_len, ring_len, ring_len2, ring_len3;
     int err = 0, saved_err = 0;
 
     err = __prepare_xnet_msg(msg, &rpy);
@@ -266,6 +267,32 @@ int root_do_reg(struct xnet_msg *msg)
     }
     ring_mgr_put(ring);
     
+    /* Step 3: pack the BP ring of the group */
+    gid = msg->tx.reserved << 2 | CH_RING_BP;
+    ring = ring_mgr_lookup(&hro.ring, gid);
+    if (IS_ERR(ring)) {
+        hvfs_err(root, "ring_mgr_lookup() gid %d failed w/ %ld\n",
+                 gid, PTR_ERR(ring));
+        err = PTR_ERR(ring);
+        goto send_rpy;
+    }
+
+    err = ring_mgr_compact_one(&hro.ring, gid,
+                               &ring_data3, &ring_len3);
+    if (err) {
+        hvfs_err(root, "ring_mgr_compact_one() failed w/ %d\n",
+                 err);
+        ring_mgr_put(ring);
+        goto send_rpy;
+    }
+    err = __pack_msg(rpy, ring_data3, ring_len3);
+    if (err) {
+        hvfs_err(root, "pack ring %d failed w/ %d\n",
+                 gid, err);
+        goto send_rpy;
+    }
+    ring_mgr_put(ring);
+
     /* pack the root info, just for verify the hxi info */
     root = root_mgr_lookup(&hro.root, msg->tx.arg1);
     if (IS_ERR(root)) {
@@ -329,6 +356,7 @@ send_rpy:
     /* free the allocated resources */
     xfree(ring_data);
     xfree(ring_data2);
+    xfree(ring_data3);
     xfree(addr_data);
     
 out:
@@ -817,6 +845,8 @@ int root_do_bitmap(struct xnet_msg *msg)
     }
 
     /* FIXME!!!: should we enlarge the gdt bitmap? */
+    hvfs_warning(root, "Update uuid %ld offset %ld on fsid %ld\n",
+                 msg->tx.arg0, msg->tx.arg1, se->fsid);
     /* flip the bit now */
     if ((msg->tx.arg1 >> 3) >= re->gdt_flen) {
         void *nb = root_bitmap_enlarge(re->gdt_bitmap, re->gdt_flen);
@@ -1037,6 +1067,8 @@ int root_do_online(struct xnet_msg *msg)
         type = CH_RING_MDS;
     } else if (HVFS_IS_MDSL(msg->tx.arg0)) {
         type = CH_RING_MDSL;
+    } else if (HVFS_IS_BP(msg->tx.arg0)) {
+        type = CH_RING_BP;
     } else {
         hvfs_err(root, "Invalid site (type): %ld\n", msg->tx.arg0);
         err = -EINVAL;
@@ -1081,6 +1113,8 @@ int root_do_offline(struct xnet_msg *msg)
         type = CH_RING_MDS;
     } else if (HVFS_IS_MDSL(msg->tx.arg0)) {
         type = CH_RING_MDSL;
+    } else if (HVFS_IS_BP(msg->tx.arg0)) {
+        type = CH_RING_BP;
     } else {
         hvfs_err(root, "Invalid site (type): %ld\n", msg->tx.arg0);
         err = -EINVAL;

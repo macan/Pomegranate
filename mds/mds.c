@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-11 08:42:34 macan>
+ * Time-stamp: <2011-03-09 13:44:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1205,6 +1205,11 @@ int mds_init(int bdepth)
         pthread_sigmask(SIG_BLOCK, &set, NULL);
     }
 
+    /* FIXME: init the branch subsystem */
+    if (hmo.cb_branch_init) {
+        hmo.cb_branch_init(NULL);
+    }
+
     /* ok to run */
     hmo.state = HMO_STATE_RUNNING;
     hmo.uptime = time(NULL);
@@ -1233,6 +1238,11 @@ void mds_destroy(void)
 {
     hvfs_verbose(mds, "OK, stop it now...\n");
 
+    /* destroy branch subsystem */
+    if (hmo.cb_branch_destroy) {
+        hmo.cb_branch_destroy(NULL);
+    }
+    
     /* unreg w/ the r2 server */
     if (hmo.cb_exit) {
         hmo.cb_exit(&hmo);

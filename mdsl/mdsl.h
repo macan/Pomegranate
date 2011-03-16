@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-21 11:24:59 macan>
+ * Time-stamp: <2011-03-09 17:56:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -313,9 +313,10 @@ struct hvfs_mdsl_object
     struct mdsl_storage storage;
     struct directw_log dl;
 
-#define CH_RING_NUM     2
+#define CH_RING_NUM     3
 #define CH_RING_MDS     0
 #define CH_RING_MDSL    1
+#define CH_RING_BP      2
     struct chring *chring[CH_RING_NUM];
     struct mdsl_prof prof;
     struct mdsl_conf conf;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-12 10:07:32 macan>
+ * Time-stamp: <2011-03-11 10:53:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@
 #include "mds.h"
 #include "root.h"
 #include "branch.h"
+#include "amc_api.h"
 
 #ifdef UNIT_TEST
 #define TYPE_MDS        0
@@ -818,6 +819,17 @@ resend:
             goto out;
         }
         data += err;
+        err = bparse_ring(data, &ct);
+        if (err < 0) {
+            hvfs_err(root, "bparse_ring failed w/ %d\n", err);
+            goto out;
+        }
+        hmo.chring[CH_RING_BP] = chring_tx_to_chring(ct);
+        if (!hmo.chring[CH_RING_BP]) {
+            hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
+            goto out;
+        }
+        data += err;
         /* parse root_tx */
         err = bparse_root(data, &rt);
         if (err < 0) {
@@ -1020,6 +1032,34 @@ out:
     return;
 }
 
+static int g_branch_inited = 0;
+
+void mds_cb_branch_init(void *arg)
+{
+    struct branch_local_op blo = {
+        .stat = __hvfs_stat_local,
+        .create = __hvfs_create_local,
+        .update = __hvfs_update_local,
+        .read = __hvfs_fread_local,
+        .write = __hvfs_fwrite_local,
+    };
+    int err = 0;
+
+    err = branch_init(0, 0, 0, &blo);
+    if (err) {
+        hvfs_err(xnet, "Init the branch subsystem failed w/ %d\n", err);
+        return;
+    }
+    g_branch_inited = 1;
+    hmo.branch_dispatch = branch_dispatch_split;
+}
+
+void mds_cb_branch_destroy(void *arg)
+{
+    if (g_branch_inited)
+        branch_destroy();
+}
+
 int main(int argc, char *argv[])
 {
     struct xnet_type_ops ops = {
@@ -1082,8 +1122,10 @@ int main(int argc, char *argv[])
     hmo.conf.itbid_check = 1;
     hmo.conf.prof_plot = 1;
     hmo.conf.option |= HVFS_MDS_NOSCRUB;
+    hmo.cb_branch_init = mds_cb_branch_init;
+    hmo.cb_branch_destroy = mds_cb_branch_destroy;
+
     mds_init(11);
-    hmo.branch_dispatch = branch_dispatch;
 
     /* set the uuid base! */
     hmi.uuid_base = (u64)self << 45;
@@ -1161,6 +1203,7 @@ int main(int argc, char *argv[])
         hmo.cb_exit = mds_cb_exit;
         hmo.cb_hb = mds_cb_hb;
         hmo.cb_ring_update = mds_cb_ring_update;
+
         /* use ring info to init the mds */
         err = r2cli_do_reg(self, HVFS_RING(0), fsid, 0);
         if (err) {

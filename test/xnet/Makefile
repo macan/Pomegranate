@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-01-26 15:36:38 macan>
+# Time-stamp: <2011-03-09 13:56:20 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -12,11 +12,11 @@ include ../../Makefile.inc
 
 ifdef USE_FUSE
 DEPEND_LIBS = $(XNET_LIB) $(MDS_LIB) $(HVFS_LIB) $(MDSL_LIB) $(R2_LIB) \
-				$(API_LIB) $(FUSE_LIB)
+				$(API_LIB) $(FUSE_LIB) $(BRANCH_LIB)
 EX_LFLAGS = -lpfuse
 else
 DEPEND_LIBS = $(XNET_LIB) $(MDS_LIB) $(HVFS_LIB) $(MDSL_LIB) $(R2_LIB) \
-				$(API_LIB)
+				$(API_LIB) $(BRANCH_LIB)
 endif
 
 all : $(TEST_XNET_SOURCE:.c=.ut)

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-02 13:11:02 macan>
+ * Time-stamp: <2011-03-14 11:27:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -74,6 +74,7 @@ void mdsl_read(struct xnet_msg *msg)
     struct mdsl_storage_access msa;
     struct storage_index *si;
     struct iovec *iov;
+    struct proxy_args *pa = NULL;
     int err = 0, i;
     
     /* ABI:
@@ -118,9 +119,28 @@ void mdsl_read(struct xnet_msg *msg)
 
     for (i = 0; i < si->scd.cnr; i++) {
         /* prepare to get the data file */
-        fde = mdsl_storage_fd_lookup_create(si->sic.uuid, MDSL_STORAGE_DATA,
-                                            si->scd.cr[i].cno);
-        if (IS_ERR(fde)) {
+        if (unlikely(si->scd.flag & SCD_PROXY)) {
+            pa = xmalloc(sizeof(*pa));
+            if (!pa) {
+                hvfs_err(mdsl, "alloc proxy args failed\n");
+                err = -ENOMEM;
+                goto cleanup_send_rpy;
+            }
+            pa->uuid = si->sic.arg0;
+            pa->cno = si->scd.cr[i].cno;
+            fde = mdsl_storage_fd_lookup_create(si->sic.uuid,
+                                                MDSL_STORAGE_NORMAL,
+                                                (u64)pa);
+            /* read from the beginning */
+            msa.offset = 0;
+        } else {
+            fde = mdsl_storage_fd_lookup_create(si->sic.uuid, 
+                                                MDSL_STORAGE_DATA,
+                                                si->scd.cr[i].cno);
+            msa.offset = si->scd.cr[i].file_offset + si->scd.cr[i].req_offset;
+        }
+
+        if (unlikely(IS_ERR(fde))) {
             hvfs_err(mdsl, "lookup create %lx data column %ld failed w/ %ld\n",
                      si->sic.uuid, si->scd.cr[i].cno, PTR_ERR(fde));
             err = PTR_ERR(fde);
@@ -139,7 +159,6 @@ void mdsl_read(struct xnet_msg *msg)
         iov[i].iov_len = si->scd.cr[i].req_len;
 
         /* read the data now */
-        msa.offset = si->scd.cr[i].file_offset + si->scd.cr[i].req_offset;
         msa.iov = &iov[i];
         msa.iov_nr = 1;
         err = mdsl_storage_fd_read(fde, &msa);
@@ -185,7 +204,7 @@ send_rpy:
 void mdsl_write(struct xnet_msg *msg)
 {
     struct fdhash_entry *fde;
-    struct mdsl_storage_access msa;
+    struct mdsl_storage_access msa = {.offset = 0,};
     struct storage_index *si;
     struct iovec iov;
     struct proxy_args *pa = NULL;
@@ -203,6 +222,7 @@ void mdsl_write(struct xnet_msg *msg)
      *           .scd.cr[x].stored_itbid = itbid (stored itbid)
      *           .scd.cr[x].req_offset = request offset in this file (ignore)
      *           .scd.cr[x].req_len = request length
+     *           .scd.cr[x].file_offset = PROXY write offset
      *     }
      */
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-03 07:04:54 macan>
+ * Time-stamp: <2011-03-16 09:13:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1369,16 +1369,12 @@ out:
 static int hvfs_readlink(const char *pathname, char *buf, size_t size)
 {
     struct hstat hs = {0,};
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), 
-        *path, *name, *spath;
+    char *dup = strdup(pathname), *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
-    if (!pathname || !buf)
-        return -EINVAL;
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
 
     spath = strdup(path);
@@ -1418,8 +1414,10 @@ static int hvfs_readlink(const char *pathname, char *buf, size_t size)
         psalt = hs.ssalt;
     } while (!(n = NULL));
 
-    if (err)
+    if (err) {
+        xfree(spath);
         goto out;
+    }
 
     __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
@@ -1469,7 +1467,6 @@ hit:
 
 out:
     xfree(dup);
-    xfree(dup2);
     
     return err;
 }
@@ -1551,14 +1548,12 @@ static int hvfs_mkdir(const char *pathname, mode_t mode)
 {
     struct hstat hs = {0,};
     struct mdu_update mu;
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), 
-        *path, *name, *spath;
+    char *dup = strdup(pathname), *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt, duuid;
     int err = 0;
 
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
 
     spath = strdup(path);
@@ -1595,8 +1590,10 @@ static int hvfs_mkdir(const char *pathname, mode_t mode)
         psalt = hs.ssalt;
     } while (!(n = NULL));
 
-    if (err)
+    if (err) {
+        xfree(spath);
         goto out;
+    }
 
     __ltc_update(spath, (void *)puuid, (void *)psalt);
     xfree(spath);
@@ -1626,7 +1623,6 @@ hit:
 
 out:
     xfree(dup);
-    xfree(dup2);
     
     return err;
 }
@@ -1768,37 +1764,10 @@ static int hvfs_rmdir(const char *pathname)
 hit:
     /* finally, do delete now */
     if (strlen(name) == 0 || strcmp(name, "/") == 0) {
-        /* what we want to delete is a directory, double check it */
-        if (!S_ISDIR(hs.mdu.mode)) {
-            hvfs_err(xnet, "It is a dir you want to delete, isn't it?\n");
-            err = -ENOTDIR;
-            goto out;
-        }
-        /* FIXME: check if it is a empty directory? Yup, but how? */
-        if (!__hvfs_is_empty_dir(puuid, psalt, NULL)) {
-            err = -ENOTEMPTY;
-            goto out;
-        }
-        
-        /* Step 1: delete the SDT entry by UUID */
-        hs.name = NULL;
-        hs.uuid = puuid;
-        hs.hash = saved_hash;
-        err = __hvfs_unlink(saved_puuid, saved_psalt, &hs);
-        if (err) {
-            hvfs_err(xnet, "do internal delete on '?%lx' failed w/ %d\n",
-                     puuid, err);
-            goto out;
-        }
-        /* Step 2: delete the GDT entry */
-        hs.uuid = puuid;
-        hs.hash = 0;
-        err = __hvfs_unlink(hmi.gdt_uuid, hmi.gdt_salt, &hs);
-        if (err) {
-            hvfs_err(xnet, "do internal delete on '?%lx' failed w/ %d\n",
-                     puuid, err);
-            goto out;
-        }
+        /* what we want to delete is the root directory, reject it */
+        hvfs_err(xnet, "Reject root directory removal!\n");
+        err = -ENOTEMPTY;
+        goto out;
     } else {
         /* confirm what it is firstly! */
         struct hstat tmp_hs;
@@ -3136,6 +3105,7 @@ hit:
         hs.uuid = 0;
         err = __hvfs_update(puuid, psalt, &hs, &mu);
         if (err == -EACCES) {
+            /* this means that we have hit a link target, stat harder! */
             hs.uuid = 0;
             err = __hvfs_stat(puuid, psalt, 0, &hs);
             if (err) {
@@ -3785,16 +3755,12 @@ static int hvfs_readdir_plus(const char *pathname, void *buf,
                              struct fuse_file_info *fi)
 {
     struct hstat hs = {0,};
-    char *dup = strdup(pathname), *dup2 = strdup(pathname), 
-        *path, *name, *spath;
+    char *dup = strdup(pathname), *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
-    if (!pathname || !buf)
-        return -EINVAL;
-    path = dirname(dup);
-    name = basename(dup2);
+    SPLIT_PATHNAME(dup, path, name);
     n = path;
 
     spath = strdup(path);
@@ -3878,6 +3844,8 @@ hit:
     }
 
 out:
+    xfree(dup);
+    
     return err;
 }
 

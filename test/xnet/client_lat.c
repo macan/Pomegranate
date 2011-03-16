@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-12 10:11:46 macan>
+ * Time-stamp: <2011-03-16 11:39:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -813,7 +813,7 @@ void __data_read(struct hvfs_index *hi, struct column *c)
     si->sic.arg0 = c->stored_itbid;
     si->scd.cnr = 1;
     si->scd.cr[0].cno = 0;
-    si->scd.cr[0].stored_itbid = hi->itbid;
+    si->scd.cr[0].stored_itbid = c->stored_itbid;
     si->scd.cr[0].file_offset = c->offset;
     si->scd.cr[0].req_offset = 0;
     si->scd.cr[0].req_len = c->len;
@@ -2421,6 +2421,16 @@ resend:
             goto out;
         }
         data += err;
+        err = bparse_ring(data, &ct);
+        if (err < 0) {
+            hvfs_err(root, "bparse_ring failed w/ %d\n", err);
+            goto out;
+        }
+        hmo.chring[CH_RING_BP] = chring_tx_to_chring(ct);
+        if (!hmo.chring[CH_RING_BP]) {
+            hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
+            goto out;
+        }
         /* parse root_tx */
         err = bparse_root(data, &rt);
         if (err < 0) {
@@ -2560,6 +2570,30 @@ out:
     return;
 }
 
+void client_cb_addr_table_update(void *arg)
+{
+    struct hvfs_site_tx *hst;
+    void *data = arg;
+    int err = 0;
+
+    hvfs_info(xnet, "Update address table ...\n");
+
+    err = bparse_addr(data, &hst);
+    if (err < 0) {
+        hvfs_err(xnet, "bparse_addr failed w/ %d\n", err);
+        goto out;
+    }
+    
+    err = hst_to_xsst(hst, err - sizeof(u32));
+    if (err) {
+        hvfs_err(xnet, "hst to xsst failed w/ %d\n", err);
+        goto out;
+    }
+
+out:
+    return;
+}
+
 int client_dispatch(struct xnet_msg *msg)
 {
     int err = 0;
@@ -2567,6 +2601,9 @@ int client_dispatch(struct xnet_msg *msg)
     switch (msg->tx.cmd) {
     case HVFS_FR2_RU:
         err = mds_ring_update(msg);
+        break;
+    case HVFS_FR2_AU:
+        err = mds_addr_table_update(msg);
         break;
     default:
         hvfs_err(xnet, "Client core dispatcher handle INVALID "
@@ -2744,6 +2781,7 @@ int main(int argc, char *argv[])
     } else {
         hmo.cb_exit = client_cb_exit;
         hmo.cb_ring_update = client_cb_ring_update;
+        hmo.cb_addr_table_update = client_cb_addr_table_update;
         /* use ring info to init the mds */
         err = r2cli_do_reg(self, HVFS_RING(0), 0, 0);
         if (err) {

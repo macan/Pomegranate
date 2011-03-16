@@ -3,11 +3,13 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-01-24 01:46:36 macan>
+# Time-stamp: <2011-03-08 11:28:26 macan>
 #
 # This is the mangement script for Pomegranate
 #
 # Armed with EMACS.
+
+SYSCTL_ADJ_SYN="sysctl -w net.ipv4.tcp_max_syn_backlog=8192;"
 
 if [ "x$HVFS_HOME" == "x" ]; then
     HVFS_HOME=`pwd`
@@ -115,6 +117,27 @@ CLIENT_CMD=""
 
 ipnr=`cat $CONFIG_FILE | grep "r2:" | awk -F: '{print $2":"$4}'`
 R2IP=`echo $ipnr | awk -F: '{print $1}'`
+
+function adjust_syn() {
+    ipnr=`cat $CONFIG_FILE | grep "r2:" | awk -F: '{print $2":"$4":"$3}'`
+    for x in $ipnr; do
+        ip=`echo $x | awk -F: '{print $1}'`
+        $SSH $UN$ip "$SYSCTL_ADJ_SYN" > /dev/null &
+    done
+    echo "Adjust SYN on r2 server done."
+    ipnr=`cat $CONFIG_FILE | grep "mdsl:" | awk -F: '{print $2":"$4":"$3}'`
+    for x in $ipnr; do 
+        ip=`echo $x | awk -F: '{print $1}'`
+        $SSH $UN$ip "$SYSCTL_ADJ_SYN" > /dev/null &
+    done
+    echo "Adjust SYN on MDSL server done."
+    ipnr=`cat $CONFIG_FILE | grep "mds:" | awk -F: '{print $2":"$4":"$3}'`
+    for x in $ipnr; do
+        ip=`echo $x | awk -F: '{print $1}'`
+        $SSH $UN$ip "$SYSCTL_ADJ_SYN" > /dev/null &
+    done
+    echo "Adjust SYN on MDS server done."
+}
 
 function start_mdsl() {
     if [ "x$1" == "x" ]; then
@@ -533,6 +556,101 @@ function do_kut() {
     done
 }
 
+function do_mount_pfs() {
+    ARGS=`cat $HVFS_HOME/conf/pfs.conf | grep -v "^ *#" | grep -v "^$"`
+    NR=`cat $HVFS_HOME/conf/pfs.conf | grep -v "^ *#" | grep -v "^$" | grep 'nr=' | sed -e 's/nr=//g'`
+    TOTAL=`cat $CONFIG_FILE | grep "client:" | wc -l`
+    if [ "x$NR" == 'x-1' ]; then
+        NR=$TOTAL
+    elif [ "x$NR" == "x" ]; then
+        NR=0
+    fi
+    ipnr=`cat $CONFIG_FILE | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
+    # prepare the client cmd environment variables
+    CLIENT_CMD=`echo $ARGS | sed -e "s/nr=[-0-9]*//g"`
+
+    if [ "x$ENTRY_TO" == "x" ]; then
+        ENTRY_TO=1
+    fi
+    if [ "x$ATTR_TO" == "x" ]; then
+        ATTR_TO=1
+    fi
+    if [ "x$PFS_ROOT" == "x" ]; then
+        PFS_ROOT="/mnt/hvfs"
+    fi
+
+    # start clients now
+    I=0
+    for x in $ipnr; do
+        if [ $I -ge $NR ]; then
+            break
+        fi
+        ip=`echo $x | awk -F: '{print $1}'`
+        id=`echo $x | awk -F: '{print $2}'`
+        port=`echo $x | awk -F: '{print $3}'`
+        $SSH $UN$ip "$CLIENT_CMD root=$R2IP id=$id $HVFS_HOME/test/xnet/pfs.ut $PFS_ROOT -o allow_other -o use_ino -o entry_timeout=$ENTRY_TO -o attr_timeout=$ATTR_TO -f > $LOG_DIR/pfs.$id.log" > /dev/null &
+        let I+=1
+    done
+    echo "Start $NR PFS fuse client(s) running."
+}
+
+function do_umount_pfs() {
+    ARGS=`cat $HVFS_HOME/conf/pfs.conf | grep -v "^ *#" | grep -v "^$"`
+    NR=`cat $HVFS_HOME/conf/pfs.conf | grep -v "^ *#" | grep -v "^$" | grep 'nr=' | sed -e 's/nr=//g'`
+    TOTAL=`cat $CONFIG_FILE | grep "client:" | wc -l`
+    if [ "x$NR" == 'x-1' ]; then
+        NR=$TOTAL
+    elif [ "x$NR" == "x" ]; then
+        NR=0
+    fi
+    ipnr=`cat $CONFIG_FILE | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
+    # prepare the client cmd environment variables
+    CLIENT_CMD=`echo $ARGS | sed -e "s/nr=[-0-9]*//g"`
+
+    if [ "x$PFS_ROOT" == "x" ]; then
+        PFS_ROOT="/mnt/hvfs"
+    fi
+
+    # start clients now
+    I=0
+    for x in $ipnr; do
+        if [ $I -ge $NR ]; then
+            break
+        fi
+        ip=`echo $x | awk -F: '{print $1}'`
+        id=`echo $x | awk -F: '{print $2}'`
+        port=`echo $x | awk -F: '{print $3}'`
+        $SSH $UN$ip "$CLIENT_CMD"' `which fusermount` '"-u $PFS_ROOT" > /dev/null &
+        let I+=1
+    done
+    echo "Start $NR PFS fuse client(s) running."
+}
+
+function do_list_pfs() {
+    NR=`cat $HVFS_HOME/conf/pfs.conf | grep -v "^ *#" | grep -v "^$" | grep 'nr=' | sed -e 's/nr=//g'`
+    TOTAL=`cat $CONFIG_FILE | grep "client:" | wc -l`
+    if [ "x$NR" == 'x-1' ]; then
+        NR=$TOTAL
+    elif [ "x$NR" == "x" ]; then
+        NR=0
+    fi
+
+    ipnr=`cat $CONFIG_FILE | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
+
+    # start clients now
+    I=0
+    for x in $ipnr; do
+        if [ $I -ge $NR ]; then
+            break
+        fi
+        ip=`echo $x | awk -F: '{print $1}'`
+        id=`echo $x | awk -F: '{print $2}'`
+        port=`echo $x | awk -F: '{print $3}'`
+        $SSH $UN$ip `which mount` -l | grep pfs.ut
+        let I+=1
+    done
+}
+
 function do_help() {
     echo "Version 1.0.0b"
     echo "Copyright (c) 2010 Can Ma <ml.macana@gmail.com>"
@@ -540,6 +658,7 @@ function do_help() {
     echo "Usage: hvfs.sh [start|stop|kill|check] [mds|mdsl|r2|all] [id]"
     echo "               [clean|stat]"
     echo "               [ut|kut|sut]"
+    echo "               [mount|umount|ml]"
     echo ""
     echo "Commands:"
     echo "      start [t] [id]  start servers"
@@ -552,6 +671,9 @@ function do_help() {
     echo "                      NOTE: you have to in MODE=fs"
     echo "      kut             kill the unit test programs"
     echo "      sut             stat the unit test programs"
+    echo "      mount           mount the fuse client"
+    echo "      umount          umount the fuse client"
+    echo "      ml              list the mounted pfs entry"
     echo ""
     echo "Environments:"
     echo "      HVFS_HOME       default to the current path."
@@ -650,6 +772,14 @@ elif [ "x$1" == "xclean" ]; then
 elif [ "x$1" == "xrestart" ]; then
     stop_all
     start_all
+elif [ "x$1" == "xsyn" ]; then
+    adjust_syn
+elif [ "x$1" == "xmount" ]; then
+    do_mount_pfs
+elif [ "x$1" == "xumount" ]; then
+    do_umount_pfs
+elif [ "x$1" == "xml" ]; then
+    do_list_pfs
 elif [ "x$1" == "xhelp" ]; then
     do_help
 else
