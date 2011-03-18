@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-16 11:25:17 macan>
+ * Time-stamp: <2011-03-17 14:58:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -347,8 +347,8 @@ int hvfs_update_eh(u64 puuid, u64 psalt, struct hstat *hs,
     }
 }
 
-int hvfs_fread_eh(struct hstat *hs, int column, void **data, 
-                  struct column *c)
+ssize_t hvfs_fread_eh(struct hstat *hs, int column, void **data, 
+                      struct column *c)
 {
     struct chp *p;
     int err = 0;
@@ -362,7 +362,7 @@ int hvfs_fread_eh(struct hstat *hs, int column, void **data,
     }
 
     if (p->site_id == hmo.site_id) {
-        /* oh, local access */
+        /* oh, this is a mdsl local access */
         struct storage_index si;
         struct iovec *iov;
 
@@ -389,7 +389,7 @@ int hvfs_fread_eh(struct hstat *hs, int column, void **data,
         return __hvfs_fread(hs, column, data, c, 0, c->len);
     }
 
-    return err;
+    return c->len;
 }
 
 /* hvfs_fwrite_eh()
@@ -2151,6 +2151,7 @@ int branch_load(char *branch_name, char *tag, int mode)
     struct branch_ack_cache_disk *bacd = NULL;
     struct branch_op_result *result = NULL;
     u64 buuid, bsalt;
+    ssize_t rlen;
     int err = 0, nr;
 
     if (!branch_name)
@@ -2189,10 +2190,11 @@ int branch_load(char *branch_name, char *tag, int mode)
     }
 
     /* Step 3: read in the branch data content */
-    err = hvfs_fread_eh(&hs, 0, (void **)&bh, &hs.mc.c);
-    if (err < 0) {
-        hvfs_err(xnet, "read the branch '%s' c[0] failed w/ %d\n",
-                 branch_name, err);
+    rlen = hvfs_fread_eh(&hs, 0, (void **)&bh, &hs.mc.c);
+    if (rlen < 0) {
+        hvfs_err(xnet, "read the branch '%s' c[0] failed w/ %ld\n",
+                 branch_name, rlen);
+        err = rlen;
         goto out;
     }
     /* fix the data pointer in branch_ops */
@@ -2229,11 +2231,12 @@ int branch_load(char *branch_name, char *tag, int mode)
         }
         nr = hs.mc.c.len / sizeof(*bacd);
         if (nr > 0) {
-            err = hvfs_fread_eh(&hs, 1, (void **)&bacd, &hs.mc.c);
-            if (err < 0) {
-                hvfs_err(xnet, "read the branch '%s' c[1] failed w/ %d\n",
-                         branch_name, err);
+            rlen = hvfs_fread_eh(&hs, 1, (void **)&bacd, &hs.mc.c);
+            if (rlen < 0) {
+                hvfs_err(xnet, "read the branch '%s' c[1] failed w/ %ld\n",
+                         branch_name, rlen);
                 xfree(bh);
+                err = rlen;
                 goto out;
             }
         }
@@ -2259,12 +2262,13 @@ int branch_load(char *branch_name, char *tag, int mode)
             goto out;
         } else {
             if (hs.mc.c.len > 0) {
-                err = hvfs_fread_eh(&hs, 0, (void **)&result, &hs.mc.c);
-                if (err < 0) {
-                    hvfs_err(xnet, "read the branch '%s' failed w/ %d\n",
-                             branch_name, err);
+                rlen = hvfs_fread_eh(&hs, 0, (void **)&result, &hs.mc.c);
+                if (rlen < 0) {
+                    hvfs_err(xnet, "read the branch '%s' failed w/ %ld\n",
+                             branch_name, rlen);
                     xfree(bh);
                     xfree(bacd);
+                    err = rlen;
                     goto out;
                 }
             }

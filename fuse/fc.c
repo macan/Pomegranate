@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-16 09:13:01 macan>
+ * Time-stamp: <2011-03-17 15:27:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -452,6 +452,7 @@ static int __bh_fill(struct hstat *hs, int column, struct column *c,
     struct bh *bh;
     off_t off_end = PAGE_ROUNDUP((offset + size), g_pagesize);
     off_t loff = 0;
+    ssize_t rlen;
     size_t _size = 0;
     int err = 0;
 
@@ -480,15 +481,16 @@ static int __bh_fill(struct hstat *hs, int column, struct column *c,
                     hs->mdu.flags & HVFS_MDU_IF_LZO) {
                     __prepare_bh(bh, 1);
                 }
-                err = __hvfs_fread(hs, 0, &bh->data, &hs->mc.c,
-                                   bhh->size, g_pagesize);
-                if (err == -EFBIG) {
+                rlen = __hvfs_fread(hs, 0, &bh->data, &hs->mc.c,
+                                    bhh->size, g_pagesize);
+                if (rlen == -EFBIG) {
                     /* it is ok, we just zero the page */
                     err = 0;
-                } else if (err < 0) {
+                } else if (rlen < 0) {
                     hvfs_err(xnet, "bh_fill() read the file range [%ld, %ld] "
-                             "failed w/ %d\n",
-                             bhh->size, bhh->size + g_pagesize, err);
+                             "failed w/ %ld\n",
+                             bhh->size, bhh->size + g_pagesize, rlen);
+                    err = rlen;
                     goto out;
                 }
                 /* should we fill with buf? */
@@ -541,15 +543,16 @@ static int __bh_fill(struct hstat *hs, int column, struct column *c,
                     offset = bh->offset + g_pagesize;
                 } else {
                     /* read in the page now */
-                    err = __hvfs_fread(hs, 0, &bh->data, &hs->mc.c,
+                    rlen = __hvfs_fread(hs, 0, &bh->data, &hs->mc.c,
                                        bhh->size, g_pagesize);
-                    if (err == -EFBIG) {
+                    if (rlen == -EFBIG) {
                         /* it is ok, we just zero the page */
                         err = 0;
-                    } else if (err < 0) {
+                    } else if (rlen < 0) {
                         hvfs_err(xnet, "bh_fill() read the file range [%ld, %ld] "
-                                 "failed w/ %d",
-                                 bhh->size, bhh->size + g_pagesize, err);
+                                 "failed w/ %ld",
+                                 bhh->size, bhh->size + g_pagesize, rlen);
+                        err = rlen;
                         goto out;
                     }
                     /* should we fill with buf? */
@@ -1372,6 +1375,7 @@ static int hvfs_readlink(const char *pathname, char *buf, size_t size)
     char *dup = strdup(pathname), *path, *name, *spath;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    ssize_t rlen;
     int err = 0;
 
     SPLIT_PATHNAME(dup, path, name);
@@ -1452,11 +1456,12 @@ hit:
     /* ok to parse the symname */
     if (hs.mdu.size > sizeof(hs.mdu.symname)) {
         /* read the symname from storage server */
-        err = __hvfs_fread(&hs, 0 /* column is ZERO */, (void **)&buf, 
-                           &hs.mc.c, 0, min(hs.mdu.size, size));
-        if (err < 0) {
-            hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
-                     name, err);
+        rlen = __hvfs_fread(&hs, 0 /* column is ZERO */, (void **)&buf, 
+                            &hs.mc.c, 0, min(hs.mdu.size, size));
+        if (rlen < 0) {
+            hvfs_err(xnet, "do internal fread on '%s' failed w/ %ld\n",
+                     name, rlen);
+            err = rlen;
             goto out;
         }
         err = 0;
@@ -2788,6 +2793,7 @@ static int hvfs_truncate(const char *pathname, off_t size)
     u64 saved_puuid = hmi.root_uuid, saved_psalt = hmi.root_salt;
     u64 saved_hash = 0;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    ssize_t rlen;
     int err = 0;
 
     SPLIT_PATHNAME(dup, path, name);
@@ -2862,11 +2868,12 @@ static int hvfs_truncate(const char *pathname, off_t size)
             goto out;
         }
 
-        err = __hvfs_fread(&hs, 0 /* column is ZERO */, &data, &hs.mc.c,
-                           0, hs.mdu.size);
-        if (err < 0) {
-            hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
-                     name, err);
+        rlen = __hvfs_fread(&hs, 0 /* column is ZERO */, &data, &hs.mc.c,
+                            0, hs.mdu.size);
+        if (rlen < 0) {
+            hvfs_err(xnet, "do internal fread on '%s' failed w/ %ld\n",
+                     name, rlen);
+            err = rlen;
             goto local_out;
         }
         memset(data + hs.mdu.size, 0, size - hs.mdu.size);
@@ -2943,6 +2950,7 @@ static int hvfs_ftruncate(const char *pathname, off_t size,
     struct mdu_update mu = {.valid = 0,};
     struct bhhead *bhh = (struct bhhead *)fi->fh;
     u64 saved_hash = 0;
+    ssize_t rlen;
     int err = 0;
 
     if (unlikely(!bhh))
@@ -2965,11 +2973,13 @@ static int hvfs_ftruncate(const char *pathname, off_t size,
             goto out;
         }
 
-        err = __hvfs_fread(&hs, 0 /* column is ZERO */, &data, &hs.mc.c,
-                           0, hs.mdu.size);
-        if (err < 0) {
-            hvfs_err(xnet, "do internal fread on uuid<%lx,%lx> failed w/ %d\n",
-                     hs.uuid, hs.hash, err);
+        rlen = __hvfs_fread(&hs, 0 /* column is ZERO */, &data, &hs.mc.c,
+                            0, hs.mdu.size);
+        if (rlen < 0) {
+            hvfs_err(xnet, "do internal fread on uuid<%lx,%lx> "
+                     "failed w/ %ld\n",
+                     hs.uuid, hs.hash, rlen);
+            err = rlen;
             goto local_out;
         }
         memset(data + hs.mdu.size, 0, size - hs.mdu.size);
@@ -3244,6 +3254,7 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
 {
     struct hstat hs;
     struct bhhead *bhh = (struct bhhead *)fi->fh;
+    ssize_t rlen;
     int err = 0, bytes = 0;
 
     /* is config_read() ? */
@@ -3257,19 +3268,20 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
     err = __bh_read(bhh, buf, offset, size);
     if (err == -EFBIG) {
         /* read in the data now */
-        err = __hvfs_fread(&hs, 0 /* column is ZERO */, (void **)&buf, 
-                           &hs.mc.c, offset, size);
-        if (err < 0) {
-            if (err == -EFBIG) {
+        rlen = __hvfs_fread(&hs, 0 /* column is ZERO */, (void **)&buf, 
+                            &hs.mc.c, offset, size);
+        if (rlen < 0) {
+            if (rlen == -EFBIG) {
                 /* translate EFBIG to OK */
                 err = 0;
             } else {
-                hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
-                         pathname, err);
+                hvfs_err(xnet, "do internal fread on '%s' failed w/ %ld\n",
+                         pathname, rlen);
+                err = rlen;
             }
             goto out;
         }
-        bytes = err;
+        bytes = rlen;
         err = __bh_fill(&hs, 0, &hs.mc.c, bhh, buf, offset, err);
         if (err < 0) {
             hvfs_err(xnet, "fill the buffer cache failed w/ %d\n",
@@ -3297,6 +3309,7 @@ static int hvfs_sync_write(const char *pathname, const char *buf,
     struct bhhead *bhh = (struct bhhead *)fi->fh;
     void *data = NULL;
     u64 len, hash;
+    ssize_t rlen;
     int err = 0, flag = 0;
 
     if (unlikely(bhh->flag & BH_CONFIG))
@@ -3333,10 +3346,11 @@ static int hvfs_sync_write(const char *pathname, const char *buf,
         /* ok, we read the original buffer */
         len = hs.mc.c.len;
     }
-    err = __hvfs_fread(&hs, 0 /* ZERO */, &data, &hs.mc.c, 0, len);
-    if (err < 0) {
-        hvfs_err(xnet, "read in the original data content failed w/ %d\n",
-                 err);
+    rlen = __hvfs_fread(&hs, 0 /* ZERO */, &data, &hs.mc.c, 0, len);
+    if (rlen < 0) {
+        hvfs_err(xnet, "read in the original data content failed w/ %ld\n",
+                 rlen);
+        err = rlen;
         goto out;
     }
 

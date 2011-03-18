@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-15 13:47:35 macan>
+ * Time-stamp: <2011-03-17 14:56:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -141,7 +141,7 @@ int hvfs_create(char *path, char *name, void **data_back, u32 is_dir);
 int hvfs_fupdate(char *path, char *name, void **data);
 int hvfs_fdel(char *path, char *name, void **data, u32 is_dir);
 int hvfs_readdir(char *path, char *name, void **data);
-int hvfs_fread(char *path, char *name, int column, void **data, u64 *len);
+ssize_t hvfs_fread(char *path, char *name, int column, void **data, u64 *len);
 int hvfs_fwrite(char *path, char *name, int column, void *data, 
                 u64 len, u32 flag);
 int hvfs_fcommit(int id);
@@ -165,8 +165,8 @@ int __hvfs_update(u64 puuid, u64 psalt, struct hstat *hs,
                   struct mdu_update *imu);
 int __hvfs_unlink(u64 puuid, u64 psalt, struct hstat *hs);
 int __hvfs_unlink_ext(u64 puuid, u64 psalt, u32 flag, struct hstat *hs);
-int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c,
-                 u64 offset, u64 size);
+ssize_t __hvfs_fread(struct hstat *hs, int column, void **data, 
+                     struct column *c, u64 offset, u64 size);
 int __hvfs_fwrite(struct hstat *hs, int column, u32 flag,
                   void *data, size_t len, struct column *c);
 int __hvfs_fwritev(struct hstat *hs, int column, u32 flag,

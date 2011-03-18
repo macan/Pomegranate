@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-15 10:43:17 macan>
+ * Time-stamp: <2011-03-17 14:58:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -231,8 +231,8 @@ int hvfs_update_eh(u64 puuid, u64 psalt, struct hstat *,
                    struct mdu_update *);
 int hvfs_fwrite_eh(struct hstat *hs, int column, u32 flag, 
                    void *data, size_t len, struct column *c);
-int hvfs_fread_eh(struct hstat *hs, int column, void **data, 
-                  struct column *c);
+ssize_t hvfs_fread_eh(struct hstat *hs, int column, void **data, 
+                      struct column *c);
 
 /* APIs from bp.c */
 u64 bp_get_ack(struct branch_processor *bp, u64 site);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-29 00:20:26 macan>
+ * Time-stamp: <2011-03-17 13:46:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -115,12 +115,12 @@ void xnet_free_msg(struct xnet_msg *msg)
 }
 
 #ifndef USE_XNET_SIMPLE
-int xnet_msg_add_sdata(struct xnet_msg *msg, void *addr, int len)
+int xnet_msg_add_sdata(struct xnet_msg *msg, void *addr, u32 len)
 {
     return 0;
 }
 
-int xnet_msg_add_rdata(struct xnet_msg *msg, void *addr, int len)
+int xnet_msg_add_rdata(struct xnet_msg *msg, void *addr, u32 len)
 {
     return 0;
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-15 15:50:00 macan>
+ * Time-stamp: <2011-03-17 15:02:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -6001,8 +6001,8 @@ void hvfs_free(void *p)
 
 /* __hvfs_fread() should return the data length we read
  */
-int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c,
-                 u64 offset, u64 size)
+ssize_t __hvfs_fread(struct hstat *hs, int column, void **data, 
+                     struct column *c, u64 offset, u64 size)
 {
     struct storage_index *si;
     struct xnet_msg *msg;
@@ -6153,7 +6153,7 @@ int __hvfs_fread(struct hstat *hs, int column, void **data, struct column *c,
     xnet_set_auto_free(msg->pair);
     need_free = 0;
     /* return the # of bytes we read */
-    err = size;
+    err = 0;
 
 out_msg:
     xnet_free_msg(msg);
@@ -6161,8 +6161,10 @@ out_free:
     xfree(si);
     if (need_free)
         xfree(*data);
+    if (err)
+        size = err;
     
-    return err;
+    return size;
 }
 
 /* Ugly! hs->hash saves the user provided stored_itbid!
@@ -6173,7 +6175,7 @@ int __hvfs_fwrite(struct hstat *hs, int column, u32 flag,
     struct storage_index *si;
     struct xnet_msg *msg;
     u64 dsite;
-    u64 location;
+    u64 location = 0;
     u32 vid = 0;
     int err = 0;
 
@@ -6273,8 +6275,9 @@ int __hvfs_fwrite(struct hstat *hs, int column, u32 flag,
     /* recv the reply, parse the offset now */
     if (msg->pair->xm_datacheck) {
         location = *((u64 *)msg->pair->xm_data);
-    } else {
-        hvfs_err(xnet, "recv data write reply ERROR!\n");
+    } else if (len) {
+        hvfs_err(xnet, "recv data write reply ERROR %d!\n", 
+                 msg->pair->tx.err);
         err = -EFAULT;
         goto out_msg;
     }
@@ -6451,11 +6454,12 @@ out_free:
     return err;
 }
 
-int hvfs_fread(char *path, char *name, int column, void **data, u64 *len)
+ssize_t hvfs_fread(char *path, char *name, int column, void **data, u64 *len)
 {
     struct hstat hs;
     char *p = NULL, *n = path, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    ssize_t rlen = 0;
     int err = 0;
 
     if (!path || !name || !data || !strlen(name))
@@ -6525,17 +6529,20 @@ int hvfs_fread(char *path, char *name, int column, void **data, u64 *len)
     
     /* read in the data now */
     *data = NULL;
-    err = __hvfs_fread(&hs, column, data, &hs.mc.c, 0, hs.mc.c.len);
-    if (err < 0) {
-        hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
-                 name, err);
+    rlen = __hvfs_fread(&hs, column, data, &hs.mc.c, 0, hs.mc.c.len);
+    if (rlen < 0) {
+        hvfs_err(xnet, "do internal fread on '%s' failed w/ %ld\n",
+                 name, rlen);
         goto out;
     }
 
     *len = hs.mc.c.len;
 
 out:
-    return err;
+    if (err)
+        rlen = err;
+    
+    return rlen;
 }
 
 int hvfs_fwrite(char *path, char *name, int column, void *data, 
@@ -6790,7 +6797,7 @@ int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
     void *old_dtrig, *new_dtrig;
     char *p = NULL, *n = path, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
-    size_t total_len;
+    size_t total_len, rlen;
     int err = 0;
 
     if (!path || !data)
@@ -6863,11 +6870,12 @@ int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
 
     /* read in the dtrig content */
     old_dtrig = NULL;
-    err = __hvfs_fread(&hs, HVFS_TRIG_COLUMN, &old_dtrig, &hs.mc.c, 
+    rlen = __hvfs_fread(&hs, HVFS_TRIG_COLUMN, &old_dtrig, &hs.mc.c, 
                        0, hs.mc.c.len);
-    if (err < 0) {
-        hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
-                 name, err);
+    if (rlen < 0) {
+        hvfs_err(xnet, "do internal fread on '%s' failed w/ %ld\n",
+                 name, rlen);
+        err = rlen;
         goto out;
     }
     
@@ -7014,6 +7022,7 @@ int hvfs_cat_dtrigger(char *path, char *name, void **data)
     void *old_dtrig;
     char *p = NULL, *n = path, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    size_t rlen;
     int err = 0;
 
     if (!path || !data)
@@ -7086,11 +7095,12 @@ int hvfs_cat_dtrigger(char *path, char *name, void **data)
 
     /* read in the dtrig content */
     old_dtrig = NULL;
-    err = __hvfs_fread(&hs, HVFS_TRIG_COLUMN, &old_dtrig, &hs.mc.c,
+    rlen = __hvfs_fread(&hs, HVFS_TRIG_COLUMN, &old_dtrig, &hs.mc.c,
                        0, hs.mc.c.len);
-    if (err < 0) {
-        hvfs_err(xnet, "do internal fread on '%s' failed w/ %d\n",
-                 name, err);
+    if (rlen < 0) {
+        hvfs_err(xnet, "do internal fread on '%s' failed w/ %ld\n",
+                 name, rlen);
+        err = rlen;
         goto out;
     }
 

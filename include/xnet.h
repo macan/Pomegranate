@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-11 16:11:36 macan>
+ * Time-stamp: <2011-03-17 13:43:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,7 +26,8 @@
 
 struct xnet_msg_tx 
 {
-    u8 version;                 /* the protocol version */
+    u8 version;                 /* the protocol version: but we only use the
+                                 * low 4 bits :) */
 #define XNET_MSG_NOP    0
 #define XNET_MSG_REQ    1
 #define XNET_MSG_RPY    2
@@ -165,8 +166,8 @@ struct xnet_msg *xnet_alloc_msg(u8 alloc_flag);
 void xnet_free_msg(struct xnet_msg *);
 void xnet_raw_free_msg(struct xnet_msg *);
 
-int xnet_msg_add_sdata(struct xnet_msg *, void *, int);
-int xnet_msg_add_rdata(struct xnet_msg *, void *, int);
+int xnet_msg_add_sdata(struct xnet_msg *, void *, u32);
+int xnet_msg_add_rdata(struct xnet_msg *, void *, u32);
 void xnet_msg_free_sdata(struct xnet_msg *);
 void xnet_msg_free_rdata(struct xnet_msg *);
 

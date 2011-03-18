@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-15 15:48:10 macan>
+ * Time-stamp: <2011-03-17 18:57:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,6 +31,11 @@
  */
 
 #ifdef USE_XNET_SIMPLE
+
+/* Note that linux kernel only support <2GB message, thus, xnet have to split
+ * the larger message into smaller slices.
+ */
+#define __MAX_MSG_SIZE          ((1UL << 31) - 1)
 
 void *mds_gwg;
 struct xnet_prof g_xnet_prof;
@@ -242,7 +247,8 @@ int __xnet_handle_tx(int fd)
 {
     struct xnet_msg *msg, *req;
     struct xnet_context *xc;
-    int br, bt;
+    u32 br;
+    int bt;
     int next = 1;               /* this means we should retry the read */
     int flag = MSG_DONTWAIT;
 
@@ -264,7 +270,7 @@ int __xnet_handle_tx(int fd)
     br = 0;
     do {
         bt = recv(fd, ((void *)&msg->tx) + br, 
-                  sizeof(struct xnet_msg_tx) - br, flag);
+                  sizeof(struct xnet_msg_tx) - br, flag | MSG_NOSIGNAL);
         if (bt < 0) {
             if (errno == EAGAIN && !br) {
                 /* pseudo calling, just return */
@@ -288,7 +294,7 @@ int __xnet_handle_tx(int fd)
     } while (br < sizeof(struct xnet_msg_tx));
     atomic64_add(br, &g_xnet_prof.inbytes);
 
-    hvfs_debug(xnet, "We have recieved the MSG_TX, dpayload %d\n",
+    hvfs_debug(xnet, "We have recieved the MSG_TX, dpayload %u\n",
                msg->tx.len);
 
     {
@@ -375,7 +381,9 @@ int __xnet_handle_tx(int fd)
 #ifdef XNET_EAGER_WRITEV
     msg->tx.len -= sizeof(struct xnet_msg_tx);
 #endif
-    if (msg->tx.len > 0) {
+    if (!msg->tx.len)
+        goto processing;
+    if (msg->tx.len <= __MAX_MSG_SIZE) {
         /* we should pre-alloc the buffer */
         void *buf;
 
@@ -390,11 +398,12 @@ int __xnet_handle_tx(int fd)
         if (!buf) {
             hvfs_err(xnet, "xmalloc() buffer failed\n");
             ASSERT(0, xnet);
+            HVFS_BUG();
             goto out_raw_free;
         }
         br = 0;
         do {
-            bt = recv(fd, buf + br, msg->tx.len - br, MSG_WAITALL);
+            bt = recv(fd, buf + br, msg->tx.len - br, MSG_WAITALL | MSG_NOSIGNAL);
             if (bt < 0) {
                 hvfs_verbose(xnet, "read() err %d w/ br %d(%d)\n", 
                              errno, br, msg->tx.len);
@@ -404,9 +413,11 @@ int __xnet_handle_tx(int fd)
                 }
                 /* this means the connection is broken, let us failed */
                 next = -1;
+                xfree(buf);
                 goto out_raw_free;
             } else if (bt == 0) {
                 next = -1;
+                xfree(buf);
                 goto out_raw_free;
             }
             br += bt;
@@ -415,13 +426,62 @@ int __xnet_handle_tx(int fd)
         /* add the data to the riov */
         xnet_msg_add_rdata(msg, buf, br);
         atomic64_add(br, &g_xnet_prof.inbytes);
-    } else if (msg->tx.len < 0) {
-        hvfs_err(xnet, "Recv invalid xnet_msg len %d from %lx\n",
-                 msg->tx.len, msg->tx.ssite_id);
-        next = -1;
-        goto out_raw_free;
+    } else {
+        /* well, this should be a dirty work. At this moment, linux kernel's
+         * tcp stack can not work with >2GB buffer even in x86_64 box. Thus,
+         * we have to assemble the message by our own hands 8-( */
+        void *buf;
+        u64 len = 0, recved = 0;
+
+        if (xc->ops.buf_alloc)
+            buf = xc->ops.buf_alloc(msg->tx.len, msg->tx.cmd);
+        else {
+            buf = xzalloc(msg->tx.len);
+        }
+        /* we should default to free all the resource from xnet. */
+        xnet_set_auto_free(msg);
+
+        if (!buf) {
+            hvfs_err(xnet, "xmalloc() buffer failed\n");
+            ASSERT(0, xnet);
+            HVFS_BUG();
+            goto out_raw_free;
+        }
+
+        do {
+            len = min(__MAX_MSG_SIZE, msg->tx.len - recved);
+            
+            br = 0;
+            do {
+                bt = recv(fd, buf + br + recved, len - br, 
+                          MSG_WAITALL | MSG_NOSIGNAL);
+                if (bt < 0) {
+                    hvfs_verbose(xnet, "read() err %d w/ br %d(%ld)\n", 
+                                 errno, br, len);
+                    if (errno == EAGAIN || errno == EINTR) {
+                        sleep(0);
+                        continue;
+                    }
+                    /* this means the connection is broken, let us failed */
+                    next = -1;
+                    xfree(buf);
+                    goto out_raw_free;
+                } else if (bt == 0) {
+                    hvfs_err(xnet, "Recv zero-length error: %d\n", errno);
+                    next = -1;
+                    xfree(buf);
+                    goto out_raw_free;
+                }
+                br += bt;
+            } while (br < len);
+            recved += len;
+        } while (recved < msg->tx.len);
+        /* add the data to the riov */
+        xnet_msg_add_rdata(msg, buf, msg->tx.len);
+        atomic64_add(msg->tx.len, &g_xnet_prof.inbytes);
     }
     
+processing:
     /* find the related msg */
     if (msg->tx.type == XNET_MSG_REQ) {
         /* this is a fresh requst msg, just receive the data */
@@ -1234,7 +1294,7 @@ int SELECT_CONNECTION(struct xnet_addr *xa, int *idx)
 
 static inline
 void __iov_recal(struct iovec *in, struct iovec **out, int inlen, size_t *outlen,
-                 int offset)
+                 off_t offset)
 {
     struct iovec *__out;
     int i, j;
@@ -1258,6 +1318,43 @@ void __iov_recal(struct iovec *in, struct iovec **out, int inlen, size_t *outlen
     }
     *out = __out;
     *outlen = j;
+}
+
+static inline
+void __iov_cut(struct iovec *in, struct iovec **out, int inlen, size_t *outlen,
+               u64 *ooffset)
+{
+    struct iovec *__out;
+    u64 offset = *ooffset, slen = 0, __len;
+    int i, j;
+
+    __out = xmalloc(sizeof(struct iovec) * inlen);
+    if (!__out) {
+        hvfs_err(xnet, "xmalloc iovec failed.\n");
+        ASSERT(0, xnet);
+    }
+
+    for (i = 0, j = 0; i < inlen; i++) {
+        if (offset < (in + i)->iov_len) {
+            __len = min((in + i)->iov_len - offset, 
+                        (__MAX_MSG_SIZE - slen));
+            (__out + j)->iov_base = (in + i)->iov_base + offset;
+            (__out + j)->iov_len = __len;
+            slen += __len;
+            j++;
+            offset = 0;
+            if (slen >= __MAX_MSG_SIZE) {
+                ASSERT(slen == __MAX_MSG_SIZE, xnet);
+                break;
+            }
+        } else {
+            /* skip this iov entry */
+            offset -= (u64)(in + i)->iov_len;
+        }
+    }
+    *out = __out;
+    *outlen = j;
+    *ooffset += slen;
 }
 
 /* xnet_resend()
@@ -1411,7 +1508,7 @@ retry:
                     br = 0;
                     do {
                         bt = recv(csock, (void *)&htx + br, sizeof(htx) - br,
-                                  MSG_WAITALL);
+                                  MSG_WAITALL | MSG_NOSIGNAL);
                         if (bt < 0) {
                             if (errno == EAGAIN || errno == EINTR) {
                                 sched_yield();
@@ -1625,7 +1722,8 @@ int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
     int ssock = 0;              /* selected socket */
     int nr_conn = 0;
     int lock_idx = 0;
-    int __attribute__((unused))bw, bt;
+    u32 bw;
+    int bt;
 
     if (unlikely(msg->tx.ssite_id == msg->tx.dsite_id)) {
         hvfs_err(xnet, "Warning: target site is the original site, BYPASS?\n");
@@ -1729,7 +1827,7 @@ retry:
                     br = 0;
                     do {
                         bt = recv(csock, (void *)&htx + br, sizeof(htx) - br,
-                                  MSG_WAITALL);
+                                  MSG_WAITALL | MSG_NOSIGNAL);
                         if (bt < 0) {
                             if (errno == EAGAIN || errno == EINTR) {
                                 sched_yield();
@@ -1858,39 +1956,117 @@ reselect_conn:
                 .msg_iovlen = msg->siov_ulen,
             };
 
-            bw = 0;
-            do {
-                bt = sendmsg(ssock, &__msg, MSG_NOSIGNAL);
-                if (bt < 0 || msg->tx.len > bt) {
-                    if (bt >= 0) {
-                        /* ok, we should adjust the iov. FIXME: memory leak
-                         * here! */
-                        __iov_recal(msg->siov, &__msg.msg_iov, msg->siov_ulen,
+            if (msg->tx.len <= __MAX_MSG_SIZE) {
+                bw = 0;
+                do {
+                    bt = sendmsg(ssock, &__msg, MSG_NOSIGNAL);
+                    if (bt > 0) {
+                            /* ok, we should adjust the iov. */
+                        if (msg->siov != __msg.msg_iov)
+                            xfree(__msg.msg_iov);
+                        __iov_recal(msg->siov, &__msg.msg_iov, 
+                                    msg->siov_ulen,
                                     &__msg.msg_iovlen, bt + bw);
                         bw += bt;
                         continue;
-                    } else if (errno == EINTR || errno == EAGAIN) {
+                    } else if (bt == 0) {
+                        hvfs_warning(xnet, "Zero sent at offset "
+                                     "%u -> %u\n",
+                                     bw, msg->tx.len);
                         continue;
+                    } else if (bt < 0) {
+                        /* this means bt < 0, an error occurs */
+                        if (errno == EINTR || errno == EAGAIN) {
+                            continue;
+                        }
+                        hvfs_err(xnet, "sendmsg(%d[%lx],%d,%x,flag %x) "
+                                 "err %d, for now we do support redo:)\n", 
+                                 ssock, msg->tx.dsite_id, bt,
+                                 msg->tx.len, msg->tx.flag, 
+                                 errno);
+                        if (errno == ECONNRESET || errno == EBADF || 
+                            errno == EPIPE) {
+                            /* select another link and resend the whole msg */
+                            xlock_unlock(&xa->socklock[lock_idx]);
+                            st_clean_sockfd(&gst, ssock);
+                            hvfs_err(xnet, "Reselect Conn [%d] --> ?\n", 
+                                     ssock);
+                            goto reselect_conn;
+                        }
+                        err = -errno;
+                        goto out_unlock;
                     }
-                    hvfs_err(xnet, "sendmsg(%d[%lx],%d,%x,flag %x) err %d, "
-                             "for now we do support redo:)\n", 
-                             ssock, msg->tx.dsite_id, bt,
-                             msg->tx.len, msg->tx.flag, 
-                             errno);
-                    if (errno == ECONNRESET || errno == EBADF || 
-                        errno == EPIPE) {
-                        /* select another link and resend the whole msg */
-                        xlock_unlock(&xa->socklock[lock_idx]);
-                        st_clean_sockfd(&gst, ssock);
-                        hvfs_err(xnet, "Reselect Conn [%d] --> ?\n", ssock);
-                        goto reselect_conn;
+                    bw += bt;
+                } while (bw < msg->tx.len);
+                atomic64_add(bw, &g_xnet_prof.outbytes);
+                if (msg->siov != __msg.msg_iov)
+                    xfree(__msg.msg_iov);
+            } else {
+                /* this means we have trouble. user give us a larger message,
+                 * and we have to split it into smaller slices. make sure we
+                 * send the whole message in ONE connection */
+                u64 send_offset = 0, this_len = 0;
+                
+                do {
+                    this_len = send_offset;
+                    __iov_cut(msg->siov, &__msg.msg_iov,
+                              msg->siov_ulen, &__msg.msg_iovlen,
+                              &send_offset);
+                    this_len = send_offset - this_len;
+                    /* do actually send here */
+                    {
+                        struct msghdr __msg2 = __msg;
+
+                        bw = 0;
+                        do {
+                            bt = sendmsg(ssock, &__msg, MSG_NOSIGNAL);
+                            if (bt > 0) {
+                                /* note that we have to adjust the iov
+                                 * carefully */
+                                if (__msg2.msg_iov != __msg.msg_iov)
+                                    xfree(__msg.msg_iov);
+                                __iov_recal(__msg2.msg_iov, &__msg.msg_iov, 
+                                            __msg2.msg_iovlen,
+                                            &__msg.msg_iovlen, bt + bw);
+                                bw += bt;
+                                continue;
+                            } else if (bt == 0) {
+                                hvfs_warning(xnet, "Zero sent at offset "
+                                             "%u -> %lu\n", 
+                                             bw, this_len);
+                                continue;
+                            } else {
+                                /* this means bt < 0, an error occurs */
+                                if (errno == EINTR || errno == EAGAIN) {
+                                    continue;
+                                }
+                                hvfs_err(xnet, "sendmsg(%d[%lx],%d,%lx from"
+                                         " %lx,flag %x) err %d, for now we "
+                                         "do support redo:)\n", 
+                                         ssock, msg->tx.dsite_id, bt,
+                                         this_len, send_offset - this_len, 
+                                         msg->tx.flag, errno);
+                                if (errno == ECONNRESET || errno == EBADF || 
+                                    errno == EPIPE) {
+                                    /* select another link and resend the
+                                     * whole msg */
+                                    xlock_unlock(&xa->socklock[lock_idx]);
+                                    st_clean_sockfd(&gst, ssock);
+                                    xfree(__msg.msg_iov);
+                                    hvfs_err(xnet, "Reselect Conn [%d] --> ?\n", 
+                                             ssock);
+                                    goto reselect_conn;
+                                }
+                                err = -errno;
+                                goto out_unlock;
+                            }
+                            bw += bt;
+                        } while (bw < this_len);
+                        atomic64_add(bw, &g_xnet_prof.outbytes);
                     }
-                    err = -errno;
-                    goto out_unlock;
-                }
-                bw += bt;
-            } while (bw < msg->tx.len);
-            atomic64_add(bt, &g_xnet_prof.outbytes);
+                    xfree(__msg.msg_iov);
+                } while (send_offset < msg->tx.len);
+            }
         }
 #elif 1
         bt = writev(ssock, msg->siov, msg->siov_ulen);
@@ -1970,7 +2146,7 @@ retry:
     }
 }
 
-int xnet_msg_add_sdata(struct xnet_msg *msg, void *buf, int len)
+int xnet_msg_add_sdata(struct xnet_msg *msg, void *buf, u32 len)
 {
     int err = 0;
     
@@ -2017,7 +2193,7 @@ void xnet_msg_free_sdata(struct xnet_msg *msg)
     xfree(msg->siov);
 }
 
-int xnet_msg_add_rdata(struct xnet_msg *msg, void *buf, int len)
+int xnet_msg_add_rdata(struct xnet_msg *msg, void *buf, u32 len)
 {
     int err = 0;
     

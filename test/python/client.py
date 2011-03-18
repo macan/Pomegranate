@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-03-15 15:13:53 macan>
+# Time-stamp: <2011-03-17 18:48:18 macan>
 #
 # Armed with EMACS.
 #
@@ -546,6 +546,7 @@ class pamc_shell(cmd.Cmd):
             c_content = c_void_p(None)
             c_len = c_long(0)
             self.start_clock()
+            api.hvfs_fread.restype = c_long
             err = api.hvfs_fread(c_path, c_file, c_column, byref(c_content), byref(c_len))
             self.stop_clock()
             if err < 0:
@@ -562,25 +563,33 @@ class pamc_shell(cmd.Cmd):
                 c_str = c_char_p(c_content.value)
                 print c_str.value
             else:
-                libc.fopen.restype = c_void_p
-                libc.fopen.errcheck = errcheck
-
                 f = open(l[1], "wb")
                 f.truncate(0)
-                f.close
+                f.close()
 
-                f = libc.fopen(l[1], 'wb')
-                sizeof_item = c_int(1)
-                nr = libc.fwrite(c_content, sizeof_item, c_len, f)
-                err = libc.fclose(f)
-                if nr != c_len.value:
-                    print "Incomplete write, written %d bytes..." % (int(nr))
+                f = libc.open(l[1], 2) # O_RDWR = 0x02
+                libc.write.restype = c_long
+                bw = long(0)
+                save_content = c_void_p(None)
+                save_content.value = c_content.value
+
+                while c_len.value > 0:
+                    bw = libc.write(f, c_content, c_len)
+                    if bw < 0:
+                        print "Write failed"
+                        break
+                    c_content.value += bw
+                    c_len.value -= bw
+
+                err = libc.close(f)
+                if c_len.value > 0:
+                    print "Incomplete write, remain %ld bytes..." % (c_len.value)
                 if err != 0:
                     pass
         except IOError, ioe:
             print "IOError %s" % ioe
 
-        api.hvfs_free(c_content)
+        api.hvfs_free(save_content)
         print "+OK"
 
     def do_cat(self, line):
