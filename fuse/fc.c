@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-18 14:14:53 macan>
+ * Time-stamp: <2011-03-20 21:39:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1316,14 +1316,14 @@ hit:
         struct bhhead *bhh = __odc_lookup(hs.uuid);
 
         if (unlikely(bhh)) {
-            if (MDU_VERSION_COMPARE(hs.mdu.version, bhh->hs.mdu.version)) {
 #if 0
-                hvfs_err(xnet, "<%lx,%lx> new %lx %ld %d old %lx %ld %d\n", 
-                         hs.uuid, hs.hash,
-                         hs.mdu.mtime, hs.mdu.size, hs.mdu.version,
-                         bhh->hs.mdu.mtime, bhh->hs.mdu.size, 
-                         bhh->hs.mdu.version);
+            hvfs_err(xnet, "<%lx,%lx> new %lx %ld %d old %lx %ld %d\n", 
+                     hs.uuid, hs.hash,
+                     hs.mdu.mtime, hs.mdu.size, hs.mdu.version,
+                     bhh->hs.mdu.mtime, bhh->hs.mdu.size, 
+                     bhh->hs.mdu.version);
 #endif
+            if (MDU_VERSION_COMPARE(hs.mdu.version, bhh->hs.mdu.version)) {
                 bhh->hs.mdu = hs.mdu;
                 bhh->hs.mc = hs.mc;
             } else {
@@ -2067,6 +2067,10 @@ hit:
         if (bhh) {
             hs = bhh->hs;
             hs.name = name;
+            /* if the 'from' file is dirty, we should sync it */
+            if (bhh->flag & BH_DIRTY) {
+                __bh_sync(bhh);
+            }
             __put_bhhead(bhh);
         }
     }
@@ -3003,6 +3007,8 @@ static int hvfs_ftruncate(const char *pathname, off_t size,
             goto out;
     } else if (size == hs.mdu.size) {
         goto out;
+    } else {
+        saved_hash = hs.hash;
     }
     /* finally update the metadata */
     mu.valid |= MU_SIZE | MU_COLUMN;
@@ -3199,35 +3205,40 @@ static int hvfs_open(const char *pathname, struct fuse_file_info *fi)
 
     __ltc_update(spath, (void *)puuid, (void *)psalt);
 hit:
-    /* lookup the file in the parent directory now */
-    if (name && strlen(name) > 0 && strcmp(name, "/") != 0) {
-        /* eh, we have to lookup this file now. Otherwise, what we want to
-         * lookup is the last directory, just return a result string now */
-        hs.name = name;
-        hs.uuid = 0;
-        err = __hvfs_stat(puuid, psalt, 0, &hs);
-        if (err) {
-            hvfs_err(xnet, "do internal file stat (SDT) on '%s' failed w/ %d\n",
-                     name, err);
-            goto out;
-        }
-        if (S_ISDIR(hs.mdu.mode)) {
-            err = -EISDIR;
-            goto out;
-        }
-    } else {
-        /* check if it the root directory */
-        if (puuid == hmi.root_uuid) {
-            /* stat root w/o any file name, it is ROOT we want to state */
-            err = __hvfs_fill_root(&hs);
-            if (err) {
-                hvfs_err(xnet, "fill root entry failed w/ %d\n", err);
-                goto out;
-            }
-        }
+    /* eh, we have to lookup this file now. Otherwise, what we want to lookup
+     * is the last directory, just return a result string now */
+    hs.name = name;
+    hs.uuid = 0;
+    err = __hvfs_stat(puuid, psalt, 0, &hs);
+    if (err) {
+        hvfs_err(xnet, "do internal file stat (SDT) on '%s' failed w/ %d\n",
+                 name, err);
+        goto out;
+    }
+    if (S_ISDIR(hs.mdu.mode)) {
+        err = -EISDIR;
+        goto out;
     }
 
     fi->fh = (u64)__get_bhhead(&hs);
+    /* we should restat the file to detect any new file syncs */
+#ifdef FUSE_SAFE_OPEN
+    {
+        struct bhhead *bhh = (struct bhhead *)fi->fh;
+
+        err = __hvfs_stat(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal file 2rd stat (SDT) on '%s' "
+                     "failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
+        if (MDU_VERSION_COMPARE(hs.mdu.version, bhh->hs.mdu.version)) {
+            bhh->hs.mdu = hs.mdu;
+            bhh->hs.mc = hs.mc;
+        }
+    }
+#endif
 
 out:
     xfree(dup);

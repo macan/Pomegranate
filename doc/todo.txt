@@ -316,4 +316,16 @@ Pomegranate TODOs:
     1. We have many BP sites, thus, we should split the BP.result 
        [originally in column 2] by BP's site id. DONE!
 
-    2. 
+    2. Branch subsystem has a new operator SUM, you can sum branch lines
+       with respect to its specific subtree.
+
+31. Bug notice:
+
+    1. there is a bug in FUSE client which can be produced by dbench 
+       benchmark.
+
+       [1697] read failed on handle 10226 (No such file or directory)
+
+       This error should be an race error within ODC cached entry and 
+       a newer file stat. Although I add a new file stat in hvfs_open(),
+       the same error still exists. Why?

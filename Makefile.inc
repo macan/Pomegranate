@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-03-14 10:10:41 macan>
+# Time-stamp: <2011-03-21 09:57:45 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -40,7 +40,7 @@ PYTHON_LIB = /usr/lib/
 
 # for now we know the number of cores of the target machines is 8, so just set
 # it manually.
-# GET_CORE = `cat /proc/cpuinfo | grep processor | wc -l`
+# GET_CORE = `grep -c processor /proc/cpuinfo`
 GET_CORE = 8
 
 ifeq ($(CPU_CORE),)
@@ -72,9 +72,10 @@ CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" -DGIT_SHA="\"$(GIT_SHA)\""\
 			-I$(LIB_PATH) -I$(MDS) -I$(MDSL) -I$(R2) \
 			-I$(FUSE) -D_GNU_SOURCE \
 			-DHVFS_TRACING -DHVFS_DEBUG_MEMORY -DHVFS_DEBUG_LOCK_ \
-            -D_USE_SPINLOCK_ -DHVFS_DEBUG_LATENCY_ -DXNET_BLOCKING \
+			-D_USE_SPINLOCK_ -DHVFS_DEBUG_LATENCY_ -DXNET_BLOCKING \
 			-DXNET_EAGER_WRITEV -DCPU_CORE=$(__CORES__) \
-			-DMDSL_ACC_SYNC -DMDSL_RADICAL_DEL -DMDSL_DROP_CACHE_
+			-DMDSL_ACC_SYNC -DMDSL_RADICAL_DEL -DMDSL_DROP_CACHE_ \
+			-DFUSE_SAFE_OPEN
 
 ifdef USE_JEMALLOC
 CFLAGS += -DUSE_JEMALLOC
