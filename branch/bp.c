@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-16 11:46:49 macan>
+ * Time-stamp: <2011-03-28 16:04:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1129,7 +1129,7 @@ int bo_filter_input(struct branch_processor *bp,
                     u64 site, u64 ack, int *errstate)
 {
     struct bo_filter *bf;
-    int err = 0;
+    int err = 0, len;
 
     /* check if it is a flush operation */
     if (*errstate == BO_FLUSH) {
@@ -1162,8 +1162,10 @@ int bo_filter_input(struct branch_processor *bp,
     xlock_lock(&bf->lock);
     if (bf->accept_all > 0) {
         /* save the input data to the buffer */
+        len = bld->bl.data_len + bld->tag_len + 8 + 3; /* 8B for site id, 2B
+                                                        * '\t' and 1B '\n' */
     retry:
-        if (bf->offset + bld->bl.data_len + 1 > bf->size) {
+        if (bf->offset + len > bf->size) {
             /* need to realloc the buffer now */
             void *p = xrealloc(bf->buffer, bf->size + BO_FILTER_CHUNK);
             if (!p) {
@@ -1177,6 +1179,13 @@ int bo_filter_input(struct branch_processor *bp,
             bf->buffer = p;
             goto retry;
         }
+        sprintf(bf->buffer + bf->offset, "%08lx\t", bld->bl.sites[0]);
+        bf->offset += 9;
+        memcpy(bf->buffer + bf->offset, bld->data + bld->name_len, 
+               bld->tag_len);
+        bf->offset += bld->tag_len;
+        *(char *)(bf->buffer + bf->offset) = '\t';
+        bf->offset += 1;
         memcpy(bf->buffer + bf->offset, bld->bl.data,
                bld->bl.data_len);
         bf->offset += bld->bl.data_len;
@@ -1193,8 +1202,11 @@ int bo_filter_input(struct branch_processor *bp,
         err = regexec(&bf->preg, string, 0, NULL, 0);
         if (!err) {
             /* matched, just log current entry and continue */
+            len = bld->bl.data_len + bld->tag_len + 8 + 3; /* 8B for site id,
+                                                            * 2B '\t' and 1B
+                                                            * '\n' */
         retry_again:
-            if (bf->offset + bld->bl.data_len + 1 > bf->size) {
+            if (bf->offset + len > bf->size) {
                 /* need to realloc the buffer now */
                 void *p = xrealloc(bf->buffer,
                                    bf->size + BO_FILTER_CHUNK);
@@ -1207,8 +1219,15 @@ int bo_filter_input(struct branch_processor *bp,
                 }
                 bf->size += BO_FILTER_CHUNK;
                 bf->buffer = p;
-            goto retry_again;
+                goto retry_again;
             }
+            sprintf(bf->buffer + bf->offset, "%08lx\t", bld->bl.sites[0]);
+            bf->offset += 9;
+            memcpy(bf->buffer + bf->offset, bld->data + bld->name_len, 
+                   bld->tag_len);
+            bf->offset += bld->tag_len;
+            *(char *)(bf->buffer + bf->offset) = '\t';
+            bf->offset += 1;
             memcpy(bf->buffer + bf->offset, bld->bl.data,
                    bld->bl.data_len);
             bf->offset += bld->bl.data_len;
@@ -1277,6 +1296,7 @@ out:
  * API: (string in branch_op->data)
  * 1. rule: <regex> for tag fields
  * 2. lor: left or right or all or match
+ *         all means (or); match means (and)
  */
 int bo_sum_open(struct branch_operator *bo,
                 struct branch_op_result *bor,
@@ -1309,7 +1329,7 @@ int bo_sum_open(struct branch_operator *bo,
                              bo->id, bs->value);
                 break;
             }
-            bore = (void *)bore + sizeof(*bore) + sizeof(u64);
+            bore = (void *)bore + sizeof(*bore) + bore->len;
         }
     }
 
@@ -1482,7 +1502,7 @@ int bo_sum_input(struct branch_processor *bp,
                  u64 site, u64 ack, int *errstate) 
 {
     struct bo_sum *bs;
-    char tag[35];
+    char *tag;
     int err = 0, sample = 0, left_stop = 0;
 
     /* check if it is a flush operation */
@@ -1515,8 +1535,9 @@ int bo_sum_input(struct branch_processor *bp,
     bs = (struct bo_sum *)bo->gdata;
 
     /* check if the tag match the rule */
-    memset(tag, 0, sizeof(tag));
+    tag = alloca(bld->tag_len + 1);
     memcpy(tag, bld->data + bld->name_len, bld->tag_len);
+    tag[bld->tag_len] = '\0';
     err = regexec(&bs->preg, tag, 0, NULL, 0);
     if (!err) {
         /* matched, just mark the sample variable */
@@ -1649,6 +1670,620 @@ int bo_sum_output(struct branch_processor *bp,
     return err;
 }
 
+/* mm_open() to load in the metadata for max/min rules
+ *
+ * API: (string in branch_op->data)
+ * 1. rule: <regex> for tag fields
+ * 2. lor: left or right or all or match
+ *
+ * For TAGs to do MAX/MIN, you should obey the following rules:
+ * TAG format:
+ *     <id>.<num>
+ *
+ * we use <regex> to match the tag. If the tag is match, we extract the 
+ */
+static inline
+int __bo_mm_open(struct branch_operator *bo,
+                 struct branch_op_result *bor,
+                 struct branch_op *op, int flag)
+{
+    struct bo_mm *bm;
+    char *regex = "rule:([^;]*);+lor:([^;]*);*";
+    char dup[op->len + 1];
+    int err = 0, i, j;
+
+    /* Step 1: parse the arguments from branch op */
+    if (!op || !op->data)
+        return -EINVAL;
+
+    bm = xzalloc(sizeof(*bm));
+    if (!bm) {
+        hvfs_err(xnet, "xzalloc() bo_mm failed\n");
+        return -ENOMEM;
+    }
+    bm->flag = flag;
+
+    /* load in the bor value */
+    if (bor) {
+        struct branch_op_result_entry *bore = bor->bore;
+        struct branch_log_disk *bld;
+        struct branch_log_entry_disk *bled;
+        struct branch_log_entry *ble;
+
+        for (i = 0; i < bor->nr; i++) {
+            if (bo->id == bore->id) {
+                ASSERT(bore->len >= sizeof(struct branch_log_disk), xnet);
+                bld = (struct branch_log_disk *)(bore->data);
+                bled = bld->bled;
+                /* prepare the ble region */
+                bm->bl.ble = xzalloc(bld->nr * 
+                                     sizeof(struct branch_log_entry));
+                if (!bm->bl.ble) {
+                    hvfs_err(xnet, "prepare BLE region failed\n");
+                    err = -ENOMEM;
+                    goto out_free;
+                }
+                ble = bm->bl.ble;
+
+                for (j = 0; j < bld->nr; j++) {
+                    (ble + j)->ssite = bled->ssite;
+                    (ble + j)->timestamp = bled->timestamp;
+                    (ble + j)->data_len = bled->data_len;
+                    {
+                        char __tag[bled->tag_len + 1];
+                        
+                        memcpy(__tag, bled->data, bled->tag_len);
+                        __tag[bled->tag_len] = '\0';
+                        (ble + j)->tag = strdup(__tag);
+                    }
+                    {
+                        void *__data = xmalloc(bled->data_len);
+                        
+                        if (!__data) {
+                            err = -ENOMEM;
+                            xfree(ble);
+                            goto out_free;
+                        }
+                        memcpy(__data, bled->data + bled->tag_len, 
+                               bled->data_len);
+                        (ble + j)->data = __data;
+                    }
+                    bled = (void *)bled + sizeof(*bled) + bled->tag_len + 
+                        bled->data_len;
+                }
+                bm->bl.value = bld->value;
+                bm->bl.nr = bld->nr;
+                hvfs_warning(xnet, "Load BLD value %ld nr %d\n", 
+                             bld->value, bld->nr);
+                break;
+            }
+            bore = (void *)bore + sizeof(*bore) + bore->len;
+        }
+    }
+
+    memcpy(dup, op->data, op->len);
+    dup[op->len] = '\0';
+
+    /* parse the regex strings */
+    {
+        regex_t preg;
+        regmatch_t *pmatch;
+        char errbuf[op->len + 1];
+        int i, len;
+
+        pmatch = xzalloc(3 * sizeof(regmatch_t));
+        if (!pmatch) {
+            hvfs_err(xnet, "malloc regmatch_t failed\n");
+            err = -ENOMEM;
+            goto out_free;
+        }
+        err = regcomp(&preg, regex, REG_EXTENDED);
+        if (err) {
+            hvfs_err(xnet, "regcomp failed w/ %d\n", err);
+            goto out_free2;
+        }
+        err = regexec(&preg, dup, 3, pmatch, 0);
+        if (err) {
+            regerror(err, &preg, errbuf, op->len);
+            hvfs_err(xnet, "regexec failed w/ '%s'\n", errbuf);
+            goto out_clean;
+        }
+
+        for (i = 1; i < 3; i++) {
+            if (pmatch[i].rm_so == -1)
+                break;
+            len = pmatch[i].rm_eo - pmatch[i].rm_so;
+            memcpy(errbuf, dup + pmatch[i].rm_so, len);
+            errbuf[len] = '\0';
+            switch (i) {
+            case 1:
+                /* this is the rule */
+                hvfs_err(xnet, "rule=%s\n", errbuf);
+                err = regcomp(&bm->preg, errbuf, REG_EXTENDED);
+                if (err) {
+                    hvfs_err(xnet, "regcomp failed w/ %d\n",
+                             err);
+                    goto out_clean;
+                }
+                break;
+            case 2:
+                /* this is the lor */
+                hvfs_err(xnet, "lor=%s\n", errbuf);
+                if (strcmp(errbuf, "left") == 0) {
+                    bm->lor = BMM_LEFT;
+                } else if (strcmp(errbuf, "right") == 0) {
+                    bm->lor = BMM_RIGHT;
+                } else if (strcmp(errbuf, "all") == 0) {
+                    bm->lor = BMM_ALL;
+                } else if (strcmp(errbuf, "match") == 0) {
+                    bm->lor = BMM_MATCH;
+                } else {
+                    hvfs_err(xnet, "Invalid lor value '%s', "
+                             "reset to 'match'\n",
+                             errbuf);
+                    bm->lor = BMM_MATCH;
+                }
+                break;
+            default:
+                continue;
+            }
+        }
+    out_clean:
+        regfree(&preg);
+    out_free2:
+        xfree(pmatch);
+        if (err)
+            goto out_free;
+    }
+
+    /* set the bm to gdata */
+    bo->gdata = bm;
+    return 0;
+    
+out_free:
+    xfree(bm);
+
+    return err;
+}
+
+/* MAX/MIN wrappers for __bo_mm_open()
+ */
+int bo_max_open(struct branch_operator *bo,
+                struct branch_op_result *bor,
+                struct branch_op *op)
+{
+    return __bo_mm_open(bo, bor, op, BMM_MAX);
+}
+
+int bo_min_open(struct branch_operator *bo,
+                struct branch_op_result *bor,
+                struct branch_op *op)
+{
+    return __bo_mm_open(bo, bor, op, BMM_MIN);
+}
+
+int bo_mm_close(struct branch_operator *bo)
+{
+    struct bo_mm *bm = bo->gdata;
+    int i;
+
+    regfree(&bm->preg);
+    for (i = 0; i < bm->bl.nr; i++) {
+        xfree((bm->bl.ble + i)->tag);
+        xfree((bm->bl.ble + i)->data);
+    }
+    xfree(bm->bl.ble);
+    xfree(bm);
+
+    return 0;
+}
+
+/* Generate the BOR region entry to flush. Note that we will realloc the
+ * bp->bor region.
+ *
+ * Inside the region entry, we construct and write a branch_log_disk entry!
+ */
+int bo_mm_flush(struct branch_processor *bp,
+                struct branch_operator *bo, void **oresult,
+                size_t *osize)
+{
+    struct bo_mm *bm = (struct bo_mm *)bo->gdata;
+    struct branch_op_result_entry *bore;
+    struct branch_log_disk *bld;
+    struct branch_log_entry_disk *bled;
+    void *nbor;
+    int len = sizeof(*bore) + sizeof(*bld), tag_len, err = 0, i;
+
+    /* Step 1: self handling to calculate the region length */
+    if (!bm->bl.nr)
+        return 0;
+    len += bm->bl.nr * sizeof(*bled);
+    for (i = 0; i < bm->bl.nr; i++) {
+        len += strlen((bm->bl.ble + i)->tag);
+        len += (bm->bl.ble + i)->data_len;
+    }
+    bore = xzalloc(len);
+    if (!bore) {
+        hvfs_err(xnet, "xzalloc() bore failed\n");
+        return -ENOMEM;
+    }
+    bore->id = bo->id;
+    bore->len = len - sizeof(*bore);
+
+    /* construct branch_log_disk and copy it */
+    bld = (void *)bore->data;
+    bld->nr = bm->bl.nr;
+    bld->value = bm->bl.value;
+    bled = bld->bled;
+
+    for (i = 0; i < bm->bl.nr; i++) {
+        bled->ssite = (bm->bl.ble + i)->ssite;
+        bled->timestamp = (bm->bl.ble + i)->timestamp;
+        bled->data_len = (bm->bl.ble + i)->data_len;
+        tag_len = strlen((bm->bl.ble + i)->tag);
+        bled->tag_len = tag_len;
+
+        memcpy(bled->data, (bm->bl.ble + i)->tag, tag_len);
+        memcpy(bled->data + tag_len, (bm->bl.ble + i)->data,
+               bled->data_len);
+        bled = (void *)bled + sizeof(*bled) + tag_len +
+            bled->data_len;
+    }
+
+    nbor = xrealloc(bp->bor, bp->bor_len + len);
+    if (!nbor) {
+        hvfs_err(xnet, "xrealloc() bor region failed\n");
+        xfree(bore);
+        return -ENOMEM;
+    }
+
+    memcpy(nbor + bp->bor_len, bore, len);
+    bp->bor = nbor;
+    bp->bor_len += len;
+    ((struct branch_op_result *)bp->bor)->nr++;
+
+    xfree(bore);
+
+    /* Step 2: push the flush request to my children */
+    {
+        int errstate = BO_FLUSH;
+
+        if (bo->left) {
+            err = bo->left->input(bp, bo->left, NULL, -1UL, 0, &errstate);
+            if (errstate == BO_STOP) {
+                /* ignore any errors */
+                if (err) {
+                    hvfs_err(xnet, "flush on BO %d's left branch %d "
+                             "failed w/ %d\n",
+                             bo->id, bo->left->id, err);
+                }
+            }
+        }
+        errstate = BO_FLUSH;
+        if (bo->right) {
+            err = bo->right->input(bp, bo->right, NULL, -1UL, 0, &errstate);
+            if (errstate == BO_STOP) {
+                /* ignore any errors */
+                if (err) {
+                    hvfs_err(xnet, "flush on BO %d's right branch %d "
+                             "failed w/ %d\n",
+                             bo->id, bo->right->id, err);
+                }
+            }
+        }
+    }
+
+    return err;
+}
+
+void __bmm_update(struct bo_mm *bm, struct branch_line_disk *bld)
+{
+    char *tag, *p = NULL;
+    unsigned long value = 0;
+    /* Action: 0 => replace, 1 => append */
+    int action = 0;
+
+    /* Step 1: process the branch line to regexec the tag name and get the
+     * value */
+    tag = alloca(bld->tag_len + 1);
+    memcpy(tag, bld->data + bld->name_len, bld->tag_len);
+    tag[bld->tag_len] = '\0';
+    sscanf(tag, "%a[_a-zA-Z].%ld", &p, &value);
+    xfree(p);
+
+    switch (bm->flag) {
+    case BMM_MAX:
+        if (value < bm->bl.value) {
+            if (bm->bl.nr > 0)
+                return;
+        } else if (value == bm->bl.value)
+            action = 1;
+        break;
+    case BMM_MIN:
+        if (value > bm->bl.value) {
+            if (bm->bl.nr > 0)
+                return;
+        } else if (value == bm->bl.value)
+            action = 1;
+        break;
+    default:
+        hvfs_err(xnet, "bmm invalid operator: %x\n", bm->flag);
+        return;
+    }
+
+    /* Step 2: update bo_mm if needed */
+    if (!action) {
+        /* do replace, it is easy */
+        struct branch_log_entry *ble;
+        int i;
+        
+        ble = xmalloc(sizeof(struct branch_log_entry));
+        if (!ble) {
+            hvfs_err(xnet, "xmalloc() branch_log_entry failed\n");
+            return;
+        }
+
+        ble->ssite = bld->bl.sites[0];
+        ble->timestamp = bld->bl.life;
+        ble->data_len = bld->bl.data_len;
+        ble->tag = strdup(tag);
+
+        ble->data = xmalloc(ble->data_len);
+        if (!ble->data) {
+            hvfs_err(xnet, "xmalloc() data region %ld failed\n",
+                     ble->data_len);
+            xfree(ble);
+            return;
+        }
+        memcpy(ble->data, bld->data + bld->name_len + bld->tag_len,
+               ble->data_len);
+
+        for (i = 0; i < bm->bl.nr; i++) {
+            xfree((bm->bl.ble + i)->tag);
+            xfree((bm->bl.ble + i)->data);
+        }
+        xfree(bm->bl.ble);
+
+        bm->bl.ble = ble;
+        bm->bl.nr = 1;
+        bm->bl.value = value;
+        hvfs_warning(xnet, "MM replace max/min value to %ld\n", value);
+    } else {
+        /* do append, it is a little complicated */
+        struct branch_log_entry *ble;
+
+        ble = xrealloc(bm->bl.ble, (bm->bl.nr + 1) * sizeof(*ble));
+        if (!ble) {
+            hvfs_err(xnet, "xrealloc() BLE region failed\n");
+            return;
+        }
+
+        bm->bl.ble = ble;
+        (ble + bm->bl.nr)->ssite = bld->bl.sites[0];
+        (ble + bm->bl.nr)->timestamp = bld->bl.life;
+        (ble + bm->bl.nr)->data_len = bld->bl.data_len;
+        (ble + bm->bl.nr)->tag = strdup(tag);
+
+        (ble + bm->bl.nr)->data = xmalloc(bld->bl.data_len);
+        if (!(ble + bm->bl.nr)) {
+            hvfs_err(xnet, "xmalloc() data region %ld failed\n",
+                     bld->bl.data_len);
+            return;
+        }
+        memcpy((ble + bm->bl.nr)->data, bld->data + bld->name_len + 
+               bld->tag_len,
+               bld->bl.data_len);
+
+        bm->bl.nr++;
+        hvfs_warning(xnet, "MM append max/min value to %ld\n", value);
+    }
+
+    return;
+}
+
+int bo_mm_input(struct branch_processor *bp,
+                struct branch_operator *bo,
+                struct branch_line_disk *bld,
+                u64 site, u64 ack, int *errstate)
+{
+    struct bo_mm *bm;
+    char *tag;
+    int err = 0, sample = 0, left_stop = 0;
+
+    /* check if it is a flush operation */
+    if (*errstate == BO_FLUSH) {
+        if (bo->flush)
+            err = bo->flush(bp, bo, NULL, NULL);
+        else
+            err = -EINVAL;
+
+        if (err) {
+            hvfs_err(xnet, "flush mm operator %s "
+                     "failed w/ %d\n", bo->name, err);
+            *errstate = BO_STOP;
+            return -EHSTOP;
+        }
+        return err;
+    } else if (*errstate == BO_STOP) {
+        return -EHSTOP;
+    }
+
+    /* sanity check */
+    if (!bp || !bld) {
+        *errstate = BO_STOP;
+        return -EINVAL;
+    }
+
+    /* deal with data now */
+    __bp_bld_dump("mm", bld, site);
+
+    bm = (struct bo_mm *)bo->gdata;
+
+    /* check if the tag match the rule */
+    tag = alloca(bld->tag_len + 1);
+    memcpy(tag, bld->data + bld->name_len, bld->tag_len);
+    tag[bld->tag_len] = '\0';
+    err = regexec(&bm->preg, tag, 0, NULL, 0);
+    if (!err) {
+        /* matched, just mark the sample variable */
+        sample = 1;
+    }
+
+    if (sample && bm->lor == BMM_ALL) {
+        __bmm_update(bm, bld);
+    }
+
+    /* push the branch line to other operatorers */
+    if (bo->left) {
+        err = bo->left->input(bp, bo->left, bld, site, ack, errstate);
+        if ((*errstate) == BO_STOP) {
+            if (err) {
+                hvfs_err(xnet, "BO %d's left operator '%s' failed w/ %d "
+                         "(Psite %lx from %lx id %ld, last_ack %ld)\n",
+                         bo->id, bo->left->name, err, site, site,
+                         bld->bl.id, ack);
+                goto out;
+            } else {
+                hvfs_err(xnet, "BO %d's left operator '%s' swallow this branch "
+                         "line (Psite %lx from %lx id %ld, "
+                         "last_ack %ld)\n",
+                         bo->id, bo->left->name, site, site, 
+                         bld->bl.id, ack);
+                /* reset errstate to ZERO */
+                *errstate = 0;
+            }
+            left_stop = 1;
+        } else if (sample) {
+            if (bm->lor == BMM_LEFT)
+                __bmm_update(bm, bld);
+        }
+    }
+    if (bo->right) {
+        err = bo->right->input(bp, bo->right, bld, site, ack, errstate);
+        if ((*errstate) == BO_STOP) {
+            if (err) {
+                hvfs_err(xnet, "BO %d's right operator '%s' failed w/ %d "
+                         "(Psite %lx from %lx id %ld, last_ack %ld)\n",
+                         bo->id, bo->right->name, err, site, site,
+                         bld->bl.id, ack);
+                goto out;
+            } else {
+                hvfs_err(xnet, "BO %d's right operator '%s' swallow this branch "
+                         "line (Psite %lx from %lx id %ld, "
+                         "last_ack %ld)\n",
+                         bo->id, bo->right->name, site, site,
+                         bld->bl.id, ack);
+                /* reset errstate to ZERO */
+                *errstate = 0;
+            }
+        } else if (sample) {
+            if (bm->lor == BMM_RIGHT)
+                __bmm_update(bm, bld);
+            if (bm->lor == BMM_MATCH && !left_stop)
+                __bmm_update(bm, bld);
+        }
+    } else if (left_stop) {
+        *errstate = BO_STOP;
+    }
+
+out:
+    return err;
+}
+
+/* mm_output() dump the current MAX/MIN operator's value to the
+ * branch_line_disk structure.
+ */
+int bo_mm_output(struct branch_processor *bp,
+                 struct branch_operator *bo,
+                 struct branch_line_disk *bld,
+                 struct branch_line_disk **obld,
+                 int *len, int *errstate)
+{
+    /* Note that, we pack the whole mm BLE region to one branch_line, user who
+     * want to prase the BLE region should extract the info from it */
+    struct branch_line_disk *nbld, *__tmp;
+    struct bo_mm *bm = (struct bo_mm *)bo->gdata;
+    struct branch_log_disk *blogd;
+    struct branch_log_entry_disk *bled;
+    int err = 0, nlen = sizeof(struct branch_log_disk), i, tag_len;
+
+    /* calculate the data length */
+    nlen += bm->bl.nr * sizeof(*bled);
+    for (i = 0; i < bm->bl.nr; i++) {
+        nlen += strlen((bm->bl.ble + i)->tag);
+        nlen += (bm->bl.ble + i)->data_len;
+    }
+    
+    nbld = xzalloc(sizeof(*nbld) + nlen);
+    if (!nbld) {
+        hvfs_err(xnet, "xzalloc() branch_line_disk failed\n");
+        *errstate = BO_STOP;
+        return -ENOMEM;
+    }
+    nbld->bl.id = bo->id;
+    nbld->bl.data = nbld->data;
+    nbld->bl.data_len = nlen;
+
+    /* setup the values */
+    blogd = (void *)nbld + sizeof(*nbld);
+    blogd->nr = bm->bl.nr;
+    blogd->value = bm->bl.value;
+    bled = blogd->bled;
+    for (i = 0; i < blogd->nr; i++) {
+        bled->ssite = (bm->bl.ble + i)->ssite;
+        bled->timestamp = (bm->bl.ble + i)->timestamp;
+        bled->data_len = (bm->bl.ble + i)->data_len;
+        tag_len = strlen((bm->bl.ble + i)->tag);
+        bled->tag_len = tag_len;
+
+        memcpy(bled->data, (bm->bl.ble + i)->tag, tag_len);
+        memcpy(bled->data + tag_len, (bm->bl.ble + i)->data, bled->data_len);
+
+        bled = (void *)bled + sizeof(*bled) + tag_len + bled->data_len;
+    }
+
+    if (!(*len))
+        *obld = NULL;
+    __tmp = xrealloc(*obld, *len + sizeof(*nbld) + nlen);
+    if (!__tmp) {
+        hvfs_err(xnet, "xrealloc() BLD failed\n");
+        xfree(nbld);
+        *errstate = BO_STOP;
+        return -ENOMEM;
+    }
+    memcpy((void *)__tmp + *len, nbld, sizeof(*nbld) + nlen);
+    *len += sizeof(*nbld) + nlen;
+    *obld = __tmp;
+    xfree(nbld);
+
+    /* push the request to my children */
+    if (bo->left && bo->left->output) {
+        err = bo->left->output(bp, bo->left, bld, obld, len, errstate);
+        if (*errstate == BO_STOP) {
+            /* ignore any errors */
+            if (err) {
+                hvfs_err(xnet, "output on BO %d's left branch %d "
+                         "failed w/ %d\n",
+                         bo->id, bo->left->id, err);
+            }
+        }
+    }
+    *errstate = 0;
+    if (bo->right && bo->right->output) {
+        err = bo->right->output(bp, bo->right, bld, obld, len, errstate);
+        if (*errstate == BO_STOP) {
+            /* ignore any errors */
+            if (err) {
+                hvfs_err(xnet, "output on BO %d's right branch %d "
+                         "failed w/ %d\n",
+                         bo->id, bo->right->id, err);
+            }
+        }
+    }
+
+    return err;
+}
+
 struct branch_processor *bp_alloc(void)
 {
     struct branch_processor *bp;
@@ -1690,7 +2325,17 @@ int __bo_install_cb(struct branch_operator *bo, char *name)
         bo->output = bo_sum_output;
         bo->flush = bo_sum_flush;
     } else if (strcmp(name, "max") == 0) {
+        bo->open = bo_max_open;
+        bo->close = bo_mm_close;
+        bo->input = bo_mm_input;
+        bo->output = bo_mm_output;
+        bo->flush = bo_mm_flush;
     } else if (strcmp(name, "min") == 0) {
+        bo->open = bo_min_open;
+        bo->close = bo_mm_close;
+        bo->input = bo_mm_input;
+        bo->output = bo_mm_output;
+        bo->flush = bo_mm_flush;
     } else if (strcmp(name, "topn") == 0) {
     } else if (strcmp(name, "groupby") == 0) {
     } else if (strcmp(name, "rank") == 0) {

@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-03-17 18:48:18 macan>
+# Time-stamp: <2011-03-28 10:29:09 macan>
 #
 # Armed with EMACS.
 #
@@ -902,7 +902,10 @@ class pamc_shell(cmd.Cmd):
     def do_cbranch(self, line):
         '''Create a new branch.
         Usage: cbranch branch_name tag level "op,op,..."
-               filter:id:rid:[l|r]
+               filter:id:rid:<l|r>[:<reg>]
+               sum:id:rid:<l|r>[:<reg>:[left|right|all|match]]
+               max:id:rid:<l|r>[:<reg>:[left|right|all|match]]
+               min:id:rid:<l|r>[:<reg>:[left|right|all|match]]
         '''
         l = shlex.split(line)
         if len(l) < 3:
@@ -960,11 +963,27 @@ class pamc_shell(cmd.Cmd):
                     ops.ops[nr] = op
                     nr += 1
                 elif x.lower() == "max":
+                    if len(y) == 6:
+                        s = "rule:" + y[4] + ";lor:" + y[5]
+                    elif len(y) == 5:
+                        s = "rule:" + y[4] + ";lor:all"
+                    else:
+                        s = "rule:.*;lor:all"
                     op.op = op.MAX
+                    op.data = cast(c_char_p(s), c_void_p)
+                    op.len = c_uint32(len(s))
                     ops.ops[nr] = op
                     nr += 1
                 elif x.lower() == "min":
+                    if len(y) == 6:
+                        s = "rule:" + y[4] + ";lor:" + y[5]
+                    elif len(y) == 5:
+                        s = "rule:" + y[4] + ";lor:all"
+                    else:
+                        s = "rule:.*;lor:all"
                     op.op = op.MIN
+                    op.data = cast(c_char_p(s), c_void_p)
+                    op.len = c_uint32(len(s))
                     ops.ops[nr] = op
                     nr += 1
                 elif x.lower() == "topn":

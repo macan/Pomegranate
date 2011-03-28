@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-16 11:19:34 macan>
+ * Time-stamp: <2011-03-25 22:26:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -122,6 +122,40 @@ struct branch_op_result
     struct branch_op_result_entry bore[0];
 };
 
+/* branch_log is used to write the log entry to log file or filter file
+ */
+struct branch_log_entry
+{
+    u64 ssite;
+    time_t timestamp;
+    char *tag;
+    void *data;
+    size_t data_len;
+};
+
+struct branch_log
+{
+    u64 value;
+    int nr;
+    struct branch_log_entry *ble;
+};
+
+struct branch_log_entry_disk
+{
+    u64 ssite;
+    time_t timestamp;
+    size_t data_len;
+    u8 tag_len;
+    u8 data[0];
+};
+
+struct branch_log_disk
+{
+    u64 value;
+    int nr;
+    struct branch_log_entry_disk bled[0];
+};
+
 #define BP_DO_FLUSH(nr) ({                      \
     int __res = 0;                              \
     if (nr % BP_DEFAULT_FLUSH == 0)             \
@@ -181,6 +215,22 @@ struct bo_sum
 
     regex_t preg;
     u64 value;
+};
+
+/* for max and min */
+struct bo_mm
+{
+#define BMM_LEFT        0
+#define BMM_RIGHT       1
+#define BMM_ALL         2
+#define BMM_MATCH       3
+    u16 lor;
+#define BMM_MAX         0
+#define BMM_MIN         1
+    u16 flag;
+
+    regex_t preg;
+    struct branch_log bl;
 };
 
 /* APIs */

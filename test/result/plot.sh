@@ -68,9 +68,9 @@ function plot_sys_disk_mm() {
     done
 }
 
-#plot_mds
-plot_mds_aggr 3770 4000
-plot_mdsl_aggr 3770 4000
+plot_mds
+#plot_mds_aggr 3770 4000
+#plot_mdsl_aggr 3770 4000
 #plot_mdsl
 
 exit

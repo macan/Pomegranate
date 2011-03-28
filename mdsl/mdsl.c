@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-15 22:07:54 macan>
+ * Time-stamp: <2011-03-21 10:43:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -393,9 +393,14 @@ int mdsl_config(void)
     if (!hmo.conf.fd_cleanup_N)
         hmo.conf.fd_cleanup_N = 32;
 
-    /* set default pcct value to 1GB memory */
+    /* set default pcct value to 2GB memory */
+#ifdef MDSL_DROP_CACHE
     if (!hmo.conf.pcct)
-        hmo.conf.pcct = (1024 * 1024 * 1024);
+        hmo.conf.pcct = (1UL << 31); /* 2GB */
+#else
+    if (!hmo.conf.pcct)
+        hmo.conf.pcct = (1UL << 32); /* 4GB */
+#endif
 
     /* set default disk low load to 1MB/10s */
     if (!hmo.conf.disk_low_load)

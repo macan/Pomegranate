@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-17 14:58:30 macan>
+ * Time-stamp: <2011-03-28 15:05:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1364,7 +1364,8 @@ int branch_send_bor(struct xnet_msg *msg, struct branch_op_result *bor,
     xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, len, 0);
     /* match the original request at the source site */
     rpy->tx.handle = msg->tx.handle;
-    xnet_msg_add_sdata(rpy, bor, len);
+    if (len)
+        xnet_msg_add_sdata(rpy, bor, len);
 
     if (xnet_send(hmo.xc, rpy)) {
         hvfs_err(xnet, "xnet_send() failed\n");
@@ -2482,8 +2483,10 @@ int branch_getbor(char *branch_name, u64 bpsite,
     }
     ASSERT(msg->pair, xnet);
     ASSERT(msg->pair->tx.len == msg->pair->tx.arg0, xnet);
-    *bor = msg->pair->xm_data;
-    xnet_clear_auto_free(msg->pair);
+    if (msg->pair->tx.arg0) {
+        *bor = msg->pair->xm_data;
+        xnet_clear_auto_free(msg->pair);
+    }
 
 out_free:
     xnet_free_msg(msg);
@@ -2504,25 +2507,55 @@ int branch_dumpbor(char *branch_name, u64 bpsite)
         hvfs_err(xnet, "branch_getbor() failed w/ %d\n", err);
         return err;
     }
+    if (!bor) {
+        hvfs_warning(xnet, "Zero length BOR for B'%s'\n", branch_name);
+        return 0;
+    }
     bore = (void *)bor + sizeof(*bor);
     for (i = 0; i < bor->nr; i++) {
         switch (bore->len) {
         case 1:
         case 2:
         case 4:
-            hvfs_err(xnet, "BO %8d dlen %8d => D(%d) X(%x)\n",
-                     bore->id, bore->len,
-                     bore->data[0], bore->data[0]);
+            hvfs_warning(xnet, "BO %8d dlen %8d => D(%d) X(%x)\n",
+                         bore->id, bore->len,
+                         bore->data[0], bore->data[0]);
             break;
         case 8:
-            hvfs_err(xnet, "BO %8d dlen %8d => D(%ld) X(%lx)\n",
-                     bore->id, bore->len,
-                     *(u64 *)bore->data, *(u64 *)bore->data);
+            hvfs_warning(xnet, "BO %8d dlen %8d => D(%ld) X(%lx)\n",
+                         bore->id, bore->len,
+                         *(u64 *)bore->data, *(u64 *)bore->data);
             break;
         default:
-            hvfs_err(xnet, "BO %8d dlen %8d => S(%s)\n",
-                     bore->id, bore->len,
-                     (char *)bore->data);
+            if (bore->len > sizeof(struct branch_log_disk)) {
+                /* we guess this is MAX/MIN operator's result */
+                struct branch_log_disk *bld;
+                struct branch_log_entry_disk *bled;
+                int i;
+
+                bld = (struct branch_log_disk *)bore->data;
+                hvfs_warning(xnet, "BO %8d dlen %8d => Value: %ld "
+                             "NR: %d Who:\n",
+                             bore->id, bore->len, bld->value, bld->nr);
+                bled = bld->bled;
+                for (i = 0; i < bld->nr; i++) {
+                    char tag[bled->tag_len + 1];
+                    char data[bled->data_len + 1];
+
+                    memcpy(tag, bled->data, bled->tag_len);
+                    memcpy(data, bled->data + bled->tag_len, bled->data_len);
+                    tag[bled->tag_len] = '\0';
+                    data[bled->data_len] = '\0';
+                    hvfs_warning(xnet, "\t[%lx,%lx,%s,%s]\n", bled->ssite,
+                                 bled->timestamp, tag, data);
+                    bled = (void *)bled + sizeof(*bled) + bled->tag_len + 
+                        bled->data_len;
+                }
+            } else {
+                hvfs_warning(xnet, "BO %8d dlen %8d => S(%s)\n",
+                             bore->id, bore->len,
+                             (char *)bore->data);
+            }
         }
         bore = (void *)bore + sizeof(*bore) + bore->len;
     }

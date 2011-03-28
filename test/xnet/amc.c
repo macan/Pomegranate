@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-04 14:53:27 macan>
+ * Time-stamp: <2011-03-28 14:20:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -112,5 +112,7 @@ clean:
     
 out:    
     __core_exit();
+
+    return err;
 }
 #endif

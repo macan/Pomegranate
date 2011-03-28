@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-03-21 09:57:45 macan>
+# Time-stamp: <2011-03-28 14:19:27 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -60,7 +60,7 @@ $(info ========================================================)
 endif
 
 # Debuging the memory and locks
-XCFLAGS = -O2 -rdynamic -g -pg -std=gnu99 -fPIC
+XCFLAGS = -O2 -rdynamic -g -pg -fPIC
 DEADCODESTRIP := -fdata-sections -ffunction-sections \
 				 -Wl,--gc-sections
 O3_OPT = -frename-registers -funroll-loops
