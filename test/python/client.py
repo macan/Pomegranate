@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-03-28 10:29:09 macan>
+# Time-stamp: <2011-03-30 09:42:55 macan>
 #
 # Armed with EMACS.
 #
@@ -88,11 +88,13 @@ class struct_branch_op(Structure):
     SUM = 0x0002
     MAX = 0x0003
     MIN = 0x0004
-    TOPN = 0x0005
+    KNN = 0x0005
     GROUPBY = 0x0006
     RANK = 0x0007
     INDEXER = 0x0008
-    CODEC = 0x0010
+    COUNT = 0x0009
+    AVG = 0x000a
+    CODEC = 0x0100
     _fields_ = [("op", c_uint32),
                 ("len", c_uint32),
                 ("id", c_uint32),
@@ -904,8 +906,11 @@ class pamc_shell(cmd.Cmd):
         Usage: cbranch branch_name tag level "op,op,..."
                filter:id:rid:<l|r>[:<reg>]
                sum:id:rid:<l|r>[:<reg>:[left|right|all|match]]
+               count:id:rid:<l|r>[:<reg>:[left|right|all|match]]
+               avg:id:rid:<l|r>[:<reg>:[left|right|all|match]]
                max:id:rid:<l|r>[:<reg>:[left|right|all|match]]
                min:id:rid:<l|r>[:<reg>:[left|right|all|match]]
+               knn:id:rid:<l|r>:<reg>:<left|right|all|match>:type:center:+/-distance
         '''
         l = shlex.split(line)
         if len(l) < 3:
@@ -962,6 +967,30 @@ class pamc_shell(cmd.Cmd):
                     op.len = c_uint32(len(s))
                     ops.ops[nr] = op
                     nr += 1
+                elif x.lower() == "count":
+                    if len(y) == 6:
+                        s = "rule:" + y[4] + ";lor:" + y[5]
+                    elif len(y) == 5:
+                        s = "rule:" + y[4] + ";lor:all"
+                    else:
+                        s = "rule:.*;lor:all"
+                    op.op = op.COUNT
+                    op.data = cast(c_char_p(s), c_void_p)
+                    op.len = c_uint32(len(s))
+                    ops.ops[nr] = op
+                    nr += 1
+                elif x.lower() == "avg":
+                    if len(y) == 6:
+                        s = "rule:" + y[4] + ";lor:" + y[5]
+                    elif len(y) == 5:
+                        s = "rule:" + y[4] + ";lor:all"
+                    else:
+                        s = "rule:.*;lor:all"
+                    op.op = op.AVG
+                    op.data = cast(c_char_p(s), c_void_p)
+                    op.len = c_uint32(len(s))
+                    ops.ops[nr] = op
+                    nr += 1
                 elif x.lower() == "max":
                     if len(y) == 6:
                         s = "rule:" + y[4] + ";lor:" + y[5]
@@ -986,8 +1015,22 @@ class pamc_shell(cmd.Cmd):
                     op.len = c_uint32(len(s))
                     ops.ops[nr] = op
                     nr += 1
-                elif x.lower() == "topn":
-                    op.op = op.TOPN
+                elif x.lower() == "knn":
+                    if len(y) == 9:
+                        s = "rule:" + y[4] + ";lor:" + y[5] + ";knn:" + y[6] + ":" + y[7] + ":" + y[8]
+                    elif len(y) == 8:
+                        s = "rule:" + y[4] + ";lor:" + y[5] + ";knn:" + y[6] + ":" + y[7] + ":+-1"
+                    elif len(y) == 7:
+                        s = "rule:" + y[4] + ";lor:" + y[5] + ";knn:" + y[6] + ":0:+-1"
+                    elif len(y) == 6:
+                        s = "rule:" + y[4] + ";lor:" + y[5] + ";knn:linear:0:+-1"
+                    elif len(y) == 5:
+                        s = "rule:" + y[4] + ";lor:all;knn:linear:0:+-1"
+                    else:
+                        s = "rule:.*;lor:all;knn:linear:0:+-1"
+                    op.op = op.KNN
+                    op.data = cast(c_char_p(s), c_void_p)
+                    op.len = c_uint32(len(s))
                     ops.ops[nr] = op
                     nr += 1
                 elif x.lower() == "groupby":

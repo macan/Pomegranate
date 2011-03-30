@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-28 16:04:51 macan>
+ * Time-stamp: <2011-03-30 09:54:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1298,9 +1298,9 @@ out:
  * 2. lor: left or right or all or match
  *         all means (or); match means (and)
  */
-int bo_sum_open(struct branch_operator *bo,
-                struct branch_op_result *bor,
-                struct branch_op *op)
+int __sum_open(struct branch_operator *bo,
+               struct branch_op_result *bor,
+               struct branch_op *op, int flag)
 {
     struct bo_sum *bs;
     char *regex = "rule:([^;]*);+lor:([^;]*);*";
@@ -1317,16 +1317,19 @@ int bo_sum_open(struct branch_operator *bo,
         return -ENOMEM;
     }
 
+    bs->flag = flag;
+
     /* load in the bor value */
     if (bor) {
         struct branch_op_result_entry *bore = bor->bore;
         
         for (i = 0; i < bor->nr; i++) {
             if (bo->id == bore->id) {
-                ASSERT(bore->len == sizeof(u64), xnet);
+                ASSERT(bore->len == sizeof(u64) * 2, xnet);
                 bs->value = *(u64 *)bore->data;
-                hvfs_warning(xnet, "BO %d sum value load in %ld\n", 
-                             bo->id, bs->value);
+                bs->lnr = *(u64 *)(bore->data + sizeof(u64));
+                hvfs_warning(xnet, "BO %d sum value load in <%ld/%ld>\n", 
+                             bo->id, bs->value, bs->lnr);
                 break;
             }
             bore = (void *)bore + sizeof(*bore) + bore->len;
@@ -1418,6 +1421,27 @@ out_free:
     return err;
 }
 
+int bo_count_open(struct branch_operator *bo,
+                  struct branch_op_result *bor,
+                  struct branch_op *op)
+{
+    return __sum_open(bo, bor, op, BS_COUNT);
+}
+
+int bo_sum_open(struct branch_operator *bo,
+                struct branch_op_result *bor,
+                struct branch_op *op)
+{
+    return __sum_open(bo, bor, op, BS_SUM);
+}
+
+int bo_avg_open(struct branch_operator *bo,
+                struct branch_op_result *bor,
+                struct branch_op *op)
+{
+    return __sum_open(bo, bor, op, BS_AVG);
+}
+
 int bo_sum_close(struct branch_operator *bo)
 {
     struct bo_sum *bs = bo->gdata;
@@ -1438,7 +1462,7 @@ int bo_sum_flush(struct branch_processor *bp,
     struct bo_sum *bs = (struct bo_sum *)bo->gdata;
     struct branch_op_result_entry *bore;
     void *nbor;
-    int len = sizeof(*bore) + sizeof(u64), err = 0;
+    int len = sizeof(*bore) + (sizeof(u64) << 1), err = 0;
 
     /* Step 1: self handling */
     bore = xzalloc(len);
@@ -1447,8 +1471,9 @@ int bo_sum_flush(struct branch_processor *bp,
         return -ENOMEM;
     }
     bore->id = bo->id;
-    bore->len = sizeof(u64);
+    bore->len = sizeof(u64) << 1;
     *(u64 *)bore->data = bs->value;
+    *(u64 *)(bore->data + sizeof(u64)) = bs->lnr;
 
     nbor = xrealloc(bp->bor, bp->bor_len + len);
     if (!nbor) {
@@ -1495,6 +1520,27 @@ int bo_sum_flush(struct branch_processor *bp,
 
     return err;
 }
+
+/* Note that we want to reuse the TAG variable, thus we have to use MACRO
+ * instead of function call */
+#define __sum_update(bs, tag) do {                      \
+        if ((bs)->flag & BS_COUNT)                      \
+            (bs)->value++;                              \
+        else if ((bs)->flag & BS_SUM) {                 \
+            char *p;                                    \
+            long value = 0;                             \
+            sscanf(tag, "%a[_a-zA-Z].%ld", &p, &value); \
+            xfree(p);                                   \
+            (bs)->value += value;                       \
+        } else if ((bs)->flag & BS_AVG) {               \
+            char *p;                                    \
+            long value = 0;                             \
+            sscanf(tag, "%a[_a-zA-Z].%ld", &p, &value); \
+            xfree(p);                                   \
+            (bs)->value += value;                       \
+            (bs)->lnr++;                                \
+        }                                               \
+    } while (0)
 
 int bo_sum_input(struct branch_processor *bp,
                  struct branch_operator *bo,
@@ -1545,7 +1591,7 @@ int bo_sum_input(struct branch_processor *bp,
     }
 
     if (sample && bs->lor == BS_ALL) {
-        bs->value++;
+        __sum_update(bs, tag);
     }
 
     /* push the branch line to other operatores */
@@ -1570,7 +1616,7 @@ int bo_sum_input(struct branch_processor *bp,
             left_stop = 1;
         } else if (sample) {
             if (bs->lor == BS_LEFT)
-                bs->value++;
+                __sum_update(bs, tag);
         }
     }
     if (bo->right) {
@@ -1593,9 +1639,9 @@ int bo_sum_input(struct branch_processor *bp,
             }
         } else if (sample) {
             if (bs->lor == BS_RIGHT)
-                bs->value++;
+                __sum_update(bs, tag);
             if (bs->lor == BS_MATCH && !left_stop)
-                bs->value++;
+                __sum_update(bs, tag);
         }
     } else if (left_stop) {
         *errstate = BO_STOP;
@@ -1617,7 +1663,7 @@ int bo_sum_output(struct branch_processor *bp,
     struct branch_line_disk *nbld, *__tmp;
     int err = 0;
 
-    nbld = xzalloc(sizeof(*nbld) + sizeof(u64));
+    nbld = xzalloc(sizeof(*nbld) + sizeof(u64) * 2);
     if (!nbld) {
         hvfs_err(xnet, "xzalloc() branch_line_disk failed\n");
         *errstate = BO_STOP;
@@ -1625,20 +1671,21 @@ int bo_sum_output(struct branch_processor *bp,
     }
     nbld->bl.id = bo->id;
     nbld->bl.data = nbld->data;
-    nbld->bl.data_len = sizeof(u64);
+    nbld->bl.data_len = sizeof(u64) << 1;
     *(u64 *)nbld->bl.data = ((struct bo_sum *)bo->gdata)->value;
+    *(u64 *)(nbld->bl.data + sizeof(u64)) = ((struct bo_sum *)bo->gdata)->lnr;
 
     if (!(*len))
         *obld = NULL;
-    __tmp = xrealloc(*obld, *len + sizeof(*nbld) + sizeof(u64));
+    __tmp = xrealloc(*obld, *len + sizeof(*nbld) + sizeof(u64) * 2);
     if (!__tmp) {
         hvfs_err(xnet, "xrealloc() BLD failed\n");
         xfree(nbld);
         *errstate = BO_STOP;
         return -ENOMEM;
     }
-    memcpy((void *)__tmp + *len, nbld, sizeof(*nbld) + sizeof(u64));
-    *len += sizeof(*nbld) + sizeof(u64);
+    memcpy((void *)__tmp + *len, nbld, sizeof(*nbld) + sizeof(u64) * 2);
+    *len += sizeof(*nbld) + sizeof(u64) * 2;
     *obld = __tmp;
     xfree(nbld);
 
@@ -1912,6 +1959,7 @@ int bo_mm_flush(struct branch_processor *bp,
 
     /* construct branch_log_disk and copy it */
     bld = (void *)bore->data;
+    bld->type = BRANCH_DISK_LOG;
     bld->nr = bm->bl.nr;
     bld->value = bm->bl.value;
     bled = bld->bled;
@@ -1979,7 +2027,7 @@ int bo_mm_flush(struct branch_processor *bp,
 void __bmm_update(struct bo_mm *bm, struct branch_line_disk *bld)
 {
     char *tag, *p = NULL;
-    unsigned long value = 0;
+    long value = 0;
     /* Action: 0 => replace, 1 => append */
     int action = 0;
 
@@ -2225,7 +2273,8 @@ int bo_mm_output(struct branch_processor *bp,
     nbld->bl.data_len = nlen;
 
     /* setup the values */
-    blogd = (void *)nbld + sizeof(*nbld);
+    blogd = (void *)nbld->data;
+    blogd->type = BRANCH_DISK_LOG;
     blogd->nr = bm->bl.nr;
     blogd->value = bm->bl.value;
     bled = blogd->bled;
@@ -2284,6 +2333,695 @@ int bo_mm_output(struct branch_processor *bp,
     return err;
 }
 
+static inline
+void __knn_loadin(struct branch_operator *bo,
+                  struct branch_op_result *bor,
+                  struct bo_knn *bk)
+{
+    struct branch_op_result_entry *bore = bor->bore;
+    union branch_knn_disk *bkd;
+    struct branch_knn_linear_entry_disk *bkled;
+    int i, j;
+    
+
+    for (i = 0; i < bor->nr; i++) {
+        if (bo->id == bore->id) {
+            ASSERT(bore->len >= sizeof(union branch_knn_disk), xnet);
+            bkd = (union branch_knn_disk *)(bore->data);
+            if (bkd->bkld.flag & BKNN_LINEAR) {
+                struct branch_knn_linear_disk *bkld;
+                struct branch_knn_linear_entry *nbkle;
+
+                bkld = (struct branch_knn_linear_disk *)bkd;
+                bk->flag = BKNN_LINEAR;
+                INIT_LIST_HEAD(&bk->bkn.bkl.ke);
+                bk->bkn.bkl.center = bkld->center;
+                bk->bkn.bkl.distance = bkld->distance;
+                bk->bkn.bkl.direction = bkld->direction;
+                bk->bkn.bkl.nr = bkld->nr;
+
+                bkled = bkld->bkled;
+                for (j = 0; j < bkld->nr; j++) {
+                retry:
+                    nbkle = xzalloc(sizeof(struct branch_knn_linear_entry));
+                    if (!nbkle) {
+                        hvfs_err(xnet, "xzalloc() branch_knn_linear_entry "
+                                 "failed\n");
+                        goto retry;
+                    }
+                    INIT_LIST_HEAD(&nbkle->list);
+                    nbkle->value = bkled->value;
+                    nbkle->ble.ssite = bkled->bled.ssite;
+                    nbkle->ble.timestamp = bkled->bled.timestamp;
+                    nbkle->ble.data_len = bkled->bled.data_len;
+                    {
+                        char tag[bkled->bled.tag_len + 1];
+
+                        memcpy(tag, bkled->bled.data, bkled->bled.tag_len);
+                        tag[bkled->bled.tag_len] = '\0';
+                        nbkle->ble.tag = strdup(tag);
+                    }
+                    {
+                        void *data;
+
+                    xmalloc_retry:
+                        data = xmalloc(bkled->bled.data_len);
+                        if (!data) {
+                            hvfs_err(xnet, "xmalloc() BKLED data region "
+                                     "failed\n");
+                            goto xmalloc_retry;
+                        }
+                        memcpy(data, bkled->bled.data + bkled->bled.tag_len,
+                               bkled->bled.data_len);
+                        nbkle->ble.data = data;
+                    }
+                    /* add to branch_knn_linear's list */
+                    list_add_tail(&nbkle->list, &bk->bkn.bkl.ke);
+                    /* adjust pointer now */
+                    bkled = (void *)bkled + sizeof(*bkled) + 
+                        bkled->bled.tag_len + bkled->bled.data_len;
+                }
+                hvfs_warning(xnet, "Load kNN center %ld nr %d\n", 
+                             bkld->center, bkld->nr);
+                break;
+            } else {
+                hvfs_err(xnet, "Invalid kNN type %x, reject load in\n", 
+                         bkd->bkld.flag);
+                return;
+            }
+        }
+        bore = (void *)bore + sizeof(*bore) + bore->len;
+    }
+}
+
+/* knn_open() to load in the metadata for KNN rules
+ *
+ * API: (string in branch_op->data)
+ * 1. rule: <regex> for tag fields
+ * 2. lor: left or right or all or match
+ * 3. knn: <type:NUM1:+/-NUM2> type is "linear", value NUM1 for the center, 
+ *                             NUM2 for the range
+ */
+int bo_knn_open(struct branch_operator *bo,
+                struct branch_op_result *bor,
+                struct branch_op *op)
+{
+    struct bo_knn *bk;
+    char *regex = "rule:([^;]*);+lor:([^;]*);+"
+        "knn:([^:]+):([0-9]+):([\\+\\-]+)([0-9]+);*";
+    char dup[op->len + 1];
+    int err = 0;
+
+    /* Step 1: parse the arguments from branch op */
+    if (!op || !op->data)
+        return -EINVAL;
+
+    bk = xzalloc(sizeof(*bk));
+    if (!bk) {
+        hvfs_err(xnet, "xzalloc() bo_knn failed\n");
+        return -ENOMEM;
+    }
+
+    /* load in the bor value */
+    if (bor) {
+        __knn_loadin(bo, bor, bk);
+    }
+
+    memcpy(dup, op->data, op->len);
+    dup[op->len] = '\0';
+
+    /* parse the regex strings */
+    {
+        regex_t preg;
+        regmatch_t *pmatch;
+        char errbuf[op->len + 1];
+        int i, j, len;
+
+        pmatch = xzalloc(7 * sizeof(regmatch_t));
+        if (!pmatch) {
+            hvfs_err(xnet, "malloc regmatch_t failed\n");
+            err = -ENOMEM;
+            goto out_free;
+        }
+        err = regcomp(&preg, regex, REG_EXTENDED);
+        if (err) {
+            hvfs_err(xnet, "regcomp failed w/ %d\n", err);
+            goto out_free2;
+        }
+        err = regexec(&preg, dup, 7, pmatch, 0);
+        if (err) {
+            regerror(err, &preg, errbuf, op->len);
+            hvfs_err(xnet, "regexec '%s' failed w/ '%s'\n", dup, errbuf);
+            err = -EINVAL;
+            goto out_clean;
+        }
+
+        for (i = 1; i < 7; i++) {
+            if (pmatch[i].rm_so == -1)
+                break;
+            len = pmatch[i].rm_eo - pmatch[i].rm_so;
+            memcpy(errbuf, dup + pmatch[i].rm_so, len);
+            errbuf[len] = '\0';
+            switch (i) {
+            case 1:
+                /* this is the rule */
+                hvfs_err(xnet, "rule=%s\n", errbuf);
+                err = regcomp(&bk->preg, errbuf, REG_EXTENDED);
+                if (err) {
+                    hvfs_err(xnet, "regcomp failed w/ %d\n",
+                             err);
+                    goto out_clean;
+                }
+                break;
+            case 2:
+                /* this is the lor */
+                hvfs_err(xnet, "lor=%s\n", errbuf);
+                if (strcmp(errbuf, "left") == 0) {
+                    bk->lor = BKNN_LEFT;
+                } else if (strcmp(errbuf, "right") == 0) {
+                    bk->lor = BKNN_RIGHT;
+                } else if (strcmp(errbuf, "all") == 0) {
+                    bk->lor = BKNN_ALL;
+                } else if (strcmp(errbuf, "match") == 0) {
+                    bk->lor = BKNN_MATCH;
+                } else {
+                    hvfs_err(xnet, "Invalid lor value '%s', "
+                             "reset to 'match'\n",
+                             errbuf);
+                    bk->lor = BKNN_MATCH;
+                }
+                break;
+            case 3:
+                /* this is the TYPE */
+                hvfs_err(xnet, "knn=%s:", errbuf);
+                if (strcmp(errbuf, "linear") == 0) {
+                    bk->flag = BKNN_LINEAR;
+                    if (!bk->bkn.bkl.ke.next)
+                        INIT_LIST_HEAD(&bk->bkn.bkl.ke);
+                } else {
+                    hvfs_err(xnet, "Invalid kNN type value '%s', "
+                             "reset to 'linear'\n",
+                             errbuf);
+                    bk->flag = BKNN_LINEAR;
+                }
+                break;
+            case 4:
+                /* this is the center value */
+                hvfs_plain(xnet, "%s:", errbuf);
+                bk->bkn.bkl.center = atol(errbuf);
+                break;
+            case 5:
+                /* this is +/-/+- */
+                hvfs_plain(xnet, "%s", errbuf);
+                if (!(bk->flag & BKNN_LINEAR)) {
+                    hvfs_err(xnet, "+/- must in a linear kNN environment!\n");
+                    regfree(&bk->preg);
+                    err = -EINVAL;
+                    goto out_clean;
+                }
+                for (j = 0; j < strlen(errbuf); j++) {
+                    if (errbuf[j] == '+')
+                        bk->bkn.bkl.direction |= BKNN_POSITIVE;
+                    else if (errbuf[j] == '-')
+                        bk->bkn.bkl.direction |= BKNN_MINUS;
+                }
+                break;
+            case 6:
+                /* this is range K */
+                hvfs_plain(xnet, "%s\n", errbuf);
+                bk->bkn.bkl.distance = atol(errbuf);
+                break;
+            default:
+                continue;
+            }
+        }
+    out_clean:
+        regfree(&preg);
+    out_free2:
+        xfree(pmatch);
+        if (err)
+            goto out_free;
+    }
+
+    /* set the bk to gdata */
+    bo->gdata = bk;
+    return 0;
+
+out_free:
+    xfree(bk);
+
+    return err;
+}
+
+int bo_knn_close(struct branch_operator *bo)
+{
+    struct bo_knn *bk = bo->gdata;
+    struct branch_knn_linear_entry *pos, *n;
+
+    regfree(&bk->preg);
+    if (bk->flag & BKNN_LINEAR) {
+        if (bk->bkn.bkl.nr || !list_empty(&bk->bkn.bkl.ke)) {
+            list_for_each_entry_safe(pos, n, &bk->bkn.bkl.ke, list) {
+                list_del(&pos->list);
+                xfree(pos->ble.tag);
+                xfree(pos->ble.data);
+                xfree(pos);
+            }
+        }
+    } else {
+        hvfs_err(xnet, "Invalid kNN type %x\n", bk->flag);
+    }
+    xfree(bk);
+
+    return 0;
+}
+
+int __knn_linear_flush(struct branch_processor *bp,
+                       struct branch_operator *bo, void **oresult,
+                       size_t *osize)
+{
+    struct bo_knn *bk = (struct bo_knn *)bo->gdata;
+    struct branch_op_result_entry *bore;
+    struct branch_knn_linear_entry *pos;
+    struct branch_knn_linear_entry_disk *bkled;
+    struct branch_knn_linear_disk *bkld;
+    void *nbor;
+    int len = sizeof(*bore) + sizeof(union branch_knn_disk), tag_len;
+    int err = 0, i = 0;
+
+    /* Step 1: self handling to calculate the region length */
+    if (!bk->bkn.bkl.nr)
+        return 0;
+    len += bk->bkn.bkl.nr * sizeof(*bkled);
+    list_for_each_entry(pos, &bk->bkn.bkl.ke, list) {
+        len += strlen(pos->ble.tag);
+        len += pos->ble.data_len;
+        i++;
+    }
+    if (i != bk->bkn.bkl.nr) {
+        hvfs_err(xnet, "kNN linear entry NR mismatch: %d vs %d(iter)\n",
+                 bk->bkn.bkl.nr, i);
+        return -EFAULT;
+    }
+
+    bore = xzalloc(len);
+    if (!bore) {
+        hvfs_err(xnet, "xzalloc() bore failed\n");
+        return -ENOMEM;
+    }
+    bore->id = bo->id;
+    bore->len = len - sizeof(*bore);
+
+    /* construct branch_knn_linear_disk and copy it */
+    bkld = (void *)bore->data;
+    bkld->type = BRANCH_DISK_KNN;
+    bkld->flag = bk->flag;
+    bkld->direction = bk->bkn.bkl.direction;
+    bkld->nr = bk->bkn.bkl.nr;
+    bkld->center = bk->bkn.bkl.center;
+    bkld->distance = bk->bkn.bkl.distance;
+
+    bkled = bkld->bkled;
+    list_for_each_entry(pos, &bk->bkn.bkl.ke, list) {
+        bkled->value = pos->value;
+        bkled->bled.ssite = pos->ble.ssite;
+        bkled->bled.timestamp = pos->ble.timestamp;
+        bkled->bled.data_len = pos->ble.data_len;
+        tag_len = strlen(pos->ble.tag);
+        bkled->bled.tag_len = tag_len;
+
+        memcpy(bkled->bled.data, pos->ble.tag, tag_len);
+        memcpy(bkled->bled.data + tag_len, pos->ble.data,
+               pos->ble.data_len);
+        bkled = (void *)bkled + sizeof(*bkled) + tag_len +
+            pos->ble.data_len;
+    }
+
+    nbor = xrealloc(bp->bor, bp->bor_len + len);
+    if (!nbor) {
+        hvfs_err(xnet, "xrealloc() bor region failed\n");
+        xfree(bore);
+        return -ENOMEM;
+    }
+
+    memcpy(nbor + bp->bor_len, bore, len);
+    bp->bor = nbor;
+    bp->bor_len += len;
+    ((struct branch_op_result *)bp->bor)->nr++;
+
+    xfree(bore);
+
+    /* Step 2: push the flush request to my children */
+    {
+        int errstate = BO_FLUSH;
+
+        if (bo->left) {
+            err = bo->left->input(bp, bo->left, NULL, -1UL, 0, &errstate);
+            if (errstate == BO_STOP) {
+                /* ignore any errors */
+                if (err) {
+                    hvfs_err(xnet, "flush on BO %d's left branch %d "
+                             "failed w/ %d\n",
+                             bo->id, bo->left->id, err);
+                }
+            }
+        }
+        errstate = BO_FLUSH;
+        if (bo->right) {
+            err = bo->right->input(bp, bo->right, NULL, -1UL, 0, &errstate);
+            if (errstate == BO_STOP) {
+                /* ignore any errors */
+                if (err) {
+                    hvfs_err(xnet, "flush on BO %d's right branch %d "
+                             "failed w/ %d\n",
+                             bo->id, bo->right->id, err);
+                }
+            }
+        }
+    }
+    
+    return err;
+}
+
+/* Generate the BOR region entry to flush. Note that we will realloc the
+ * bp->bor region.
+ *
+ * Inside the region entry, we construct and write the branch_knn_disk struct!
+ */
+int bo_knn_flush(struct branch_processor *bp,
+                 struct branch_operator *bo, void **oresult,
+                 size_t *osize)
+{
+    struct bo_knn *bk = (struct bo_knn *)bo->gdata;
+    int err = -EINVAL;
+
+    if (bk->flag & BKNN_LINEAR) {
+        return __knn_linear_flush(bp, bo, oresult, osize);
+    } else {
+        hvfs_err(xnet, "Invalid kNN type %x\n", bk->flag);
+    }
+
+    return err;
+}
+
+void __knn_linear_update(struct bo_knn *bk, struct branch_line_disk *bld)
+{
+    char *tag, *p = NULL;
+    struct branch_knn_linear_entry *bkle;
+    long value = 0, low, high;
+
+    /* Step 1: process the branch line to regexec the tag name and get the
+     * value */
+    tag = alloca(bld->tag_len + 1);
+    memcpy(tag, bld->data + bld->name_len, bld->tag_len);
+    tag[bld->tag_len] = '\0';
+    sscanf(tag, "%a[_a-zA-Z].%ld", &p, &value);
+    xfree(p);
+
+    high = low = bk->bkn.bkl.center;
+    if (bk->bkn.bkl.direction & BKNN_POSITIVE) {
+        high = bk->bkn.bkl.center + bk->bkn.bkl.distance;
+    }
+    if (bk->bkn.bkl.direction & BKNN_MINUS) {
+        low = bk->bkn.bkl.center - bk->bkn.bkl.distance;
+    }
+
+    if (value > high || value < low) {
+        return;
+    }
+    
+    /* Step 2: update bo_knn if needed: we add current bld to the linked
+     * list */
+    bkle = xzalloc(sizeof(*bkle));
+    if (!bkle) {
+        hvfs_err(xnet, "xzalloc() BKLE failed, this update is lossing\n");
+        return;
+    }
+    INIT_LIST_HEAD(&bkle->list);
+    bkle->value = value;
+    bkle->ble.ssite = bld->bl.sites[0];
+    bkle->ble.timestamp = bld->bl.life;
+    bkle->ble.data_len = bld->bl.data_len;
+    bkle->ble.tag = strdup(tag);
+
+    bkle->ble.data = xmalloc(bld->bl.data_len);
+    if (!bkle->ble.data) {
+        hvfs_err(xnet, "xmalloc() data region %ld failed\n",
+                 bkle->ble.data_len);
+        xfree(bkle);
+        return;
+    }
+    memcpy(bkle->ble.data, bld->data + bld->name_len + bld->tag_len,
+           bkle->ble.data_len);
+
+    /* add this bkle to the linked list */
+    list_add_tail(&bkle->list, &bk->bkn.bkl.ke);
+    bk->bkn.bkl.nr++;
+    hvfs_warning(xnet, "kNN add value %ld which in [%ld,%ld]\n", 
+                 value, low, high);
+
+    return;
+}
+
+void __knn_update(struct bo_knn *bk, struct branch_line_disk *bld)
+{
+    if (bk->flag & BKNN_LINEAR)
+        return __knn_linear_update(bk, bld);
+    else {
+        hvfs_err(xnet, "kNN invalid type %x\n", bk->flag);
+    }
+}
+
+int bo_knn_input(struct branch_processor *bp,
+                 struct branch_operator *bo,
+                 struct branch_line_disk *bld,
+                 u64 site, u64 ack, int *errstate)
+{
+    struct bo_knn *bk;
+    char *tag;
+    int err = 0, sample = 0, left_stop = 0;
+
+    /* check if it is a flush operation */
+    if (*errstate == BO_FLUSH) {
+        if (bo->flush)
+            err = bo->flush(bp, bo, NULL, NULL);
+        else
+            err = -EINVAL;
+
+        if (err) {
+            hvfs_err(xnet, "flush knn operator %s "
+                     "failed w/ %d\n", bo->name, err);
+            *errstate = BO_STOP;
+            return -EHSTOP;
+        }
+        return err;
+    } else if (*errstate == BO_STOP) {
+        return -EHSTOP;
+    }
+
+    /* sanity check */
+    if (!bp || !bld) {
+        *errstate = BO_STOP;
+        return -EINVAL;
+    }
+
+    /* deal with data now */
+    __bp_bld_dump("knn", bld, site);
+
+    bk = (struct bo_knn *)bo->gdata;
+
+    /* check if the tag match the rule */
+    tag = alloca(bld->tag_len + 1);
+    memcpy(tag, bld->data + bld->name_len, bld->tag_len);
+    tag[bld->tag_len] = '\0';
+    err = regexec(&bk->preg, tag, 0, NULL, 0);
+    if (!err) {
+        /* matched, just mark the sample value */
+        sample = 1;
+    }
+
+    if (sample && bk->lor == BKNN_ALL) {
+        __knn_update(bk, bld);
+    }
+
+    /* push the branch line to other operatorers */
+    if (bo->left) {
+        err = bo->left->input(bp, bo->left, bld, site, ack, errstate);
+        if ((*errstate) == BO_STOP) {
+            if (err) {
+                hvfs_err(xnet, "BO %d's left operator '%s' failed w/ %d "
+                         "(Psite %lx from %lx id %ld, last_ack %ld)\n",
+                         bo->id, bo->left->name, err, site, site,
+                         bld->bl.id, ack);
+                goto out;
+            } else {
+                hvfs_err(xnet, "BO %d's left operator '%s' swallow this branch "
+                         "line (Psite %lx from %lx id %ld, "
+                         "last_ack %ld)\n",
+                         bo->id, bo->left->name, site, site, 
+                         bld->bl.id, ack);
+                /* reset errstate to ZERO */
+                *errstate = 0;
+            }
+            left_stop = 1;
+        } else if (sample) {
+            if (bk->lor == BKNN_LEFT)
+                __knn_update(bk, bld);
+        }
+    }
+    if (bo->right) {
+        err = bo->right->input(bp, bo->right, bld, site, ack, errstate);
+        if ((*errstate) == BO_STOP) {
+            if (err) {
+                hvfs_err(xnet, "BO %d's right operator '%s' failed w/ %d "
+                         "(Psite %lx from %lx id %ld, last_ack %ld)\n",
+                         bo->id, bo->right->name, err, site, site,
+                         bld->bl.id, ack);
+                goto out;
+            } else {
+                hvfs_err(xnet, "BO %d's right operator '%s' swallow this branch "
+                         "line (Psite %lx from %lx id %ld, "
+                         "last_ack %ld)\n",
+                         bo->id, bo->right->name, site, site,
+                         bld->bl.id, ack);
+                /* reset errstate to ZERO */
+                *errstate = 0;
+            }
+        } else if (sample) {
+            if (bk->lor == BKNN_RIGHT)
+                __knn_update(bk, bld);
+            if (bk->lor == BKNN_MATCH && !left_stop)
+                __knn_update(bk, bld);
+        }
+    } else if (left_stop) {
+        *errstate = BO_STOP;
+    }
+
+out:
+    return err;
+}
+
+/* knn_output() dump the current kNN operator's value to the branch_line_disk
+ * structure.
+ */
+int __knn_linear_output(struct branch_processor *bp,
+                        struct branch_operator *bo,
+                        struct branch_line_disk *bld,
+                        struct branch_line_disk **obld,
+                        int *len, int *errstate)
+{
+    /* Note that, we pack the whole knn-linear region to one branch_line, user
+     * who want to parse the knn region should extract the info from it */
+    struct branch_line_disk *nbld, *__tmp;
+    struct bo_knn *bk = (struct bo_knn *)bo->gdata;
+    struct branch_knn_linear_disk *bkld;
+    struct branch_knn_linear_entry_disk *bkled;
+    struct branch_knn_linear_entry *pos;
+    int err = 0, nlen = sizeof(*bkld), tag_len;
+
+    /* calculate the data length */
+    nlen += bk->bkn.bkl.nr * sizeof(*bkled);
+    list_for_each_entry(pos, &bk->bkn.bkl.ke, list) {
+        nlen += strlen(pos->ble.tag);
+        nlen += pos->ble.data_len;
+    }
+
+    nbld = xzalloc(sizeof(*nbld) + nlen);
+    if (!nbld) {
+        hvfs_err(xnet, "xzalloc() branch_line_disk failed\n");
+        *errstate = BO_STOP;
+        return -ENOMEM;
+    }
+    nbld->bl.id = bo->id;
+    nbld->bl.data = nbld->data;
+    nbld->bl.data_len = nlen;
+
+    /* setup the values */
+    bkld = (void *)nbld->data;
+    bkld->type = BRANCH_DISK_KNN;
+    bkld->direction = bk->bkn.bkl.direction;
+    bkld->flag = bk->flag;
+    bkld->nr = bk->bkn.bkl.nr;
+    bkld->center = bk->bkn.bkl.center;
+    bkld->distance = bk->bkn.bkl.distance;
+
+    bkled = bkld->bkled;
+    list_for_each_entry(pos, &bk->bkn.bkl.ke, list) {
+        bkled->bled.ssite = pos->ble.ssite;
+        bkled->bled.timestamp = pos->ble.timestamp;
+        bkled->bled.data_len = pos->ble.data_len;
+        tag_len = strlen(pos->ble.tag);
+        bkled->bled.tag_len = tag_len;
+
+        memcpy(bkled->bled.data, pos->ble.tag, tag_len);
+        memcpy(bkled->bled.data + tag_len, pos->ble.data,
+               bkled->bled.data_len);
+
+        bkled = (void *)bkled + sizeof(*bkled) + tag_len +
+            pos->ble.data_len;
+    }
+
+    if (!(*len))
+        *obld = NULL;
+    __tmp = xrealloc(*obld, *len + sizeof(*nbld) + nlen);
+    if (!__tmp) {
+        hvfs_err(xnet, "xrealloc() BLD failed\n");
+        xfree(nbld);
+        *errstate = BO_STOP;
+        return -ENOMEM;
+    }
+    memcpy((void *)__tmp + *len, nbld, sizeof(*nbld) + nlen);
+    *len += sizeof(*nbld) + nlen;
+    *obld = __tmp;
+    xfree(nbld);
+
+    /* push the request to my children */
+    if (bo->left && bo->left->output) {
+        err = bo->left->output(bp, bo->left, bld, obld, len, errstate);
+        if (*errstate == BO_STOP) {
+            /* ignore any errors */
+            if (err) {
+                hvfs_err(xnet, "output on BO %d's left branch %d "
+                         "failed w/ %d\n",
+                         bo->id, bo->left->id, err);
+            }
+        }
+    }
+    *errstate = 0;
+    if (bo->right && bo->right->output) {
+        err = bo->right->output(bp, bo->right, bld, obld, len, errstate);
+        if (*errstate == BO_STOP) {
+            /* ignore any errors */
+            if (err) {
+                hvfs_err(xnet, "output on BO %d's right branch %d "
+                         "failed w/ %d\n",
+                         bo->id, bo->right->id, err);
+            }
+        }
+    }
+
+    return err;
+}
+
+int bo_knn_output(struct branch_processor *bp,
+                  struct branch_operator *bo,
+                  struct branch_line_disk *bld,
+                  struct branch_line_disk **obld,
+                  int *len, int *errstate)
+{
+    struct bo_knn *bk = (struct bo_knn *)bo->gdata;
+    int err = -EINVAL;
+
+    if (bk->flag & BKNN_LINEAR) {
+        return __knn_linear_output(bp, bo, bld, obld, len, errstate);
+    } else {
+        hvfs_err(xnet, "kNN invalid type %x\n", bk->flag);
+        *errstate = BO_STOP;
+    }
+
+    return err;
+}
+
 struct branch_processor *bp_alloc(void)
 {
     struct branch_processor *bp;
@@ -2336,10 +3074,27 @@ int __bo_install_cb(struct branch_operator *bo, char *name)
         bo->input = bo_mm_input;
         bo->output = bo_mm_output;
         bo->flush = bo_mm_flush;
-    } else if (strcmp(name, "topn") == 0) {
+    } else if (strcmp(name, "knn") == 0) {
+        bo->open = bo_knn_open;
+        bo->close = bo_knn_close;
+        bo->input = bo_knn_input;
+        bo->output = bo_knn_output;
+        bo->flush = bo_knn_flush;
     } else if (strcmp(name, "groupby") == 0) {
     } else if (strcmp(name, "rank") == 0) {
     } else if (strcmp(name, "indexer") == 0) {
+    } else if (strcmp(name, "count") == 0) {
+        bo->open = bo_count_open;
+        bo->close = bo_sum_close;
+        bo->input = bo_sum_input;
+        bo->output = bo_sum_output;
+        bo->flush = bo_sum_flush;
+    } else if (strcmp(name, "avg") == 0) {
+        bo->open = bo_avg_open;
+        bo->close = bo_sum_close;
+        bo->input = bo_sum_input;
+        bo->output = bo_sum_output;
+        bo->flush = bo_sum_flush;
     } else if (strcmp(name, "codec") == 0) {
     } else {
         hvfs_err(xnet, "Operator %s is not support yet.\n",
@@ -2362,7 +3117,7 @@ struct branch_processor *bp_alloc_init(struct branch_entry *be,
 {
     struct branch_processor *bp;
     struct branch_operator *bo, *nbo[be->bh->ops.nr];
-    int i, j, err = 0;
+    int i, j, err = 0, inited = 0;
 
     bp = bp_alloc();
     if (!bp) {
@@ -2400,9 +3155,9 @@ struct branch_processor *bp_alloc_init(struct branch_entry *be,
             err = bo_init(bo, bor, &be->bh->ops.ops[i], 
                           "min", NULL, NULL);
             break;
-        case BRANCH_OP_TOPN:
+        case BRANCH_OP_KNN:
             err = bo_init(bo, bor, &be->bh->ops.ops[i], 
-                          "topn", NULL, NULL);
+                          "knn", NULL, NULL);
             break;
         case BRANCH_OP_GROUPBY:
             err = bo_init(bo, bor, &be->bh->ops.ops[i], 
@@ -2416,6 +3171,14 @@ struct branch_processor *bp_alloc_init(struct branch_entry *be,
             err = bo_init(bo, bor, &be->bh->ops.ops[i], 
                           "indexer", NULL, NULL);
             break;
+        case BRANCH_OP_COUNT:
+            err = bo_init(bo, bor, &be->bh->ops.ops[i], 
+                          "count", NULL, NULL);
+            break;
+        case BRANCH_OP_AVG:
+            err = bo_init(bo, bor, &be->bh->ops.ops[i], 
+                          "avg", NULL, NULL);
+            break;
         case BRANCH_OP_CODEC:
             err = bo_init(bo, bor, &be->bh->ops.ops[i], 
                           "udf_codec", NULL, NULL);
@@ -2428,7 +3191,7 @@ struct branch_processor *bp_alloc_init(struct branch_entry *be,
         }
 
         if (err) {
-            hvfs_err(xnet, "bo_init() for op %d failed w/ %d\n",
+            hvfs_err(xnet, "bo_init() for op %d failed w/ %d, ignore it\n",
                      bo->id, err);
             bo_free(bo);
             continue;
@@ -2440,10 +3203,11 @@ struct branch_processor *bp_alloc_init(struct branch_entry *be,
         atomic_inc(&bp->bonr);
         xlock_unlock(&bp->lock);
         nbo[i] = bo;
+        inited++;
     }
 
     /* setup the operators' tree */
-    for (i = 0; i < be->bh->ops.nr; i++) {
+    for (i = 0; i < inited; i++) {
         if (!nbo[i])
             continue;
         if (!nbo[i]->rid) {
@@ -2472,7 +3236,7 @@ struct branch_processor *bp_alloc_init(struct branch_entry *be,
             /* find the root operator */
             int found = 0;
             
-            for (j = 0; j < be->bh->ops.nr; j++) {
+            for (j = 0; j < inited; j++) {
                 if (nbo[j]->id == nbo[i]->rid) {
                     found = 1;
                     break;

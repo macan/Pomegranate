@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-28 15:05:55 macan>
+ * Time-stamp: <2011-03-30 09:39:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2526,22 +2526,45 @@ int branch_dumpbor(char *branch_name, u64 bpsite)
                          bore->id, bore->len,
                          *(u64 *)bore->data, *(u64 *)bore->data);
             break;
+        case 16:
+            if (*(u64 *)(bore->data + sizeof(u64)) > 0) {
+                hvfs_warning(xnet, "BO %8d dlen %8d => D(%ld) X(%lx) / "
+                             "D(%ld) X(%lx) => AVG(%f)\n",
+                             bore->id, bore->len,
+                             *(u64 *)bore->data, *(u64 *)bore->data, 
+                             *(u64 *)(bore->data + sizeof(u64)), 
+                             *(u64 *)(bore->data + sizeof(u64)),
+                             *(u64 *)bore->data / 
+                             (double)(*(u64 *)(bore->data + sizeof(u64))));
+            } else {
+                hvfs_warning(xnet, "BO %8d dlen %8d => D(%ld) X(%lx) / "
+                             "D(%ld) X(%lx)\n",
+                             bore->id, bore->len,
+                             *(u64 *)bore->data, *(u64 *)bore->data, 
+                             *(u64 *)(bore->data + sizeof(u64)), 
+                             *(u64 *)(bore->data + sizeof(u64)));
+            }
+            break;
         default:
-            if (bore->len > sizeof(struct branch_log_disk)) {
+        {
+            struct branch_log_disk *bld;
+            
+            bld = (struct branch_log_disk *)bore->data;
+            switch (bld->type) {
+            case BRANCH_DISK_LOG:
+            {
                 /* we guess this is MAX/MIN operator's result */
-                struct branch_log_disk *bld;
                 struct branch_log_entry_disk *bled;
                 int i;
-
-                bld = (struct branch_log_disk *)bore->data;
-                hvfs_warning(xnet, "BO %8d dlen %8d => Value: %ld "
+                
+                hvfs_warning(xnet, "BO %8d dlen %8d => MAX/MIN Value: %ld "
                              "NR: %d Who:\n",
                              bore->id, bore->len, bld->value, bld->nr);
                 bled = bld->bled;
                 for (i = 0; i < bld->nr; i++) {
                     char tag[bled->tag_len + 1];
                     char data[bled->data_len + 1];
-
+                    
                     memcpy(tag, bled->data, bled->tag_len);
                     memcpy(data, bled->data + bled->tag_len, bled->data_len);
                     tag[bled->tag_len] = '\0';
@@ -2551,11 +2574,52 @@ int branch_dumpbor(char *branch_name, u64 bpsite)
                     bled = (void *)bled + sizeof(*bled) + bled->tag_len + 
                         bled->data_len;
                 }
-            } else {
+                break;
+            }
+            case BRANCH_DISK_KNN:
+            {
+                union branch_knn_disk *bkd;
+                struct branch_knn_linear_disk *bkld;
+
+                bkd = (union branch_knn_disk *)bore->data;
+                bkld = (struct branch_knn_linear_disk *)bore->data;
+                ASSERT(bkd->type & BRANCH_DISK_KNN, xnet);
+
+                if (bkld->flag & BKNN_LINEAR) {
+                    struct branch_knn_linear_entry_disk *bkled;
+                    int i;
+
+                    hvfs_warning(xnet, "BO %8d dlen %8d => kNN NR: %d Who:\n",
+                                 bore->id, bore->len, bkld->nr);
+
+                    bkled = bkld->bkled;
+                    for (i = 0; i < bkld->nr; i++) {
+                        char tag[bkled->bled.tag_len + 1];
+                        char data[bkled->bled.data_len + 1];
+                        
+                        memcpy(tag, bkled->bled.data, bkled->bled.tag_len);
+                        memcpy(data, bkled->bled.data + bkled->bled.tag_len, 
+                               bkled->bled.data_len);
+                        tag[bkled->bled.tag_len] = '\0';
+                        data[bkled->bled.data_len] = '\0';
+                        hvfs_warning(xnet, "\t[%lx,%lx,%s,%s]\n", 
+                                     bkled->bled.ssite,
+                                     bkled->bled.timestamp, tag, data);
+                        bkled = (void *)bkled + sizeof(*bkled) + 
+                            bkled->bled.tag_len + 
+                            bkled->bled.data_len;
+                    }
+                } else {
+                    hvfs_err(xnet, "Invalid kNN type %x\n", bkd->type);
+                }
+                break;
+            }
+            default:
                 hvfs_warning(xnet, "BO %8d dlen %8d => S(%s)\n",
                              bore->id, bore->len,
                              (char *)bore->data);
             }
+        }
         }
         bore = (void *)bore + sizeof(*bore) + bore->len;
     }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-25 22:26:47 macan>
+ * Time-stamp: <2011-03-30 10:49:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -135,7 +135,7 @@ struct branch_log_entry
 
 struct branch_log
 {
-    u64 value;
+    s64 value;
     int nr;
     struct branch_log_entry *ble;
 };
@@ -151,9 +151,80 @@ struct branch_log_entry_disk
 
 struct branch_log_disk
 {
-    u64 value;
+    u8 type;
     int nr;
+    s64 value;
     struct branch_log_entry_disk bled[0];
+};
+
+#define BRANCH_DISK_LOG         0x01
+#define BRANCH_DISK_KNN         0x02
+
+/* branch_knn is used to manage the linked list of knn entry
+ */
+struct branch_knn_linear_entry
+{
+    struct list_head list;
+    struct branch_log_entry ble;
+    s64 value;
+};
+
+struct branch_knn_linear
+{
+    struct list_head ke;
+    s64 center;
+    s64 distance;
+    int nr;
+#define BKNN_POSITIVE   0x01
+#define BKNN_MINUS      0x02
+    u16 direction;
+};
+
+struct branch_knn_linear_entry_disk
+{
+    s64 value;
+    struct branch_log_entry_disk bled;
+};
+
+/* NOTE that, each knn disk structure should put FLAG in the 16B offset
+ * field! */
+struct branch_knn_linear_disk
+{
+    u8 type;
+    u8 direction;
+    u16 flag;
+    int nr;
+
+    s64 center;
+    s64 distance;
+    struct branch_knn_linear_entry_disk bkled[0];
+};
+
+union branch_knn_disk
+{
+    u8 type;
+    struct branch_knn_linear_disk bkld;
+};
+
+union branch_knn
+{
+    struct branch_knn_linear bkl;
+};
+
+struct branch_groupby_entry
+{
+    struct list_head list;
+    char *group;                /* group name */
+    s64 lvalue, rvalue;
+    u64 llnr, rlnr;             /* for AVG operator */
+};
+
+struct branch_groupby
+{
+    struct list_head gbl;       /* a list for all groups */
+    u16 lop, rop;               /* left/right operator: you can only use the
+                                 * following ops: SUM, AVG, MAX, MIN, COUNT
+                                 */
 };
 
 #define BP_DO_FLUSH(nr) ({                      \
@@ -212,9 +283,14 @@ struct bo_sum
 #define BS_ALL          2
 #define BS_MATCH        3
     int lor;
+#define BS_COUNT        0x01
+#define BS_SUM          0x02
+#define BS_AVG          0x04
+    u32 flag;
 
     regex_t preg;
-    u64 value;
+    s64 value;
+    u64 lnr;                    /* # of lines for AVG operator */
 };
 
 /* for max and min */
@@ -231,6 +307,34 @@ struct bo_mm
 
     regex_t preg;
     struct branch_log bl;
+};
+
+/* for knn */
+struct bo_knn
+{
+#define BKNN_LEFT       0
+#define BKNN_RIGHT      1
+#define BKNN_ALL        2
+#define BKNN_MATCH      3
+    u16 lor;
+#define BKNN_LINEAR     0x01
+    u16 flag;
+
+    regex_t preg;
+    union branch_knn bkn;
+};
+
+/* for groupby */
+struct bo_groupby
+{
+#define BGB_LEFT        0
+#define BGB_RIGHT       1
+#define BGB_ALL         2
+#define BGB_MATCH       3
+    u16 lor;
+
+    regex_t preg;
+    struct branch_groupby bgb;
 };
 
 /* APIs */

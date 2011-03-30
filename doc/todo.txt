@@ -319,6 +319,15 @@ Pomegranate TODOs:
     2. Branch subsystem has a new operator SUM, you can sum branch lines
        with respect to its specific subtree.
 
+    3. Branch subsystem has two new operatores, MAX and MIN. I have not 
+       tested them well. @ 3/28/2011.
+
+    4. DEFINE: Operator 'knn' means we want to get the lines whose value
+               is in the defined +K/-K range.
+
+    5. DEFINE: Operator 'rank' measn we want to get the lines whose value
+               is in the range group.
+
 31. Bug notice:
 
     1. there is a bug in FUSE client which can be produced by dbench 

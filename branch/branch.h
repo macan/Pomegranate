@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-17 14:58:49 macan>
+ * Time-stamp: <2011-03-30 09:17:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -57,12 +57,14 @@ struct branch_op
 #define BRANCH_OP_SUM           0x0002
 #define BRANCH_OP_MAX           0x0003
 #define BRANCH_OP_MIN           0x0004
-#define BRANCH_OP_TOPN          0x0005
+#define BRANCH_OP_KNN           0x0005
 #define BRANCH_OP_GROUPBY       0x0006
 #define BRANCH_OP_RANK          0x0007
 #define BRANCH_OP_INDEXER       0x0008
+#define BRANCH_OP_COUNT         0x0009
+#define BRANCH_OP_AVG           0x000a
 
-#define BRANCH_OP_CODEC         0x0010
+#define BRANCH_OP_CODEC         0x0100
     u32 op;
     u32 len;                    /* length of data */
     u32 id;                     /* unique id of this OP */
