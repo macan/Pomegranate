@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-30 09:54:48 macan>
+ * Time-stamp: <2011-04-01 10:10:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3022,6 +3022,594 @@ int bo_knn_output(struct branch_processor *bp,
     return err;
 }
 
+static inline
+void __groupby_loadin(struct branch_operator *bo,
+                      struct branch_op_result *bor,
+                      struct bo_groupby *bg)
+{
+    struct branch_op_result_entry *bore = bor->bore;
+    struct branch_groupby_disk *bgd;
+    struct branch_groupby_entry_disk *bged;
+    struct branch_groupby_entry *bge;
+    int i, j, k;
+
+    for (i = 0; i < bor->nr; i++) {
+        if (bo->id == bore->id) {
+            ASSERT(bore->len >= sizeof(*bgd), xnet);
+            bgd = (struct branch_groupby_disk *)(bore->data);
+            for (k = 0; k < BGB_MAX_OP; k++) {
+                bg->bgb.ops[k] = bgd->ops[k];
+            }
+
+            bged = bgd->bged;
+            for (j = 0; j < bgd->nr; j++) {
+            retry:
+                bge = xzalloc(sizeof(*bge));
+                if (!bge) {
+                    hvfs_err(xnet, "xzalloc() branch_groupby_entry "
+                             "failed\n");
+                    goto retry;
+                }
+                INIT_HLIST_NODE(&bge->hlist);
+                for (k = 0; k < BGB_MAX_OP; k++) {
+                    bge->values[k] = bged->values[k];
+                    bge->lnrs[k] = bged->lnrs[k];
+                }
+                {
+                    char group[bged->len + 1];
+
+                    memcpy(group, bged->group, bged->len);
+                    group[bged->len] = '\0';
+                    bge->group = strdup(group);
+                }
+                /* add to branch_groupby's list */
+                BGB_HT_ADD(bge, bg);
+                /* adjust the pointer now */
+                bged = (void *)bged + sizeof(*bged) +
+                    bged->len;
+            }
+            if (bg->bgb.nr != bgd->nr) {
+                /* the former is calculated, while the latter is saved */
+                hvfs_warning(xnet, "Internal error on saved groups (%d), "
+                             "reset nr to %d\n",
+                             bgd->nr, bg->bgb.nr);
+            } else {
+                hvfs_warning(xnet, "Load in %d groups from disk\n", bgd->nr);
+            }
+            break;
+        }
+        bore = (void *)bore + sizeof(*bore) + bore->len;
+    }
+}
+
+/* groupby_open() to load in the metadata for groupby rules
+ *
+ * API: (string in branch_op->data)
+ * 1. rule: <regex> for tag fields
+ * 2. lor: left or right or all or match
+ * 3. groupby: <aggr_operator> => sum/avg/max/min/count
+ */
+int bo_groupby_open(struct branch_operator *bo,
+                    struct branch_op_result *bor,
+                    struct branch_op *op)
+{
+    struct bo_groupby *bg;
+    char *regex = "rule:([^;]*);+lor:([^;]*);+groupby:([^;]*);*";
+    char dup[op->len + 1];
+    int err = 0, i;
+
+    /* Step 1: parse the arguments from branch op */
+    if (!op || !op->data)
+        return -EINVAL;
+
+    bg = xzalloc(sizeof(*bg));
+    if (!bg) {
+        hvfs_err(xnet, "xzalloc() bo_groupby failed\n");
+        return -ENOMEM;
+    }
+
+    for (i = 0; i < BGB_HASH_SIZE; i++) {
+        INIT_HLIST_HEAD(&bg->bgb.ht[i].h);
+        xlock_init(&bg->bgb.ht[i].lock);
+    }
+
+    /* load in the bor value */
+    if (bor) {
+        __groupby_loadin(bo, bor, bg);
+    }
+
+    memcpy(dup, op->data, op->len);
+    dup[op->len] = '\0';
+
+    /* parse the regex strings */
+    {
+        regex_t preg;
+        regmatch_t *pmatch;
+        char errbuf[op->len + 1];
+        int i, len;
+
+        pmatch = xzalloc(4 * sizeof(regmatch_t));
+        if (!pmatch) {
+            hvfs_err(xnet, "malloc regmatch_t failed\n");
+            err = -ENOMEM;
+            goto out_free;
+        }
+        err = regcomp(&preg, regex, REG_EXTENDED);
+        if (err) {
+            hvfs_err(xnet, "regcomp failed w/ %d\n", err);
+            goto out_free2;
+        }
+        err = regexec(&preg, dup, 4, pmatch, 0);
+        if (err) {
+            regerror(err, &preg, errbuf, op->len);
+            hvfs_err(xnet, "regexec failed w/ '%s'\n", errbuf);
+            goto out_clean;
+        }
+
+        for (i = 1; i < 4; i++) {
+            if (pmatch[i].rm_so == -1)
+                break;
+            len = pmatch[i].rm_eo - pmatch[i].rm_so;
+            memcpy(errbuf, dup + pmatch[i].rm_so, len);
+            errbuf[len] = '\0';
+            switch (i) {
+            case 1:
+                /* this is the rule */
+                hvfs_err(xnet, "rule=%s\n", errbuf);
+                err = regcomp(&bg->preg, errbuf, REG_EXTENDED);
+                if (err) {
+                    hvfs_err(xnet, "regcomp failed w/ %d\n",
+                             err);
+                    goto out_clean;
+                }
+                break;
+            case 2:
+                /* this is the lor */
+                hvfs_err(xnet, "lor=%s\n", errbuf);
+                if (strcmp(errbuf, "left") == 0) {
+                    bg->lor = BGB_LEFT;
+                } else if (strcmp(errbuf, "right") == 0) {
+                    bg->lor = BGB_RIGHT;
+                } else if (strcmp(errbuf, "all") == 0) {
+                    bg->lor = BGB_ALL;
+                } else if (strcmp(errbuf, "match") == 0) {
+                    bg->lor = BGB_MATCH;
+                } else {
+                    hvfs_err(xnet, "Invalid lor value '%s', "
+                             "reset to 'match'\n",
+                             errbuf);
+                    bg->lor = BGB_MATCH;
+                }
+                break;
+            case 3:
+            {
+                /* this is the groupby operators, at most BGB_MAX_OP! */
+                char *p = errbuf, *s;
+                int j = 0;
+                
+                hvfs_err(xnet, "groupby=%s\n", errbuf);
+                do {
+                    p = strtok_r(p, "/-", &s);
+                    if (!p)
+                        break;
+                    hvfs_err(xnet, "OP:%s\n", p);
+                    if (strcmp(p, "sum") == 0) {
+                        bg->bgb.ops[j++] = BGB_SUM;
+                    } else if (strcmp(p, "avg") == 0) {
+                        bg->bgb.ops[j++] = BGB_AVG;
+                    } else if (strcmp(p, "max") == 0) {
+                        bg->bgb.ops[j++] = BGB_MAX;
+                    } else if (strcmp(p, "min") == 0) {
+                        bg->bgb.ops[j++] = BGB_MIN;
+                    } else if (strcmp(p, "count") == 0) {
+                        bg->bgb.ops[j++] = BGB_COUNT;
+                    } else {
+                        hvfs_err(xnet, "Invalid AGGR operator '%s'\n", p);
+                        p = NULL;
+                        continue;
+                    }
+                    p = NULL;
+                } while (j < BGB_MAX_OP);
+                break;
+            }
+            default:
+                continue;
+            }
+        }
+    out_clean:
+        regfree(&preg);
+    out_free2:
+        xfree(pmatch);
+        if (err)
+            goto out_free;
+    }
+
+    /* set the bs to gdata */
+    bo->gdata = bg;
+    return 0;
+
+out_free:
+    xfree(bg);
+
+    return err;
+}
+
+int bo_groupby_close(struct branch_operator *bo)
+{
+    struct bo_groupby *bg = bo->gdata;
+
+    regfree(&bg->preg);
+    if (bg->bgb.nr) {
+        BGB_HT_CLEANUP(bg);
+    }
+    xfree(bg);
+
+    return 0;
+}
+
+/* Generate the BOR region entry to flush. Note that we will realloc the
+ * bp->bor region.
+ *
+ * Inside the region entry, we construct and write the branch_groupby struct!
+ */
+int bo_groupby_flush(struct branch_processor *bp,
+                     struct branch_operator *bo, void **oresult,
+                     size_t *osize)
+{
+    struct bo_groupby *bg = (struct bo_groupby *)bo->gdata;
+    struct branch_op_result_entry *bore;
+    struct branch_groupby_entry_disk *bged;
+    struct branch_groupby_disk *bgd;
+    void *nbor;
+    int len = sizeof(*bore) + sizeof(*bgd);
+    int err = 0, i = 0, j;
+
+    /* Step 1: self handling to calculate the region length */
+    if (!bg->bgb.nr)
+        return 0;
+    len += bg->bgb.nr * sizeof(*bged);
+    BGB_HT_LEN(bg, len, i);
+
+    if (i != bg->bgb.nr) {
+        hvfs_err(xnet, "Groupby entry NR mismatch: %d vs %d(iter)\n",
+                 bg->bgb.nr, i);
+        return -EFAULT;
+    }
+
+    bore = xzalloc(len);
+    if (!bore) {
+        hvfs_err(xnet, "xzalloc() bore failed\n");
+        return -ENOMEM;
+    }
+    bore->id = bo->id;
+    bore->len = len - sizeof(*bore);
+
+    /* construct branch_groupby_disk and copy it */
+    bgd = (void *)bore->data;
+    bgd->type = BRANCH_DISK_GB;
+    bgd->nr = bg->bgb.nr;
+    for (j = 0; j < BGB_MAX_OP; j++)
+        bgd->ops[j] = bg->bgb.ops[j];
+
+    bged = bgd->bged;
+    BGB_HT_SAVE(bg, bged);
+    
+    nbor = xrealloc(bp->bor, bp->bor_len + len);
+    if (!nbor) {
+        hvfs_err(xnet, "xrealloc() bor region failed\n");
+        xfree(bore);
+        return -ENOMEM;
+    }
+
+    memcpy(nbor + bp->bor_len, bore, len);
+    bp->bor = nbor;
+    bp->bor_len += len;
+    ((struct branch_op_result *)bp->bor)->nr++;
+
+    xfree(bore);
+
+    /* Step 2: push the flush request to my children */
+    {
+        int errstate = BO_FLUSH;
+
+        if (bo->left) {
+            err = bo->left->input(bp, bo->left, NULL, -1UL, 0, &errstate);
+            if (errstate == BO_STOP) {
+                /* ignore any errors */
+                if (err) {
+                    hvfs_err(xnet, "flush on BO %d's left branch %d "
+                             "failed w/ %d\n",
+                             bo->id, bo->left->id, err);
+                }
+            }
+        }
+        errstate = BO_FLUSH;
+        if (bo->right) {
+            err = bo->right->input(bp, bo->right, NULL, -1UL, 0, &errstate);
+            if (errstate == BO_STOP) {
+                /* ignore any errors */
+                if (err) {
+                    hvfs_err(xnet, "flush on BO %d's right branch %d "
+                             "failed w/ %d\n",
+                             bo->id, bo->right->id, err);
+                }
+            }
+        }
+    }
+    
+    return err;
+}
+
+void __groupby_update(struct bo_groupby *bg, struct branch_line_disk *bld)
+{
+    char *tag, *group = NULL;
+    struct branch_groupby_entry *bge = NULL;
+    long value = 0;
+    int isnew = 0, i;
+
+    /* Step 1: process the branch line to regexec the tag name and get the
+     * value */
+    tag = alloca(bld->tag_len + 1);
+    memcpy(tag, bld->data + bld->name_len, bld->tag_len);
+    tag[bld->tag_len] = '\0';
+    sscanf(tag, "%a[_a-zA-Z].%ld", &group, &value);
+
+retest:
+    if (BGB_HT_TEST(group, bg, bge)) {
+        /* this means the group does exist; bge has been installed */
+    } else {
+        /* this means the group doesn't exist */
+        bge = xzalloc(sizeof(*bge));
+        if (!bge) {
+            hvfs_err(xnet, "xzalloc() BGE failed, ignore this line\n");
+            goto out;
+        }
+        INIT_HLIST_NODE(&bge->hlist);
+        bge->group = group;
+        isnew = 1;
+    }
+
+    /* ok, we update the BGE */
+    for (i = 0; i < BGB_MAX_OP; i++) {
+        switch (bg->bgb.ops[i]) {
+        case BGB_NONE:
+            break;
+        case BGB_SUM:
+            bge->values[i] += value;
+            break;
+        case BGB_AVG:
+            bge->values[i] += value;
+            bge->lnrs[i]++;
+            break;
+        case BGB_MAX:
+            if (bge->values[i] < value || !bge->lnrs[i])
+                bge->values[i] = value;
+            bge->lnrs[i]++;
+            break;
+        case BGB_MIN:
+            if (bge->values[i] > value || !bge->lnrs[i])
+                bge->values[i] = value;
+            bge->lnrs[i]++;
+            break;
+        case BGB_COUNT:
+            bge->lnrs[i]++;
+            break;
+        default:
+            hvfs_err(xnet, "Invalid groupby OP %d\n", bg->bgb.ops[i]);
+        }
+    }
+
+    if (isnew) {
+        if (BGB_HT_ADD(bge, bg)) {
+            /* already exists? */
+            xfree(bge);
+            goto retest;
+        }
+    }
+
+    return;
+out:
+    xfree(group);
+}
+
+int bo_groupby_input(struct branch_processor *bp,
+                     struct branch_operator *bo,
+                     struct branch_line_disk *bld,
+                     u64 site, u64 ack, int *errstate)
+{
+    struct bo_groupby *bg;
+    char *tag;
+    int err = 0, sample = 0, left_stop = 0;
+
+    /* check if it is a flush operation */
+    if (*errstate == BO_FLUSH) {
+        if (bo->flush)
+            err = bo->flush(bp, bo, NULL, NULL);
+        else
+            err = -EINVAL;
+
+        if (err) {
+            hvfs_err(xnet, "flush groupby operator %s "
+                     "failed w/ %d\n", bo->name, err);
+            *errstate = BO_STOP;
+            return -EHSTOP;
+        }
+        return err;
+    } else if (*errstate == BO_STOP) {
+        return -EHSTOP;
+    }
+
+    /* sanity check */
+    if (!bp || !bld) {
+        *errstate = BO_STOP;
+        return -EINVAL;
+    }
+
+    /* deal with data now */
+    __bp_bld_dump("groupby", bld, site);
+
+    bg = (struct bo_groupby *)bo->gdata;
+
+    /* check if the tag match the rule */
+    tag = alloca(bld->tag_len + 1);
+    memcpy(tag, bld->data + bld->name_len, bld->tag_len);
+    tag[bld->tag_len] = '\0';
+    err = regexec(&bg->preg, tag, 0, NULL, 0);
+    if (!err) {
+        /* matched, just mark the sample value */
+        sample = 1;
+    }
+
+    if (sample && bg->lor == BGB_ALL) {
+        __groupby_update(bg, bld);
+    }
+    /* push the branch line to other operatorers */
+    if (bo->left) {
+        err = bo->left->input(bp, bo->left, bld, site, ack, errstate);
+        if ((*errstate) == BO_STOP) {
+            if (err) {
+                hvfs_err(xnet, "BO %d's left operator '%s' failed w/ %d "
+                         "(Psite %lx from %lx id %ld, last_ack %ld)\n",
+                         bo->id, bo->left->name, err, site, site,
+                         bld->bl.id, ack);
+                goto out;
+            } else {
+                hvfs_err(xnet, "BO %d's left operator '%s' swallow this branch "
+                         "line (Psite %lx from %lx id %ld, "
+                         "last_ack %ld)\n",
+                         bo->id, bo->left->name, site, site, 
+                         bld->bl.id, ack);
+                /* reset errstate to ZERO */
+                *errstate = 0;
+            }
+            left_stop = 1;
+        } else if (sample) {
+            if (bg->lor == BGB_LEFT)
+                __groupby_update(bg, bld);
+        }
+    }
+    if (bo->right) {
+        err = bo->right->input(bp, bo->right, bld, site, ack, errstate);
+        if ((*errstate) == BO_STOP) {
+            if (err) {
+                hvfs_err(xnet, "BO %d's right operator '%s' failed w/ %d "
+                         "(Psite %lx from %lx id %ld, last_ack %ld)\n",
+                         bo->id, bo->right->name, err, site, site,
+                         bld->bl.id, ack);
+                goto out;
+            } else {
+                hvfs_err(xnet, "BO %d's right operator '%s' swallow this branch "
+                         "line (Psite %lx from %lx id %ld, "
+                         "last_ack %ld)\n",
+                         bo->id, bo->right->name, site, site,
+                         bld->bl.id, ack);
+                /* reset errstate to ZERO */
+                *errstate = 0;
+            }
+        } else if (sample) {
+            if (bg->lor == BGB_RIGHT)
+                __groupby_update(bg, bld);
+            if (bg->lor == BGB_MATCH && !left_stop)
+                __groupby_update(bg, bld);
+        }
+    } else if (left_stop) {
+        *errstate = BO_STOP;
+    }
+
+out:
+    return err;
+}
+
+/* groupby_output() dump the current groupby operator's value to the
+ * branch_line_disk structure.
+ */
+int bo_groupby_output(struct branch_processor *bp,
+                      struct branch_operator *bo,
+                      struct branch_line_disk *bld,
+                      struct branch_line_disk **obld,
+                      int *len, int *errstate)
+{
+    /* Note that, we pack the whole groupby region to one branch line, use who
+     * want to parse the groupby region should extract the info from it */
+    struct branch_line_disk *nbld, *__tmp;
+    struct bo_groupby *bg = (struct bo_groupby *)bo->gdata;
+    struct branch_groupby_disk *bgd;
+    struct branch_groupby_entry_disk *bged;
+    int err = 0, nlen = sizeof(*bgd), i = 0;
+
+    /* calculate the data length */
+    nlen += bg->bgb.nr * sizeof(*bged);
+    BGB_HT_LEN(bg, nlen, i);
+    if (i != bg->bgb.nr) {
+        hvfs_err(xnet, "groupby's internal state mismatch: "
+                 "NR %d vs %d(cal)\n",
+                 bg->bgb.nr, i);
+        return -EFAULT;
+    }
+
+    nbld = xzalloc(sizeof(*nbld) + nlen);
+    if (!nbld) {
+        hvfs_err(xnet, "xzalloc() branch_line_disk failed\n");
+        *errstate = BO_STOP;
+        return -ENOMEM;
+    }
+    nbld->bl.id = bo->id;
+    nbld->bl.data = nbld->data;
+    nbld->bl.data_len = nlen;
+
+    /* setup the values */
+    bgd = (void *)nbld->data;
+    bgd->type = BRANCH_DISK_GB;
+    bgd->nr = bg->bgb.nr;
+    for (i = 0; i < BGB_MAX_OP; i++) {
+        bgd->ops[i] = bg->bgb.ops[i];
+    }
+
+    bged = bgd->bged;
+    BGB_HT_SAVE(bg, bged);
+
+    if (!(*len))
+        *obld = NULL;
+    __tmp = xrealloc(*obld, *len + sizeof(*nbld) + nlen);
+    if (!__tmp) {
+        hvfs_err(xnet, "xrealloc() BLD failed\n");
+        xfree(nbld);
+        *errstate = BO_STOP;
+        return -ENOMEM;
+    }
+    memcpy((void *)__tmp + *len, nbld, sizeof(*nbld) + nlen);
+    *len += sizeof(*nbld) + nlen;
+    *obld = __tmp;
+    xfree(nbld);
+
+    /* push the request to my children */
+    if (bo->left && bo->left->output) {
+        err = bo->left->output(bp, bo->left, bld, obld, len, errstate);
+        if (*errstate == BO_STOP) {
+            /* ignore any errors */
+            if (err) {
+                hvfs_err(xnet, "output on BO %d's left branch %d "
+                         "failed w/ %d\n",
+                         bo->id, bo->left->id, err);
+            }
+        }
+    }
+    *errstate = 0;
+    if (bo->right && bo->right->output) {
+        err = bo->right->output(bp, bo->right, bld, obld, len, errstate);
+        if (*errstate == BO_STOP) {
+            /* ignore any errors */
+            if (err) {
+                hvfs_err(xnet, "output on BO %d's right branch %d "
+                         "failed w/ %d\n",
+                         bo->id, bo->right->id, err);
+            }
+        }
+    }
+
+    return err;
+}
+
 struct branch_processor *bp_alloc(void)
 {
     struct branch_processor *bp;
@@ -3081,6 +3669,11 @@ int __bo_install_cb(struct branch_operator *bo, char *name)
         bo->output = bo_knn_output;
         bo->flush = bo_knn_flush;
     } else if (strcmp(name, "groupby") == 0) {
+        bo->open = bo_groupby_open;
+        bo->close = bo_groupby_close;
+        bo->input = bo_groupby_input;
+        bo->output = bo_groupby_output;
+        bo->flush = bo_groupby_flush;
     } else if (strcmp(name, "rank") == 0) {
     } else if (strcmp(name, "indexer") == 0) {
     } else if (strcmp(name, "count") == 0) {

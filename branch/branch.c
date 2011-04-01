@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-30 09:39:54 macan>
+ * Time-stamp: <2011-04-01 09:41:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2583,7 +2583,7 @@ int branch_dumpbor(char *branch_name, u64 bpsite)
 
                 bkd = (union branch_knn_disk *)bore->data;
                 bkld = (struct branch_knn_linear_disk *)bore->data;
-                ASSERT(bkd->type & BRANCH_DISK_KNN, xnet);
+                ASSERT(bkd->type == BRANCH_DISK_KNN, xnet);
 
                 if (bkld->flag & BKNN_LINEAR) {
                     struct branch_knn_linear_entry_disk *bkled;
@@ -2612,6 +2612,54 @@ int branch_dumpbor(char *branch_name, u64 bpsite)
                 } else {
                     hvfs_err(xnet, "Invalid kNN type %x\n", bkd->type);
                 }
+                break;
+            }
+            case BRANCH_DISK_GB:
+            {
+                struct branch_groupby_disk *bgd;
+                struct branch_groupby_entry_disk *bged;
+                int j;
+
+                bgd = (struct branch_groupby_disk *)bore->data;
+                ASSERT(bgd->type == BRANCH_DISK_GB, xnet);
+
+                hvfs_warning(xnet, "BO %8d dlen %8d => gb NR: %d\n",
+                             bore->id, bore->len, bgd->nr);
+
+                bged = bgd->bged;
+                for (i = 0; i < bgd->nr; i++) {
+                    char group[bged->len + 1];
+
+                    memcpy(group, bged->group, bged->len);
+                    group[bged->len] = '\0';
+                    hvfs_warning(xnet, "\t[gp:%s", group);
+                    for (j = 0; j < BGB_MAX_OP; j++) {
+                        switch (bgd->ops[j]) {
+                        case BGB_SUM:
+                            hvfs_plain(xnet, "|sum:%ld", bged->values[j]);
+                            break;
+                        case BGB_MAX:
+                            hvfs_plain(xnet, "|max:%ld", bged->values[j]);
+                            break;
+                        case BGB_MIN:
+                            hvfs_plain(xnet, "|min:%ld", bged->values[j]);
+                            break;
+                        case BGB_AVG:
+                            hvfs_plain(xnet, "|avg:%f", 
+                                       (double)bged->values[j] / 
+                                       bged->lnrs[j]);
+                            break;
+                        case BGB_COUNT:
+                            hvfs_plain(xnet, "|count:%ld", bged->lnrs[j]);
+                            break;
+                        default:
+                            ;
+                        }
+                    }
+                    hvfs_plain(xnet, "]\n");
+                    bged = (void *)bged + sizeof(*bged) + bged->len;
+                }
+                
                 break;
             }
             default:

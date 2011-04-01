@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-30 10:49:11 macan>
+ * Time-stamp: <2011-04-01 09:37:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -159,6 +159,7 @@ struct branch_log_disk
 
 #define BRANCH_DISK_LOG         0x01
 #define BRANCH_DISK_KNN         0x02
+#define BRANCH_DISK_GB          0x03
 
 /* branch_knn is used to manage the linked list of knn entry
  */
@@ -211,21 +212,151 @@ union branch_knn
     struct branch_knn_linear bkl;
 };
 
+#define BGB_MAX_OP      (4)
+struct branch_groupby_entry_disk
+{
+    s64 values[BGB_MAX_OP];
+    u64 lnrs[BGB_MAX_OP];
+    int len;                    /* length of group name */
+    char group[0];
+};
+
 struct branch_groupby_entry
 {
-    struct list_head list;
+    struct hlist_node hlist;
     char *group;                /* group name */
-    s64 lvalue, rvalue;
-    u64 llnr, rlnr;             /* for AVG operator */
+    s64 values[BGB_MAX_OP];
+    u64 lnrs[BGB_MAX_OP];       /* for AVG operator */
+};
+
+struct branch_groupby_disk
+{
+    u8 type;
+    u8 ops[BGB_MAX_OP];
+    u32 nr;                     /* # of saved groups */
+    struct branch_groupby_entry_disk bged[0];
 };
 
 struct branch_groupby
 {
-    struct list_head gbl;       /* a list for all groups */
-    u16 lop, rop;               /* left/right operator: you can only use the
+#define BGB_HASH_SIZE   (1024)
+    struct regular_hash ht[BGB_HASH_SIZE]; /* a hash table for all groups */
+    u32 nr;                                /* # of current groups */
+#define BGB_NONE        0x00
+#define BGB_SUM         0x01
+#define BGB_AVG         0x02
+#define BGB_MAX         0x03
+#define BGB_MIN         0x04
+#define BGB_COUNT       0x05
+    u8 ops[BGB_MAX_OP];         /* left/right operator: you can only use the
                                  * following ops: SUM, AVG, MAX, MIN, COUNT
                                  */
 };
+
+#define BGB_HT_ADD(bge, bg) ({                              \
+        u64 hash = __murmurhash64a((bge)->group,            \
+                                   strlen((bge)->group),    \
+                                   0xffeaddf0341f);         \
+        int idx = hash % BGB_HASH_SIZE;                     \
+        struct regular_hash *rh = &((bg)->bgb.ht[idx]);     \
+        struct branch_groupby_entry *pos;                   \
+        struct hlist_node *n;                               \
+        int found = 0;                                      \
+                                                            \
+        xlock_lock(&rh->lock);                              \
+        hlist_for_each_entry(pos, n, &rh->h, hlist) {       \
+            if (strcmp(pos->group, (bge)->group) == 0) {    \
+                /* already exist! */                        \
+                found = 1;                                  \
+                break;                                      \
+            }                                               \
+        }                                                   \
+        xlock_unlock(&rh->lock);                            \
+        if (!found) {                                       \
+            hlist_add_head(&(bge)->hlist, &rh->h);          \
+            (bg)->bgb.nr++;                                 \
+        }                                                   \
+        found;                                              \
+    })
+
+#define BGB_HT_TEST(group, bg, bge) ({                          \
+            u64 hash = __murmurhash64a(group,                   \
+                                       strlen(group),           \
+                                       0xffeaddf0341f);         \
+            int idx = hash % BGB_HASH_SIZE;                     \
+            struct regular_hash *rh = &((bg)->bgb.ht[idx]);     \
+            struct branch_groupby_entry *pos;                   \
+            struct hlist_node *n;                               \
+                                                                \
+            (bge) = NULL;                                       \
+            xlock_lock(&rh->lock);                              \
+            hlist_for_each_entry(pos, n, &rh->h, hlist) {       \
+                if (strcmp(pos->group, group) == 0) {           \
+                    /* already exist! */                        \
+                    (bge) = pos;                                \
+                    break;                                      \
+                }                                               \
+            }                                                   \
+            xlock_unlock(&rh->lock);                            \
+            (bge);                                              \
+        })
+#define BGB_HT_CLEANUP(bg) do {                                         \
+        struct branch_groupby_entry *tpos;                              \
+        struct hlist_node *pos, *n;                                     \
+        struct regular_hash *rh;                                        \
+        int idx;                                                        \
+                                                                        \
+        for (idx = 0; idx < BGB_HASH_SIZE; idx++) {                     \
+            rh = &((bg)->bgb.ht[idx]);                                  \
+            xlock_lock(&rh->lock);                                      \
+            hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {    \
+                hlist_del(&tpos->hlist);                                \
+                xfree(tpos->group);                                     \
+                xfree(tpos);                                            \
+            }                                                           \
+            xlock_unlock(&rh->lock);                                    \
+        }                                                               \
+    } while (0)
+
+#define BGB_HT_LEN(bg, len, nr) do {                                    \
+        struct branch_groupby_entry *tpos;                              \
+        struct hlist_node *pos, *n;                                     \
+        struct regular_hash *rh;                                        \
+        int idx;                                                        \
+                                                                        \
+        for (idx = 0; idx < BGB_HASH_SIZE; idx++) {                     \
+            rh = &((bg)->bgb.ht[idx]);                                  \
+            xlock_lock(&rh->lock);                                      \
+            hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {    \
+                (len) += strlen(tpos->group);                           \
+                (nr)++;                                                 \
+            }                                                           \
+            xlock_unlock(&rh->lock);                                    \
+        }                                                               \
+    } while (0)
+
+#define BGB_HT_SAVE(bg, bged) do {                                      \
+        struct branch_groupby_entry *tpos;                              \
+        struct hlist_node *pos, *n;                                     \
+        struct regular_hash *rh;                                        \
+        int idx, j, group_len;                                          \
+                                                                        \
+        for (idx = 0; idx < BGB_HASH_SIZE; idx++) {                     \
+            rh = &((bg)->bgb.ht[idx]);                                  \
+            xlock_lock(&rh->lock);                                      \
+            hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {    \
+                for (j = 0; j < BGB_MAX_OP; j++) {                      \
+                    (bged)->values[j] = tpos->values[j];                \
+                    (bged)->lnrs[j] = tpos->lnrs[j];                    \
+                }                                                       \
+                group_len = strlen(tpos->group);                        \
+                (bged)->len = group_len;                                \
+                memcpy((bged)->group, tpos->group, group_len);          \
+                (bged) = (void *)(bged) + sizeof(*(bged)) + group_len;  \
+            }                                                           \
+            xlock_unlock(&rh->lock);                                    \
+        }                                                               \
+    } while (0)
 
 #define BP_DO_FLUSH(nr) ({                      \
     int __res = 0;                              \
