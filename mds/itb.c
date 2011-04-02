@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-18 09:38:50 macan>
+ * Time-stamp: <2011-04-02 10:48:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2119,6 +2119,11 @@ retry:
                               &itb->ite[ii->entry], hi,
                               ret, out);
             ite_update(hi, &itb->ite[ii->entry]);
+            if (unlikely((itb->ite[ii->entry].s.mdu.mode & S_IFDIR) && 
+                         (itb->ite[ii->entry].s.mdu.nlink == 0))) {
+                /* BUG: we should unlink this dir now, is it? */
+                itb_del_ite(itb, &itb->ite[ii->entry], offset, pos);
+            }
             hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
             __data_column_hook(hi, itb, ii, data);
@@ -2171,7 +2176,8 @@ retry:
              * msg->tx.arg0, and mds_linkadd() copy it to hi->dlen, because in
              * this function we cant access the msg :( */
             itb->ite[ii->entry].s.mdu.nlink += (int)hi->dlen;
-            if (unlikely(itb->ite[ii->entry].s.mdu.nlink == 0)) {
+            if (unlikely(itb->ite[ii->entry].s.mdu.nlink == 0 &&
+                         !(itb->ite[ii->entry].flag & ITE_FLAG_GDT))) {
                 /* Hoo, we should unlink the entry now, make sure that you
                  * must not unlink the directory entry */
                 itb_del_ite(itb, &itb->ite[ii->entry], offset, pos);

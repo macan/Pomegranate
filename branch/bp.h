@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-01 09:37:10 macan>
+ * Time-stamp: <2011-04-01 18:43:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -160,6 +160,7 @@ struct branch_log_disk
 #define BRANCH_DISK_LOG         0x01
 #define BRANCH_DISK_KNN         0x02
 #define BRANCH_DISK_GB          0x03
+#define BRANCH_DISK_INDEXER     0x04
 
 /* branch_knn is used to manage the linked list of knn entry
  */
@@ -358,6 +359,57 @@ struct branch_groupby
         }                                                               \
     } while (0)
 
+struct branch_indexer_plain_disk
+{
+    u8 type;                    /* DISK_INDEXER */
+    u32 flag;                   /* what is the type of indexer? */
+    u64 nr;
+};
+
+struct branch_indexer_bdb_disk
+{
+    u8 type;                    /* DISK_INDEXER */
+    u32 flag;                   /* what is the type of indexer? */
+    u64 nr;
+    u32 dbname_len, table_len;
+    char data[0];
+};
+
+union branch_indexer_disk
+{
+    struct __self {
+        u8 type;
+        u32 flag;
+        u64 nr;
+    } s;
+    struct branch_indexer_plain_disk bipd;
+    struct branch_indexer_bdb_disk bibd;
+};
+
+struct branch_indexer_plain
+{
+    xlock_t lock;
+#define BI_PLAIN_CHUNK          (4096)
+    int size, offset;
+    void *buffer;
+};
+
+struct branch_indexer_bdb
+{
+    char *dbname;
+    char *table;
+};
+
+struct branch_indexer
+{
+    u64 nr;                     /* how many lines we handled? */
+    union 
+    {
+        struct branch_indexer_plain plain;
+        struct branch_indexer_bdb bdb;
+    };
+};
+
 #define BP_DO_FLUSH(nr) ({                      \
     int __res = 0;                              \
     if (nr % BP_DEFAULT_FLUSH == 0)             \
@@ -466,6 +518,15 @@ struct bo_groupby
 
     regex_t preg;
     struct branch_groupby bgb;
+};
+
+/* for indexer */
+struct bo_indexer
+{
+#define BIDX_PLAIN      0x01    /* plain file(unsorted) */
+#define BIDX_BDB        0x02    /* BerkeleyDB */
+    u16 flag;
+    struct branch_indexer bi;
 };
 
 /* APIs */

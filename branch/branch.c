@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-01 09:41:16 macan>
+ * Time-stamp: <2011-04-02 08:43:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2660,6 +2660,19 @@ int branch_dumpbor(char *branch_name, u64 bpsite)
                     bged = (void *)bged + sizeof(*bged) + bged->len;
                 }
                 
+                break;
+            }
+            case BRANCH_DISK_INDEXER:
+            {
+                union branch_indexer_disk *bid;
+
+                bid = (union branch_indexer_disk *)bore->data;
+                ASSERT(bid->s.type == BRANCH_DISK_INDEXER, xnet);
+
+                hvfs_warning(xnet, "BO %8d dlen %8d => indexer %s NR %ld\n",
+                             bore->id, bore->len, 
+                             (bid->s.flag == BIDX_PLAIN ? "PLAIN" : 
+                              "BerkeleyDB"), bid->s.nr);
                 break;
             }
             default:

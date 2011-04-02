@@ -328,6 +328,31 @@ Pomegranate TODOs:
     5. DEFINE: Operator 'rank' measn we want to get the lines whose value
                is in the range group.
 
+    6. kNN and groupby is working now @ 4/2/2011
+
+    7. DEFINE: Operator 'indexer' means we extract a key/value list from 
+               branch_line_disk->data and push them to the low level 
+               database. For example, if we got a branch_line as follows:
+
+               TAG: <puuid:filename> or <puuid::uuid:hash>
+               KVS: <type=png;tag:color=rgb;tag:location=china>
+
+               For this line, we create the following BDB dbs:
+               
+               DB "base" = "TAG, puuid, filename"
+               DB "type" = 'type, TAG'
+               DB "tag:color" = 'color, TAG'
+               DB "tag:location" = 'location, TAG'
+
+               All the DB exclude "base" can be joined with "base"!
+
+               For this line, we create the following sqlite DB tables:
+
+               Table "type" = 'puuid, filename, type'
+               Table "tag"  = 'puuid, filename, color, location'
+
+               All the tables can be joined by TAG!
+
 31. Bug notice:
 
     1. there is a bug in FUSE client which can be produced by dbench 

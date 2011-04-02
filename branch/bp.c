@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-01 10:10:57 macan>
+ * Time-stamp: <2011-04-03 00:08:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -999,7 +999,7 @@ int bo_filter_flush(struct branch_processor *bp,
     if (!bf->size || bf->accept_all == -1)
         return 0;
 
-    /* in bp mode, we are sure that we are in MDSL. Thus, we should pay a
+    /* in bp mode, we are sure that we are NOT in MDSL. Thus, we should pay a
      * little patient for api calls*/
     memset(&hs, 0, sizeof(hs));
     hs.name = ".branches";
@@ -1167,7 +1167,8 @@ int bo_filter_input(struct branch_processor *bp,
     retry:
         if (bf->offset + len > bf->size) {
             /* need to realloc the buffer now */
-            void *p = xrealloc(bf->buffer, bf->size + BO_FILTER_CHUNK);
+            void *p = xrealloc(bf->buffer, 
+                               max(len, bf->size + BO_FILTER_CHUNK));
             if (!p) {
                 hvfs_err(xnet, "realloc buffer space to %d failed\n",
                          bf->size + BO_FILTER_CHUNK);
@@ -1208,8 +1209,8 @@ int bo_filter_input(struct branch_processor *bp,
         retry_again:
             if (bf->offset + len > bf->size) {
                 /* need to realloc the buffer now */
-                void *p = xrealloc(bf->buffer,
-                                   bf->size + BO_FILTER_CHUNK);
+                void *p = xrealloc(bf->buffer, 
+                                   max(len, bf->size + BO_FILTER_CHUNK));
                 if (!p) {
                     hvfs_err(xnet, "realloc buffer space to %d failed\n",
                              bf->size + BO_FILTER_CHUNK);
@@ -3529,8 +3530,8 @@ int bo_groupby_output(struct branch_processor *bp,
                       struct branch_line_disk **obld,
                       int *len, int *errstate)
 {
-    /* Note that, we pack the whole groupby region to one branch line, use who
-     * want to parse the groupby region should extract the info from it */
+    /* Note that, we pack the whole groupby region to one branch line, user
+     * who want to parse the groupby region should extract the info from it */
     struct branch_line_disk *nbld, *__tmp;
     struct bo_groupby *bg = (struct bo_groupby *)bo->gdata;
     struct branch_groupby_disk *bgd;
@@ -3567,6 +3568,577 @@ int bo_groupby_output(struct branch_processor *bp,
 
     bged = bgd->bged;
     BGB_HT_SAVE(bg, bged);
+
+    if (!(*len))
+        *obld = NULL;
+    __tmp = xrealloc(*obld, *len + sizeof(*nbld) + nlen);
+    if (!__tmp) {
+        hvfs_err(xnet, "xrealloc() BLD failed\n");
+        xfree(nbld);
+        *errstate = BO_STOP;
+        return -ENOMEM;
+    }
+    memcpy((void *)__tmp + *len, nbld, sizeof(*nbld) + nlen);
+    *len += sizeof(*nbld) + nlen;
+    *obld = __tmp;
+    xfree(nbld);
+
+    /* push the request to my children */
+    if (bo->left && bo->left->output) {
+        err = bo->left->output(bp, bo->left, bld, obld, len, errstate);
+        if (*errstate == BO_STOP) {
+            /* ignore any errors */
+            if (err) {
+                hvfs_err(xnet, "output on BO %d's left branch %d "
+                         "failed w/ %d\n",
+                         bo->id, bo->left->id, err);
+            }
+        }
+    }
+    *errstate = 0;
+    if (bo->right && bo->right->output) {
+        err = bo->right->output(bp, bo->right, bld, obld, len, errstate);
+        if (*errstate == BO_STOP) {
+            /* ignore any errors */
+            if (err) {
+                hvfs_err(xnet, "output on BO %d's right branch %d "
+                         "failed w/ %d\n",
+                         bo->id, bo->right->id, err);
+            }
+        }
+    }
+
+    return err;
+}
+
+/* indexer_open() to load in the metadata from indexer rules
+ *
+ * API: (string in branch_op->data)
+ * 1. type: [plain|bdb]
+ * 2. schema: <dbname:table>
+ *
+ * for OP:indexer, we use TAG as the attached info, DATA as key=value paires.
+ */
+int bo_indexer_open(struct branch_operator *bo,
+                    struct branch_op_result *bor,
+                    struct branch_op *op)
+{
+    struct bo_indexer *bi;
+    char *regex = "type:([^;]*);+schema:([^;]*):([^;]*)";
+    char dup[op->len + 1];
+    int err = 0, i;
+
+    /* Step 1: parse the arguments from branch op */
+    if (!op || !op->data)
+        return -EINVAL;
+
+    bi = xzalloc(sizeof(*bi));
+    if (!bi) {
+        hvfs_err(xnet, "xzalloc() bo_indexer failed\n");
+        return -ENOMEM;
+    }
+
+    /* load in the bor value */
+    if (bor) {
+        struct branch_op_result_entry *bore = bor->bore;
+        union branch_indexer_disk *bid;
+
+        for (i = 0; i < bor->nr; i++) {
+            if (bo->id == bore->id) {
+                ASSERT(bore->len >= sizeof(*bid), xnet);
+                bid = (union branch_indexer_disk *)(bore->data);
+                
+                switch (bid->s.flag) {
+                case BIDX_PLAIN:
+                {
+                    struct branch_indexer_plain_disk *bipd = 
+                        (void *)bor->bore;
+                    
+                    bi->bi.nr = bipd->nr;
+                    bi->flag = BIDX_PLAIN;
+                    hvfs_warning(xnet, "Load in NR %ld lines for PLAIN\n", 
+                                 bi->bi.nr);
+                    break;
+                }
+                case BIDX_BDB:
+                {
+                    struct branch_indexer_bdb_disk *bibd = 
+                        (void *)bor->bore;
+                    char dbname[bibd->dbname_len + 1],
+                        table[bibd->table_len + 1];
+                    
+                    bi->bi.nr = bibd->nr;
+                    bi->bi.nr = BIDX_BDB;
+                    memcpy(dbname, bibd->data, bibd->dbname_len);
+                    dbname[bibd->dbname_len] = '\0';
+                    memcpy(table, bibd->data + bibd->dbname_len,
+                           bibd->table_len);
+                    table[bibd->table_len] = '\0';
+                    bi->bi.bdb.dbname = strdup(dbname);
+                    bi->bi.bdb.table = strdup(table);
+                    hvfs_warning(xnet, "Load in NR %ld lines for BerkeleyDB: "
+                                 "DB'%s' TABLE'%s'\n",
+                                 bi->bi.nr, dbname, table);
+                    break;
+                }
+                default:
+                    hvfs_err(xnet, "Invalid saved branch indexer type X(%x), "
+                             "reject load in\n",
+                             bid->s.type);
+                    return -EINVAL;
+                }
+                break;
+            }
+            bore = (void *)bore + sizeof(*bore) + bore->len;
+        }
+    }
+
+    memcpy(dup, op->data, op->len);
+    dup[op->len] = '\0';
+
+    /* parse the regex strings */
+    {
+        regex_t preg;
+        regmatch_t *pmatch;
+        char errbuf[op->len + 1];
+        int i, len;
+
+        pmatch = xzalloc(4 * sizeof(regmatch_t));
+        if (!pmatch) {
+            hvfs_err(xnet, "malloc regmatch_t failed\n");
+            err = -ENOMEM;
+            goto out_free;
+        }
+        err = regcomp(&preg, regex, REG_EXTENDED);
+        if (err) {
+            hvfs_err(xnet, "regcomp failed w/ %d\n", err);
+            goto out_free2;
+        }
+        err = regexec(&preg, dup, 4, pmatch, 0);
+        if (err) {
+            regerror(err, &preg, errbuf, op->len);
+            hvfs_err(xnet, "regexec failed w/ '%s'\n", errbuf);
+            goto out_clean;
+        }
+
+        for (i = 1; i < 4; i++) {
+            if (pmatch[i].rm_so == -1)
+                break;
+            len = pmatch[i].rm_eo - pmatch[i].rm_so;
+            memcpy(errbuf, dup + pmatch[i].rm_so, len);
+            errbuf[len] = '\0';
+            switch (i) {
+            case 1:
+                /* this is the type */
+                hvfs_err(xnet, "type=%s\n", errbuf);
+                if (strcmp(errbuf, "plain") == 0) {
+                    bi->flag = BIDX_PLAIN;
+                    xlock_init(&bi->bi.plain.lock);
+                } else if (strcmp(errbuf, "bdb") == 0) {
+                    bi->flag = BIDX_BDB;
+                }
+                break;
+            case 2:
+            {
+                /* this is the dbname */
+                hvfs_err(xnet, "schema=DB:%s;", errbuf);
+                if (bi->flag == BIDX_BDB) {
+                    bi->bi.bdb.dbname = strdup(errbuf);
+                }
+                break;
+            }
+            case 3:
+                /* this is the table */
+                hvfs_plain(xnet, "TABLE:%s\n", errbuf);
+                if (bi->flag == BIDX_BDB) {
+                    bi->bi.bdb.table = strdup(errbuf);
+                }
+                break;
+            default:
+                continue;
+            }
+        }
+    out_clean:
+        regfree(&preg);
+    out_free2:
+        xfree(pmatch);
+        if (err)
+            goto out_free;
+    }
+
+    /* set the bs to gdata */
+    bo->gdata = bi;
+    return 0;
+
+out_free:
+    xfree(bi);
+
+    return err;
+}
+
+int bo_indexer_close(struct branch_operator *bo)
+{
+    struct bo_indexer *bi = bo->gdata;
+
+    if (bi->flag == BIDX_PLAIN) {
+        /* FIXME: flush and free the buffer */
+    } else {
+    }
+    xfree(bi);
+
+    return 0;
+}
+
+/* Generate the BOR region entry to flush. Note that we will realloc the
+ * bp->bor region.
+ */
+int bo_indexer_plain_flush(struct branch_processor *bp,
+                           struct branch_operator *bo, void **oresult,
+                           size_t *osize)
+{
+    struct bo_indexer *bi = (struct bo_indexer *)bo->gdata;
+    struct branch_indexer_plain *bip = &bi->bi.plain;
+    struct hstat hs;
+    struct mdu mdu;
+    u64 buuid, bsalt;
+    off_t offset;
+    int err = 0;
+    char fname[256];
+
+    if (!bip->size)
+        return 0;
+
+    /* in bp mode, we are sure that we are NOT in MDSL, Thus, we should pay a
+     * little patient for api calls */
+    memset(&hs, 0, sizeof(hs));
+    hs.name = ".branches";
+    hs.puuid = hmi.root_uuid;
+    hs.psalt = hmi.root_salt;
+
+    err = hvfs_stat_eh(hmi.root_uuid, hmi.root_salt, -1, &hs);
+    if (err) {
+        hvfs_err(xnet, "Root branch does not exist, w/ %d\n",
+                 err);
+        goto out;
+    }
+    hs.hash = 0;
+    err = hvfs_stat_eh(hmi.gdt_uuid, hmi.gdt_salt, -1, &hs);
+    if (err) {
+        hvfs_err(xnet, "do internal dir stat (GDT) on root branch "
+                 "failed w/ %d\n", err);
+        goto out;
+    }
+
+    /* find the output file now */
+    sprintf(fname, ".%s.indexer.p%d", bp->be->branch_name, bo->id);
+    buuid = hs.uuid;
+    bsalt = hs.ssalt;
+    memset(&hs, 0, sizeof(hs));
+    hs.puuid = buuid;
+    hs.psalt = bsalt;
+    hs.name = fname;
+    err = hvfs_stat_eh(buuid, bsalt, 0, &hs);
+    if (err == -ENOENT) {
+        /* create the file now */
+        hs.uuid = 0;
+        err = hvfs_create_eh(buuid, bsalt, &hs, 0, NULL);
+        if (err) {
+            hvfs_err(xnet, "do internal file create (SDT) on branch '%s'"
+                     " failed w/ %d\n",
+                     fname, err);
+            goto out;
+        }
+    } else if (err) {
+        hvfs_err(xnet, "do internal file stat (SDT) on branch '%s'"
+                 " failed w/ %d\n",
+                 fname, err);
+        goto out;
+    }
+    mdu = hs.mdu;
+
+    /* proxy file in append write mode */
+    hs.mc.c.offset = -1;
+    offset = bip->offset;
+    err = hvfs_fwrite_eh(&hs, 0, SCD_PROXY, bip->buffer, offset, 
+                         &hs.mc.c);
+    if (err) {
+        hvfs_err(xnet, "flush filter buffer to %s failed w/ %d\n",
+                 fname, err);
+        goto out;
+    }
+
+    /* well, update the file metadata now */
+    {
+        struct mdu_update mu;
+
+        memset(&mu, 0, sizeof(mu));
+        mu.valid = MU_COLUMN | MU_FLAG_ADD | MU_SIZE;
+        mu.flags = HVFS_MDU_IF_PROXY;
+        mu.column_no = 1;
+        mu.size = offset + mdu.size;
+        hs.mc.cno = 0;          /* write to zero column */
+        hs.mc.c.len = mu.size;
+
+        hs.name = NULL;
+        /* access SDT, using the old hs.hash value */
+        err = hvfs_update_eh(buuid, bsalt, &hs, &mu);
+        if (err) {
+            hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
+                     fname, err);
+            goto out;
+        }
+    }
+
+    /* then, it is ok to clean and reset the buffer now */
+    xlock_lock(&bip->lock);
+    if (bip->offset == offset)
+        bip->offset = 0;
+    else {
+        memmove(bip->buffer, bip->buffer + offset, bip->offset - offset);
+        bip->offset -= offset;
+    }
+    xlock_unlock(&bip->lock);
+
+    /* Step 2: push the flush request to other operatores */
+    {
+        int errstate = BO_FLUSH;
+
+        if (bo->left) {
+            err = bo->left->input(bp, bo->left, NULL, -1UL, 0, &errstate);
+            if (errstate == BO_STOP) {
+                /* ignore any errors */
+                if (err) {
+                    hvfs_err(xnet, "flush on BO %d's left branch %d "
+                             "failed w/ %d\n",
+                             bo->id, bo->left->id, err);
+                }
+            }
+        }
+        errstate = BO_FLUSH;
+        if (bo->right) {
+            err = bo->right->input(bp, bo->right, NULL, -1UL, 0, &errstate);
+            if (errstate == BO_STOP) {
+                /* ignore any errors */
+                if (err) {
+                    hvfs_err(xnet, "flush on BO %d's right branch %d "
+                             "failed w/ %d\n",
+                             bo->id, bo->right->id, err);
+                }
+            }
+        }
+    }
+
+out:
+    return err;
+}
+
+int bo_indexer_bdb_flush(struct branch_processor *bp,
+                         struct branch_operator *bo, void **oresult,
+                         size_t *osize)
+{
+    hvfs_err(xnet, "Indexer BerkeleyDB is not suppoted now\n");
+    return -ENOSYS;
+}
+
+int bo_indexer_flush(struct branch_processor *bp,
+                     struct branch_operator *bo, void **oresult,
+                     size_t *osize)
+{
+    struct bo_indexer *bi = (struct bo_indexer *)bo->gdata;
+
+    switch (bi->flag) {
+    case BIDX_PLAIN:
+        return bo_indexer_plain_flush(bp, bo, oresult, osize);
+        break;
+    case BIDX_BDB:
+        return bo_indexer_bdb_flush(bp, bo, oresult, osize);
+        break;
+    default:
+        hvfs_err(xnet, "Invalid indexer type X(%x)\n", bi->flag);
+    }
+
+    return -EINVAL;
+}
+
+int bo_indexer_plain_input(struct branch_processor *bp,
+                           struct branch_operator *bo,
+                           struct branch_line_disk *bld,
+                           u64 site, u64 ack, int *errstate)
+{
+    struct bo_indexer *bi = (struct bo_indexer *)bo->gdata;
+    struct branch_indexer_plain *bip = &bi->bi.plain;
+    int err = 0, len;
+
+    /* check if it is a flush operation */
+    if (*errstate == BO_FLUSH) {
+        if (bo->flush)
+            err = bo->flush(bp, bo, NULL, NULL);
+        else
+            err = -EINVAL;
+
+        if (err) {
+            hvfs_err(xnet, "flush filter buffer of operator %s "
+                     "failed w/ %d\n", bo->name, err);
+            *errstate = BO_STOP;
+            return -EHSTOP;
+        }
+        return err;
+    } else if (*errstate == BO_STOP) {
+        return -EHSTOP;
+    }
+
+    /* sanity check */
+    if (!bp || !bld) {
+        *errstate = BO_STOP;
+        return -EINVAL;
+    }
+
+    /* deal with data now */
+    __bp_bld_dump("indexer", bld, site);
+    xlock_lock(&bip->lock);
+    /* save the input data to the buffer */
+    len = bld->bl.data_len + bld->tag_len + 8 + 3; /* 8B for site id, 2B '\t'
+                                                    * and 1B '\n' */
+retry:
+    if (bip->offset + len > bip->size) {
+        /* need to realloc the buffer now */
+        void *p = xrealloc(bip->buffer,
+                           max(len, bip->size + BI_PLAIN_CHUNK));
+        if (!p) {
+            hvfs_err(xnet, "realloc buffer space to %d failed\n",
+                     bip->size + BI_PLAIN_CHUNK);
+            *errstate = BO_STOP;
+            xlock_unlock(&bip->lock);
+            return -ENOMEM;
+        }
+        bip->size += BI_PLAIN_CHUNK;
+        bip->buffer = p;
+        goto retry;
+    }
+    sprintf(bip->buffer + bip->offset, "%08lx\t", bld->bl.sites[0]);
+    bip->offset += 9;
+    memcpy(bip->buffer + bip->offset, bld->data + bld->name_len,
+           bld->tag_len);
+    bip->offset += bld->tag_len;
+    *(char *)(bip->buffer + bip->offset) = '\t';
+    bip->offset += 1;
+    memcpy(bip->buffer + bip->offset, bld->bl.data,
+           bld->bl.data_len);
+    bip->offset += bld->bl.data_len;
+    *(char *)(bip->buffer + bip->offset) = '\n';
+    bip->offset += 1;
+    xlock_unlock(&bip->lock);
+    /* increase the # of handled lines */
+    bi->bi.nr++;
+
+    /* Step 2: push the branch line to other operatores */
+    if (bo->left) {
+        err = bo->left->input(bp, bo->left, bld, site, ack, errstate);
+        if ((*errstate) == BO_STOP) {
+            if (err) {
+                hvfs_err(xnet, "BO %d's left operator '%s' failed w/ %d "
+                         "(Psite %lx from %lx id %ld, last_ack %ld)\n",
+                         bo->id, bo->left->name, err, site, site,
+                         bld->bl.id, ack);
+                goto out;
+            } else {
+                hvfs_err(xnet, "BO %d's left operator '%s' swallow this branch "
+                         "line (Psite %lx from %lx id %ld, "
+                         "last_ack %ld)\n",
+                         bo->id, bo->left->name, site, site, 
+                         bld->bl.id, ack);
+                /* reset errstate to ZERO */
+                *errstate = 0;
+            }
+        }
+    }
+    if (bo->right) {
+        err = bo->right->input(bp, bo->right, bld, site, ack, errstate);
+        if ((*errstate) == BO_STOP) {
+            if (err) {
+                hvfs_err(xnet, "BO %d's right operator '%s' failed w/ %d "
+                         "(Psite %lx from %lx id %ld, last_ack %ld)\n",
+                         bo->id, bo->right->name, err, site, site,
+                         bld->bl.id, ack);
+                goto out;
+            } else {
+                hvfs_err(xnet, "BO %d's right operator '%s' swallow this branch "
+                         "line (Psite %lx from %lx id %ld, "
+                         "last_ack %ld)\n",
+                         bo->id, bo->right->name, site, site,
+                         bld->bl.id, ack);
+                /* reset errstate to ZERO */
+                *errstate = 0;
+            }
+        }
+    }
+
+out:
+    return err;
+}
+
+int bo_indexer_bdb_input(struct branch_processor *bp,
+                         struct branch_operator *bo,
+                         struct branch_line_disk *bld,
+                         u64 site, u64 ack, int *errstate)
+{
+    hvfs_err(xnet, "Indexer BerkeleyDB is not support now\n");
+    return -ENOSYS;
+}
+
+int bo_indexer_input(struct branch_processor *bp,
+                     struct branch_operator *bo,
+                     struct branch_line_disk *bld,
+                     u64 site, u64 ack, int *errstate)
+{
+    struct bo_indexer *bi = (struct bo_indexer *)bo->gdata;
+
+    switch (bi->flag) {
+    case BIDX_PLAIN:
+        return bo_indexer_plain_input(bp, bo, bld, site, ack, errstate);
+        break;
+    case BIDX_BDB:
+        return bo_indexer_bdb_input(bp, bo, bld, site, ack, errstate);
+        break;
+    default:
+        hvfs_err(xnet, "Invalid indexer type X(%x)\n", bi->flag);
+    }
+
+    return -EINVAL;
+}
+
+/* indexer_output() dump current # of handled lines to the branch_line_disk
+ * structure.
+ */
+int bo_indexer_output(struct branch_processor *bp,
+                      struct branch_operator *bo,
+                      struct branch_line_disk *bld,
+                      struct branch_line_disk **obld,
+                      int *len, int *errstate)
+{
+    /* Note that, we pack the number to one branch line, user who want to
+     * parse the number should extract from branch line
+     */
+    struct branch_line_disk *nbld, *__tmp;
+    struct bo_indexer *bi = (struct bo_indexer *)bo->gdata;
+    union branch_indexer_disk *bid;
+    int err = 0, nlen = sizeof(*bid);
+
+    nbld = xzalloc(sizeof(*nbld) + nlen);
+    if (!nbld) {
+        hvfs_err(xnet, "xzalloc() branch_line_disk failed\n");
+        *errstate = BO_STOP;
+        return -ENOMEM;
+    }
+    nbld->bl.id = bo->id;
+    nbld->bl.data = nbld->data;
+    nbld->bl.data_len = nlen;
+
+    /* setup the values */
+    bid = (void *)nbld->data;
+    bid->s.type = BRANCH_DISK_INDEXER;
+    bid->s.flag = bi->flag;
+    bid->s.nr = bi->bi.nr;
 
     if (!(*len))
         *obld = NULL;
@@ -3676,6 +4248,11 @@ int __bo_install_cb(struct branch_operator *bo, char *name)
         bo->flush = bo_groupby_flush;
     } else if (strcmp(name, "rank") == 0) {
     } else if (strcmp(name, "indexer") == 0) {
+        bo->open = bo_indexer_open;
+        bo->close = bo_indexer_close;
+        bo->input = bo_indexer_input;
+        bo->output = bo_indexer_output;
+        bo->flush = bo_indexer_flush;
     } else if (strcmp(name, "count") == 0) {
         bo->open = bo_count_open;
         bo->close = bo_sum_close;

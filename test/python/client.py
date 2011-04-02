@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-04-01 08:33:08 macan>
+# Time-stamp: <2011-04-02 08:42:33 macan>
 #
 # Armed with EMACS.
 #
@@ -912,6 +912,7 @@ class pamc_shell(cmd.Cmd):
                min:id:rid:<l|r>[:<reg>:[left|right|all|match]]
                knn:id:rid:<l|r>:<reg>:<left|right|all|match>:type:center:+/-distance
                groupby:id:rid:<l|r>:<reg>:<left|right|all|match>:[sum/avg/max/min/count]
+               indexer:id:rid:<l|r>:<plain|bdb>:<dbname>:<table>
         '''
         l = shlex.split(line)
         if len(l) < 3:
@@ -1053,7 +1054,17 @@ class pamc_shell(cmd.Cmd):
                     ops.ops[nr] = op
                     nr += 1
                 elif x.lower() == "indexer":
+                    if len(y) == 7:
+                        s = "type:" + y[4] + ";schema:" + y[5] + ":" + y[6]
+                    elif len(y) == 6:
+                        s = "type:" + y[4] + ";schema:" + y[5] + ":default"
+                    elif len(y) == 5:
+                        s = "type:" + y[4] + ";schema:default_db:default"
+                    else:
+                        s = "type:plain;schema:default_db:default"
                     op.op = op.INDEXER
+                    op.data = cast(c_char_p(s), c_void_p)
+                    op.len = c_uint32(len(s))
                     ops.ops[nr] = op
                     nr += 1
                 elif x.lower() == "codec":
