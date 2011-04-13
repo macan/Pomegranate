@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-17 14:56:51 macan>
+ * Time-stamp: <2011-04-12 10:53:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -186,5 +186,13 @@ int __hvfs_is_empty_dir(u64 puuid, u64 psalt, struct hstat *hs);
 #define BRANCH_CMD_ACK_REPLICA  0x06
 #define BRANCH_CMD_ADJUST       0x07
 #define BRANCH_CMD_GETBOR       0x08
+#define BRANCH_CMD_SEARCH       0x09
+
+struct branch_search_expr_tx
+{
+    u32 name_len, expr_len;
+    u16 dbname_len, prefix_len;
+    char data[0];
+};
 
 #endif

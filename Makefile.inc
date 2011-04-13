@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-03-28 14:19:27 macan>
+# Time-stamp: <2011-04-12 10:09:46 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -59,6 +59,17 @@ $(info )
 $(info ========================================================)
 endif
 
+ifndef BDB_HOME
+$(info You can set BDB home by 'export BDB_HOME=/path/to/berkeleydb/home'.)
+$(info By default it is set to '/usr'.)
+$(info ========================================================)
+export BDB_HOME = /usr
+endif
+
+BDB_MAIN = $(BDB_HOME)
+BDB_INC_PATH = $(BDB_MAIN)/include
+BDB_LIB_PATH = $(BDB_MAIN)/lib
+
 # Debuging the memory and locks
 XCFLAGS = -O2 -rdynamic -g -pg -fPIC
 DEADCODESTRIP := -fdata-sections -ffunction-sections \
@@ -76,6 +87,12 @@ CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" -DGIT_SHA="\"$(GIT_SHA)\""\
 			-DXNET_EAGER_WRITEV -DCPU_CORE=$(__CORES__) \
 			-DMDSL_ACC_SYNC -DMDSL_RADICAL_DEL -DMDSL_DROP_CACHE_ \
 			-DFUSE_SAFE_OPEN
+
+ifdef USE_BDB
+CFLAGS += -I$(BDB_INC_PATH) -DUSE_BDB=1
+LFLAGS += -L$(BDB_LIB_PATH) -ldb
+BDBFLAGS += -L$(BDB_LIB_PATH) -ldb
+endif
 
 ifdef USE_JEMALLOC
 CFLAGS += -DUSE_JEMALLOC
@@ -115,7 +132,7 @@ LIB_AR_SOURCE = lib.c ring.c time.c bitmap.c xlock.c segv.c conf.c md5.c \
 XNET_AR_SOURCE = xnet.c xnet_simple.c
 R2_AR_SOURCE = mgr.c root.c spool.c x2r.c dispatch.c bparser.c cli.c
 API_AR_SOURCE = api.c
-BRANCH_AR_SOURCE = branch.c bp.c
+BRANCH_AR_SOURCE = branch.c bp.c bdb.c
 
 INC_H_SOURCE = atomic.h err.h hvfs.h hvfs_common.h hvfs_const.h hvfs_k.h \
 				hvfs_u.h ite.h mds_api.h mdsl_api.h memory.h site.h tx.h \
@@ -126,7 +143,7 @@ MDSL_H_SOURCE = mdsl.h lprof.h mdsl_config.h
 R2_H_SOURCE = root.h mgr.h root_config.h rprof.h
 LIB_H_SOURCE = lib.h ring.h minilzo.h
 API_H_SOURCE = 
-BRANCH_H_SOURCE = branch.h bp.h
+BRANCH_H_SOURCE = branch.h bp.h bdb_dummy.h
 FUSE_H_SOURCE = pfs.h
 
 inc_h_depend_files = $(patsubst %.h, $(INC_PATH)/%.h, $(INC_H_SOURCE)) \
@@ -159,12 +176,13 @@ r2_depend_files = $(patsubst %.c, $(R2)/%.c, $(R2_AR_SOURCE)) \
 api_depend_files = $(patsubst %.c, $(API)/%.c, $(API_AR_SOURCE)) \
 					$(header_depend_files)
 branch_depend_files = $(patsubst %.c, $(BRANCH)/%.c, $(BRANCH_AR_SOURCE)) \
-					$(header_depend_files)
+					$(header_depend_files) $(branch_h_depend_files)
 triggers_depend_files = $(patsubst %.c, $(TRIGGERS)/%.c, $(TRIGGERS_SOURCE)) \
 					$(header_depend_files)
 fuse_depend_files = $(patsubst %.c, $(FUSE)/%.c, $(FUSE_AR_SOURCE)) \
 					$(header_depend_files)
-triggers_target_files = $(patsubst %.c, $(TRIGGERS)/%.so, $(TRIGGERS_SOURCE))
+triggers_target_files = $(patsubst %.c, $(TRIGGERS)/%.so, $(TRIGGERS_SOURCE)) \
+					$(mds_h_depend_files)
 
 # shared libs
 LIB_SO = $(LIB_PATH)/libhvfs.so.1.0

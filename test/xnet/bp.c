@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-11 10:54:09 macan>
+ * Time-stamp: <2011-04-11 17:04:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,16 +61,24 @@ int __run_as_bp(void)
 
 void __bp_test(void)
 {
-    int err = 0;
+    int __UNUSED__ err = 0;
     
+#if 0
     err = branch_load("hello", "", 1);
     if (err) {
         hvfs_err(xnet, "branch_load() failed w/ %d\n", err);
     }
-#if 0
     err = branch_publish(0, 0, "hello", "test", 1, "hello world!", 12);
     if (err) {
         hvfs_err(xnet, "branch_publish() failed w/ %d\n", err);
+    }
+#elif 0
+    struct basic_expr be = {.flag = BRANCH_SEARCH_EXPR_CHECK,};
+    err = __expr_parser("r:type=svg & tag:color=gray", &be);
+    if (err) {
+        hvfs_err(xnet, "parse EXPR failed w/ %d\n", err);
+    } else {
+        __expr_close(&be);
     }
 #endif
 }

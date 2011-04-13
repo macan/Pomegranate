@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-04-02 08:42:33 macan>
+# Time-stamp: <2011-04-12 14:39:27 macan>
 #
 # Armed with EMACS.
 #
@@ -188,7 +188,7 @@ class pamc_shell(cmd.Cmd):
                 "quit", "ls", "commit", "getcluster", "cat", 
                 "regdtrigger", "catdtrigger", "statfs", "setattr",
                 "getactivesite", "addsite", "rmvsite", "shutdown",
-                "cbranch", "bc", "bp", "getbor", ]
+                "cbranch", "bc", "bp", "getbor", "search", ]
 
     def __init__(self, ub = False):
         cmd.Cmd.__init__(self)
@@ -1143,6 +1143,35 @@ class pamc_shell(cmd.Cmd):
                 print "branch.branch_dumpbor() failed w/ %d" % err
                 return
             self.stop_clock()
+            self.echo_clock("Time elasped:")
+        except TypeError, te:
+            print "TypeError %s" % te
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_search(self, line):
+        '''Search a EXPR from a BP site.
+        Usage: search branch_name bpsite dbname prefix EXPR
+
+        Example: search branch_name 0 dbname prefix "r:type=png & tag:color=rgb"'''
+
+        l = shlex.split(line)
+        if len(l) < 5:
+            print "Invalid arguments, See help search!"
+            return
+        # ok
+        try:
+            c_data = c_char_p(None)
+            self.start_clock()
+            err = branch.branch_search(c_char_p(l[0]), c_uint64(int(l[1])),
+                                       c_char_p(l[2]), c_char_p(l[3]),
+                                       c_char_p(l[4]), byref(c_data))
+            if err != 0:
+                print "branch.branch_search() failed w/ %d" % err
+                return
+            self.stop_clock()
+            print c_data.value
+            api.hvfs_free(c_data)
             self.echo_clock("Time elasped:")
         except TypeError, te:
             print "TypeError %s" % te

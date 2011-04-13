@@ -330,6 +330,9 @@ Pomegranate TODOs:
 
     6. kNN and groupby is working now @ 4/2/2011
 
+       FIXME: kNN linear need more revising. There is no distance range, 
+              isn't it?
+
     7. DEFINE: Operator 'indexer' means we extract a key/value list from 
                branch_line_disk->data and push them to the low level 
                database. For example, if we got a branch_line as follows:
@@ -353,6 +356,11 @@ Pomegranate TODOs:
 
                All the tables can be joined by TAG!
 
+     8. MILESTONE
+
+        Now, we can support simple query over indexer BDB. Use the python
+        client.py to issue SEARCH requests, enjoy :)
+
 31. Bug notice:
 
     1. there is a bug in FUSE client which can be produced by dbench 
@@ -365,3 +373,18 @@ Pomegranate TODOs:
        the same error still exists. Why?
 
        PAUSED!
+
+32. FUSE TODOs
+
+    1. Add get/setxattr interface to FUSE client, which can exploit our
+       native support for xTable.
+
+    2. Add a local data store to redirect large file I/O to other file 
+       systems.
+
+    3. How about thousands of TCP connection to MDS?
+
+33. THINKs
+
+    1. I have configured a TILE server, but how can we get performance 
+       contrasts?

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-02 08:43:10 macan>
+ * Time-stamp: <2011-04-12 19:34:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1454,6 +1454,164 @@ int __branch_do_getbor(struct xnet_msg *msg, char *branch_name)
     return err;
 }
 
+int branch_send_data(struct xnet_msg *msg, void *data, size_t len)
+{
+    struct xnet_msg *rpy;
+
+    rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!rpy) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        /* do not retry myself */
+        return -ENOMEM;
+    }
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
+    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0, hmo.xc->site_id,
+                     msg->tx.ssite_id);
+    xnet_msg_fill_reqno(rpy, msg->tx.reqno);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, len, 0);
+    /* match the original request at the source site */
+    rpy->tx.handle = msg->tx.handle;
+    if (len)
+        xnet_msg_add_sdata(rpy, data, len);
+
+    if (xnet_send(hmo.xc, rpy)) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        /* do not retry my self */
+    }
+    xnet_free_msg(rpy);
+
+    return 0;
+}
+
+int __branch_do_search(struct xnet_msg *msg, char *branch_name,
+                       char *expr, char *dbname, char *prefix)
+{
+#ifdef USE_BDB
+    struct branch_entry *bre;
+    struct atomic_expr *pos, *n;
+    struct basic_expr be = {.flag = 0,};
+    struct set_entry_aux sea = {.size = 0, .array = NULL,};
+    struct bdb *bdb;
+    void *array = NULL;
+    void *tree = NULL;
+    size_t size = 0;
+    int err = 0, type = BRANCH_SEARCH_OP_INIT, nr = 0;
+
+    err = __expr_parser(expr, &be);
+    if (err) {
+        hvfs_err(xnet, "parse exprs failed w/ %d\n", err);
+        return err;
+    }
+
+    /* find the branch and the bdb pointer */
+    bre = branch_lookup_load(branch_name);
+    if (IS_ERR(bre)) {
+        err = PTR_ERR(bre);
+        goto out_put;
+    }
+
+    if (!bre->bp) {
+        hvfs_err(xnet, "BE %s's BP is not installed properly.\n",
+                 branch_name);
+        err = -EFAULT;
+        goto out_put;
+    }
+
+    bdb = bp_find_bdb(bre->bp, dbname, prefix);
+    if (!bdb) {
+        hvfs_err(xnet, "Can't find the specific(%s-%s) BDB\n",
+                 dbname, prefix);
+        err = -EINVAL;
+        branch_put(bre);
+        goto out_put;
+    }
+    if (!bp_find_bdb_check(bre->bp, dbname, prefix, &be)) {
+        hvfs_err(xnet, "Invalid subdatabase to search\n");
+        err = -EINVAL;
+        branch_put(bre);
+        goto out_put;
+    }
+
+    list_for_each_entry(pos, &be.exprs, list) {
+        nr++;
+        if (be.flag == BRANCH_SEARCH_EXPR_POINT) {
+            type = pos->type;
+        }
+    }
+    
+    switch (tolower(expr[0])) {
+    case 'p':
+        ASSERT(be.flag == BRANCH_SEARCH_EXPR_POINT, xnet);
+        if (type == BRANCH_SEARCH_OP_AND) {
+            err = bdb_point_and(bdb, &be, &array, &size);
+        } else if (type == BRANCH_SEARCH_OP_OR) {
+            err = bdb_point_or(bdb, &be, &tree, &sea);
+        } else {
+            err = bdb_point_or(bdb, &be, &tree, &sea);
+        }
+        break;
+    case 'r':
+        ASSERT(be.flag == BRANCH_SEARCH_EXPR_RANGE, xnet);
+        err = bdb_range_andor(bdb, &be, &tree, &sea);
+        break;
+    default:
+        hvfs_err(xnet, "Invalid query type, only support POINT/RANGE!\n");
+        err = -EINVAL;
+    }
+
+    /* walk in the tree and destroy the tree */
+    if (tree) {
+        twalk(tree, __set_action_getall);
+        array = sea.array;
+        size = sea.size;
+        tdestroy(tree, __set_free);
+    }
+    branch_put(bre);
+
+    /* ok, the result is in array */
+    if (array) {
+        err = branch_send_data(msg, array, size);
+        if (err) {
+            hvfs_err(xnet, "branch_send_data(%ld) to %lx BE %s "
+                     "failed w/ %d\n",
+                     size, msg->tx.ssite_id, branch_name, err);
+        }
+    } else {
+        err = branch_send_data(msg, NULL, 0);
+        if (err) {
+            hvfs_err(xnet, "branch_send_data(0) to %lx BE %s "
+                     "failed w/ %d\n",
+                     msg->tx.ssite_id, branch_name, err);
+        }
+    }
+
+out_put:
+    list_for_each_entry_safe(pos, n, &be.exprs, list) {
+        list_del(&pos->list);
+        xfree(pos->attr);
+        xfree(pos->value);
+        xfree(pos);
+    }
+    
+    return err;
+#else
+    int err = 0;
+    
+    hvfs_err(xnet, "Dummy BDB: do search on it\n");
+    err = branch_send_data(msg, NULL, 0);
+    if (err) {
+        hvfs_err(xnet, "branch_send_data(0) to %lx BE %s "
+                 "failed w/ %d\n",
+                 msg->tx.ssite_id, branch_name, err);
+    }
+
+    return err;
+#endif
+}
+
 int branch_send_ack(struct xnet_msg *msg, char *branch_name, 
                     u64 ack_id)
 {
@@ -1766,6 +1924,54 @@ int branch_dispatch(void *arg)
                      __bname, err);
             __branch_err_reply(msg, err);
         }
+        break;
+    }
+    case BRANCH_CMD_SEARCH:
+    {
+        /* ABI:
+         * tx.arg1: branch_search_expr_tx + branch name + expr length
+         * xmdata: branch_search_expr_tx
+         */
+        struct branch_search_expr_tx *bset;
+
+        if (!msg->xm_datacheck) {
+            hvfs_err(xnet, "Invalid SEARCH request from %lx\n",
+                     msg->tx.ssite_id);
+            err = -EINVAL;
+            __branch_err_reply(msg, err);
+            goto out;
+        }
+
+        bset = (struct branch_search_expr_tx *)(msg->xm_data);
+        {
+            char bname[bset->name_len + 1];
+            char expr[bset->expr_len + 1];
+            char dbname[bset->dbname_len + 1];
+            char prefix[bset->prefix_len + 1];
+
+            memcpy(bname, bset->data, bset->name_len);
+            bname[bset->name_len] = '\0';
+            memcpy(expr, bset->data + bset->name_len, bset->expr_len);
+            expr[bset->expr_len] = '\0';
+            memcpy(dbname, bset->data + bset->name_len + bset->expr_len,
+                   bset->dbname_len);
+            dbname[bset->dbname_len] = '\0';
+            memcpy(prefix, bset->data + bset->name_len + bset->expr_len +
+                   bset->dbname_len, bset->prefix_len);
+            prefix[bset->prefix_len] = '\0';
+
+            hvfs_warning(xnet, "We got B(%s)(%s-%s) EXPR(%s)\n", bname, 
+                         dbname, prefix, expr);
+
+            err = __branch_do_search(msg, bname, expr, dbname, prefix);
+            if (err) {
+                hvfs_err(xnet, "Self do SEARCH for BE %s failed w/ %d\n",
+                         bname, err);
+                __branch_err_reply(msg, err);
+            }
+            break;
+        }
+        
         break;
     }
     case BRANCH_CMD_REPLICA:    /* need to reply */
@@ -2673,6 +2879,13 @@ int branch_dumpbor(char *branch_name, u64 bpsite)
                              bore->id, bore->len, 
                              (bid->s.flag == BIDX_PLAIN ? "PLAIN" : 
                               "BerkeleyDB"), bid->s.nr);
+                if (bid->s.flag == BIDX_BDB) {
+                    char dbs[bid->bibd.dbs_len + 1];
+
+                    memcpy(dbs, bid->bibd.data, bid->bibd.dbs_len);
+                    dbs[bid->bibd.dbs_len] = '\0';
+                    hvfs_warning(xnet, "\t{%s}\n", dbs);
+                }
                 break;
             }
             default:
@@ -2687,4 +2900,340 @@ int branch_dumpbor(char *branch_name, u64 bpsite)
     xfree(bor);
 
     return err;
+}
+
+/* branch_search() issue a indexer (DB) search on BP site. You should follow
+ * the expr rules:
+ *
+ * 1. Each query expr start with a character in set [p,r] means [point, range]
+ * 2. Each query shoud have one valid atomic expr:
+ *    A basic atomic expr is 'attr=value'
+ * 3. Several operatores are: 'and/or'
+ */
+int branch_search(char *branch_name, u64 bpsite, char *dbname, char *prefix,
+                  char *expr, char **outstr)
+{
+    struct xnet_msg *msg;
+    struct branch_search_expr_tx *bset;
+    struct basic_expr be = {.flag = BRANCH_SEARCH_EXPR_CHECK,};
+    char *out = NULL;
+    int err = 0, name_len, expr_len, dbname_len, prefix_len;
+
+    if (bpsite < HVFS_SITE_N_MASK)
+        bpsite += HVFS_BP(0);
+
+    /* Step 1: parse and validate the expr  */
+    err = __expr_parser(expr, &be);
+    if (err) {
+        hvfs_err(xnet, "parse exprs failed w/ %d\n", err);
+        return err;
+    }
+    
+    /* Step 2: send the request to dest server */
+    name_len = strlen(branch_name);
+    expr_len = strlen(expr);
+    dbname_len = strlen(dbname);
+    prefix_len = strlen(prefix);
+    bset = xmalloc(sizeof(*bset) + name_len + expr_len + 
+                   dbname_len + prefix_len);
+    if (!bset) {
+        hvfs_err(xnet, "xmalloc() branch_search_expr_tx failed\n");
+        err = -ENOMEM;
+        goto out_close;
+    }
+    bset->name_len = name_len;
+    bset->expr_len = expr_len;
+    bset->dbname_len = dbname_len;
+    bset->prefix_len = prefix_len;
+    memcpy(bset->data, branch_name, name_len);
+    memcpy(bset->data + name_len, expr, expr_len);
+    memcpy(bset->data + name_len + expr_len,
+           dbname, dbname_len);
+    memcpy(bset->data + name_len + expr_len + dbname_len,
+           prefix, prefix_len);
+    
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        /* do not retry myself */
+        xfree(bset);
+        err = -ENOMEM;
+        goto out_close;
+    }
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDS_BRANCH, BRANCH_CMD_SEARCH,
+                      sizeof(*bset) + name_len + expr_len);
+    xnet_msg_add_sdata(msg, bset, sizeof(*bset) + name_len + expr_len +
+                       dbname_len + prefix_len);
+
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.site_id, bpsite);
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() SEARCH B'%s'->'%s' failed w/ %d\n",
+                 branch_name, expr, err);
+        goto out_free;
+    }
+    ASSERT(msg->pair, xnet);
+    ASSERT(msg->pair->tx.len == msg->pair->tx.arg0, xnet);
+
+    /* copy the data out */
+    if (msg->pair->tx.err) {
+        err = msg->pair->tx.err;
+        hvfs_err(xnet, "Search failed w/ %s(%d)\n",
+                 strerror(-err), err);
+    } else if (msg->pair->tx.len) {
+        out = xzalloc(msg->pair->tx.len + 1);
+        if (!out) {
+            hvfs_err(xnet, "xmalloc() data region failed\n");
+            goto out_free;
+        }
+#if 0                           /* for production use */
+        memcpy(out, msg->pair->xm_data, msg->pair->tx.len);
+#else  /* test only, transform to strings */
+        {
+            struct base_dbs *bd, *end;
+
+            bd = (struct base_dbs *)msg->pair->xm_data;
+            end = (void *)bd + msg->pair->tx.len;
+            *outstr = out;
+            while (bd < end) {
+                memcpy(out, bd->data, bd->tag_len);
+                out += bd->tag_len;
+                *out++ = '\t';
+                memcpy(out, bd->data + bd->tag_len, bd->kvs_len);
+                out += bd->kvs_len;
+                *out++ = '\n';
+                bd = (void *)bd + sizeof(*bd) + bd->tag_len + 
+                    bd->kvs_len;
+            }
+        }
+#endif
+
+    }
+    xnet_set_auto_free(msg->pair);
+
+out_free:
+    xnet_free_msg(msg);
+out_close:
+    __expr_close(&be);
+    
+    return err;
+}
+
+/* for basic expr string, we expect it look like "[pr]:attr0=xxx [&|]
+ * attr1=yyy"
+ */
+int __expr_parser(char *expr, struct basic_expr *be)
+{
+    char *reg_header = "^[pr]+[ \t]*(:)";
+    char *reg_expr = "[ \t]*([_a-zA-Z0-9:.]+)[ \t]*=[ \t]*([_a-zA-Z0-9:.]+)";
+    char *reg_op = "[ \t]*([^_a-zA-Z \t]+)";
+    char *p = expr, *end;
+    regex_t hreg, ereg, oreg;
+    regmatch_t pmatch[3];
+    struct atomic_expr *ae = NULL;
+    char errbuf[100];
+    u32 last_type = BRANCH_SEARCH_OP_INIT;
+    int mode = 0, err = 0, len;
+
+    /* sanity check */
+    if (!expr || !be || strlen(expr) == 0)
+        return -EINVAL;
+    INIT_LIST_HEAD(&be->exprs);
+
+    if (be->flag & BRANCH_SEARCH_EXPR_CHECK) {
+        mode = 1;
+    }
+    memset(pmatch, 0, sizeof(pmatch));
+    err = regcomp(&hreg, reg_header, REG_EXTENDED);
+    if (err) {
+        hvfs_err(xnet, "regcomp header failed w/ %d\n", err);
+        return -EINVAL;
+    }
+    err = regcomp(&ereg, reg_expr, REG_EXTENDED);
+    if (err) {
+        hvfs_err(xnet, "regcomp expr failed w/ %d\n", err);
+        goto out_free_hreg;
+    }
+    err = regcomp(&oreg, reg_op, REG_EXTENDED);
+    if (err) {
+        hvfs_err(xnet, "regcomp op failed w/ %d\n", err);
+        goto out_free_ereg;
+    }
+    
+    err = regexec(&hreg, expr, 3, pmatch, 0);
+    if (err == REG_NOMATCH) {
+        hvfs_err(xnet, "regexec '%s' can NOT find a valid header\n",
+                 expr);
+        err = -EINVAL;
+        goto out;
+    } else if (err) {
+        regerror(err, &hreg, errbuf, 100);
+        hvfs_err(xnet, "regexec '%s' failed w/ %s\n", expr, errbuf);
+        goto out;
+    }
+
+    p += pmatch[1].rm_eo;
+    end = expr + strlen(expr);
+    
+    /* scan the exprs */
+    while (p < end) {
+        if (!mode) {
+            /* need saving */
+            ae = xzalloc(sizeof(*ae));
+            if (!ae) {
+                hvfs_err(xnet, "xzalloc() atomic_expr failed\n");
+                goto out_clean;
+            }
+            INIT_LIST_HEAD(&ae->list);
+            ae->type = last_type;
+        }
+        /* match EXPR */
+        memset(pmatch, 0, sizeof(pmatch));
+        err = regexec(&ereg, p, 3, pmatch, 0);
+        if (err == REG_NOMATCH) {
+            hvfs_err(xnet, "regexec '%s' can NOT find a valid expr\n",
+                     p);
+            goto out_clean;
+        } else if (err) {
+            regerror(err, &ereg, errbuf, 100);
+            hvfs_err(xnet, "regexec '%s' failed w/ %s\n", p, errbuf);
+            goto out_clean;
+        }
+        /* save attr and value we got */
+        len = pmatch[1].rm_eo - pmatch[1].rm_so;
+        memcpy(errbuf, p + pmatch[1].rm_so, len);
+        errbuf[len] = '\0';
+        if (!mode)
+            ae->attr = strdup(errbuf);
+        else
+            hvfs_warning(xnet, "Got EXPR: OP %s %s ",
+                         BS_I2S(last_type), errbuf);
+        len = pmatch[2].rm_eo - pmatch[2].rm_so;
+        memcpy(errbuf, p + pmatch[2].rm_so, len);
+        errbuf[len] = '\0';
+        if (!mode) {
+            ae->value = strdup(errbuf);
+            list_add_tail(&ae->list, &be->exprs);
+        } else
+            hvfs_plain(xnet, "= %s\n", errbuf);
+        
+        p += pmatch[2].rm_eo;
+
+        /* match OP */
+        if (p >= end) {
+            break;
+        }
+        memset(pmatch, 0, sizeof(pmatch));
+        err = regexec(&oreg, p, 3, pmatch, 0);
+        if (err == REG_NOMATCH) {
+            /* it is ok, we just stop scan any more items */
+            break;
+        } else if (err) {
+            regerror(err, &oreg, errbuf, 100);
+            hvfs_err(xnet, "regexec '%s' failed w/ %s\n", p, errbuf);
+            goto out_clean;
+        }
+        if (pmatch[1].rm_eo - pmatch[1].rm_so > 1) {
+            hvfs_err(xnet, "Invalid operator found, larger than 1Byte\n");
+            err = -EINVAL;
+            goto out_clean;
+        }
+        switch (*(p + pmatch[1].rm_so)) {
+        case '&':
+            last_type = BRANCH_SEARCH_OP_AND;
+            break;
+        case '|':
+            last_type = BRANCH_SEARCH_OP_OR;
+            break;
+        default:
+            hvfs_err(xnet, "Invalid operator found '%c'\n", 
+                     *(p + pmatch[1].rm_so));
+            err = -EINVAL;
+            goto out_clean;
+        }
+        p += pmatch[1].rm_eo;
+    }
+
+    switch (tolower(expr[0])) {
+    case 'p':
+    {
+        /* point query */
+        be->flag = BRANCH_SEARCH_EXPR_POINT;
+        /* for POINT query, we do not support AND and OR mixing
+         */
+        {
+            struct atomic_expr *n;
+            int type = BRANCH_SEARCH_OP_INIT;
+
+            list_for_each_entry_safe(ae, n, &be->exprs, list) {
+                if (ae->type == BRANCH_SEARCH_OP_INIT) {
+                    continue;
+                }
+                if (type == BRANCH_SEARCH_OP_INIT) {
+                    type = ae->type;
+                    continue;
+                }
+                if ((type == BRANCH_SEARCH_OP_AND && 
+                     ae->type != BRANCH_SEARCH_OP_AND) ||
+                    (type == BRANCH_SEARCH_OP_OR &&
+                     ae->type != BRANCH_SEARCH_OP_OR)) {
+                    hvfs_err(xnet, "Invalid search operator mixing.\n");
+                    hvfs_err(xnet, "For point query, we do NOT support "
+                             "AND and OR mixing!\n");
+                    err = -EINVAL;
+                    goto out_clean;
+                }
+            }
+        }
+        break;
+    }
+    case 'r':
+        /* range query */
+        be->flag = BRANCH_SEARCH_EXPR_RANGE;
+        /* for RANGE query, we support AND and OR mixing. However, there is
+         * no leveling at this moment */
+        break;
+    default:
+        hvfs_err(xnet, "Invalid query type, only support POINT/RANGE!\n");
+        err = -EINVAL;
+        goto out;
+    }
+
+out:
+    regfree(&oreg);
+out_free_ereg:
+    regfree(&ereg);
+out_free_hreg:
+    regfree(&hreg);
+
+    return err;
+out_clean:
+    {
+        struct atomic_expr *n;
+
+        list_for_each_entry_safe(ae, n, &be->exprs, list) {
+            list_del(&ae->list);
+            xfree(ae->attr);
+            xfree(ae->value);
+            xfree(ae);
+        }
+    }
+    goto out;
+}
+
+void __expr_close(struct basic_expr *be)
+{
+    struct atomic_expr *pos, *n;
+
+    list_for_each_entry_safe(pos, n, &be->exprs, list) {
+        list_del(&pos->list);
+        xfree(pos->attr);
+        xfree(pos->value);
+        xfree(pos);
+    }
 }

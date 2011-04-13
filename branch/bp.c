@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-03 00:08:03 macan>
+ * Time-stamp: <2011-04-13 13:19:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -406,7 +406,9 @@ void bo_free(struct branch_operator *bo)
     xfree(bo);
 }
 
-int bo_init(struct branch_operator *bo, struct branch_op_result *bor,
+int bo_init(struct branch_processor *bp, 
+            struct branch_operator *bo, 
+            struct branch_op_result *bor,
             struct branch_op *bop, char *name,
             struct branch_operator *left,
             struct branch_operator *right)
@@ -425,7 +427,7 @@ int bo_init(struct branch_operator *bo, struct branch_op_result *bor,
     /* Step 1: preprocessing the branch_op_result by call the open callback
      * function */
     if (bo->open) {
-        err = bo->open(bo, bor, bop);
+        err = bo->open(bp, bo, bor, bop);
         if (err) {
             hvfs_err(xnet, "callback BO->open() failed w/ %d\n",
                      err);
@@ -843,7 +845,8 @@ int bo_root_output(struct branch_processor *bp,
  * Note that: all the regexes are AND connected! But, at this moment, we just
  * support ONE regex!
  */
-int bo_filter_open(struct branch_operator *bo,
+int bo_filter_open(struct branch_processor *bp,
+                   struct branch_operator *bo,
                    struct branch_op_result *bor,
                    struct branch_op *op)
 {
@@ -1299,7 +1302,8 @@ out:
  * 2. lor: left or right or all or match
  *         all means (or); match means (and)
  */
-int __sum_open(struct branch_operator *bo,
+int __sum_open(struct branch_processor *bp,
+               struct branch_operator *bo,
                struct branch_op_result *bor,
                struct branch_op *op, int flag)
 {
@@ -1422,25 +1426,28 @@ out_free:
     return err;
 }
 
-int bo_count_open(struct branch_operator *bo,
+int bo_count_open(struct branch_processor *bp,
+                  struct branch_operator *bo,
                   struct branch_op_result *bor,
                   struct branch_op *op)
 {
-    return __sum_open(bo, bor, op, BS_COUNT);
+    return __sum_open(bp, bo, bor, op, BS_COUNT);
 }
 
-int bo_sum_open(struct branch_operator *bo,
+int bo_sum_open(struct branch_processor *bp,
+                struct branch_operator *bo,
                 struct branch_op_result *bor,
                 struct branch_op *op)
 {
-    return __sum_open(bo, bor, op, BS_SUM);
+    return __sum_open(bp, bo, bor, op, BS_SUM);
 }
 
-int bo_avg_open(struct branch_operator *bo,
+int bo_avg_open(struct branch_processor *bp,
+                struct branch_operator *bo,
                 struct branch_op_result *bor,
                 struct branch_op *op)
 {
-    return __sum_open(bo, bor, op, BS_AVG);
+    return __sum_open(bp, bo, bor, op, BS_AVG);
 }
 
 int bo_sum_close(struct branch_operator *bo)
@@ -1731,7 +1738,8 @@ int bo_sum_output(struct branch_processor *bp,
  * we use <regex> to match the tag. If the tag is match, we extract the 
  */
 static inline
-int __bo_mm_open(struct branch_operator *bo,
+int __bo_mm_open(struct branch_processor *bp,
+                 struct branch_operator *bo,
                  struct branch_op_result *bor,
                  struct branch_op *op, int flag)
 {
@@ -1896,18 +1904,20 @@ out_free:
 
 /* MAX/MIN wrappers for __bo_mm_open()
  */
-int bo_max_open(struct branch_operator *bo,
+int bo_max_open(struct branch_processor *bp,
+                struct branch_operator *bo,
                 struct branch_op_result *bor,
                 struct branch_op *op)
 {
-    return __bo_mm_open(bo, bor, op, BMM_MAX);
+    return __bo_mm_open(bp, bo, bor, op, BMM_MAX);
 }
 
-int bo_min_open(struct branch_operator *bo,
+int bo_min_open(struct branch_processor *bp,
+                struct branch_operator *bo,
                 struct branch_op_result *bor,
                 struct branch_op *op)
 {
-    return __bo_mm_open(bo, bor, op, BMM_MIN);
+    return __bo_mm_open(bp, bo, bor, op, BMM_MIN);
 }
 
 int bo_mm_close(struct branch_operator *bo)
@@ -2423,7 +2433,8 @@ void __knn_loadin(struct branch_operator *bo,
  * 3. knn: <type:NUM1:+/-NUM2> type is "linear", value NUM1 for the center, 
  *                             NUM2 for the range
  */
-int bo_knn_open(struct branch_operator *bo,
+int bo_knn_open(struct branch_processor *bp,
+                struct branch_operator *bo,
                 struct branch_op_result *bor,
                 struct branch_op *op)
 {
@@ -3090,7 +3101,8 @@ void __groupby_loadin(struct branch_operator *bo,
  * 2. lor: left or right or all or match
  * 3. groupby: <aggr_operator> => sum/avg/max/min/count
  */
-int bo_groupby_open(struct branch_operator *bo,
+int bo_groupby_open(struct branch_processor *bp,
+                    struct branch_operator *bo,
                     struct branch_op_result *bor,
                     struct branch_op *op)
 {
@@ -3611,15 +3623,76 @@ int bo_groupby_output(struct branch_processor *bp,
     return err;
 }
 
+struct bdb *bp_find_bdb(struct branch_processor *bp,
+                        char *dbname, char *prefix)
+{
+    struct branch_operator *pos;
+    struct bo_indexer *bi;
+
+    list_for_each_entry(pos, &bp->oplist, list) {
+        if (strcmp(pos->name, "indexer") == 0) {
+            bi = (struct bo_indexer *)(pos->gdata);
+
+            if (bi->flag == BIDX_BDB) {
+                if ((strcmp(bi->bi.bdb.dbname, dbname) == 0) &&
+                    (strcmp(bi->bi.bdb.prefix, prefix) == 0)) {
+                    return bi->bi.bdb.__bdb;
+                }
+            }
+        }
+    }
+
+    return NULL;
+}
+
+/* Return Value: 0: failed; 1: passed
+ */
+int bp_find_bdb_check(struct branch_processor *bp,
+                      char *dbname, char *prefix, 
+                      struct basic_expr *be)
+{
+    struct atomic_expr *ae;
+    struct branch_operator *pos;
+    struct bo_indexer *bi;
+
+    list_for_each_entry(pos, &bp->oplist, list) {
+        if (strcmp(pos->name, "indexer") == 0) {
+            bi = (struct bo_indexer *)(pos->gdata);
+            
+            if (bi->flag == BIDX_BDB) {
+                if ((strcmp(bi->bi.bdb.dbname, dbname) == 0) &&
+                    (strcmp(bi->bi.bdb.prefix, prefix) == 0)) {
+                    /* check if the DB exists */
+                    char *m;
+                    
+                    list_for_each_entry(ae, &be->exprs, list) {
+                        m = strstr(bi->bi.bdb.activedbs, ae->attr);
+                        if (!m || (m && m[strlen(ae->attr)] != ';') ||
+                            *m != *ae->attr) {
+                            hvfs_err(xnet, "Subdatabase %s in DB(%s-%s) "
+                                     "does not exist\n",
+                                     ae->attr, dbname, prefix);
+                            return 0;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return 1;
+}
+
 /* indexer_open() to load in the metadata from indexer rules
  *
  * API: (string in branch_op->data)
  * 1. type: [plain|bdb]
- * 2. schema: <dbname:table>
+ * 2. schema: <dbname:prefix>
  *
  * for OP:indexer, we use TAG as the attached info, DATA as key=value paires.
  */
-int bo_indexer_open(struct branch_operator *bo,
+int bo_indexer_open(struct branch_processor *bp,
+                    struct branch_operator *bo,
                     struct branch_op_result *bor,
                     struct branch_op *op)
 {
@@ -3652,7 +3725,7 @@ int bo_indexer_open(struct branch_operator *bo,
                 case BIDX_PLAIN:
                 {
                     struct branch_indexer_plain_disk *bipd = 
-                        (void *)bor->bore;
+                        (void *)bore->data;
                     
                     bi->bi.nr = bipd->nr;
                     bi->flag = BIDX_PLAIN;
@@ -3663,22 +3736,74 @@ int bo_indexer_open(struct branch_operator *bo,
                 case BIDX_BDB:
                 {
                     struct branch_indexer_bdb_disk *bibd = 
-                        (void *)bor->bore;
+                        (void *)bore->data;
                     char dbname[bibd->dbname_len + 1],
-                        table[bibd->table_len + 1];
+                        prefix[bibd->prefix_len + 1], *p, *q, *end;
                     
                     bi->bi.nr = bibd->nr;
-                    bi->bi.nr = BIDX_BDB;
+                    bi->flag = BIDX_BDB;
                     memcpy(dbname, bibd->data, bibd->dbname_len);
                     dbname[bibd->dbname_len] = '\0';
-                    memcpy(table, bibd->data + bibd->dbname_len,
-                           bibd->table_len);
-                    table[bibd->table_len] = '\0';
+                    memcpy(prefix, bibd->data + bibd->dbname_len,
+                           bibd->prefix_len);
+                    prefix[bibd->prefix_len] = '\0';
                     bi->bi.bdb.dbname = strdup(dbname);
-                    bi->bi.bdb.table = strdup(table);
+                    bi->bi.bdb.prefix = strdup(prefix);
+                    bi->bi.bdb.activedbs = strdup("db_base;");
                     hvfs_warning(xnet, "Load in NR %ld lines for BerkeleyDB: "
-                                 "DB'%s' TABLE'%s'\n",
-                                 bi->bi.nr, dbname, table);
+                                 "DB'%s' PREFIX'%s' {",
+                                 bi->bi.nr, dbname, prefix);
+                    /* dump the active DBs, there must be a tailing ';'! */
+                    p = bibd->data + bibd->dbname_len + bibd->prefix_len;
+                    end = p + bibd->dbs_len;
+                    while (p < end) {
+                        q = p;
+                        while (*q != ';') {
+                            q++;
+                            if (q >= end) {
+                                break;
+                            }
+                        }
+                        if (*q == ';') {
+                            *q = '\0';
+                            hvfs_plain(xnet, "%s ", p);
+                            {
+                                int olen = 0, len = strlen(p);
+                                char *m;
+                                
+                                if (bi->bi.bdb.activedbs) {
+                                    /* find the needle */
+                                    m = strstr(bi->bi.bdb.activedbs, p);
+                                    if (m && m[len] == ';') {
+                                        /* ok, bypass this entry */
+                                        goto bypass;
+                                    }
+                                    olen = strlen(bi->bi.bdb.activedbs);
+                                }
+                                m = xrealloc(bi->bi.bdb.activedbs, 
+                                             olen + len + 2);
+                                if (m) {
+                                    memcpy(m + olen, p, len);
+                                    m[olen + len] = ';';
+                                    m[olen + len + 1] = '\0';
+                                    bi->bi.bdb.activedbs = m;
+                                } else {
+                                    hvfs_err(xnet, 
+                                             "xrealloc() database item "
+                                             "failed\n");
+                                }
+                            }
+                        } else if (q >= end) {
+                            hvfs_plain(xnet, " [CROSS BORDER]\n");
+                            break;
+                        } else {
+                            hvfs_plain(xnet, " [ABORT]\n");
+                            break;
+                        }
+                    bypass:
+                        p = q + 1;
+                    }
+                    hvfs_plain(xnet, "}\n");
                     break;
                 }
                 default:
@@ -3749,13 +3874,27 @@ int bo_indexer_open(struct branch_operator *bo,
             }
             case 3:
                 /* this is the table */
-                hvfs_plain(xnet, "TABLE:%s\n", errbuf);
+                hvfs_plain(xnet, "PREFIX:%s\n", errbuf);
                 if (bi->flag == BIDX_BDB) {
-                    bi->bi.bdb.table = strdup(errbuf);
+                    bi->bi.bdb.prefix = strdup(errbuf);
                 }
                 break;
             default:
                 continue;
+            }
+        }
+        if (bi->flag == BIDX_BDB) {
+            if (!bi->bi.bdb.activedbs)
+                bi->bi.bdb.activedbs = strdup("db_base;");
+            bi->bi.bdb.__bdb = bdb_open(bp->be->branch_name,
+                                        bi->bi.bdb.dbname, 
+                                        bi->bi.bdb.prefix);
+            if (!bi->bi.bdb.__bdb) {
+                hvfs_err(xnet, "Open BDB '%s-%s' failed, "
+                         "reject load in\n", bi->bi.bdb.dbname, 
+                         bi->bi.bdb.prefix);
+                err = -EINVAL;
+                goto out_clean;
             }
         }
     out_clean:
@@ -3780,9 +3919,19 @@ int bo_indexer_close(struct branch_operator *bo)
 {
     struct bo_indexer *bi = bo->gdata;
 
+    /* Note that, we assume the buffer has already been flushed */
     if (bi->flag == BIDX_PLAIN) {
-        /* FIXME: flush and free the buffer */
-    } else {
+        xlock_destroy(&bi->bi.plain.lock);
+        xfree(bi->bi.plain.buffer);
+    } else if (bi->flag == BIDX_BDB) {
+        /* FIXME: we should clean the BDB resources */
+        xfree(bi->bi.bdb.dbname);
+        xfree(bi->bi.bdb.prefix);
+        xfree(bi->bi.bdb.activedbs);
+        bdb_close(bi->bi.bdb.__bdb);
+#ifdef USE_BDB
+        xfree(bi->bi.bdb.__bdb);
+#endif
     }
     xfree(bi);
 
@@ -3792,6 +3941,47 @@ int bo_indexer_close(struct branch_operator *bo)
 /* Generate the BOR region entry to flush. Note that we will realloc the
  * bp->bor region.
  */
+int bo_indexer_plain_md_flush(struct branch_processor *bp,
+                              struct branch_operator *bo, void **oresult,
+                              size_t *osize)
+{
+    struct bo_indexer *bi = (struct bo_indexer *)bo->gdata;
+    struct branch_op_result_entry *bore;
+    struct branch_indexer_plain_disk *bipd;
+    void *nbor;
+    int len = sizeof(*bore) + sizeof(union branch_indexer_disk);
+
+    /* Step 1: self handling */
+    bore = xzalloc(len);
+    if (!bore) {
+        hvfs_err(xnet, "xzalloc() bore failed\n");
+        return -ENOMEM;
+    }
+    bore->id = bo->id;
+    bore->len = len - sizeof(*bore);
+
+    bipd = (void *)bore->data;
+    bipd->type = BRANCH_DISK_INDEXER;
+    bipd->flag = BIDX_PLAIN;
+    bipd->nr = bi->bi.nr;
+
+    nbor = xrealloc(bp->bor, bp->bor_len + len);
+    if (!nbor) {
+        hvfs_err(xnet, "xrealloc() bor region failed\n");
+        xfree(bore);
+        return -ENOMEM;
+    }
+
+    memcpy(nbor + bp->bor_len, bore, len);
+    bp->bor = nbor;
+    bp->bor_len += len;
+    ((struct branch_op_result *)bp->bor)->nr++;
+
+    xfree(bore);
+
+    return 0;
+}
+
 int bo_indexer_plain_flush(struct branch_processor *bp,
                            struct branch_operator *bo, void **oresult,
                            size_t *osize)
@@ -3936,8 +4126,83 @@ int bo_indexer_bdb_flush(struct branch_processor *bp,
                          struct branch_operator *bo, void **oresult,
                          size_t *osize)
 {
-    hvfs_err(xnet, "Indexer BerkeleyDB is not suppoted now\n");
-    return -ENOSYS;
+    struct bo_indexer *bi = (struct bo_indexer *)bo->gdata;
+    struct branch_op_result_entry *bore;
+    struct branch_indexer_bdb_disk *bibd;
+    void *nbor;
+    int len = sizeof(*bore) + sizeof(union branch_indexer_disk), 
+        err = 0, dbname_len, prefix_len;
+
+    /* Step 1: self handling */
+    len += strlen(bi->bi.bdb.dbname);
+    len += strlen(bi->bi.bdb.prefix);
+    len += strlen(bi->bi.bdb.activedbs);
+
+    bore = xzalloc(len);
+    if (!bore) {
+        hvfs_err(xnet, "xzalloc() bore failed\n");
+        return -ENOMEM;
+    }
+    bore->id = bo->id;
+    bore->len = len - sizeof(*bore);
+
+    bibd = (void *)bore->data;
+    bibd->type = BRANCH_DISK_INDEXER;
+    bibd->flag = BIDX_BDB;
+    bibd->nr = bi->bi.nr;
+    bibd->dbname_len = dbname_len = strlen(bi->bi.bdb.dbname);
+    bibd->prefix_len = prefix_len = strlen(bi->bi.bdb.prefix);
+    bibd->dbs_len = strlen(bi->bi.bdb.activedbs);
+    memcpy(bibd->data, bi->bi.bdb.dbname, dbname_len);
+    memcpy(bibd->data + dbname_len,
+           bi->bi.bdb.prefix, prefix_len);
+    memcpy(bibd->data + dbname_len + prefix_len,
+           bi->bi.bdb.activedbs, bibd->dbs_len);
+
+    nbor = xrealloc(bp->bor, bp->bor_len + len);
+    if (!nbor) {
+        hvfs_err(xnet, "xrealloc() bor region failed\n");
+        xfree(bore);
+        return -ENOMEM;
+    }
+
+    memcpy(nbor + bp->bor_len, bore, len);
+    bp->bor = nbor;
+    bp->bor_len += len;
+    ((struct branch_op_result *)bp->bor)->nr++;
+
+    xfree(bore);
+
+    /* Step 2: push the flush request to my children */
+    {
+        int errstate = BO_FLUSH;
+
+        if (bo->left) {
+            err = bo->left->input(bp, bo->left, NULL, -1UL, 0, &errstate);
+            if (errstate == BO_STOP) {
+                /* ignore any errors */
+                if (err) {
+                    hvfs_err(xnet, "flush on BO %d's left branch %d "
+                             "failed w/ %d\n",
+                             bo->id, bo->left->id, err);
+                }
+            }
+        }
+        errstate = BO_FLUSH;
+        if (bo->right) {
+            err = bo->right->input(bp, bo->right, NULL, -1UL, 0, &errstate);
+            if (errstate == BO_STOP) {
+                /* ignore any errors */
+                if (err) {
+                    hvfs_err(xnet, "flush on BO %d's right branch %d "
+                             "failed w/ %d\n",
+                             bo->id, bo->right->id, err);
+                }
+            }
+        }
+    }
+
+    return err;
 }
 
 int bo_indexer_flush(struct branch_processor *bp,
@@ -3948,6 +4213,7 @@ int bo_indexer_flush(struct branch_processor *bp,
 
     switch (bi->flag) {
     case BIDX_PLAIN:
+        bo_indexer_plain_md_flush(bp, bo, oresult, osize);
         return bo_indexer_plain_flush(bp, bo, oresult, osize);
         break;
     case BIDX_BDB:
@@ -4082,8 +4348,188 @@ int bo_indexer_bdb_input(struct branch_processor *bp,
                          struct branch_line_disk *bld,
                          u64 site, u64 ack, int *errstate)
 {
-    hvfs_err(xnet, "Indexer BerkeleyDB is not support now\n");
-    return -ENOSYS;
+    struct bo_indexer *bi = (struct bo_indexer *)bo->gdata;
+    int err = 0;
+
+    /* check if it is a flush operation */
+    if (*errstate == BO_FLUSH) {
+        if (bo->flush)
+            err = bo->flush(bp, bo, NULL, NULL);
+        else
+            err = -EINVAL;
+
+        if (err) {
+            hvfs_err(xnet, "flush filter buffer of operator %s "
+                     "failed w/ %d\n", bo->name, err);
+            *errstate = BO_STOP;
+            return -EHSTOP;
+        }
+        return err;
+    } else if (*errstate == BO_STOP) {
+        return -EHSTOP;
+    }
+
+    /* sanity check */
+    if (!bp || !bld) {
+        *errstate = BO_STOP;
+        return -EINVAL;
+    }
+
+    /* deal with data now */
+    __bp_bld_dump("indexer", bld, site);
+
+    /* Parse the data line to extract sub-table name. User should follow the
+     * low-level BDB rules as following:
+     *
+     * TAG: puuid:filename:uuid:hash
+     * KVS: type=png;tag:color=rgb;tag:location=china
+     */
+    {
+        char *regex = "(^|[ \t;,]+)([^=;,]*)[ \t]*=[ \t]*([^=;,]*)[,;]*";
+        regex_t preg;
+        regmatch_t pmatch[4];
+        char kvs[bld->bl.data_len + 1], *p, *end, errbuf[100];
+        struct base base;
+        int len;
+
+        end = kvs + bld->bl.data_len;
+        memcpy(kvs, bld->data + bld->name_len + bld->tag_len, 
+               bld->bl.data_len);
+        kvs[bld->bl.data_len] = '\0';
+
+        err = regcomp(&preg, regex, REG_EXTENDED);
+        if (err) {
+            hvfs_err(xnet, "Invalid regex strings\n");
+            goto bypass;
+        }
+
+        /* iterate on the databases */
+        p = kvs;
+        do {
+            memset(pmatch, 0, 4 * sizeof(regmatch_t));
+            err = regexec(&preg, p, 4, pmatch, 0);
+            if (err == REG_NOMATCH) {
+                goto free_reg;
+            } else if (err) {
+                regerror(err, &preg, errbuf, 100);
+                hvfs_err(xnet, "regexec failed w/ %s\n", errbuf);
+                goto free_reg;
+            }
+
+            len = pmatch[2].rm_eo - pmatch[2].rm_so;
+            memcpy(errbuf, "db_", 3);
+            memcpy(errbuf + 3, p + pmatch[2].rm_so, len);
+            errbuf[len + 3] = '\0';
+            hvfs_err(xnet, "Got DB '%s'\n", errbuf);
+            {
+                int olen = 0;
+                char *m;
+                
+                len += 3;
+                if (bi->bi.bdb.activedbs) {
+                    /* find the needle */
+                    m = strstr(bi->bi.bdb.activedbs, errbuf);
+                    if (m && m[len] == ';') {
+                        /* ok, bypass this entry */
+                        goto do_prepare;
+                    }
+                    olen = strlen(bi->bi.bdb.activedbs);
+                }
+                m = xrealloc(bi->bi.bdb.activedbs, 
+                             olen + len + 2);
+                if (m) {
+                    memcpy(m + olen, errbuf, len);
+                    m[olen + len] = ';';
+                    m[olen + len + 1] = '\0';
+                    bi->bi.bdb.activedbs = m;
+                } else {
+                    hvfs_err(xnet, "xrealloc() database item failed\n");
+                }
+            }
+        do_prepare:
+            /* prepare the sub database */
+            err = bdb_db_prepare(bi->bi.bdb.__bdb, errbuf);
+            if (err) {
+                hvfs_err(xnet, "bdb_db_prepare() failed w/ %d\n", err);
+            }
+            p += pmatch[3].rm_eo + 1;
+        } while (p < end);
+    free_reg:
+        regfree(&preg);
+    bypass:
+        /* then, we push current line to low level BDB handlers to insert it
+         * into database */
+        {
+            char tag[bld->tag_len + 1];
+
+            memcpy(tag, bld->data + bld->name_len, bld->tag_len);
+            tag[bld->tag_len] = '\0';
+            p = tag;
+            /* ignore the .ID suffix */
+            do {
+                if  (*p != '.')
+                    p++;
+                else {
+                    *p = '\0';
+                    break;
+                }
+            } while (p < tag + bld->tag_len);
+            
+            base.tag = strdup(tag);
+            base.kvs = strdup(kvs);
+            err = bdb_db_put(bi->bi.bdb.__bdb, &base);
+            if (err) {
+                hvfs_err(xnet, "push line to BDB failed w/ %d\n", err);
+            }
+            /* increase the # of handled lines */
+            bi->bi.nr++;
+        }
+    }
+
+    /* Step 2: push the branch line to other operatores */
+    if (bo->left) {
+        err = bo->left->input(bp, bo->left, bld, site, ack, errstate);
+        if ((*errstate) == BO_STOP) {
+            if (err) {
+                hvfs_err(xnet, "BO %d's left operator '%s' failed w/ %d "
+                         "(Psite %lx from %lx id %ld, last_ack %ld)\n",
+                         bo->id, bo->left->name, err, site, site,
+                         bld->bl.id, ack);
+                goto out;
+            } else {
+                hvfs_err(xnet, "BO %d's left operator '%s' swallow this branch "
+                         "line (Psite %lx from %lx id %ld, "
+                         "last_ack %ld)\n",
+                         bo->id, bo->left->name, site, site, 
+                         bld->bl.id, ack);
+                /* reset errstate to ZERO */
+                *errstate = 0;
+            }
+        }
+    }
+    if (bo->right) {
+        err = bo->right->input(bp, bo->right, bld, site, ack, errstate);
+        if ((*errstate) == BO_STOP) {
+            if (err) {
+                hvfs_err(xnet, "BO %d's right operator '%s' failed w/ %d "
+                         "(Psite %lx from %lx id %ld, last_ack %ld)\n",
+                         bo->id, bo->right->name, err, site, site,
+                         bld->bl.id, ack);
+                goto out;
+            } else {
+                hvfs_err(xnet, "BO %d's right operator '%s' swallow this branch "
+                         "line (Psite %lx from %lx id %ld, "
+                         "last_ack %ld)\n",
+                         bo->id, bo->right->name, site, site,
+                         bld->bl.id, ack);
+                /* reset errstate to ZERO */
+                *errstate = 0;
+            }
+        }
+    }
+
+out:
+    return err;
 }
 
 int bo_indexer_input(struct branch_processor *bp,
@@ -4124,6 +4570,10 @@ int bo_indexer_output(struct branch_processor *bp,
     union branch_indexer_disk *bid;
     int err = 0, nlen = sizeof(*bid);
 
+    if (bi->flag == BIDX_BDB) {
+        if (bi->bi.bdb.activedbs)
+            nlen += strlen(bi->bi.bdb.activedbs);
+    }
     nbld = xzalloc(sizeof(*nbld) + nlen);
     if (!nbld) {
         hvfs_err(xnet, "xzalloc() branch_line_disk failed\n");
@@ -4139,6 +4589,15 @@ int bo_indexer_output(struct branch_processor *bp,
     bid->s.type = BRANCH_DISK_INDEXER;
     bid->s.flag = bi->flag;
     bid->s.nr = bi->bi.nr;
+    if (bi->flag == BIDX_BDB) {
+        /* setup BDB fields */
+        bid->bibd.dbname_len = strlen(bi->bi.bdb.dbname);
+        bid->bibd.prefix_len = strlen(bi->bi.bdb.prefix);
+        if (bi->bi.bdb.activedbs) {
+            bid->bibd.dbs_len = strlen(bi->bi.bdb.activedbs);
+            memcpy(bid->bibd.data, bi->bi.bdb.activedbs, bid->bibd.dbs_len);
+        }
+    }
 
     if (!(*len))
         *obld = NULL;
@@ -4198,7 +4657,7 @@ struct branch_processor *bp_alloc(void)
     bp->memlimit = BP_DEFAULT_MEMLIMIT;
 
     /* init the root operator */
-    bo_init(&bp->bo_root, NULL, NULL, "root", NULL, NULL);
+    bo_init(bp, &bp->bo_root, NULL, NULL, "root", NULL, NULL);
 
     return bp;
 }
@@ -4294,6 +4753,8 @@ struct branch_processor *bp_alloc_init(struct branch_entry *be,
         hvfs_err(xnet, "alloc branch processor failed\n");
         return NULL;
     }
+    /* for bo_init() using, we should set the bp->be pointer */
+    bp->be = be;
 
     /* construct the operator list */
     for (i = 0; i < be->bh->ops.nr; i++) {
@@ -4310,47 +4771,47 @@ struct branch_processor *bp_alloc_init(struct branch_entry *be,
 
         switch(be->bh->ops.ops[i].op) {
         case BRANCH_OP_FILTER:
-            err = bo_init(bo, bor, &be->bh->ops.ops[i], 
+            err = bo_init(bp, bo, bor, &be->bh->ops.ops[i], 
                           "filter", NULL, NULL);
             break;
         case BRANCH_OP_SUM:
-            err = bo_init(bo, bor, &be->bh->ops.ops[i], 
+            err = bo_init(bp, bo, bor, &be->bh->ops.ops[i], 
                           "sum", NULL, NULL);
             break;
         case BRANCH_OP_MAX:
-            err = bo_init(bo, bor, &be->bh->ops.ops[i], 
+            err = bo_init(bp, bo, bor, &be->bh->ops.ops[i], 
                           "max", NULL, NULL);
             break;
         case BRANCH_OP_MIN:
-            err = bo_init(bo, bor, &be->bh->ops.ops[i], 
+            err = bo_init(bp, bo, bor, &be->bh->ops.ops[i], 
                           "min", NULL, NULL);
             break;
         case BRANCH_OP_KNN:
-            err = bo_init(bo, bor, &be->bh->ops.ops[i], 
+            err = bo_init(bp, bo, bor, &be->bh->ops.ops[i], 
                           "knn", NULL, NULL);
             break;
         case BRANCH_OP_GROUPBY:
-            err = bo_init(bo, bor, &be->bh->ops.ops[i], 
+            err = bo_init(bp, bo, bor, &be->bh->ops.ops[i], 
                           "groupby", NULL, NULL);
             break;
         case BRANCH_OP_RANK:
-            err = bo_init(bo, bor, &be->bh->ops.ops[i], 
+            err = bo_init(bp, bo, bor, &be->bh->ops.ops[i], 
                           "rank", NULL, NULL);
             break;
         case BRANCH_OP_INDEXER:
-            err = bo_init(bo, bor, &be->bh->ops.ops[i], 
+            err = bo_init(bp, bo, bor, &be->bh->ops.ops[i], 
                           "indexer", NULL, NULL);
             break;
         case BRANCH_OP_COUNT:
-            err = bo_init(bo, bor, &be->bh->ops.ops[i], 
+            err = bo_init(bp, bo, bor, &be->bh->ops.ops[i], 
                           "count", NULL, NULL);
             break;
         case BRANCH_OP_AVG:
-            err = bo_init(bo, bor, &be->bh->ops.ops[i], 
+            err = bo_init(bp, bo, bor, &be->bh->ops.ops[i], 
                           "avg", NULL, NULL);
             break;
         case BRANCH_OP_CODEC:
-            err = bo_init(bo, bor, &be->bh->ops.ops[i], 
+            err = bo_init(bp, bo, bor, &be->bh->ops.ops[i], 
                           "udf_codec", NULL, NULL);
             break;
         default:

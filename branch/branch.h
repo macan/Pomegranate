@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-30 09:17:28 macan>
+ * Time-stamp: <2011-04-12 15:00:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -186,6 +186,49 @@ struct branch_entry
 
 typedef void *(*branch_callback_t)(void *);
 
+/* Region for branch search expr
+ */
+#define BRANCH_SEARCH_EXPR_POINT        0x0001
+#define BRANCH_SEARCH_EXPR_RANGE        0x0002
+#define BRANCH_SEARCH_EXPR_CHECK        0x8000
+
+/* please do NOT or these values */
+#define BRANCH_SEARCH_OP_INIT           0x0010
+#define BRANCH_SEARCH_OP_AND            0x0020
+#define BRANCH_SEARCH_OP_OR             0x0040
+
+#define BS_I2S(val) ({                          \
+            char *__res;                        \
+            switch (val) {                      \
+            case BRANCH_SEARCH_OP_INIT:         \
+                __res = "INIT";                 \
+                break;                          \
+            case BRANCH_SEARCH_OP_AND:          \
+                __res = "AND";                  \
+                break;                          \
+            case BRANCH_SEARCH_OP_OR:           \
+                __res = "OR";                   \
+                break;                          \
+            default:                            \
+                __res = "UNKNOWN";              \
+            }                                   \
+            __res;                              \
+        })
+
+struct atomic_expr
+{
+    struct list_head list;
+    char *attr;
+    char *value;
+    u32 type;
+};
+
+struct basic_expr
+{
+    struct list_head exprs;
+    u32 flag;
+};
+
 /* APIs */
 int branch_create(u64 puuid, u64 uuid, char *brach_name, char *tag,
                   u8 level, struct branch_ops *ops);
@@ -196,6 +239,8 @@ int branch_subscribe(u64 puuid, u64 uuid, char *branch_name, char *tag,
                      u8 level, branch_callback_t bc);
 int branch_dispatch(void *arg);
 int branch_dispatch_split(void *arg);
+int __expr_parser(char *expr, struct basic_expr *be);
+void __expr_close(struct basic_expr *be);
 
 /* APIs we nneed from api.c */
 
@@ -240,5 +285,43 @@ ssize_t hvfs_fread_eh(struct hstat *hs, int column, void **data,
 u64 bp_get_ack(struct branch_processor *bp, u64 site);
 int bp_handle_bulk_push(struct branch_processor *bp, struct xnet_msg *msg,
                         struct branch_line_push_header *blph);
+struct bdb *bp_find_bdb(struct branch_processor *bp,
+                        char *dbname, char *prefix);
+int bp_find_bdb_check(struct branch_processor *bp,
+                      char *dbname, char *prefix, 
+                      struct basic_expr *be);
+
+/* APIs from bdb.c */
+struct set_entry_aux;
+int bdb_point_and(struct bdb *bdb, struct basic_expr *be,
+                  void **oarray, size_t *osize);
+int bdb_point_or(struct bdb *bdb, struct basic_expr *be, 
+                 void **otree, struct set_entry_aux *sea);
+int bdb_range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
+                    struct set_entry_aux *sea);
+
+struct set_entry
+{
+    char *key;
+    int nr;                     /* use atomic_t instead */
+    int target;
+    DB *db;
+    struct set_entry_aux *sea;
+};
+
+struct set_entry_aux
+{
+    size_t size;
+    struct set_entry **array;
+};
+
+int __set_compare(const void *pa, const void *pb);
+void __set_free(void *nodep);
+void __set_action(const void *nodep, const VISIT which, 
+                  const int depth);
+void __set_action_getall(const void *nodep, const VISIT which, 
+                         const int depth);
+int __set_add_key(void **tree, char *key, DB *db, int target, 
+                  struct set_entry_aux *sea);
 
 #endif

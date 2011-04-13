@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-01 18:43:08 macan>
+ * Time-stamp: <2011-04-12 13:08:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +25,11 @@
 #define __BP_H__
 
 #include "xnet.h"
+#ifdef USE_BDB
+#include "db.h"
+#else
+#include "bdb_dummy.h"
+#endif
 
 struct branch_ack_cache_disk
 {
@@ -53,7 +58,8 @@ struct branch_op;
 struct branch_op_result;
 struct branch_line_disk;
 
-typedef int (*open_t)(struct branch_operator *, 
+typedef int (*open_t)(struct branch_processor *,
+                      struct branch_operator *, 
                       struct branch_op_result *, 
                       struct branch_op *);
 typedef int (*close_t)(struct branch_operator *);
@@ -371,7 +377,8 @@ struct branch_indexer_bdb_disk
     u8 type;                    /* DISK_INDEXER */
     u32 flag;                   /* what is the type of indexer? */
     u64 nr;
-    u32 dbname_len, table_len;
+    u32 dbname_len, prefix_len, dbs_len; /* we use dbs_len to store the active
+                                          * DBs */
     char data[0];
 };
 
@@ -380,7 +387,7 @@ union branch_indexer_disk
     struct __self {
         u8 type;
         u32 flag;
-        u64 nr;
+        u64 nr;                 /* # of lines we handled */
     } s;
     struct branch_indexer_plain_disk bipd;
     struct branch_indexer_bdb_disk bibd;
@@ -397,7 +404,9 @@ struct branch_indexer_plain
 struct branch_indexer_bdb
 {
     char *dbname;
-    char *table;
+    char *prefix;
+    char *activedbs;            /* remember the active DBs */
+    struct bdb *__bdb;
 };
 
 struct branch_indexer
@@ -538,5 +547,41 @@ int bac_load(struct branch_operator *,
              struct branch_ack_cache_disk *, int);
 int __bo_install_cb(struct branch_operator *bo, char *name);
 void bp_destroy(struct branch_processor *bp);
+
+/* APIs for bdb.c */
+struct base
+{
+    char *tag;
+    char *kvs;
+};
+
+struct base_dbs
+{
+    int tag_len;
+    int kvs_len;
+    char data[0];
+};                              /* base saved to datablse */
+
+struct dynamic_db
+{
+    struct list_head list;
+    char *name;
+    DB *db;
+};
+
+struct bdb
+{
+    DB_ENV *env;
+    struct list_head dbs;
+};
+
+#define HVFS_BP_HOME    "/tmp/hvfs/bp"
+
+struct bdb *bdb_open(char *branch_name, char *dbname, char *prefix);
+void bdb_close(struct bdb *bdb);
+int bdb_db_prepare(struct bdb *bdb, char *db);
+int bdb_db_put(struct bdb *bdb, struct base *p);
+int bdb_db_close(struct bdb *bdb, char *db);
+int __bdb_db_close(struct dynamic_db *ddb);
 
 #endif

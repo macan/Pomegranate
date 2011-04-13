@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-12-03 17:08:49 macan>
+# Time-stamp: <2011-04-12 13:28:33 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -21,7 +21,7 @@ branch_so : $(BRANCH_AR_SOURCE:.c=.o) $(XNET_LIB)
 	@echo -e " " AR"\t" $@
 	@$(AR) rcs libbranch.a $(^:.c=.o)
 	@echo -e " " SL"\t" $(BRANCH_SO)
-	@$(CC) -L$(XNET) -shared -Wl,-soname,libbranch.so.1 -o $(LIB_PATH)/libbranch.so.1.0 $(^:.c=.o) -lc -lrt -lpthread -lxnet
+	@$(CC) $(BDBFLAGS) -L$(XNET) -shared -Wl,-soname,libbranch.so.1 -o $(LIB_PATH)/libbranch.so.1.0 $(^:.c=.o) -lc -lrt -lpthread -lxnet
 
 clean :
 	-@rm -rf $(BRANCH_AR_SOURCE:.c=.o)
