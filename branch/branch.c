@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-13 16:52:40 macan>
+ * Time-stamp: <2011-04-14 16:27:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2341,14 +2341,16 @@ int branch_adjust_bid(struct branch_ack_cache_disk *bacd, int nr)
 /* branch_load()
  *
  * Load a branch metadata to current site. This operation is always called on
- * MDSs (and the targe MDSL). Based on the metadata, the MDSs can determine
- * the final location of the BRANCH (through itbid). While, MDSs can even do
- * the middle data pre-processing either (through branch_ops).
+ * MDSs (and the targe BP). Based on the metadata, the MDSs can determine the
+ * final location of the BRANCH (through itbid). While, MDSs can even do the
+ * middle data pre-processing either (through branch_ops).
  *
  * Also note that, all the MDSs can NOT modify the branch metadata themselves.
  *
  * Note, the new BH is inserted to the hash table w/ a BE, you have to do one
  * more lookup to find it.
+ *
+ * Another note, please call branch_lookup_load() to be more efficient!
  */
 
 /* @mode: 0 => non-bp mode; 1 => bp mode (for mdsl);
@@ -3032,14 +3034,14 @@ out_close:
 int __expr_parser(char *expr, struct basic_expr *be)
 {
     char *reg_header = "^[pr]+[ \t]*(:)";
-    char *reg_expr = "[ \t]*([_a-zA-Z0-9:.]+)[ \t]*=[ \t]*([_a-zA-Z0-9:.]+)";
+    char *reg_expr = "[ \t]*([@]*[_a-zA-Z0-9:.]+)[ \t]*([@><=]+)[ \t]*([_a-zA-Z0-9:.]+)";
     char *reg_op = "[ \t]*([^_a-zA-Z \t]+)";
     char *p = expr, *end;
     regex_t hreg, ereg, oreg;
-    regmatch_t pmatch[3];
+    regmatch_t pmatch[4];
     struct atomic_expr *ae = NULL;
     char errbuf[100];
-    u32 last_type = BRANCH_SEARCH_OP_INIT;
+    u32 last_type = BRANCH_SEARCH_OP_INIT, op = 0;
     int mode = 0, err = 0, len;
 
     /* sanity check */
@@ -3096,7 +3098,7 @@ int __expr_parser(char *expr, struct basic_expr *be)
         }
         /* match EXPR */
         memset(pmatch, 0, sizeof(pmatch));
-        err = regexec(&ereg, p, 3, pmatch, 0);
+        err = regexec(&ereg, p, 4, pmatch, 0);
         if (err == REG_NOMATCH) {
             hvfs_err(xnet, "regexec '%s' can NOT find a valid expr\n",
                      p);
@@ -3118,13 +3120,73 @@ int __expr_parser(char *expr, struct basic_expr *be)
         len = pmatch[2].rm_eo - pmatch[2].rm_so;
         memcpy(errbuf, p + pmatch[2].rm_so, len);
         errbuf[len] = '\0';
+        switch (len) {
+        case 1:
+            /* one byte operator */
+            switch (errbuf[0]) {
+            case '>':
+                op = AE_GT;
+                break;
+            case '<':
+                op = AE_LT;
+                break;
+            case '=':
+                op = AE_EQ;
+                break;
+            default:
+                hvfs_err(xnet, "Invalid EXPR operation '%s'\n", errbuf);
+                goto out_clean;
+            }
+            break;
+        case 2:
+            /* two byte operator */
+            if (strcmp(errbuf, ">=") == 0) {
+                op = AE_GE;
+            } else if (strcmp(errbuf, "<=") == 0) {
+                op = AE_LE;
+            } else if (strcmp(errbuf, "@=") == 0) {
+                op = AE_NEQ;
+            } else if (strcmp(errbuf, "@>") == 0) {
+                op = AE_NGT;
+            } else if (strcmp(errbuf, "@<") == 0) {
+                op = AE_NLT;
+            } else {
+                hvfs_err(xnet, "Invalid EXPR operation '%s'\n", errbuf);
+                goto out_clean;
+            }
+            break;
+        case 3:
+            /* three byte operator */
+            if (strcmp(errbuf, "@>=") == 0) {
+                op = AE_NGE;
+            } else if (strcmp(errbuf, "@<=") == 0) {
+                op = AE_NLE;
+            } else if (strcmp(errbuf, "@<>") == 0) {
+                op = AE_NUE;
+            } else {
+                hvfs_err(xnet, "Invalid EXPR operation '%s'\n", errbuf);
+                goto out_clean;
+            }
+            break;
+        default:
+            hvfs_err(xnet, "Invalid EXPR operation '%s'\n", errbuf);
+            goto out_clean;
+        }
+        if (!mode) {
+            ae->op = op;
+        } else 
+            hvfs_plain(xnet, "%s", errbuf);
+
+        len = pmatch[3].rm_eo - pmatch[3].rm_so;
+        memcpy(errbuf, p + pmatch[3].rm_so, len);
+        errbuf[len] = '\0';
         if (!mode) {
             ae->value = strdup(errbuf);
             list_add_tail(&ae->list, &be->exprs);
         } else
-            hvfs_plain(xnet, "= %s\n", errbuf);
+            hvfs_plain(xnet, " %s\n", errbuf);
         
-        p += pmatch[2].rm_eo;
+        p += pmatch[3].rm_eo;
 
         /* match OP */
         if (p >= end) {

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-17 15:02:53 macan>
+ * Time-stamp: <2011-04-14 13:33:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -7697,7 +7697,7 @@ int __hvfs_update_local(u64 puuid, u64 psalt, struct hstat *hs,
     }
 
     hi->flag |= INDEX_MDU_UPDATE;
-    hi->dlen = dpayload - sizeof(*hi) - hi->namelen;
+    hi->data = (void *)hi + sizeof(*hi) + hi->namelen;
 
 retry:
     txg = mds_get_open_txg(&hmo);

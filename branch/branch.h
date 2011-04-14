@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-13 16:53:42 macan>
+ * Time-stamp: <2011-04-14 14:59:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -221,6 +221,20 @@ struct atomic_expr
     char *attr;
     char *value;
     u32 type;
+#define AE_EQ   0               /* = */
+#define AE_GT   1               /* > */
+#define AE_LT   2               /* < */
+#define AE_GE   3               /* >= */
+#define AE_LE   4               /* <= */
+#define AE_UE   5               /* <> */
+    /* numeric operator */
+#define AE_NEQ  6
+#define AE_NGT  7
+#define AE_NLT  8
+#define AE_NGE  9
+#define AE_NLE  10
+#define AE_NUE  11
+    u32 op;
 };
 
 struct basic_expr
@@ -233,6 +247,8 @@ struct basic_expr
 int branch_create(u64 puuid, u64 uuid, char *brach_name, char *tag,
                   u8 level, struct branch_ops *ops);
 int branch_load(char *branch_name, char *tag, int mode);
+struct branch_entry *branch_lookup_load(char *branch_name);
+void branch_put(struct branch_entry *);
 int branch_publish(u64 puuid, u64 uuid, char *branch_name, char *tag,
                    u8 level, void *data, size_t data_len);
 int branch_subscribe(u64 puuid, u64 uuid, char *branch_name, char *tag,

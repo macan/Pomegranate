@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-09 09:51:52 macan>
+ * Time-stamp: <2011-04-14 13:58:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -600,7 +600,8 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
             if (thi.uuid == hmi.root_uuid)
                 thi.puuid = hmi.gdt_uuid;
             thi.psalt = hmi.gdt_salt;
-            if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c) {
+            if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c &&
+                HVFS_IS_MDS(hmo.site_id)) {
                 /* load the trigger content from MDSL */
                 err = __mds_dh_data_read(&thi, HVFS_TRIG_COLUMN, &data, c);
                 if (err) {
@@ -707,7 +708,8 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                     hvfs_err(mds, "hmr_extract DC failed, do not found this "
                              "subretion.\n");
                 }
-                if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c) {
+                if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c && 
+                    HVFS_IS_MDS(hmo.site_id)) {
                     /* load the trigger content from MDSL */
                     hvfs_debug(mds, "Read in DT itbid %ld offset %ld len %ld from %lx\n",
                                c->stored_itbid, c->offset, c->len, tsid);
@@ -877,7 +879,8 @@ int mds_dh_reload_nolock(struct dhe *ue)
             if (thi.uuid == hmi.root_uuid)
                 thi.puuid = hmi.gdt_uuid;
             thi.psalt = hmi.gdt_salt;
-            if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c) {
+            if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c &&
+                HVFS_IS_MDS(hmo.site_id)) {
                 /* load the trigger content from MDSL */
                 hvfs_debug(mds, "Read in DT itbid %ld offset %ld len %ld\n",
                            c->stored_itbid, c->offset, c->len);
@@ -982,7 +985,8 @@ int mds_dh_reload_nolock(struct dhe *ue)
                     hvfs_err(mds, "hmr_extract DC failed, do not found this "
                              "subretion.\n");
                 }
-                if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c) {
+                if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c &&
+                    HVFS_IS_MDS(hmo.site_id)) {
                     /* load the trigger content from MDSL */
                     err = __mds_dh_data_read(rhi, HVFS_TRIG_COLUMN, &data, c);
                     if (err) {

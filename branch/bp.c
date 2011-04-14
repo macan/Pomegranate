@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-13 13:19:41 macan>
+ * Time-stamp: <2011-04-14 16:05:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -4382,7 +4382,7 @@ int bo_indexer_bdb_input(struct branch_processor *bp,
      * low-level BDB rules as following:
      *
      * TAG: puuid:filename:uuid:hash
-     * KVS: type=png;tag:color=rgb;tag:location=china
+     * KVS: type=png;tag:color=rgb;tag:location=china;@ctime=12345;
      */
     {
         char *regex = "(^|[ \t;,]+)([^=;,]*)[ \t]*=[ \t]*([^=;,]*)[,;]*";
@@ -4448,7 +4448,11 @@ int bo_indexer_bdb_input(struct branch_processor *bp,
             }
         do_prepare:
             /* prepare the sub database */
-            err = bdb_db_prepare(bi->bi.bdb.__bdb, errbuf);
+            if (errbuf[0] == '@')
+                err = bdb_db_prepare(bi->bi.bdb.__bdb, errbuf, 
+                                     BDB_INTEGER_ULONG);
+            else
+                err = bdb_db_prepare(bi->bi.bdb.__bdb, errbuf, 0);
             if (err) {
                 hvfs_err(xnet, "bdb_db_prepare() failed w/ %d\n", err);
             }
@@ -4475,8 +4479,8 @@ int bo_indexer_bdb_input(struct branch_processor *bp,
                 }
             } while (p < tag + bld->tag_len);
             
-            base.tag = strdup(tag);
-            base.kvs = strdup(kvs);
+            base.tag = tag;
+            base.kvs = kvs;
             err = bdb_db_put(bi->bi.bdb.__bdb, &base);
             if (err) {
                 hvfs_err(xnet, "push line to BDB failed w/ %d\n", err);

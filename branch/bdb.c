@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-14 09:35:17 macan>
+ * Time-stamp: <2011-04-14 18:20:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -153,9 +153,39 @@ static inline int TXN_COMMIT(DB_TXN *tid, u_int32_t flags)
 #define TXN_COMMIT(a, b) ({0;})
 #endif
 
+int __compare_ulong(DB *db, const DBT *dbt1, const DBT *dbt2)
+{
+    u64 a, b;
+    char a0[dbt1->size + 1], b0[dbt2->size + 1];
+
+    memcpy(a0, dbt1->data, dbt1->size);
+    a0[dbt1->size] = '\0';
+    memcpy(b0, dbt2->data, dbt2->size);
+    b0[dbt2->size] = '\0';
+
+    a = atol(a0);
+    b = atol(b0);
+    return (a - b);
+}
+
+int __compare_long(DB *db, const DBT *dbt1, const DBT *dbt2)
+{
+    s64 a, b;
+    char a0[dbt1->size + 1], b0[dbt2->size + 1];
+
+    memcpy(a0, dbt1->data, dbt1->size);
+    a0[dbt1->size] = '\0';
+    memcpy(b0, dbt2->data, dbt2->size);
+    b0[dbt2->size] = '\0';
+
+    a = atol(a0);
+    b = atol(b0);
+    return (a - b);
+}
+
 /* db_prepare() prepare the DBs to store the line
  */
-int bdb_db_prepare(struct bdb *bdb, char *db)
+int bdb_db_prepare(struct bdb *bdb, char *db, int flag)
 {
     struct dynamic_db *pos, *ddb = NULL, *base = NULL;
     int dbflags = DB_CREATE;
@@ -225,6 +255,24 @@ int bdb_db_prepare(struct bdb *bdb, char *db)
             return -err;
         }
         ddb->db->set_flags(ddb->db, DB_DUPSORT | DB_DUP);
+        if (flag & BDB_INTEGER_ULONG) {
+            err = ddb->db->set_bt_compare(ddb->db, __compare_ulong);
+            if (err) {
+                hvfs_err(xnet, "Setup integer ulong btree comparison "
+                         "function failed w/ %d\n", err);
+                xfree(ddb);
+                return err;
+            }
+        } else if (flag & BDB_INTEGER_LONG) {
+            err = ddb->db->set_bt_compare(ddb->db, __compare_long);
+            if (err) {
+                hvfs_err(xnet, "Setup integer long btree comparison "
+                         "function failed w/ %d\n", err);
+                xfree(ddb);
+                return err;
+            }
+        }
+        
         err = ddb->db->open(ddb->db, NULL, db, NULL, DB_BTREE,
                             dbflags, 0);
         if (err) {
@@ -457,7 +505,10 @@ DB *__get_db(struct bdb *bdb, char *dbname)
     memcpy(__dbname + 3, dbname, len);
     __dbname[len + 3] = '\0';
 
-    err = bdb_db_prepare(bdb, __dbname);
+    if (__dbname[0] == '@')
+        err = bdb_db_prepare(bdb, __dbname, BDB_INTEGER_ULONG);
+    else
+        err = bdb_db_prepare(bdb, __dbname, 0);
     if (err) {
         hvfs_err(xnet, "Prepare DB(%s) failed w/ %d\n",
                  __dbname, err);
@@ -1148,7 +1199,7 @@ int __range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
     DBC *cur;
     DBT key, pkey, value;
     struct set_entry *se;
-    int cflag, err = 0, i = 0;
+    int cflag, err = 0, i = 0, from_last = 0;
     
     memset(&key, 0, sizeof(key));
     memset(&value, 0, sizeof(value));
@@ -1179,6 +1230,16 @@ int __range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
             switch (err) {
             case DB_NOTFOUND:
                 /* ignore this currsor, close it */
+                if (cflag == DB_SET_RANGE && 
+                    (pos->op == AE_LT || pos->op == AE_NLT ||
+                     pos->op == AE_LE || pos->op == AE_NLE)) {
+                    /* we can not find the specific key, for <= operation, we
+                     * have to begin from the last key */
+                    cflag = DB_LAST;
+                    from_last = 1;
+                    err = 0;
+                    continue;
+                }
                 break;
             case 0:
             {
@@ -1190,9 +1251,107 @@ int __range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
                 memcpy(xkey, pkey.data, pkey.size);
                 xkey[pkey.size] = '\0';
                 
-                if (strstr(skey, pos->value) != skey ||
-                    strcmp(skey, pos->value) < 0) {
-                    goto out_close;
+                switch (pos->op) {
+                default:
+                case AE_EQ:
+                    if (strstr(skey, pos->value) != skey ||
+                        strcmp(skey, pos->value) < 0) {
+                        goto out_close;
+                    }
+                    break;
+                case AE_GT:
+                {
+                    int d = strcmp(skey, pos->value);
+                    if (d < 0) {
+                        goto out_close;
+                    } else if (d == 0) {
+                        /* ignore this entry */
+                        continue;
+                    }
+                    break;
+                }
+                case AE_LT:
+                {
+                    int d = strcmp(skey, pos->value);
+                    
+                    cflag = DB_PREV;
+                    if (d > 0) {
+                        if (from_last)
+                            continue;
+                        else
+                            goto out_close;
+                    } else if (d == 0) {
+                        /* ignore this entry */
+                        continue;
+                    }
+                    break;
+                }
+                case AE_GE:
+                    if (strcmp(skey, pos->value) < 0) {
+                        goto out_close;
+                    }
+                    break;
+                case AE_LE:
+                    cflag = DB_PREV;
+                    if (strcmp(skey, pos->value) > 0) {
+                        if (from_last)
+                            continue;
+                        else
+                            goto out_close;
+                    }
+                    break;
+                case AE_NEQ:
+                    if (atol(skey) != atol(pos->value)) {
+                        goto out_close;
+                    }
+                    break;
+                case AE_NGT:
+                {
+                    long d = atol(skey) - atol(pos->value);
+                    
+                    if (d < 0) {
+                        goto out_close;
+                    } else if (d == 0) {
+                        /* ignore this entry */
+                        continue;
+                    }
+                    break;
+                }
+                case AE_NLT:
+                {
+                    long d = atol(skey) - atol(pos->value);
+                    
+                    cflag = DB_PREV;
+                    if (d > 0) {
+                        if (from_last)
+                            continue;
+                        else
+                            goto out_close;
+                    } else if (d == 0) {
+                        /* ignore this entry */
+                        continue;
+                    }
+                    break;
+                }
+                case AE_NGE:
+                    if (atol(skey) < atol(pos->value)) {
+                        goto out_close;
+                    }
+                    break;
+                case AE_NLE:
+                    cflag = DB_PREV;
+                    if (atol(skey) > atol(pos->value)) {
+                        if (from_last)
+                            continue;
+                        else
+                            goto out_close;
+                    }
+                    break;
+                case AE_NUE:
+                    if (atol(skey) == atol(pos->value)) {
+                        goto out_close;
+                    }
+                    break;
                 }
                 hvfs_err(xnet, "Got from %s => %s %s\n",
                          pos->attr, skey, xkey);
@@ -1203,7 +1362,8 @@ int __range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
                 hvfs_err(xnet, "Cursor on DB(%s) c_get "
                          "failed w/ %d\n", pos->attr, err);
             }
-            cflag = DB_NEXT;
+            if (cflag == DB_SET_RANGE)
+                cflag = DB_NEXT;
         } while (err == 0);
         
     out_close:
@@ -1230,8 +1390,8 @@ int __range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
                 }
                 se = *__se;
                 tdelete(sea->array[i], tree, __set_compare);
-                hvfs_err(xnet, "Delete SE %s from the tree in STAGE(%s)\n", 
-                         se->key, pos->attr);
+                hvfs_err(xnet, "Delete SE %s from the tree in STAGE(%s %s)\n", 
+                         se->key, pos->attr, pos->value);
                 xfree(se->key);
                 xfree(se);
             }

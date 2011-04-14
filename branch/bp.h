@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-12 13:08:12 macan>
+ * Time-stamp: <2011-04-14 15:42:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -579,7 +579,10 @@ struct bdb
 
 struct bdb *bdb_open(char *branch_name, char *dbname, char *prefix);
 void bdb_close(struct bdb *bdb);
-int bdb_db_prepare(struct bdb *bdb, char *db);
+#define BDB_STRING              0x00    /* use default string comparison */
+#define BDB_INTEGER_ULONG       0x01    /* use integer comparison */
+#define BDB_INTEGER_LONG        0x02    /* use integer comparison */
+int bdb_db_prepare(struct bdb *bdb, char *db, int flag);
 int bdb_db_put(struct bdb *bdb, struct base *p);
 int bdb_db_close(struct bdb *bdb, char *db);
 int __bdb_db_close(struct dynamic_db *ddb);

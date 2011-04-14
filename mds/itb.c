@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-02 10:48:51 macan>
+ * Time-stamp: <2011-04-14 13:23:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -303,7 +303,8 @@ void __itb_add_index(struct itb *i, u64 offset, long nr, char *name)
  */
 static
 int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data, 
-                struct itb_lock *l, struct hvfs_txg *txg)
+                struct itb_lock *l, struct hvfs_txg *txg,
+                struct ite **dtite)
 {
     u64 offset;
     struct ite *ite;
@@ -331,6 +332,7 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
                          hi->name, offset, nr);
             /* now we got a free ITE entry at position nr */
             ite = &i->ite[nr];
+            *dtite = ite;
             memset(ite, 0, sizeof(struct ite));
             ite->hash = hi->hash;
             /* setting up the ITE fields */
@@ -1656,6 +1658,7 @@ int itb_search(struct hvfs_index *hi, struct itb *itb, void *data,
     atomic64_t *as;
     struct itb_index *ii;
     struct itb_lock *l;
+    struct ite *dtite;
     int ret = -ENOENT;
 
     /* NOTE: if we are in retrying, we know that the ITB will not COW
@@ -1929,7 +1932,7 @@ retry:
                 goto refresh;
             }
         }
-        ret = itb_add_ite(itb, hi, data, l, *otxg);
+        ret = itb_add_ite(itb, hi, data, l, *otxg, &dtite);
     } else {
         /* other operations means ENOENT */
         if (itb->h.flag == ITB_JUST_SPLIT)
@@ -1969,6 +1972,7 @@ int itb_search_dtriggered(struct hvfs_index *hi, struct itb *itb,
     struct itb_index *ii;
     struct itb_lock *l;
     struct dhe *e;
+    struct ite *dtite;
     int ret = -ENOENT;
 
     PREPARE_DIR_TRIGGER(e, hi);
@@ -2288,9 +2292,9 @@ retry:
         }
         SETUP_DIR_TRIGGER(e, DIR_TRIG_PRE_CREATE, itb,
                           NULL, hi, ret, out);
-        ret = itb_add_ite(itb, hi, data, l, *otxg);
+        ret = itb_add_ite(itb, hi, data, l, *otxg, &dtite);
         SETUP_DIR_TRIGGER(e, DIR_TRIG_POST_CREATE, itb,
-                          NULL, hi, ret, out);
+                          dtite, hi, ret, out);
     } else {
         /* other operations means ENOENT */
         if (itb->h.flag == ITB_JUST_SPLIT)

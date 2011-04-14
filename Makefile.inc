@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-04-12 10:09:46 macan>
+# Time-stamp: <2011-04-14 12:32:40 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -120,7 +120,7 @@ TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c client.c \
 ifdef USE_FUSE
 TEST_XNET_SOURCE += pfs.c
 endif
-TRIGGERS_SOURCE = example.c
+TRIGGERS_SOURCE = example.c default.c
 
 MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \
 				dispatch.c c2m.c fe.c async.c m2m.c spool.c bitmapc.c \
