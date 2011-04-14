@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-12 19:34:00 macan>
+ * Time-stamp: <2011-04-13 16:52:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1538,6 +1538,7 @@ int __branch_do_search(struct xnet_msg *msg, char *branch_name,
     list_for_each_entry(pos, &be.exprs, list) {
         nr++;
         if (be.flag == BRANCH_SEARCH_EXPR_POINT) {
+            /* note that there are only one type for POINT query */
             type = pos->type;
         }
     }
@@ -1550,7 +1551,8 @@ int __branch_do_search(struct xnet_msg *msg, char *branch_name,
         } else if (type == BRANCH_SEARCH_OP_OR) {
             err = bdb_point_or(bdb, &be, &tree, &sea);
         } else {
-            err = bdb_point_or(bdb, &be, &tree, &sea);
+            /* this means we only need a simple query */
+            err = bdb_point_simple(bdb, &be, &array, &size);
         }
         break;
     case 'r':

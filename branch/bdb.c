@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-12 19:35:06 macan>
+ * Time-stamp: <2011-04-14 09:35:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -487,6 +487,103 @@ void __put_db(DB *db)
     /* do nothing */
 }
 
+/* for simple point query, we just do cursor lookup
+ */
+int bdb_point_simple(struct bdb *bdb, struct basic_expr *be,
+                     void **oarray, size_t *osize)
+{
+    struct atomic_expr *pos = NULL;
+    DB *db;
+    DBC *cur;
+    DBT key, pkey, value;
+    int err = 0, cflag = DB_NEXT | DB_SET;
+
+    list_for_each_entry(pos, &be->exprs, list) {
+        break;
+    }
+    if (!pos) {
+        hvfs_err(xnet, "Simple query failed w/o any valid EXPR\n");
+        return -EINVAL;
+    }
+
+    /* get the database */
+    db = __get_db(bdb, pos->attr);
+    if (IS_ERR(db)) {
+        hvfs_err(xnet, "__get_db(%s) failed w/ %ld\n", 
+                 pos->attr, PTR_ERR(db));
+        err = PTR_ERR(db);
+        goto out;
+    }
+
+    err = db->cursor(db, NULL, &cur, 0);
+    if (err) {
+        hvfs_err(xnet, "DB(%s) create cursor failed w/ %d\n",
+                 pos->attr, err);
+        goto out_put;
+    }
+    
+    memset(&key, 0, sizeof(key));
+    memset(&pkey, 0, sizeof(pkey));
+    memset(&value, 0, sizeof(value));
+    key.data = pos->value;
+    key.size = strlen(pos->value);
+    if (*osize == 0)
+        *oarray = NULL;
+
+    do {
+        err = cur->c_pget(cur, &key, &pkey, &value, cflag);
+        switch (err) {
+        case DB_NOTFOUND:
+            /* ignore this cursor, close it */
+            break;
+        case 0:
+        {
+            void *__array;
+            char skey[key.size + 1];
+            char xkey[pkey.size + 1];
+            
+            memcpy(skey, key.data, key.size);
+            skey[key.size] = '\0';
+            memcpy(xkey, pkey.data, pkey.size);
+            xkey[pkey.size] = '\0';
+
+            if (strstr(skey, pos->value) != skey ||
+                strcmp(skey, pos->value) < 0) {
+                goto out_close;
+            }
+
+            hvfs_warning(xnet, "Get from %s => %s %s\n",
+                         pos->attr, skey, xkey);
+            __array = xrealloc(*oarray, *osize + value.size);
+            if (!__array) {
+                hvfs_err(xnet, "xrealloc() oarray failed\n");
+                err = -ENOMEM;
+                break;
+            }
+            memcpy(__array + *osize, value.data, value.size);
+            *oarray = __array;
+            *osize += value.size;
+            break;
+        }
+        default:
+            hvfs_err(xnet, "Get entries from DB(%s) failed w/ %d\n",
+                     pos->attr, err);
+        }
+        cflag = DB_NEXT;
+    } while (err == 0);
+
+out_close:
+    err = cur->c_close(cur);
+    if (err) {
+        hvfs_err(xnet, "Closing cursor failed w/ %d\n", err);
+    }
+    
+out_put:
+    __put_db(db);
+out:
+    return err;
+}
+
 /* for point AND, we just do normal equal join
  */
 int bdb_point_and(struct bdb *bdb, struct basic_expr *be,
@@ -556,6 +653,7 @@ int bdb_point_and(struct bdb *bdb, struct basic_expr *be,
     err = db->join(db, carray, &cur, 0);
     if (err) {
         hvfs_err(xnet, "Join on base DB failed w/ %d\n", err);
+        __put_db(db);
         goto out_release;
     }
     /* get entries from the joined cursor */
@@ -579,8 +677,8 @@ int bdb_point_and(struct bdb *bdb, struct basic_expr *be,
             memcpy(kvs, bd->data + bd->tag_len, bd->kvs_len);
             kvs[bd->kvs_len] = '\0';
 
-            hvfs_err(xnet, "JOIN - primary key: %s => %s\n",
-                     tag, kvs);
+            hvfs_warning(xnet, "JOIN - primary key: %s => %s\n",
+                         tag, kvs);
             __array = xrealloc(*oarray, *osize + value.size);
             if (!__array) {
                 hvfs_err(xnet, "xrealloc() oarray failed\n");
@@ -603,6 +701,7 @@ int bdb_point_and(struct bdb *bdb, struct basic_expr *be,
         hvfs_err(xnet, "Closing joined cursor failed w/ %d\n",
                  err);
     }
+    __put_db(db);
     
 out_release:
     /* FIXME: release the resource we got */
@@ -1014,8 +1113,8 @@ int bdb_point_or(struct bdb *bdb, struct basic_expr *be,
                     strcmp(skey, pos->value) < 0) {
                     goto out_close;
                 }
-                hvfs_err(xnet, "Got from %s => %s %s\n",
-                         pos->attr, skey, xkey);
+                hvfs_warning(xnet, "Got from %s => %s %s\n",
+                             pos->attr, skey, xkey);
                 __set_add_key(otree, xkey, base_db, 1, sea);
                 break;
             }
@@ -1259,6 +1358,13 @@ int bdb_db_put(struct bdb *bdb, struct base *p)
 {
     hvfs_err(xnet, "Dummy BDB: put KV %s => %s\n",
              p->tag, p->kvs);
+    return 0;
+}
+
+int bdb_point_simple(struct bdb *bdb, struct basic_expr *be,
+                     void **oarray, size_t *osize)
+{
+    hvfs_err(xnet, "Dummy BDB: point simple lookup\n");
     return 0;
 }
 

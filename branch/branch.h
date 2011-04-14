@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-12 15:00:55 macan>
+ * Time-stamp: <2011-04-13 16:53:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -293,6 +293,8 @@ int bp_find_bdb_check(struct branch_processor *bp,
 
 /* APIs from bdb.c */
 struct set_entry_aux;
+int bdb_point_simple(struct bdb *bdb, struct basic_expr *be,
+                     void **oarray, size_t *osize);
 int bdb_point_and(struct bdb *bdb, struct basic_expr *be,
                   void **oarray, size_t *osize);
 int bdb_point_or(struct bdb *bdb, struct basic_expr *be, 
