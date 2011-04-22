@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-09 17:56:59 macan>
+ * Time-stamp: <2011-04-22 14:24:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -390,6 +390,7 @@ void mdsl_bitmap_commit_v2(struct xnet_msg *);
 /* c2ml.c */
 void mdsl_read(struct xnet_msg *);
 void mdsl_write(struct xnet_msg *);
+void mdsl_statfs(struct xnet_msg *);
 
 /* prof.c */
 void mdsl_dump_profiling(time_t);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-14 15:42:59 macan>
+ * Time-stamp: <2011-04-21 16:13:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -180,6 +180,7 @@ struct branch_knn_linear_entry
 struct branch_knn_linear
 {
     struct list_head ke;
+    xlock_t klock;
     s64 center;
     s64 distance;
     int nr;
@@ -510,6 +511,7 @@ struct bo_knn
 #define BKNN_MATCH      3
     u16 lor;
 #define BKNN_LINEAR     0x01
+#define BKNN_XLINEAR    0x02
     u16 flag;
 
     regex_t preg;
@@ -577,13 +579,15 @@ struct bdb
 
 #define HVFS_BP_HOME    "/tmp/hvfs/bp"
 
-struct bdb *bdb_open(char *branch_name, char *dbname, char *prefix);
+struct bdb *bdb_open(u64 site_id, char *branch_name,
+                     char *dbname, char *prefix);
 void bdb_close(struct bdb *bdb);
 #define BDB_STRING              0x00    /* use default string comparison */
 #define BDB_INTEGER_ULONG       0x01    /* use integer comparison */
 #define BDB_INTEGER_LONG        0x02    /* use integer comparison */
 int bdb_db_prepare(struct bdb *bdb, char *db, int flag);
 int bdb_db_put(struct bdb *bdb, struct base *p);
+int bdb_db_del(struct bdb *bdb, struct base *p);
 int bdb_db_close(struct bdb *bdb, char *db);
 int __bdb_db_close(struct dynamic_db *ddb);
 

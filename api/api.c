@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-14 13:33:53 macan>
+ * Time-stamp: <2011-04-22 14:33:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -6694,6 +6694,111 @@ out:
     return err;
 }
 
+/* hvfs_pstat() lookup a file by <PUUID, fname> or <PUUID, uuid, hash>
+ */
+int hvfs_pstat(struct file_handle *fh, void **data, size_t *size)
+{
+    struct hstat hs = {0,};
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0;
+
+    if (!fh)
+        return -EINVAL;
+    
+    /* Step 1: find the parent info */
+    hs.name = NULL;
+    hs.hash = 0;
+    hs.uuid = fh->puuid;
+    err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, &hs);
+    if (err) {
+        hvfs_err(xnet, "do dir stat (GDT) on uuid'%lx' failed w/ %d\n",
+                 hs.uuid, err);
+        goto out;
+    }
+    puuid = fh->puuid;
+    psalt = hs.ssalt;
+
+    /* Step 2: lookup the file in the parent directory now */
+    if (fh->name && strlen(fh->name) > 0) {
+        /* eh, we have to lookup this file now. Otherwise, what we want to
+         * lookup is the last directory, just return a result string now */
+        hs.name = fh->name;
+        hs.uuid = 0;
+    } else {
+        hs.name = NULL;
+        hs.uuid = fh->uuid;
+        hs.hash = fh->hash;
+    }
+
+    err = __hvfs_stat(puuid, psalt, 0, &hs);
+    if (err) {
+        hvfs_err(xnet, "do internal file stat (SDT) on '%s' failed w/ %d\n",
+                 fh->name, err);
+        goto out;
+    }
+    if (S_ISDIR(hs.mdu.mode)) {
+        hs.hash = 0;
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do last dir stat (GDT) on '%s' failed w/ %d\n",
+                     fh->name, err);
+            goto out;
+        }
+    }
+
+    hs.puuid = puuid;
+    hs.psalt = psalt;
+
+    err = __hvfs_pack_result(&hs, data);
+    if (err) {
+        hvfs_err(xnet, "pack result failed for '%s' w/ %d\n",
+                 fh->name, err);
+        goto out;
+    }
+    *size = strlen((char *)*data);
+
+out:    
+    return err;
+}
+
+/* ploop() accepts a array of file_handle, and do user's operations
+ */
+int hvfs_ploop(struct file_handle *fh, int nr, ploop_func_t pf, void **data, 
+               size_t *size)
+{
+    int err = 0, i;
+    void *p = NULL, *__data;
+    size_t __size;
+
+    *data = NULL;
+    *size = 0;
+    for (i = 0; i < nr; i++) {
+        __size = 0;
+        __data = NULL;
+        if (pf) {
+            err = pf(&fh[i], &__data, &__size);
+            if (err) {
+                hvfs_err(xnet, "ploop() execute function failed w/ %d\n",
+                         err);
+            } else {
+                if (!__size)
+                    continue;
+                p = xrealloc(*data, *size + __size);
+                if (!p) {
+                    hvfs_err(xnet, "xrealloc() failed, ignore this entry\n");
+                } else {
+                    memcpy(p + *size, __data, __size);
+                    *data = p;
+                    *size += __size;
+                    xfree(__data);
+                }
+            }
+        }
+    }
+
+    return err;
+}
+
 void __hvfs_dt_set_type(u16 type, char *p)
 {
     if (!p)
@@ -7158,7 +7263,16 @@ int __hvfs_statfs(struct statfs *s, u64 dsite)
     /* construct the request message */
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hmo.xc->site_id, dsite);
-    xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_STATFS, 0, 0);
+    if (HVFS_IS_MDS(dsite))
+        xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_STATFS, 0, 0);
+    else if (HVFS_IS_MDSL(dsite))
+        xnet_msg_fill_cmd(msg, HVFS_CLT2MDSL_STATFS, 0, 0);
+    else {
+        hvfs_err(xnet, "Invalid target site %lx for STATFS command.\n",
+                 dsite);
+        xnet_raw_free_msg(msg);
+        return -EINVAL;
+    }
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -7172,10 +7286,11 @@ int __hvfs_statfs(struct statfs *s, u64 dsite)
     }
 
     /* recv the reply, parse the statfs structure */
-    if (msg->pair->xm_datacheck) {
+    if (!msg->pair->tx.err && msg->pair->xm_datacheck) {
         ns = (struct statfs *)msg->pair->xm_data;
     } else {
-        hvfs_err(xnet, "recv statfs reply ERROR!\n");
+        hvfs_err(xnet, "recv statfs reply ERROR(%d)!\n",
+                 msg->pair->tx.err);
         err = -EFAULT;
         goto out_msg;
     }
@@ -7185,6 +7300,7 @@ int __hvfs_statfs(struct statfs *s, u64 dsite)
     s->f_bavail += ns->f_bavail;
     s->f_files += ns->f_files;
     s->f_ffree += ns->f_ffree;
+    s->f_bsize = ns->f_bsize;
     
 out_msg:
     xnet_free_msg(msg);
@@ -7222,6 +7338,25 @@ int hvfs_statfs(void **data)
                      xg->sites[i].site_id, err);
         }
     }
+
+    xfree(xg);
+
+    xg = cli_get_active_site(hmo.chring[CH_RING_MDSL]);
+    if (!xg) {
+        hvfs_err(xnet, "cli_get_active_site() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    for (i = 0; i < xg->asize; i++) {
+        err = __hvfs_statfs(&s, xg->sites[i].site_id);
+        if (err) {
+            hvfs_err(xnet, "Statfs from %lx failed /w %d\n",
+                     xg->sites[i].site_id, err);
+        }
+    }
+
+    xfree(xg);
 
     s.f_type = HVFS_SUPER_MAGIC;
     s.f_namelen = HVFS_MAX_NAME_LEN;

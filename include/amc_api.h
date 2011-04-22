@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-12 10:53:01 macan>
+ * Time-stamp: <2011-04-15 19:19:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -151,6 +151,12 @@ int hvfs_cat_dtrigger(char *path, char *name, void **data);
 int hvfs_statfs(void **data);
 void hvfs_free(void *p);
 
+struct file_handle;
+typedef int (*ploop_func_t)(struct file_handle *, void **, size_t *);
+int hvfs_pstat(struct file_handle *fh, void **data, size_t *size);
+int hvfs_ploop(struct file_handle *fh, int nr, ploop_func_t pf, void **data,
+    size_t *size);
+
 /* internal APIs */
 int __hvfs_stat(u64 puuid, u64 psalt, int column, struct hstat *hs);
 int __hvfs_stat_ext(u64 puuid, u64 psalt, int column, u32 flag, 
@@ -193,6 +199,16 @@ struct branch_search_expr_tx
     u32 name_len, expr_len;
     u16 dbname_len, prefix_len;
     char data[0];
+};
+
+/* File handle returned by BRANCH subsystem */
+struct file_handle
+{
+    u64 puuid;
+    u64 uuid;
+    u64 hash;
+    char *name;                 /* if name is NULL, then uuid and hash must be
+                                 * valid! */
 };
 
 #endif

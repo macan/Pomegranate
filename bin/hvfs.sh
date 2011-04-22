@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-03-08 11:28:26 macan>
+# Time-stamp: <2011-04-22 11:31:49 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -368,6 +368,7 @@ function do_clean() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         $SSH $UN$ip "rm -rf /tmp/hvfs/6*" > /dev/null
+        $SSH $UN$ip "rm -rf /tmp/hvfs/bp" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/hvfs/*_store" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/hvfs/txg" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/.MDS.DCONF.*" > /dev/null

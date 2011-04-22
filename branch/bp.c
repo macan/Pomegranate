@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-14 16:05:05 macan>
+ * Time-stamp: <2011-04-21 17:31:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2359,12 +2359,16 @@ void __knn_loadin(struct branch_operator *bo,
         if (bo->id == bore->id) {
             ASSERT(bore->len >= sizeof(union branch_knn_disk), xnet);
             bkd = (union branch_knn_disk *)(bore->data);
-            if (bkd->bkld.flag & BKNN_LINEAR) {
+            if ((bkd->bkld.flag & BKNN_LINEAR) ||
+                (bkd->bkld.flag & BKNN_XLINEAR)) {
                 struct branch_knn_linear_disk *bkld;
                 struct branch_knn_linear_entry *nbkle;
 
                 bkld = (struct branch_knn_linear_disk *)bkd;
-                bk->flag = BKNN_LINEAR;
+                if (bkd->bkld.flag & BKNN_LINEAR)
+                    bk->flag = BKNN_LINEAR;
+                else if (bkd->bkld.flag & BKNN_XLINEAR)
+                    bk->flag = BKNN_XLINEAR;
                 INIT_LIST_HEAD(&bk->bkn.bkl.ke);
                 bk->bkn.bkl.center = bkld->center;
                 bk->bkn.bkl.distance = bkld->distance;
@@ -2432,6 +2436,8 @@ void __knn_loadin(struct branch_operator *bo,
  * 2. lor: left or right or all or match
  * 3. knn: <type:NUM1:+/-NUM2> type is "linear", value NUM1 for the center, 
  *                             NUM2 for the range
+ *                             type is "xlinear", value NUM1 for the center,
+ *                             NUM2 for # of items
  */
 int bo_knn_open(struct branch_processor *bp,
                 struct branch_operator *bo,
@@ -2528,8 +2534,16 @@ int bo_knn_open(struct branch_processor *bp,
                 hvfs_err(xnet, "knn=%s:", errbuf);
                 if (strcmp(errbuf, "linear") == 0) {
                     bk->flag = BKNN_LINEAR;
-                    if (!bk->bkn.bkl.ke.next)
+                    if (!bk->bkn.bkl.ke.next) {
                         INIT_LIST_HEAD(&bk->bkn.bkl.ke);
+                    }
+                    xlock_init(&bk->bkn.bkl.klock);
+                } else if (strcmp(errbuf, "xlinear") == 0) {
+                    bk->flag = BKNN_XLINEAR;
+                    if (!bk->bkn.bkl.ke.next) {
+                        INIT_LIST_HEAD(&bk->bkn.bkl.ke);
+                    }
+                    xlock_init(&bk->bkn.bkl.klock);
                 } else {
                     hvfs_err(xnet, "Invalid kNN type value '%s', "
                              "reset to 'linear'\n",
@@ -2540,17 +2554,21 @@ int bo_knn_open(struct branch_processor *bp,
             case 4:
                 /* this is the center value */
                 hvfs_plain(xnet, "%s:", errbuf);
-                bk->bkn.bkl.center = atol(errbuf);
+                if ((bk->flag & BKNN_LINEAR) ||
+                    (bk->flag & BKNN_XLINEAR))
+                    bk->bkn.bkl.center = atol(errbuf);
                 break;
             case 5:
                 /* this is +/-/+- */
                 hvfs_plain(xnet, "%s", errbuf);
-                if (!(bk->flag & BKNN_LINEAR)) {
-                    hvfs_err(xnet, "+/- must in a linear kNN environment!\n");
+                if (!(bk->flag & BKNN_LINEAR ||
+                      bk->flag & BKNN_XLINEAR)) {
+                    hvfs_err(xnet, "+/- must in a (x)linear kNN environment!\n");
                     regfree(&bk->preg);
                     err = -EINVAL;
                     goto out_clean;
                 }
+                /* Note that, the following code suites for XLINEAR */
                 for (j = 0; j < strlen(errbuf); j++) {
                     if (errbuf[j] == '+')
                         bk->bkn.bkl.direction |= BKNN_POSITIVE;
@@ -2561,7 +2579,9 @@ int bo_knn_open(struct branch_processor *bp,
             case 6:
                 /* this is range K */
                 hvfs_plain(xnet, "%s\n", errbuf);
-                bk->bkn.bkl.distance = atol(errbuf);
+                if ((bk->flag & BKNN_LINEAR) ||
+                    (bk->flag & BKNN_XLINEAR))
+                    bk->bkn.bkl.distance = atol(errbuf);
                 break;
             default:
                 continue;
@@ -2591,7 +2611,8 @@ int bo_knn_close(struct branch_operator *bo)
     struct branch_knn_linear_entry *pos, *n;
 
     regfree(&bk->preg);
-    if (bk->flag & BKNN_LINEAR) {
+    if ((bk->flag & BKNN_LINEAR) ||
+        (bk->flag & BKNN_XLINEAR)) {
         if (bk->bkn.bkl.nr || !list_empty(&bk->bkn.bkl.ke)) {
             list_for_each_entry_safe(pos, n, &bk->bkn.bkl.ke, list) {
                 list_del(&pos->list);
@@ -2727,7 +2748,8 @@ int bo_knn_flush(struct branch_processor *bp,
     struct bo_knn *bk = (struct bo_knn *)bo->gdata;
     int err = -EINVAL;
 
-    if (bk->flag & BKNN_LINEAR) {
+    if ((bk->flag & BKNN_LINEAR) ||
+        (bk->flag & BKNN_XLINEAR)) {
         return __knn_linear_flush(bp, bo, oresult, osize);
     } else {
         hvfs_err(xnet, "Invalid kNN type %x\n", bk->flag);
@@ -2787,10 +2809,105 @@ void __knn_linear_update(struct bo_knn *bk, struct branch_line_disk *bld)
            bkle->ble.data_len);
 
     /* add this bkle to the linked list */
+    xlock_lock(&bk->bkn.bkl.klock);
     list_add_tail(&bkle->list, &bk->bkn.bkl.ke);
+    xlock_unlock(&bk->bkn.bkl.klock);
     bk->bkn.bkl.nr++;
     hvfs_warning(xnet, "kNN add value %ld which in [%ld,%ld]\n", 
                  value, low, high);
+
+    return;
+}
+
+void __knn_xlinear_update(struct bo_knn *bk, struct branch_line_disk *bld)
+{
+    char *tag, *p = NULL;
+    struct branch_knn_linear_entry *bkle, *pos;
+    long value = 0, low, high;
+    int inserted = 0;
+
+    /* Step 1: process the branch line to regexec the tag name and get the
+     * value */
+    tag = alloca(bld->tag_len + 1);
+    memcpy(tag, bld->data + bld->name_len, bld->tag_len);
+    tag[bld->tag_len] = '\0';
+    sscanf(tag, "%a[_a-zA-Z].%ld", &p, &value);
+    xfree(p);
+
+    if (!list_empty(&bk->bkn.bkl.ke)) {
+        bkle = list_entry(bk->bkn.bkl.ke.next, 
+                          struct branch_knn_linear_entry, list);
+        high = bkle->value;
+        bkle = list_entry(bk->bkn.bkl.ke.prev, 
+                          struct branch_knn_linear_entry, list);
+        low = bkle->value;
+    } else {
+        low = high = 0;
+    }
+
+    if (value >= bk->bkn.bkl.center)
+        value -= bk->bkn.bkl.center;
+    else
+        value = bk->bkn.bkl.center - value;
+
+    if (bk->bkn.bkl.nr >= bk->bkn.bkl.distance) {
+        if (value > high || value < low)
+            return;
+    }
+
+    /* Step 2: update bo_knn if needed: we add current bld to the linked
+     * list */
+    bkle = xzalloc(sizeof(*bkle));
+    if (!bkle) {
+        hvfs_err(xnet, "xzalloc() BKLE failed, this update is lossing\n");
+        return;
+    }
+    INIT_LIST_HEAD(&bkle->list);
+    bkle->value = value;
+    bkle->ble.ssite = bld->bl.sites[0];
+    bkle->ble.timestamp = bld->bl.life;
+    bkle->ble.data_len = bld->bl.data_len;
+    bkle->ble.tag = strdup(tag);
+
+    bkle->ble.data = xmalloc(bld->bl.data_len);
+    if (!bkle->ble.data) {
+        hvfs_err(xnet, "xmalloc() data region %ld failed\n",
+                 bkle->ble.data_len);
+        xfree(bkle);
+        return;
+    }
+    memcpy(bkle->ble.data, bld->data + bld->name_len + bld->tag_len,
+           bkle->ble.data_len);
+
+    /* add this bkle to the linked list */
+    xlock_lock(&bk->bkn.bkl.klock);
+    list_for_each_entry(pos, &bk->bkn.bkl.ke, list) {
+        if (pos->value < value) {
+            list_add_tail(&bkle->list, &pos->list);
+            inserted = 1;
+            break;
+        }
+    }
+    if (!inserted) {
+        list_add_tail(&bkle->list, &bk->bkn.bkl.ke);
+    }
+    xlock_unlock(&bk->bkn.bkl.klock);
+    
+    bk->bkn.bkl.nr++;
+    hvfs_warning(xnet, "kNN add value %ld which in [%ld,%ld] xlinear\n", 
+                 value, low, high);
+    xlock_lock(&bk->bkn.bkl.klock);
+    while (bk->bkn.bkl.nr > bk->bkn.bkl.distance) {
+        /* we should remove one entry from the list */
+        pos = list_entry(bk->bkn.bkl.ke.next,
+                         struct branch_knn_linear_entry, list);
+        list_del(&pos->list);
+        xfree(pos->ble.tag);
+        xfree(pos->ble.data);
+        xfree(pos);
+        bk->bkn.bkl.nr--;
+    }
+    xlock_unlock(&bk->bkn.bkl.klock);
 
     return;
 }
@@ -2799,6 +2916,8 @@ void __knn_update(struct bo_knn *bk, struct branch_line_disk *bld)
 {
     if (bk->flag & BKNN_LINEAR)
         return __knn_linear_update(bk, bld);
+    else if (bk->flag & BKNN_XLINEAR)
+        return __knn_xlinear_update(bk, bld);
     else {
         hvfs_err(xnet, "kNN invalid type %x\n", bk->flag);
     }
@@ -2933,10 +3052,12 @@ int __knn_linear_output(struct branch_processor *bp,
 
     /* calculate the data length */
     nlen += bk->bkn.bkl.nr * sizeof(*bkled);
+    xlock_lock(&bk->bkn.bkl.klock);
     list_for_each_entry(pos, &bk->bkn.bkl.ke, list) {
         nlen += strlen(pos->ble.tag);
         nlen += pos->ble.data_len;
     }
+    xlock_unlock(&bk->bkn.bkl.klock);
 
     nbld = xzalloc(sizeof(*nbld) + nlen);
     if (!nbld) {
@@ -2958,6 +3079,7 @@ int __knn_linear_output(struct branch_processor *bp,
     bkld->distance = bk->bkn.bkl.distance;
 
     bkled = bkld->bkled;
+    xlock_lock(&bk->bkn.bkl.klock);
     list_for_each_entry(pos, &bk->bkn.bkl.ke, list) {
         bkled->bled.ssite = pos->ble.ssite;
         bkled->bled.timestamp = pos->ble.timestamp;
@@ -2972,6 +3094,7 @@ int __knn_linear_output(struct branch_processor *bp,
         bkled = (void *)bkled + sizeof(*bkled) + tag_len +
             pos->ble.data_len;
     }
+    xlock_unlock(&bk->bkn.bkl.klock);
 
     if (!(*len))
         *obld = NULL;
@@ -3024,7 +3147,8 @@ int bo_knn_output(struct branch_processor *bp,
     struct bo_knn *bk = (struct bo_knn *)bo->gdata;
     int err = -EINVAL;
 
-    if (bk->flag & BKNN_LINEAR) {
+    if ((bk->flag & BKNN_LINEAR) ||
+        (bk->flag & BKNN_XLINEAR)) {
         return __knn_linear_output(bp, bo, bld, obld, len, errstate);
     } else {
         hvfs_err(xnet, "kNN invalid type %x\n", bk->flag);
@@ -3886,7 +4010,8 @@ int bo_indexer_open(struct branch_processor *bp,
         if (bi->flag == BIDX_BDB) {
             if (!bi->bi.bdb.activedbs)
                 bi->bi.bdb.activedbs = strdup("db_base;");
-            bi->bi.bdb.__bdb = bdb_open(bp->be->branch_name,
+            bi->bi.bdb.__bdb = bdb_open(hmo.site_id, 
+                                        bp->be->branch_name,
                                         bi->bi.bdb.dbname, 
                                         bi->bi.bdb.prefix);
             if (!bi->bi.bdb.__bdb) {
@@ -4381,8 +4506,9 @@ int bo_indexer_bdb_input(struct branch_processor *bp,
     /* Parse the data line to extract sub-table name. User should follow the
      * low-level BDB rules as following:
      *
-     * TAG: puuid:filename:uuid:hash
+     * TAG: [+-]puuid:filename:uuid:hash.SUFFIX
      * KVS: type=png;tag:color=rgb;tag:location=china;@ctime=12345;
+     *
      */
     {
         char *regex = "(^|[ \t;,]+)([^=;,]*)[ \t]*=[ \t]*([^=;,]*)[,;]*";
@@ -4448,7 +4574,7 @@ int bo_indexer_bdb_input(struct branch_processor *bp,
             }
         do_prepare:
             /* prepare the sub database */
-            if (errbuf[0] == '@')
+            if (errbuf[3] == '@')
                 err = bdb_db_prepare(bi->bi.bdb.__bdb, errbuf, 
                                      BDB_INTEGER_ULONG);
             else
@@ -4468,22 +4594,46 @@ int bo_indexer_bdb_input(struct branch_processor *bp,
 
             memcpy(tag, bld->data + bld->name_len, bld->tag_len);
             tag[bld->tag_len] = '\0';
-            p = tag;
+            p = tag + bld->tag_len;
             /* ignore the .ID suffix */
             do {
-                if  (*p != '.')
-                    p++;
-                else {
+                if  (*p != '.') {
+                    if (*p == ':')
+                        break;
+                    p--;
+                } else {
                     *p = '\0';
                     break;
                 }
-            } while (p < tag + bld->tag_len);
-            
-            base.tag = tag;
-            base.kvs = kvs;
-            err = bdb_db_put(bi->bi.bdb.__bdb, &base);
-            if (err) {
-                hvfs_err(xnet, "push line to BDB failed w/ %d\n", err);
+            } while (p > tag);
+            /* what operation should we do?
+             * + => put
+             * - => del
+             */
+            switch (tag[0]) {
+            case '-':
+                base.tag = tag + 1;
+                base.kvs = kvs;
+                err = bdb_db_del(bi->bi.bdb.__bdb, &base);
+                if (err) {
+                    hvfs_err(xnet, "delete line from BDB failed w/ %d\n", err);
+                }
+                break;
+            case '+':
+                base.tag = tag + 1;
+                base.kvs = kvs;
+                err = bdb_db_put(bi->bi.bdb.__bdb, &base);
+                if (err) {
+                    hvfs_err(xnet, "push line to BDB failed w/ %d\n", err);
+                }
+                break;
+            default:
+                base.tag = tag;
+                base.kvs = kvs;
+                err = bdb_db_put(bi->bi.bdb.__bdb, &base);
+                if (err) {
+                    hvfs_err(xnet, "push line to BDB failed w/ %d\n", err);
+                }
             }
             /* increase the # of handled lines */
             bi->bi.nr++;

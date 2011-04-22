@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-20 19:33:20 macan>
+ * Time-stamp: <2011-04-22 11:26:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -732,7 +732,7 @@ void mdsl_bitmap_commit_v2(struct xnet_msg *msg)
             hvfs_err(mdsl, "mmap bitmap header @ %lx failed w/ %d\n",
                      bcc->location, errno);
             err = -errno;
-            goto out_reply;
+            goto out_put;
         }
     } else {
         bd = xzalloc(sizeof(*bd));
@@ -740,7 +740,7 @@ void mdsl_bitmap_commit_v2(struct xnet_msg *msg)
             xlock_unlock(&fde->bmmap.lock);
             hvfs_err(mdsl, "xzalloc() failed\n");
             err = -ENOMEM;
-            goto out_reply;
+            goto out_put;
         }
     }
 
@@ -784,7 +784,7 @@ out_unmap:
             xlock_unlock(&fde->bmmap.lock);
             hvfs_err(mdsl, "munmap failed w/ %d\n", errno);
             err = -errno;
-            goto out;
+            goto out_put;
         }
     } else {
         xfree(bd);
@@ -792,8 +792,9 @@ out_unmap:
     xlock_unlock(&fde->bmmap.lock);
 
     /* We need to send the reply here! reply w/ the errno and new location! */
-out_reply:
+out_put:
     mdsl_storage_fd_put(fde);
+out_reply:
     __customized_send_reply(msg, err, location, size);
     
 out:

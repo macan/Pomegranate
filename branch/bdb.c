@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-14 18:20:37 macan>
+ * Time-stamp: <2011-04-22 14:47:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -47,7 +47,8 @@ static int bdb_dir_make_exist(char *path)
     return err;
 }
 
-struct bdb *bdb_open(char *branch_name, char *dbname, char *prefix)
+struct bdb *bdb_open(u64 site_id, char *branch_name, 
+                     char *dbname, char *prefix)
 {
     char db[256];
     struct bdb *bdb;
@@ -59,14 +60,21 @@ struct bdb *bdb_open(char *branch_name, char *dbname, char *prefix)
         return NULL;
     }
 
-    snprintf(db, 255, "%s/%s", HVFS_BP_HOME, branch_name);
+    snprintf(db, 255, "%s/%lx", HVFS_BP_HOME, site_id);
     err = bdb_dir_make_exist(db);
     if (err) {
         return NULL;
     }
 
-    snprintf(db, 255, "%s/%s/%s-%s", HVFS_BP_HOME, branch_name,
-             dbname, prefix);
+    snprintf(db, 255, "%s/%lx/%s", HVFS_BP_HOME, site_id, 
+             branch_name);
+    err = bdb_dir_make_exist(db);
+    if (err) {
+        return NULL;
+    }
+
+    snprintf(db, 255, "%s/%lx/%s/%s-%s", HVFS_BP_HOME, site_id,
+             branch_name, dbname, prefix);
     err = bdb_dir_make_exist(db);
     if (err) {
         return NULL;
@@ -256,6 +264,8 @@ int bdb_db_prepare(struct bdb *bdb, char *db, int flag)
         }
         ddb->db->set_flags(ddb->db, DB_DUPSORT | DB_DUP);
         if (flag & BDB_INTEGER_ULONG) {
+            hvfs_warning(xnet, "ULONG comparing function installed on %s\n",
+                         db);
             err = ddb->db->set_bt_compare(ddb->db, __compare_ulong);
             if (err) {
                 hvfs_err(xnet, "Setup integer ulong btree comparison "
@@ -344,8 +354,8 @@ int bdb_db_put(struct bdb *bdb, struct base *p)
         memcpy(bd->data, p->tag, strlen(p->tag));
         memcpy(bd->data + strlen(p->tag), p->kvs, strlen(p->kvs));
 
-        hvfs_err(xnet, "inserting: tag: %s, kvs: %s\n",
-                 p->tag, p->kvs);
+        hvfs_warning(xnet, "inserting: tag: %s, kvs: %s\n",
+                     p->tag, p->kvs);
 
         memset(&key, 0, sizeof(key));
         memset(&value, 0, sizeof(value));
@@ -375,6 +385,71 @@ int bdb_db_put(struct bdb *bdb, struct base *p)
     err = TXN_COMMIT(txn, 0);
     if (err) {
         hvfs_err(xnet, "Commit TXN %d failed w/ %d\n", 
+                 txn->id(txn), err);
+        goto out;
+    }
+
+out:
+    if (err > 0)
+        err = -err;
+    return err;
+}
+
+/* db_del() delete one TAG from the database
+ */
+int bdb_db_del(struct bdb *bdb, struct base *p)
+{
+    struct dynamic_db *pos = NULL;
+    DB_TXN *txn = NULL;
+    DBT key, value;
+    int err = 0;
+
+    /* traverse the list to search the active database handle */
+    list_for_each_entry(pos, &bdb->dbs, list) {
+        if (strcmp(pos->name, "db_base") == 0) {
+            break;
+        }
+    }
+
+    if (!pos) {
+        hvfs_err(xnet, "Base database is missing, reject any deletes\n");
+        return -EFAULT;
+    }
+
+    /* handle current line, delete it from the base database */
+    err = TXN_BEGIN(bdb->env, NULL, &txn, 0);
+    if (err) {
+        hvfs_err(xnet, "Begin a TXN failed w/ %d\n", err);
+        goto out;
+    }
+
+    {
+        hvfs_warning(xnet, "deleting: tag %s, kvs: %s\n",
+                     p->tag, p->kvs);
+        
+        memset(&key, 0, sizeof(key));
+        memset(&value, 0, sizeof(value));
+
+        key.data = p->tag;
+        key.size = strlen(p->tag);
+
+        err = pos->db->del(pos->db, txn, &key, 0);
+        switch (err) {
+        case 0:
+            /* ok */
+            break;
+        case DB_SECONDARY_BAD:
+            hvfs_err(xnet, "Secondary key nonexistent!\n");
+            break;
+        default:
+            hvfs_err(xnet, "Deleting %s failed w/ %d\n",
+                     p->tag, err);
+        }
+    }
+
+    err = TXN_COMMIT(txn, 0);
+    if (err) {
+        hvfs_err(xnet, "Commit TXN %d failed w/ %d\n",
                  txn->id(txn), err);
         goto out;
     }
@@ -505,7 +580,7 @@ DB *__get_db(struct bdb *bdb, char *dbname)
     memcpy(__dbname + 3, dbname, len);
     __dbname[len + 3] = '\0';
 
-    if (__dbname[0] == '@')
+    if (__dbname[3] == '@')
         err = bdb_db_prepare(bdb, __dbname, BDB_INTEGER_ULONG);
     else
         err = bdb_db_prepare(bdb, __dbname, 0);
@@ -1199,7 +1274,7 @@ int __range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
     DBC *cur;
     DBT key, pkey, value;
     struct set_entry *se;
-    int cflag, err = 0, i = 0, from_last = 0;
+    int cflag, err = 0, i = 0, from_last = 0, research = 0;
     
     memset(&key, 0, sizeof(key));
     memset(&value, 0, sizeof(value));
@@ -1219,8 +1294,18 @@ int __range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
             __put_db(db);
             continue;
         }
+
+        /* check and adjust the OP type */
+        if (pos->attr[0] == '@') {
+            if (IS_AEOP_INSTR(pos->op))
+                AEOP_STR2NUM(pos->op);
+        } else {
+            if (IS_AEOP_INNUM(pos->op))
+                AEOP_NUM2STR(pos->op);
+        }
         
         /* ok, we should insert the entries to tree */
+    restart_search:
         key.data = pos->value;
         key.size = strlen(pos->value);
         memset(&pkey, 0, sizeof(pkey));
@@ -1239,6 +1324,9 @@ int __range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
                     from_last = 1;
                     err = 0;
                     continue;
+                } else if (cflag == DB_NEXT_DUP) {
+                    research = 1;
+                    goto restart_search;
                 }
                 break;
             case 0:
@@ -1266,17 +1354,20 @@ int __range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
                         goto out_close;
                     } else if (d == 0) {
                         /* ignore this entry */
+                        cflag = DB_NEXT;
                         continue;
                     }
                     break;
                 }
                 case AE_LT:
                 {
-                    int d = strcmp(skey, pos->value);
-                    
+                    long d = strcmp(skey, pos->value);
+                    int isfirst;
+
+                    cflag == DB_SET_RANGE ? (isfirst = 1) : (isfirst = 0);
                     cflag = DB_PREV;
                     if (d > 0) {
-                        if (from_last)
+                        if (from_last || isfirst)
                             continue;
                         else
                             goto out_close;
@@ -1292,14 +1383,24 @@ int __range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
                     }
                     break;
                 case AE_LE:
+                {
+                    long d = strcmp(skey, pos->value);
+                    int isfirst;
+
+                    cflag == DB_SET_RANGE ? (isfirst = 1) : (isfirst = 0);
                     cflag = DB_PREV;
-                    if (strcmp(skey, pos->value) > 0) {
-                        if (from_last)
+                    if (d > 0) {
+                        if (from_last || isfirst)
                             continue;
                         else
                             goto out_close;
+                    } else if (d == 0) {
+                        /* we should detect if there is dup entries */
+                        if (!research)
+                            cflag = DB_NEXT_DUP;
                     }
                     break;
+                }
                 case AE_NEQ:
                     if (atol(skey) != atol(pos->value)) {
                         goto out_close;
@@ -1313,6 +1414,7 @@ int __range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
                         goto out_close;
                     } else if (d == 0) {
                         /* ignore this entry */
+                        cflag = DB_NEXT;
                         continue;
                     }
                     break;
@@ -1320,10 +1422,12 @@ int __range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
                 case AE_NLT:
                 {
                     long d = atol(skey) - atol(pos->value);
+                    int isfirst;
                     
+                    cflag == DB_SET_RANGE ? (isfirst = 1) : (isfirst = 0);
                     cflag = DB_PREV;
                     if (d > 0) {
-                        if (from_last)
+                        if (from_last || isfirst)
                             continue;
                         else
                             goto out_close;
@@ -1339,14 +1443,24 @@ int __range_andor(struct bdb *bdb, struct basic_expr *be, void **tree,
                     }
                     break;
                 case AE_NLE:
+                {
+                    long d = atol(skey) - atol(pos->value);
+                    int isfirst;
+
+                    cflag == DB_SET_RANGE ? (isfirst = 1) : (isfirst = 0);
                     cflag = DB_PREV;
-                    if (atol(skey) > atol(pos->value)) {
-                        if (from_last)
+                    if (d > 0) {
+                        if (from_last || isfirst)
                             continue;
                         else
                             goto out_close;
+                    } else if (d == 0) {
+                        /* we should detect if there is dup entries */
+                        if (!research)
+                            cflag = DB_NEXT_DUP;
                     }
                     break;
+                }
                 case AE_NUE:
                     if (atol(skey) == atol(pos->value)) {
                         goto out_close;
@@ -1496,7 +1610,8 @@ out_put:
 }
 
 #else  /* BDB dummy */
-struct bdb *bdb_open(char *branch_name, char *dbname, char *prefix)
+struct bdb *bdb_open(u64 site_id, char *branch_name, 
+                     char *dbname, char *prefix)
 {
     hvfs_err(xnet, "Dummy BDB: open database %s-%s\n", dbname, prefix);
     /* return -EINVAL to pass NULL checking */
@@ -1508,7 +1623,7 @@ void bdb_close(struct bdb *bdb)
     hvfs_err(xnet, "Dummy BDB: close database\n");
 }
 
-int bdb_db_prepare(struct bdb *bdb, char *db)
+int bdb_db_prepare(struct bdb *bdb, char *db, int flag)
 {
     hvfs_err(xnet, "Dummy BDB: prepare database %s\n", db);
     return 0;
@@ -1517,6 +1632,13 @@ int bdb_db_prepare(struct bdb *bdb, char *db)
 int bdb_db_put(struct bdb *bdb, struct base *p)
 {
     hvfs_err(xnet, "Dummy BDB: put KV %s => %s\n",
+             p->tag, p->kvs);
+    return 0;
+}
+
+int bdb_db_del(struct bdb *bdb, struct base *p)
+{
+    hvfs_err(xnet, "Dummy BDB: del KV %s => %s\n",
              p->tag, p->kvs);
     return 0;
 }

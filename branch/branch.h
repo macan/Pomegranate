@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-14 14:59:59 macan>
+ * Time-stamp: <2011-04-16 10:54:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -236,6 +236,23 @@ struct atomic_expr
 #define AE_NUE  11
     u32 op;
 };
+
+#define IS_AEOP_INSTR(op) ({                    \
+            int __res = 0;                      \
+            if (op >= AE_EQ && op <= AE_UE)     \
+                __res = 1;                      \
+            __res;                              \
+        })
+
+#define IS_AEOP_INNUM(op) ({                    \
+            int __res = 0;                      \
+            if (op >= AE_NEQ && op <= AE_NUE)   \
+                __res = 1;                      \
+            __res;                              \
+        })
+
+#define AEOP_STR2NUM(op) ({op += (AE_NEQ - AE_EQ);})
+#define AEOP_NUM2STR(op) ({op += (AE_EQ - AE_NEQ);})
 
 struct basic_expr
 {

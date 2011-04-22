@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-14 11:27:00 macan>
+ * Time-stamp: <2011-04-22 14:20:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -333,7 +333,34 @@ send_rpy:
 /* STATFS */
 void mdsl_statfs(struct xnet_msg *msg)
 {
+    struct statfs *s = (struct statfs *)xzalloc(sizeof(struct statfs));
+    struct iovec iov;
+    int err = 0;
+    
     /* ABI:
-     * tx.arg0:
+     * tx.arg0: None
      */
+
+    if (!s) {
+        hvfs_err(xnet, "xzalloc() statfs failed\n");
+        err = -ENOMEM;
+        goto send_reply;
+    }
+
+    /* digg into the storage directory */
+    err = statfs(HVFS_MDSL_HOME, s);
+    if (err) {
+        hvfs_err(xnet, "digg into storage layer failed w/ %s(%d)\n",
+                 strerror(err), err);
+        xfree(s);
+        goto send_reply;
+    }
+    s->f_files = 0;
+    s->f_ffree = 0;
+    iov.iov_base = s;
+    iov.iov_len = sizeof(*s);
+
+send_reply:
+    __mdsl_send_rpy(msg, &iov, 1, err);
+    xnet_free_msg(msg);
 }

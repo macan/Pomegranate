@@ -374,6 +374,11 @@ Pomegranate TODOs:
 
        PAUSED!
 
+    2. testing with ffsb and there is not enough disk space, finally, 
+       mds and mdsl is not responding. CPU is busy running for I/O and 
+       MDS is in 'D' state which is waiting for I/O complete. This should
+       be a unknown bug with faulty error handling code.
+
 32. FUSE TODOs
 
     1. Add get/setxattr interface to FUSE client, which can exploit our

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-20 21:39:55 macan>
+ * Time-stamp: <2011-04-22 14:23:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3485,6 +3485,23 @@ static int hvfs_statfs_plus(const char *pathname, struct statvfs *stbuf)
                      xg->sites[i].site_id, err);
         }
     }
+    xfree(xg);
+    
+    xg = cli_get_active_site(hmo.chring[CH_RING_MDSL]);
+    if (!xg) {
+        hvfs_err(xnet, "cli_get_active_site() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    for (i = 0; i < xg->asize; i++) {
+        err = __hvfs_statfs(&s, xg->sites[i].site_id);
+        if (err) {
+            hvfs_err(xnet, "Statfs from %lx failed /w %d\n",
+                     xg->sites[i].site_id, err);
+        }
+    }
+    xfree(xg);
 
     s.f_type = HVFS_SUPER_MAGIC;
     s.f_namelen = HVFS_MAX_NAME_LEN;

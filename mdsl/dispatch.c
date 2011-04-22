@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-09 17:00:27 macan>
+ * Time-stamp: <2011-04-22 14:00:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -73,6 +73,9 @@ int mdsl_client_dispatch(struct xnet_msg *msg)
     case HVFS_CLT2MDSL_SYNC:
         break;
     case HVFS_CLT2MDSL_BGSEARCH:
+        break;
+    case HVFS_CLT2MDSL_STATFS:
+        mdsl_statfs(msg);
         break;
     default:
         hvfs_err(mdsl, "Invalid clt2mdsl command: 0x%lx\n", msg->tx.cmd);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-14 16:27:06 macan>
+ * Time-stamp: <2011-04-21 17:07:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2795,7 +2795,8 @@ int branch_dumpbor(char *branch_name, u64 bpsite)
                 bkld = (struct branch_knn_linear_disk *)bore->data;
                 ASSERT(bkd->type == BRANCH_DISK_KNN, xnet);
 
-                if (bkld->flag & BKNN_LINEAR) {
+                if ((bkld->flag & BKNN_LINEAR) ||
+                    (bkld->flag & BKNN_XLINEAR)) {
                     struct branch_knn_linear_entry_disk *bkled;
                     int i;
 
@@ -2915,7 +2916,7 @@ int branch_dumpbor(char *branch_name, u64 bpsite)
  * 3. Several operatores are: 'and/or'
  */
 int branch_search(char *branch_name, u64 bpsite, char *dbname, char *prefix,
-                  char *expr, char **outstr)
+                  char *expr, void **outstr, size_t *outsize)
 {
     struct xnet_msg *msg;
     struct branch_search_expr_tx *bset;
@@ -2990,33 +2991,14 @@ int branch_search(char *branch_name, u64 bpsite, char *dbname, char *prefix,
         hvfs_err(xnet, "Search failed w/ %s(%d)\n",
                  strerror(-err), err);
     } else if (msg->pair->tx.len) {
-        out = xzalloc(msg->pair->tx.len + 1);
+        out = xzalloc(msg->pair->tx.len);
         if (!out) {
             hvfs_err(xnet, "xmalloc() data region failed\n");
             goto out_free;
         }
-#if 0                           /* for production use */
         memcpy(out, msg->pair->xm_data, msg->pair->tx.len);
-#else  /* test only, transform to strings */
-        {
-            struct base_dbs *bd, *end;
-
-            bd = (struct base_dbs *)msg->pair->xm_data;
-            end = (void *)bd + msg->pair->tx.len;
-            *outstr = out;
-            while (bd < end) {
-                memcpy(out, bd->data, bd->tag_len);
-                out += bd->tag_len;
-                *out++ = '\t';
-                memcpy(out, bd->data + bd->tag_len, bd->kvs_len);
-                out += bd->kvs_len;
-                *out++ = '\n';
-                bd = (void *)bd + sizeof(*bd) + bd->tag_len + 
-                    bd->kvs_len;
-            }
-        }
-#endif
-
+        *outstr = out;
+        *outsize = msg->pair->tx.len;
     }
     xnet_set_auto_free(msg->pair);
 
@@ -3028,14 +3010,123 @@ out_close:
     return err;
 }
 
+/* dump the current set of <file, key_value_list>
+ */
+void branch_dumpbase(void *data, size_t size, char **outstr)
+{
+    struct base_dbs *bd, *end;
+    char *out;
+    
+    bd = (struct base_dbs *)data;
+    end = (void *)bd + size;
+    out = xzalloc(size + 1);
+    if (!out) {
+        hvfs_err(xnet, "xzalloc() data region failed\n");
+        return;
+    }
+    *outstr = out;
+    while (bd < end) {
+        memcpy(out, bd->data, bd->tag_len);
+        out += bd->tag_len;
+        *out++ = '\t';
+        memcpy(out, bd->data + bd->tag_len, bd->kvs_len);
+        out += bd->kvs_len;
+        *out++ = '\n';
+        bd = (void *)bd + sizeof(*bd) + bd->tag_len + 
+            bd->kvs_len;
+    }
+}
+
+/* branch_base2fh() translate a base array to file_handle array
+ */
+int branch_base2fh(void *data, size_t size, struct file_handle **ofh, 
+                   int *onr)
+{
+    struct base_dbs *bd, *end;
+    struct file_handle *fh;
+    char *regstr = "^([0-9a-fA-F]+):([^:]*):([0-9a-fA-F]+):([0-9a-fA-F]+)";
+    regex_t reg;
+    regmatch_t pmatch[5];
+    char errbuf[100];
+    int nr = 0, err = 0;
+
+    bd = (struct base_dbs *)data;
+    end = (void *)bd + size;
+    while (bd < end) {
+        nr++;
+        bd = (void *)bd + sizeof(*bd) + bd->tag_len +
+            bd->kvs_len;
+    }
+
+    if (!nr)
+        return 0;
+
+    /* prepare the reg */
+    memset(pmatch, 0, sizeof(pmatch));
+    err = regcomp(&reg, regstr, REG_EXTENDED);
+    if (err) {
+        hvfs_err(xnet, "regcomp regstr failed w/ %d\n", err);
+        return -EINVAL;
+    }
+
+    fh = xzalloc(nr * sizeof(*fh));
+    if (!fh) {
+        hvfs_err(xnet, "xzalloc() file_handle failed\n");
+        err = -ENOMEM;
+        goto out_free;
+    }
+
+    nr = 0;
+    bd = (struct base_dbs *)data;
+    while (bd < end) {
+        char tag[bd->tag_len + 1];
+
+        memcpy(tag, bd->data, bd->tag_len);
+        tag[bd->tag_len] = '\0';
+        err = regexec(&reg, tag, 5, pmatch, 0);
+        if (err == REG_NOMATCH) {
+            hvfs_err(xnet, "regexec '%s' can NOT find a valid file handle\n",
+                     tag);
+            goto bypass;
+        } else if (err) {
+            regerror(err, &reg, errbuf, 100);
+            hvfs_err(xnet, "regexec '%s' failed w/ %s\n", tag, errbuf);
+            goto bypass;
+        }
+        /* parse the fields */
+        fh[nr].puuid = strtoul(tag + pmatch[1].rm_so, NULL, 16);
+        {
+            int nlen = pmatch[2].rm_eo - pmatch[2].rm_so;
+            char name[nlen + 1];
+
+            memcpy(name, tag + pmatch[2].rm_so, nlen);
+            name[nlen] = '\0';
+            fh[nr].name = strdup(name);
+        }
+        fh[nr].uuid = strtoul(tag + pmatch[3].rm_so, NULL, 16);
+        fh[nr].hash = strtoul(tag + pmatch[4].rm_so, NULL, 16);
+        nr++;
+    bypass:
+        bd = (void *)bd + sizeof(*bd) + bd->tag_len +
+            bd->kvs_len;
+    }
+    *ofh = fh;
+    *onr = nr;
+    
+out_free:
+    regfree(&reg);
+    
+    return err;
+}
+
 /* for basic expr string, we expect it look like "[pr]:attr0=xxx [&|]
  * attr1=yyy"
  */
 int __expr_parser(char *expr, struct basic_expr *be)
 {
     char *reg_header = "^[pr]+[ \t]*(:)";
-    char *reg_expr = "[ \t]*([@]*[_a-zA-Z0-9:.]+)[ \t]*([@><=]+)[ \t]*([_a-zA-Z0-9:.]+)";
-    char *reg_op = "[ \t]*([^_a-zA-Z \t]+)";
+    char *reg_expr = "[ \t]*([@]*[_a-zA-Z0-9:.]+)[ \t]*([@><=]+)[ \t]*([_a-zA-Z0-9:.]+)[ \t]*";
+    char *reg_op = "[ \t]*([^_a-zA-Z @\t]+)";
     char *p = expr, *end;
     regex_t hreg, ereg, oreg;
     regmatch_t pmatch[4];
@@ -3196,6 +3287,7 @@ int __expr_parser(char *expr, struct basic_expr *be)
         err = regexec(&oreg, p, 3, pmatch, 0);
         if (err == REG_NOMATCH) {
             /* it is ok, we just stop scan any more items */
+            err = 0;
             break;
         } else if (err) {
             regerror(err, &oreg, errbuf, 100);

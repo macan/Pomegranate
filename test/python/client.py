@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-04-12 14:39:27 macan>
+# Time-stamp: <2011-04-15 19:26:30 macan>
 #
 # Armed with EMACS.
 #
@@ -1161,17 +1161,30 @@ class pamc_shell(cmd.Cmd):
             return
         # ok
         try:
-            c_data = c_char_p(None)
+            c_data = c_void_p(None)
+            c_size = c_uint64(0);
+            c_str = c_char_p(None)
             self.start_clock()
             err = branch.branch_search(c_char_p(l[0]), c_uint64(int(l[1])),
                                        c_char_p(l[2]), c_char_p(l[3]),
-                                       c_char_p(l[4]), byref(c_data))
+                                       c_char_p(l[4]), byref(c_data), 
+                                       byref(c_size))
             if err != 0:
                 print "branch.branch_search() failed w/ %d" % err
                 return
             self.stop_clock()
-            print c_data.value
+            branch.branch_dumpbase(c_data, c_size, byref(c_str))
+            print c_str.value
+            c_data2 = c_void_p(None)
+            c_nr = c_int(0)
+            c_data3 = c_char_p(None)
+            branch.branch_base2fh(c_data, c_size, byref(c_data2), byref(c_nr))
+            api.hvfs_ploop(c_data2, c_nr, api.hvfs_pstat, byref(c_data3), byref(c_size))
+            print c_data3.value
+            api.hvfs_free(c_data3)
+            api.hvfs_free(c_data2)
             api.hvfs_free(c_data)
+            api.hvfs_free(c_str)
             self.echo_clock("Time elasped:")
         except TypeError, te:
             print "TypeError %s" % te
