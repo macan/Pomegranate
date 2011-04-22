@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-15 22:51:01 macan>
+ * Time-stamp: <2011-04-22 11:11:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -203,8 +203,14 @@ int TXG_IS_COMMITED(u64 txg)
 int txg_switch(struct hvfs_mds_info *hmi, struct hvfs_mds_object *hmo)
 {
     struct hvfs_txg *nt;
+    static atomic_t ref = {.counter = 0,};
     int err = 0;
     
+    /* concurrent handling */
+    if (atomic_inc_return(&ref) > 1) {
+        atomic_dec(&ref);
+        return 0;
+    }
     /* alloc a txg */
     nt = txg_alloc();
     if (!nt) {
@@ -230,6 +236,8 @@ int txg_switch(struct hvfs_mds_info *hmi, struct hvfs_mds_object *hmo)
     hmo->txg[TXG_OPEN] = nt;
 
 out:
+    atomic_dec(&ref);
+    
     return err;
 }
 

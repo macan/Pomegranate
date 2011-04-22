@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-14 13:23:22 macan>
+ * Time-stamp: <2011-04-22 10:52:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,7 +36,7 @@ void ite_create(struct hvfs_index *hi, struct ite *e);
 int mds_loadin_control(void)
 {
     if (unlikely(hmo.conf.option & HVFS_MDS_MEMLIMIT)) {
-        if (unlikely(hmo.conf.memlimit < atomic_read(&hmo.ic.csize) *
+        if (unlikely(hmo.conf.memlimit < atomic_read(&hmo.prof.cbht.aitb) *
                      (sizeof(struct itb) + ITB_SIZE * sizeof(struct ite)))) {
             if (!hmo.spool_modify_pause) {
                 hmo.spool_modify_pause = 1;
@@ -1168,7 +1168,7 @@ struct itb *get_free_itb(struct hvfs_txg *txg)
          * control the incoming modify requests */
         if (unlikely(hmo.conf.option & HVFS_MDS_MEMLIMIT)) {
             if (!hmo.spool_modify_pause && 
-                (unlikely(hmo.conf.memlimit <= atomic_read(&hmo.ic.csize) * 
+                (unlikely(hmo.conf.memlimit <= atomic_read(&hmo.prof.cbht.aitb) * 
                           (sizeof(struct itb) + ITB_SIZE * sizeof(struct ite))))) {
                 hmo.spool_modify_pause = 1;
                 hmo.mp_ts = time(NULL);
