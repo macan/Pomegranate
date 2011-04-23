@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-21 10:43:43 macan>
+ * Time-stamp: <2011-04-23 13:08:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -347,10 +347,10 @@ int mdsl_config(void)
     HVFS_MDSL_GET_ENV_atoi(aio_expect_bw, value);
     HVFS_MDSL_GET_ENV_atoi(expection, value);
 
-    HVFS_MDSL_GET_ENV_atol(memlimit, value);
+    HVFS_MDSL_GET_kmg(memlimit, value);
+    HVFS_MDSL_GET_kmg(pcct, value);
     HVFS_MDSL_GET_ENV_atol(fdlimit, value);
     HVFS_MDSL_GET_ENV_atol(mclimit, value);
-    HVFS_MDSL_GET_ENV_atol(pcct, value);
 
     HVFS_MDSL_GET_ENV_option(write_drop, WDROP, value);
     HVFS_MDSL_GET_ENV_option(memlimit, MEMLIMIT, value);

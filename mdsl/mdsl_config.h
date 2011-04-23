@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-03-19 19:16:02 macan>
+ * Time-stamp: <2011-04-23 13:06:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -59,6 +59,23 @@
                 hmo.conf.option |= HVFS_MDSL_##uname;       \
             }                                               \
         }                                                   \
+    } while (0)
+
+#define HVFS_MDSL_GET_kmg(name, value) do {         \
+        double base;                                \
+        char *p;                                    \
+        (value) = getenv("hvfs_mds_" #name);        \
+        if (value) {                                \
+            base = strtod(value, &p);               \
+            if (*p == 'g' || *p == 'G') {           \
+                base *= 1024 * 1024 * 1024;         \
+            } else if (*p == 'm' || *p == 'M') {    \
+                base *= 1024 * 1024;                \
+            } else if (*p == 'k' || *p == 'K') {    \
+                base *= 1024;                       \
+            }                                       \
+            hmo.conf.name = (u64)base;              \
+        }                                           \
     } while (0)
 
 /* APIs */
