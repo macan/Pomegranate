@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-18 09:51:14 macan>
+ * Time-stamp: <2011-04-27 17:35:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -595,6 +595,64 @@ int __aur_txg_wb(struct async_update_request *aur)
     return 0;
 }
 
+int __aur_profile(struct async_update_request *aur)
+{
+    static struct hvfs_profile ghp = {.nr = 0,};
+    struct hvfs_profile diff;
+    struct hvfs_profile *hp = (void *)aur->arg;
+    struct xnet_msg *msg;
+    u64 dsite;
+    int err = 0, i;
+
+    /* if hp has not been inited, we do not send it */
+    if (!hp->nr || !hp->hpv[0].value || !(hp->flag & HP_UP2DATE))
+        return 0;
+
+    if (!ghp.nr) {
+        diff = ghp = *hp;
+        /* reset time stamp to ZERO */
+        diff.hpv[0].value = 0;
+    } else {
+        diff = *hp;
+        for (i = 0; i < hp->nr; i++) {
+            diff.hpv[i].value -= ghp.hpv[i].value;
+        }
+        ghp = *hp;
+    }
+
+    /* reset the flag now */
+    hp->flag &= (~HP_UP2DATE);
+
+    /* prepare the xnet_msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(mds, "xnet_alloc_msg() failed.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    
+    /* send this profile to r2 server */
+    dsite = mds_select_ring(&hmo);
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0, hmo.site_id, dsite);
+    xnet_msg_fill_cmd(msg, HVFS_R2_PROFILE, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &diff, sizeof(diff));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(mds, "Profile request to R2(%lx) failed w/ %d\n",
+                 dsite, err);
+        goto out_free_msg;
+    }
+
+out_free_msg:
+    xnet_free_msg(msg);
+out:
+    return err;
+}
+
 int __au_req_handle(void)
 {
     struct async_update_request *aur = NULL, *n;
@@ -629,6 +687,9 @@ int __au_req_handle(void)
         break;
     case AU_DIR_DELTA_REPLY:
         err = __aur_dir_delta_reply(aur);
+        break;
+    case AU_PROFILE:
+        err = __aur_profile(aur);
         break;
         /* the following is the BRANCH used async operations */
     default:

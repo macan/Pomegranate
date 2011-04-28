@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-22 14:33:13 macan>
+ * Time-stamp: <2011-04-28 15:18:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -509,6 +509,10 @@ resend:
         goto out;
     }
 
+    /* Reply ABI:
+     * @tx.arg0: network magic
+     */
+
     /* this means we have got the reply, parse it! */
     ASSERT(msg->pair, xnet);
     if (msg->pair->tx.err == -ERECOVER) {
@@ -623,6 +627,9 @@ resend:
         if (err) {
             hvfs_err(xnet, "hst to xsst failed w/ %d\n", err);
         }
+
+        /* set network magic */
+        xnet_set_magic(msg->pair->tx.arg0);
     }
     
 out:
@@ -949,10 +956,11 @@ int __core_main(int argc, char *argv[])
     int thread = 1;
     int fsid = 1;               /* default to fsid 1 for kv store */
     int use_branch = 0;
+    int loop_reg = 0;
     char *r2_ip = NULL;
     char *type = NULL;
     short r2_port = HVFS_R2_DEFAULT_PORT;
-    char *shortflags = "d:p:t:h?r:y:f:b";
+    char *shortflags = "d:p:t:h?r:y:f:bl";
     struct option longflags[] = {
         {"id", required_argument, 0, 'd'},
         {"port", required_argument, 0, 'p'},
@@ -961,6 +969,7 @@ int __core_main(int argc, char *argv[])
         {"type", required_argument, 0, 'y'},
         {"fsid", required_argument, 0, 'f'},
         {"branch", no_argument, 0, 'b'},
+        {"loop", no_argument, 0, 'l'},
         {"help", no_argument, 0, '?'},
     };
     char profiling_fname[256];
@@ -991,6 +1000,11 @@ int __core_main(int argc, char *argv[])
             break;
         case 'b':
             use_branch = 1;
+            hvfs_warning(xnet, "Note that __core_main do NOT init branch subsystem, "
+                         "it is your responsibility to init it!\n");
+            break;
+        case 'l':
+            loop_reg = 1;
             break;
         case 'h':
         case '?':
@@ -1095,8 +1109,16 @@ int __core_main(int argc, char *argv[])
     hmo.cb_exit = amc_cb_exit;
     hmo.cb_ring_update = amc_cb_ring_update;
     hmo.cb_addr_table_update = amc_cb_addr_table_update;
+reg_loop_forever:
     err = r2cli_do_reg(self, HVFS_RING(0), fsid, 0);
-    if (err) {
+    if (loop_reg &&
+        (err == -EAGAIN ||
+         err == -ECONNREFUSED ||
+         err == -EINTR ||
+         err == -ENETUNREACH ||
+         err == -ETIMEDOUT)) {
+        goto reg_loop_forever;
+    } else if (err) {
         hvfs_err(xnet, "ref self %x w/ r2 %x failed w/ %d\n",
                  self, HVFS_RING(0), err);
         goto out;
@@ -5012,7 +5034,7 @@ int __hvfs_readdir(u64 duuid, u64 salt, char **buf)
             hi.psalt = salt;
             hi.hash = -1UL;
             hi.itbid = itbid;
-            hi.flag = INDEX_BY_ITB;
+            hi.flag = INDEX_BY_ITB | INDEX_LOOKUP;
 
             dsite = SELECT_SITE(itbid, hi.psalt, CH_RING_MDS, &vid);
             msg = xnet_alloc_msg(XNET_MSG_NORMAL);
@@ -5874,7 +5896,7 @@ int __hvfs_is_empty_dir(u64 duuid, u64 salt, struct hstat *hs)
             hi.psalt = salt;
             hi.hash = -1UL;
             hi.itbid = itbid;
-            hi.flag = INDEX_BY_ITB;
+            hi.flag = INDEX_LOOKUP | INDEX_BY_ITB;
 
             dsite = SELECT_SITE(itbid, hi.psalt, CH_RING_MDS, &vid);
             msg = xnet_alloc_msg(XNET_MSG_NORMAL);

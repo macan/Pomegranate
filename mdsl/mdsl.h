@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-22 14:24:37 macan>
+ * Time-stamp: <2011-04-28 16:19:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@
 #include "lib.h"
 #include "ring.h"
 #include "mdsl_config.h"
+#include "profile.h"
 
 #ifdef HVFS_TRACING
 extern u32 hvfs_mdsl_tracing_flags;
@@ -290,11 +291,16 @@ struct mdsl_conf
     int rread_max;              /* the concurrent random read max value */
     u32 aio_sync_len;           /* sync chunnk size for AIO */
     u32 aio_expect_bw;          /* user expected IO bandwidth per disk */
+#define MDSL_PROF_NONE          0x00
+#define MDSL_PROF_PLOT          0x01
+#define MDSL_PROF_HUMAN         0x02
+#define MDSL_PROF_R2            0x03
     u8 prof_plot;               /* do we dump profilings for gnuplot */
 
     /* intervals */
     int profiling_thread_interval;
-    int gc_interval;
+    int gc_interval;            /* garbage collection interval */
+    int hb_interval;            /* heart beat interval */
 
     /* conf */
 #define HVFS_MDSL_WDROP         0x01 /* drop all the writes to this MDSL */
@@ -326,6 +332,9 @@ struct hvfs_mdsl_object
 #define HMO_STATE_RDONLY        0x03
     u32 state;
 
+    u64 ring_site;
+    time_t tick;                /* tick of this MDSL */
+
     /* the following region is used for threads */
     sem_t timer_sem;            /* for timer thread wakeup */
     atomic64_t pending_ios;     /* pending IOs */
@@ -334,12 +343,18 @@ struct hvfs_mdsl_object
     pthread_t *spool_thread;    /* array of service threads */
     pthread_t *aio_thread;      /* array of aio threads */
 
-    u8 timer_thread_stop;       /* running flag for timer thread */
-    u8 spool_thread_stop;       /* running flag for service thread */
-    u8 aio_thread_stop;         /* running flag for aio thread */
+    /* mdsl profiling array */
+    struct hvfs_profile hp;
+
+    u32 timer_thread_stop:1;    /* running flag for timer thread */
+    u32 spool_thread_stop:1;    /* running flag for service thread */
+    u32 aio_thread_stop:1;      /* running flag for aio thread */
 
     /* callback functions */
     void (*cb_exit)(void *);
+    void (*cb_hb)(void *);
+    void (*cb_ring_update)(void *);
+    void (*cb_addr_table_update)(void *);
 };
 
 extern struct hvfs_mdsl_info hmi;
@@ -351,6 +366,10 @@ void mdsl_help(void);
 int mdsl_verify(void);
 int mdsl_init(void);
 void mdsl_destroy(void);
+u64 mdsl_select_ring(struct hvfs_mdsl_object *);
+void mdsl_set_ring(u64);
+int mdsl_ring_update(struct xnet_msg *);
+int mdsl_addr_table_update(struct xnet_msg *);
 
 /* spool.c */
 int mdsl_spool_create(void);
@@ -393,7 +412,7 @@ void mdsl_write(struct xnet_msg *);
 void mdsl_statfs(struct xnet_msg *);
 
 /* prof.c */
-void mdsl_dump_profiling(time_t);
+void mdsl_dump_profiling(time_t, struct hvfs_profile *hp);
 
 /* tcc.c */
 int mdsl_tcc_init(void);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-09 15:28:51 macan>
+ * Time-stamp: <2011-04-28 14:11:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1338,6 +1338,7 @@ int root_mgr_lookup_create2(struct root_mgr *rm, u64 fsid,
             if (err == -ENOENT) {
                 hvfs_err(root, "fsid %ld not exist, however we just "
                          "create it\n", fsid);
+                re->magic = lib_random(0xe) + 1; /* in [1,15] */
                 re->gdt_uuid = 0;
                 re->gdt_salt = lib_random(0xffdefa7);
                 re->root_uuid = 1;
@@ -2357,6 +2358,7 @@ int root_read_re(struct root_entry *re)
         re->root_salt = rd.root_salt;
         re->gdt_flen = rd.gdt_flen;
         re->gdt_bitmap = bitmap;
+        re->magic = rd.magic;
     }
 
 out:
@@ -2396,6 +2398,7 @@ int root_write_re(struct root_entry *re)
     rd.root_uuid = re->root_uuid;
     rd.root_salt = re->root_salt;
     rd.gdt_flen = re->gdt_flen;
+    rd.magic = re->magic;
 
     bl = 0;
     do {

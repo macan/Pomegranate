@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-11 15:34:34 macan>
+ * Time-stamp: <2011-04-28 15:05:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -327,7 +327,7 @@ int mds_fe_dispatch(struct xnet_msg *msg)
             goto out;
         }
         
-        /* fast path for statfs */
+        /* fast path for statfs/readdir/release */
         if (unlikely(msg->tx.cmd & HVFS_CLT2MDS_NODHLOOKUP)) {
             return mds_client_dispatch(msg);
         }

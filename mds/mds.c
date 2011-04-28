@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-09 13:44:10 macan>
+ * Time-stamp: <2011-04-26 10:51:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -198,7 +198,7 @@ void mds_itimer_default(int signo, siginfo_t *info, void *arg)
     /* Note that, we must check the profiling interval at here, otherwise
      * checking the profiling interval at timer_thread will lost some
      * statistics */
-    dump_profiling(cur);
+    dump_profiling(cur, &hmo.hp);
     hmo.tick = cur;
     hvfs_verbose(mds, "Did this signal handler called?\n");
 
@@ -289,7 +289,7 @@ static void *mds_timer_thread_main(void *arg)
             txg_changer(cur);
         }
         /* then, checking profiling */
-        dump_profiling(cur);
+        dump_profiling(cur, &hmo.hp);
         /* next, itb checking */
         mds_spool_mp_check(cur);
         /* next, checking async unlink */

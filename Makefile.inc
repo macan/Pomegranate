@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-04-14 12:32:40 macan>
+# Time-stamp: <2011-04-26 15:45:59 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -130,14 +130,15 @@ MDSL_AR_SOURCE = mdsl.c spool.c tcc.c dispatch.c m2ml.c prof.c storage.c \
 LIB_AR_SOURCE = lib.c ring.c time.c bitmap.c xlock.c segv.c conf.c md5.c \
                 embedpy.c minilzo.c
 XNET_AR_SOURCE = xnet.c xnet_simple.c
-R2_AR_SOURCE = mgr.c root.c spool.c x2r.c dispatch.c bparser.c cli.c
+R2_AR_SOURCE = mgr.c root.c spool.c x2r.c dispatch.c bparser.c cli.c \
+               profile.c
 API_AR_SOURCE = api.c
 BRANCH_AR_SOURCE = branch.c bp.c bdb.c
 
 INC_H_SOURCE = atomic.h err.h hvfs.h hvfs_common.h hvfs_const.h hvfs_k.h \
 				hvfs_u.h ite.h mds_api.h mdsl_api.h memory.h site.h tx.h \
 				tracing.h txg.h xhash.h xlist.h xlock.h xnet.h xtable.h \
-				xprof.h hvfs_addr.h
+				xprof.h hvfs_addr.h profile.h
 MDS_H_SOURCE = mds.h cbht.h dh.h itb.h prof.h async.h bitmapc.h mds_config.h ft.h
 MDSL_H_SOURCE = mdsl.h lprof.h mdsl_config.h
 R2_H_SOURCE = root.h mgr.h root_config.h rprof.h

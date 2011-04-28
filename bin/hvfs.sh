@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-04-22 11:31:49 macan>
+# Time-stamp: <2011-04-28 14:44:42 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -86,10 +86,22 @@ ROOT_CMD="create=0 mode=1 hvfs_root_hb_interval=10"
 #Construct the mdsl command line
 if [ -e $HVFS_HOME/conf/mdsl.conf ]; then
     # Using the config file
-    ARGS=`cat $HVFS_HOME/conf/mdsl.conf | grep -v "^ *#" | grep -v "^$"`
-    MDSL_CMD=`echo $ARGS`
+    if [ "x$MODE" == "xfs" ]; then
+        ARGS=`cat $HVFS_HOME/conf/mdsl.conf | grep -v "^ *#" | grep -v "^$" | grep -v "fsid="`
+        MDSL_CMD="fsid=0 "`echo $ARGS`
+    elif [ "x$MODE" == "xkv" ]; then
+        ARGS=`cat $HVFS_HOME/conf/mdsl.conf | grep -v "^ *#" | grep -v "^$" | grep -v "fsid="`
+        MDSL_CMD="fsid=1 "`echo $ARGS`
+    else
+        ARGS=`cat $HVFS_HOME/conf/mdsl.conf | grep -v "^ *#" | grep -v "^$"`
+        MDSL_CMD=`echo $ARGS`
+    fi
 else
-    MDSL_CMD="mode=1 hvfs_mdsl_prof_plot=1 hvfs_mdsl_opt_write_drop=0"
+    if [ "x$MODE" == "xfs" ]; then
+        MDSL_CMD="fsid=0 mode=1 hvfs_mdsl_prof_plot=1 hvfs_mdsl_opt_write_drop=0"
+    else
+        MDSL_CMD="fsid=1 mode=1 hvfs_mdsl_prof_plot=1 hvfs_mdsl_opt_write_drop=0"
+    fi
 fi
 
 # Construct the mds command line
@@ -200,7 +212,7 @@ function start_root() {
             id=`echo $x | awk -F: '{print $2}'`
             port=`echo $x | awk -F: '{print $3}'`
             $SSH $UN$ip "$ROOT_CMD $HVFS_HOME/test/xnet/root.ut $id $CONFIG_FILE $port > $LOG_DIR/root.$id.log" > /dev/null &
-            echo "Start R2 server %id done. Waiting for 5 seconds to clean up latest instance..."
+            echo "Start R2 server $id done. Waiting for 5 seconds to clean up latest instance..."
         done
     fi
     sleep 5

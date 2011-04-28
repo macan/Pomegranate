@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-09 18:04:36 macan>
+ * Time-stamp: <2011-04-26 16:39:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -179,6 +179,13 @@ int main(int argc, char *argv[])
 
     st_init();
     root_pre_init();
+
+    /* setup the profiling file */
+    memset(profiling_fname, 0, sizeof(profiling_fname));
+    sprintf(profiling_fname, "./CP-BACK-root.%d", self);
+    hro.conf.profiling_file = strdup(profiling_fname);
+    hro.conf.prof_plot = ROOT_PROF_PLOT;
+    
     err = root_init();
     if (err) {
         hvfs_err(xnet, "root_init() failed w/ %d\n", err);
@@ -187,16 +194,6 @@ int main(int argc, char *argv[])
 
     /* init misc configurations */
     hro.prof.xnet = &g_xnet_prof;
-
-    /* setup the profiling file */
-    memset(profiling_fname, 0, sizeof(profiling_fname));
-    sprintf(profiling_fname, "./CP-BACK-root.%d", self);
-    hro.conf.pf_file = fopen(profiling_fname, "w+");
-    if (!hro.conf.pf_file) {
-        hvfs_err(xnet, "fopen() profiling file %s faield %d\n",
-                 profiling_fname, errno);
-        return EINVAL;
-    }
 
     if (sport == -1)
         sport = port[TYPE_RING][self];

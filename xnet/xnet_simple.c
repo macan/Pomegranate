@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-17 18:57:43 macan>
+ * Time-stamp: <2011-04-28 14:53:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,12 +45,19 @@ u64 __attribute__((unused)) g_sc = 0;
 #define SEND_TIMEOUT            (120)
 #define SIOV_NR                 (50)
 struct xnet_conf g_xnet_conf = {
-    .enable_resend = 0,
     .resend_timeout = RESEND_TIMEOUT,
     .send_timeout = SEND_TIMEOUT,
     .siov_nr = SIOV_NR,
+    .magic = 0,
+    .enable_resend = 0,
     .pause = 0,
 };
+
+void xnet_set_magic(u8 magic)
+{
+    g_xnet_conf.magic = magic & 0x0f;
+    hvfs_info(xnet, "Set XNET MAGIC to 0x%x\n", g_xnet_conf.magic);
+}
 
 /* First, how do we handle the site_id to ip address translation?
  */
@@ -482,6 +489,11 @@ int __xnet_handle_tx(int fd)
     }
     
 processing:
+    /* check magic: if our magic is ZERO, we accept all requests */
+    if (likely(g_xnet_conf.magic && msg->tx.magic)) {
+        if (unlikely(msg->tx.magic != g_xnet_conf.magic))
+            goto out_free;
+    }
     /* find the related msg */
     if (msg->tx.type == XNET_MSG_REQ) {
         /* this is a fresh requst msg, just receive the data */
@@ -767,7 +779,7 @@ int st_lookup(struct site_table *st, struct xnet_site **xs, u64 site_id)
 {
     *xs = st->site[site_id];
     if (unlikely(!(*xs))) {
-        hvfs_debug(xnet, "The site_id(%lx) is not mapped.\n", site_id);
+        hvfs_err(xnet, "The site_id(%lx) is not mapped.\n", site_id);
         return -1;
     }
     return 0;
@@ -775,6 +787,7 @@ int st_lookup(struct site_table *st, struct xnet_site **xs, u64 site_id)
 
 /* st_update() update the relationship
  */
+static inline
 int st_update(struct site_table *st, struct xnet_site *xs, u64 site_id)
 {
     struct xnet_site *t;
@@ -788,6 +801,7 @@ int st_update(struct site_table *st, struct xnet_site *xs, u64 site_id)
     return 0;
 }
 
+static inline
 void st_dump(struct site_table *st)
 {
     struct xnet_addr *xa;
@@ -801,7 +815,10 @@ void st_dump(struct site_table *st)
             list_for_each_entry(xa, &st->site[i]->addr, list) {
                 xlock_lock(&xa->lock);
                 for (j = 0; j < xa->index; j++) {
-                    hvfs_info(xnet, "Site %x @ %d => %d.\n", i, j, xa->sockfd[j]);
+                    hvfs_info(xnet, "Site %x @ %4d => %d via (%s).\n", 
+                              i, j, xa->sockfd[j],
+                              inet_ntoa(((struct sockaddr_in *)
+                                         (&xa->sa))->sin_addr));
                 }
                 xlock_unlock(&xa->lock);
             }
@@ -845,7 +862,10 @@ void st_list(char *type)
             list_for_each_entry(xa, &gst.site[i]->addr, list) {
                 xlock_lock(&xa->lock);
                 for (j = 0; j < xa->index; j++) {
-                    hvfs_info(xnet, "\t @ %d => %d.\n", j, xa->sockfd[j]);
+                    hvfs_info(xnet, "\t @ %d => %5d via (%s).\n", j, 
+                              xa->sockfd[j],
+                              inet_ntoa(((struct sockaddr_in *)
+                                         (&xa->sa))->sin_addr));
                 }
                 xlock_unlock(&xa->lock);
             }
@@ -1729,6 +1749,9 @@ int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
         hvfs_err(xnet, "Warning: target site is the original site, BYPASS?\n");
     }
 
+    /* Setup our magic now */
+    msg->tx.magic = g_xnet_conf.magic;
+    
     if (unlikely(g_xnet_conf.enable_resend)) {
         if (msg->tx.flag & XNET_NEED_RESEND ||
             msg->tx.flag & XNET_NEED_REPLY) {
@@ -2514,6 +2537,28 @@ int hst_addto_xsst(struct hvfs_site_tx *hst)
     }
 
     return 0;
+}
+
+/* Print current hst table
+ */
+void st_print(void)
+{
+    struct xnet_addr *xa;
+    int i;
+
+    for (i = 0; i < (1 << 20); i++) {
+        if (gst.site[i]) {
+            hvfs_info(xnet, "Site %x via (", i);
+            list_for_each_entry(xa, &gst.site[i]->addr, list) {
+                hvfs_plain(xnet, "%s:%d, ",
+                           inet_ntoa(((struct sockaddr_in *)
+                                      (&xa->sa))->sin_addr),
+                           ntohs(((struct sockaddr_in *)
+                                  (&xa->sa))->sin_port));
+            }
+            hvfs_plain(xnet, ")\n");
+        }
+    }
 }
 
 #endif

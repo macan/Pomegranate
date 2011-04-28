@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-11 15:40:56 macan>
+ * Time-stamp: <2011-04-28 14:04:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -301,6 +301,8 @@ int root_do_reg(struct xnet_msg *msg)
         err = PTR_ERR(root);
         goto send_rpy;
     }
+    /* set communication magic to arg0 */
+    rpy->tx.arg0 = root->magic;
 
     root_tx = (void *)root + sizeof(root->hlist);
     err = __pack_msg(rpy, root_tx, sizeof(*root_tx));
@@ -1274,3 +1276,45 @@ out:
 
     return err;
 }
+
+/* do_profile() handles the profile response from MDS and MDSL
+ */
+int root_do_profile(struct xnet_msg *msg)
+{
+    struct hvfs_profile *hp;
+    int err = 0;
+
+    if (msg->tx.len < sizeof(*hp) ||
+        !msg->xm_datacheck) {
+        hvfs_err(root, "Invalid profile request from site %lx\n",
+                 msg->tx.ssite_id);
+        err = -EINVAL;
+        goto out;
+    }
+    hp = msg->xm_data;
+    
+    /* extract the profile */
+    if (HVFS_IS_MDS(msg->tx.ssite_id)) {
+        err = root_profile_update_mds(hp, msg);
+    } else if (HVFS_IS_MDSL(msg->tx.ssite_id)) {
+        err = root_profile_update_mdsl(hp, msg);
+    } else if (HVFS_IS_BP(msg->tx.ssite_id)) {
+        err = root_profile_update_bp(hp, msg);
+    } else if (HVFS_IS_CLIENT(msg->tx.ssite_id)) {
+        err = root_profile_update_client(hp, msg);
+    } else {
+        hvfs_err(root, "Invalid source site(%lx), type is ??\n",
+                 msg->tx.ssite_id);
+        err = -EINVAL;
+    }
+    if (err) {
+        hvfs_err(root, "Profile request(%lx) handling failed w/ %d\n",
+                 msg->tx.ssite_id, err);
+    }
+    
+out:
+    xnet_free_msg(msg);
+
+    return err;
+}
+

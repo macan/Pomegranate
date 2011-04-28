@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-23 13:08:00 macan>
+ * Time-stamp: <2011-04-28 18:29:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -122,7 +122,14 @@ out:
 
 void mdsl_itimer_default(int signo, siginfo_t *info, void *arg)
 {
+    u64 cur = time(NULL);
+    
     sem_post(&hmo.timer_sem);
+    /* Note that, we must check the profiling interval at here, otherwise
+     * checking the profiling interval at timer_thread will lost some
+     * statistics */
+    mdsl_dump_profiling(cur, &hmo.hp);
+    hmo.tick = cur;
     hvfs_verbose(mdsl, "Did this signal handler called?\n");
 
     return;
@@ -154,6 +161,19 @@ static int __gcd(int m, int n)
     return m;
 }
 
+void mdsl_hb_wrapper(time_t t)
+{
+    static time_t prev = 0;
+
+    if (!hmo.cb_hb)
+        return;
+
+    if (t < prev + hmo.conf.hb_interval)
+        return;
+    prev = t;
+    hmo.cb_hb(&hmo);
+}
+
 static void *mdsl_timer_thread_main(void *arg)
 {
     sigset_t set;
@@ -176,7 +196,7 @@ static void *mdsl_timer_thread_main(void *arg)
         hvfs_debug(mdsl, "OK, we receive a SIGALRM event(remain %d).\n", v);
         cur = time(NULL);
         /* should we work now */
-        mdsl_dump_profiling(cur);
+        mdsl_dump_profiling(cur, &hmo.hp);
         /* change the SYNC_SIZE to adjust the bandwidth */
         aio_tune_bw();
         /* check the pending IOs */
@@ -185,6 +205,8 @@ static void *mdsl_timer_thread_main(void *arg)
         mdsl_storage_fd_limit_check(cur);
         /* keep page cache clean if there are a lot of page cache entries */
         mdsl_storage_fd_pagecache_cleanup();
+        /* do heart beat */
+        mdsl_hb_wrapper(cur);
     }
 
     hvfs_debug(mdsl, "Hooo, I am exiting...\n");
@@ -223,6 +245,7 @@ int mdsl_setup_timers(void)
     }
     interval = __gcd(hmo.conf.profiling_thread_interval,
                      hmo.conf.gc_interval);
+    interval = __gcd(interval, hmo.conf.hb_interval);
     if (interval) {
         value.it_interval.tv_sec = interval;
         value.it_interval.tv_usec = 0;
@@ -368,10 +391,12 @@ int mdsl_config(void)
         hmo.conf.profiling_thread_interval = 5;
     if (!hmo.conf.gc_interval)
         hmo.conf.gc_interval = 5;
+    if (!hmo.conf.hb_interval)
+        hmo.conf.hb_interval = 60;
 
     /* set default chunk if not setted. */
-    hmo.conf.itb_file_chunk &= ~(getpagesize() - 1);
-    hmo.conf.data_file_chunk &= ~(getpagesize() - 1);    
+    hmo.conf.itb_file_chunk &= ~((u64)getpagesize() - 1);
+    hmo.conf.data_file_chunk &= ~((u64)getpagesize() - 1);
     if (!hmo.conf.itb_file_chunk ||
         hmo.conf.itb_file_chunk < getpagesize())
         hmo.conf.itb_file_chunk = MDSL_STORAGE_ITB_DEFAULT_CHUNK;
@@ -530,4 +555,49 @@ void mdsl_destroy(void)
     /* you should wait for the storage destroied and exit the AIO threads */
     mdsl_aio_destroy();
     
+}
+
+u64 mdsl_select_ring(struct hvfs_mdsl_object *hmo)
+{
+    if (hmo->ring_site)
+        return hmo->ring_site;
+    else
+        return HVFS_RING(0);
+}
+
+void mdsl_set_ring(u64 site_id)
+{
+    hmo.ring_site = site_id;
+}
+
+int mdsl_ring_update(struct xnet_msg *msg)
+{
+    if (msg->xm_datacheck) {
+        /* ok, we should call the ring update callback function */
+        if (hmo.cb_ring_update)
+            hmo.cb_ring_update(msg->xm_data);
+    } else {
+        hvfs_err(mdsl, "Invalid data region of ring update request from %ld\n",
+                 msg->tx.ssite_id);
+        return -EINVAL;
+    }
+
+    xnet_free_msg(msg);
+
+    return 0;
+}
+
+int mdsl_addr_table_update(struct xnet_msg *msg)
+{
+    if (msg->xm_datacheck) {
+        if (hmo.cb_addr_table_update)
+            hmo.cb_addr_table_update(msg->xm_data);
+    } else {
+        hvfs_err(mdsl, "Invalid addr table update message, incomplete hst!\n");
+        return -EINVAL;
+    }
+
+    xnet_free_msg(msg);
+
+    return 0;
 }

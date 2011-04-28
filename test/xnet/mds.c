@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-11 10:53:43 macan>
+ * Time-stamp: <2011-04-28 14:14:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -759,6 +759,10 @@ resend:
         goto out;
     }
 
+    /* Reply ABI:
+     * @tx.arg0: network magic
+     */
+
     /* this means we have got the reply, parse it! */
     ASSERT(msg->pair, xnet);
     if (msg->pair->tx.err == -ERECOVER) {
@@ -866,6 +870,9 @@ resend:
 
         /* add to the ft module */
         ft_update_active_site(hmo.chring[CH_RING_MDS]);
+
+        /* set network magic */
+        xnet_set_magic(msg->pair->tx.arg0);
     }
     
 out:
@@ -1070,7 +1077,7 @@ int main(int argc, char *argv[])
     };
     int err = 0;
     int self, sport = -1, i, j;
-    int memonly, memlimit, mode;
+    int memonly, memlimit, mode, plot_method;
     char *value;
     char *ring_ip = NULL;
     char profiling_fname[256];
@@ -1116,11 +1123,17 @@ int main(int argc, char *argv[])
     } else
         fsid = 0;
 
+    value = getenv("plot");
+    if (value) {
+        plot_method = atoi(value);
+    } else
+        plot_method = MDS_PROF_PLOT;
+
     st_init();
     mds_pre_init();
     hmo.prof.xnet = &g_xnet_prof;
     hmo.conf.itbid_check = 1;
-    hmo.conf.prof_plot = 1;
+    hmo.conf.prof_plot = plot_method;
     hmo.conf.option |= HVFS_MDS_NOSCRUB;
     hmo.cb_branch_init = mds_cb_branch_init;
     hmo.cb_branch_destroy = mds_cb_branch_destroy;

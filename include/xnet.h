@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-17 13:43:36 macan>
+ * Time-stamp: <2011-04-28 13:53:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,8 +26,10 @@
 
 struct xnet_msg_tx 
 {
-    u8 version;                 /* the protocol version: but we only use the
+    u8 version:4;               /* the protocol version: but we only use the
                                  * low 4 bits :) */
+    u8 magic:4;                 /* per-instance magic to detect corrupt
+                                 * messages */
 #define XNET_MSG_NOP    0
 #define XNET_MSG_REQ    1
 #define XNET_MSG_RPY    2
@@ -140,6 +142,9 @@ struct xnet_group
 };
 
 /* APIs */
+/* Note: this branch only concern xnet_simple, thus we add more arguments to
+ * it!
+ */
 #ifdef USE_XNET_SIMPLE
 struct xnet_context *xnet_register_type(u8, u16, u64, struct xnet_type_ops *);
 struct xnet_context *xnet_register_lw(u8, u16, u64, struct xnet_type_ops *);
@@ -147,11 +152,12 @@ int xnet_resend(struct xnet_context *xc, struct xnet_msg *m);
 int xnet_resend_remove(struct xnet_msg *msg);
 struct xnet_conf 
 {
-    int enable_resend;
     int resend_timeout;
     int send_timeout;
     int siov_nr;
-    int pause;
+    u32 magic:4;                /* magic we should use */
+    u32 enable_resend:1;
+    u32 pause:1;
 };
 #else
 struct xnet_context *xnet_register_type(u8, struct xnet_type_ops *);
@@ -179,6 +185,8 @@ void xnet_msg_free_rdata(struct xnet_msg *);
 int xnet_send(struct xnet_context *xc, struct xnet_msg *m);
 
 #define xnet_msg_set_site(m, id) ((m)->tx.dsite_id = id)
+
+void xnet_set_magic(u8 magic);
 
 static inline 
 void xnet_msg_fill_cmd(struct xnet_msg *m, u64 cmd, u64 arg0, u64 arg1) 
@@ -235,10 +243,12 @@ int xnet_update_ipaddr(u64, int, char *ipaddr[], short port[]);
 int hst_to_xsst(void *, int);
 u64 hst_find_free(u64);
 void xnet_wait_any(struct xnet_context *xc);
+void st_print(void);
 #else
 /* To eliminate warnings */
 int hst_to_xsst(void *, int);
 u64 hst_find_free(u64);
+void st_print(void);
 #endif
 
 /* XNET Group management */

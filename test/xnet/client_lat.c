@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-16 11:39:24 macan>
+ * Time-stamp: <2011-04-28 14:17:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2356,6 +2356,10 @@ resend:
         goto out;
     }
 
+    /* Reply ABI:
+     * @tx.arg0: network magic
+     */
+
     /* this means we have got the reply, parse it! */
     ASSERT(msg->pair, xnet);
     if (msg->pair->tx.err == -ERECOVER) {
@@ -2464,6 +2468,9 @@ resend:
         if (err) {
             hvfs_err(root, "hst to xsst failed w/ %d\n", err);
         }
+
+        /* set network magic */
+        xnet_set_magic(msg->pair->tx.arg0);
     }
     
 out:

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-09 19:13:15 macan>
+ * Time-stamp: <2011-04-28 16:23:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -209,6 +209,10 @@ resend:
         goto out;
     }
 
+    /* Reply ABI:
+     * @tx.arg0: network magic
+     */
+
     /* this means we have got the reply, parse it! */
     ASSERT(msg->pair, xnet);
     if (msg->pair->tx.err == -ERECOVER) {
@@ -314,6 +318,9 @@ resend:
         if (err) {
             hvfs_err(root, "hst to xsst failed w/ %d\n", err);
         }
+
+        /* set network magic */
+        xnet_set_magic(msg->pair->tx.arg0);
     }
     
 out:
@@ -375,6 +382,49 @@ out_nofree:
     return err;
 }
 
+/* r2cli_do_hb()
+ *
+ * @gid: already right shift 2 bits
+ */
+static
+int r2cli_do_hb(u64 request_site, u64 root_site, u64 fsid, u32 gid)
+{
+    struct xnet_msg *msg;
+    union hvfs_x_info *hxi;
+    int err = 0;
+
+    hxi = (union hvfs_x_info *)&hmi;
+    
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_nofree;
+    }
+
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0,
+                     hmo.xc->site_id, root_site);
+    xnet_msg_fill_cmd(msg, HVFS_R2_HB, request_site, fsid);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, hxi, sizeof(*hxi));
+
+    msg->tx.reserved = gid;
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out;
+    }
+out:
+    xnet_free_msg(msg);
+out_nofree:
+    
+    return err;
+}
+
 void mdsl_cb_exit(void *arg)
 {
     int err = 0;
@@ -387,6 +437,53 @@ void mdsl_cb_exit(void *arg)
     }
 }
 
+void mdsl_cb_hb(void *arg)
+{
+    u64 ring_site;
+    int err = 0;
+
+    ring_site = mdsl_select_ring(&hmo);
+    err = r2cli_do_hb(hmo.xc->site_id, ring_site, fsid, 0);
+    if (err) {
+        hvfs_err(xnet, "hb %lx w/ r2 %x failed w/ %d\n",
+                 hmo.xc->site_id, HVFS_RING(0), err);
+    }
+}
+
+void mdsl_cb_ring_update(void *arg)
+{
+    struct chring_tx *ct;
+    void *data = arg;
+    int err = 0;
+
+    hvfs_info(xnet, "R2 triggers to update the chrings ...\n");
+
+    err = bparse_ring(data, &ct);
+    if (err < 0) {
+        hvfs_err(xnet, "bparse_ring failed w/ %d\n", err);
+        goto out;
+    }
+    hmo.chring[CH_RING_MDS] = chring_tx_to_chring(ct);
+    if (!hmo.chring[CH_RING_MDS]) {
+        hvfs_err(xnet, "chring_tx 2 chring failed w/ %d\n", err);
+        goto out;
+    }
+    data += err;
+    err = bparse_ring(data, &ct);
+    if (err < 0) {
+        hvfs_err(xnet, "bparse_ring failed w/ %d\n", err);
+        goto out;
+    }
+    hmo.chring[CH_RING_MDSL] = chring_tx_to_chring(ct);
+    if (!hmo.chring[CH_RING_MDSL]) {
+        hvfs_err(xnet, "chring_tx 2 chring failed w/ %d\n", err);
+        goto out;
+    }
+    
+out:
+    return;
+}
+
 int main(int argc, char *argv[])
 {
     struct xnet_type_ops ops = {
@@ -396,7 +493,7 @@ int main(int argc, char *argv[])
         .dispatcher = mdsl_dispatch,
     };
     int err = 0;
-    int self, sport = -1, i, j, mode;
+    int self, sport = -1, i, j, mode, plot_method;
     char *value;
     char *ring_ip = NULL;
     char profiling_fname[256];
@@ -431,8 +528,15 @@ int main(int argc, char *argv[])
     } else
         fsid = 0;
 
+    value = getenv("plot");
+    if (value) {
+        plot_method = atoi(value);
+    } else
+        plot_method = MDSL_PROF_PLOT;
+
     st_init();
     mdsl_pre_init();
+    hmo.conf.prof_plot = plot_method;
     mdsl_config();
     err = mdsl_init();
     if (err) {
@@ -511,6 +615,8 @@ int main(int argc, char *argv[])
         ring_dump(hmo.chring[CH_RING_MDSL]);
     } else {
         hmo.cb_exit = mdsl_cb_exit;
+        hmo.cb_hb = mdsl_cb_hb;
+        hmo.cb_ring_update = mdsl_cb_ring_update;
         /* use ring info to init the mdsl */
         err = r2cli_do_reg(self, HVFS_RING(0), fsid, 0);
         if (err) {

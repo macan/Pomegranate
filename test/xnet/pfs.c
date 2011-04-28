@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-24 11:43:12 macan>
+ * Time-stamp: <2011-04-25 13:55:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -66,14 +66,18 @@ int main(int argc, char *argv[])
         hargv[7] = "-y";
         hargv[8] = "client";
     }
+    /* setup loop flag */
+    {
+        hargv[9] = "-l";
+    }
     /* setup self port */
     value = getenv("port");
     if (value) {
-        hargv[9] = "-p";
-        hargv[10] = strdup(value);
-        hargc = 11;
+        hargv[10] = "-p";
+        hargv[11] = strdup(value);
+        hargc = 12;
     } else {
-        hargc = 9;
+        hargc = 10;
     }
     /* set page size of internal page cache */
     value = getenv("ps");

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-21 17:07:21 macan>
+ * Time-stamp: <2011-04-26 18:15:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2113,6 +2113,7 @@ void *branch_processor(void *arg)
 {
     sigset_t set;
     struct xnet_msg *pos, *n;
+    u64 ssite_id, cmd;
     int err = 0;
 
     /* first, let us block the SIGALRM and SIGCHLD */
@@ -2132,11 +2133,13 @@ void *branch_processor(void *arg)
         xlock_lock(&bmgr.qlock);
         list_for_each_entry_safe(pos, n, &bmgr.qin, list) {
             list_del_init(&pos->list);
+            ssite_id = pos->tx.ssite_id;
+            cmd = pos->tx.cmd;
             err = branch_dispatch(pos);
             if (err) {
                 hvfs_err(xnet, "Dispatch branch msg from %lx: cmd %lx"
                          " failed w/ %d\n", 
-                         pos->tx.ssite_id, pos->tx.cmd, err);
+                         ssite_id, cmd, err);
             }
         }
         xlock_unlock(&bmgr.qlock);

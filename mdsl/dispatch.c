@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-22 14:00:23 macan>
+ * Time-stamp: <2011-04-28 16:18:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,10 +95,18 @@ int mdsl_mdsl_dispatch(struct xnet_msg *msg)
 static
 int mdsl_ring_dispatch(struct xnet_msg *msg)
 {
-    if (msg->tx.cmd == HVFS_FR2_RU) {
-        /* do nothing */
+    switch (msg->tx.cmd) {
+    case HVFS_FR2_RU:
+        mdsl_ring_update(msg);
+        break;
+    case HVFS_FR2_AU:
+        mdsl_addr_table_update(msg);
+        break;
+    default:
+        hvfs_err(mdsl, "Invalid R2 request: 0x%lx\n", msg->tx.cmd);
     }
     xnet_free_msg(msg);
+
     return 0;
 }
 

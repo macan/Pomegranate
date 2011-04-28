@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-09 17:56:38 macan>
+ * Time-stamp: <2011-04-26 15:14:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,6 +36,7 @@
 #include "mds_config.h"
 #include "bitmapc.h"
 #include "ring.h"
+#include "profile.h"
 
 /* FIXME: we should implement a ARC/DULO cache */
 struct itb_cache 
@@ -143,6 +144,10 @@ struct mds_conf
                                  * conflicts */
     u8 cbht_congestion;         /* set to 1 to slow down the incoming
                                  * request handling */
+#define MDS_PROF_NONE           0x00
+#define MDS_PROF_PLOT           0x01
+#define MDS_PROF_HUMAN          0x02
+#define MDS_PROF_R2             0x03
     u8 prof_plot;               /* do we dump profilings for gnuplot? */
     u8 dati;                    /* enable or disable DATI (dynamic adjust txg
                                  * interval */
@@ -228,14 +233,14 @@ struct hvfs_mds_object
 
     pthread_key_t lzo_workmem;  /* for lzo zip use */
 
-    u8 timer_thread_stop;       /* running flag for timer thread */
-    u8 commit_thread_stop;      /* running flag for commit thread */
-    u8 async_thread_stop;       /* running flag for async thread */
-    u8 dconf_thread_stop;       /* running flag for dconf thread */
-    u8 unlink_thread_stop;      /* running flag for unlink thread */
-    u8 spool_thread_stop;       /* running flag for service thread */
-    u8 scrub_thread_stop;       /* running flag for scrub thread */
-    u8 gossip_thread_stop;      /* running flag for gossip thread */
+    u32 timer_thread_stop:1;    /* running flag for timer thread */
+    u32 commit_thread_stop:1;   /* running flag for commit thread */
+    u32 async_thread_stop:1;    /* running flag for async thread */
+    u32 dconf_thread_stop:1;    /* running flag for dconf thread */
+    u32 unlink_thread_stop:1;   /* running flag for unlink thread */
+    u32 spool_thread_stop:1;    /* running flag for service thread */
+    u32 scrub_thread_stop:1;    /* running flag for scrub thread */
+    u32 gossip_thread_stop:1;   /* running flag for gossip thread */
 
     u8 spool_modify_pause;      /* pause the modification */
     u8 scrub_running;           /* is scrub thread running */
@@ -244,6 +249,9 @@ struct hvfs_mds_object
     int scrub_op;               /* scrub operation */
     atomic_t lease_seqno;       /* lease seqno */
     atomic64_t ctxg;            /* last completed txg */
+    
+    /* mds profiling array */
+    struct hvfs_profile hp;
     
     /* rpc table */
     struct mds_rpc_table *mrt;  /* mds rpc table */
@@ -455,7 +463,7 @@ void mds_snapshot_fr2(struct xnet_msg *);
 int TXG_IS_COMMITED(u64 txg);
 
 /* for prof.c */
-void dump_profiling(time_t);
+void dump_profiling(time_t, struct hvfs_profile *hp);
 
 /* for conf.c */
 int dconf_init(void);

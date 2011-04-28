@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-04-15 19:26:30 macan>
+# Time-stamp: <2011-04-25 13:22:00 macan>
 #
 # Armed with EMACS.
 #
@@ -188,7 +188,8 @@ class pamc_shell(cmd.Cmd):
                 "quit", "ls", "commit", "getcluster", "cat", 
                 "regdtrigger", "catdtrigger", "statfs", "setattr",
                 "getactivesite", "addsite", "rmvsite", "shutdown",
-                "cbranch", "bc", "bp", "getbor", "search", ]
+                "cbranch", "bc", "bp", "getbor", "search", 
+                "pst",]
 
     def __init__(self, ub = False):
         cmd.Cmd.__init__(self)
@@ -1190,6 +1191,13 @@ class pamc_shell(cmd.Cmd):
             print "TypeError %s" % te
         except ValueError, ve:
             print "ValueError %s" % ve
+
+    def do_pst(self, line):
+        '''Print the xnet site table.
+        Usage: pst
+        '''
+
+        xnet.st_print()
 
     def do_quit(self, line):
         print "Quiting ..."

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-22 11:11:28 macan>
+ * Time-stamp: <2011-04-28 13:03:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -716,6 +716,8 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
             xrwlock_wunlock(&ih->lock);
             if (tmpi) {
                 if (hmo.conf.option & HVFS_MDS_MDZIP) {
+                    /* reset some regions to ZERO to decrease zip size */
+                    memset(tmpi->lock, 0, sizeof(tmpi->lock));
                     /* do lzo compress now */
                     err = itb_lzo_compress(tmpi, 
                                            (struct itb *)
@@ -859,8 +861,10 @@ void *txg_commit(void *arg)
         mds_rdir_check(0);
         /* trigger the commit callback on the TXs */
         txg_trigger_ccb(t);
-        /* FIXME: I should add dir delta async update here! */
+
+        /* ok, now we support async dir delta handling :) */
 #if 1
+        /* do dir delta for ddb list to async update here! */
         {
             /* we should take over of the txg->ddb list and construct a
              * request to instruct async thread to sending the request */
@@ -888,9 +892,7 @@ void *txg_commit(void *arg)
                 }
             }
         }
-#endif
-        /* FIXME: I should add dir delta async update reply here! */
-#if 1
+        /* do dir delta for rddb list to async update here! */
         {
             /* we should take cover of the txg->rddb list and construct a
              * request to instruct async thread to sending the request. */
@@ -918,9 +920,9 @@ void *txg_commit(void *arg)
                 }
             }
         }
-#endif
-        /* FIXME: I should add bitmap async update here! */
-#if 1
+        /* Add the request to async bitmap handler. Note: this must be the
+         * last async handler for TXG, because we will free current TXG in
+         * this bitmap async handler. */
         {
             struct async_update_request *aur =
                 xzalloc(sizeof(struct async_update_request));

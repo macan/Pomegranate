@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-27 18:09:13 macan>
+ * Time-stamp: <2011-04-26 17:08:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -188,6 +188,7 @@ int root_config(void)
     HVFS_ROOT_GET_ENV_atoi(addr_mgr_htsize, value);
     HVFS_ROOT_GET_ENV_atoi(service_threads, value);
     HVFS_ROOT_GET_ENV_atoi(ring_push_interval, value);
+    HVFS_ROOT_GET_ENV_atoi(profile_interval, value);
     HVFS_ROOT_GET_ENV_atoi(hb_interval, value);
     HVFS_ROOT_GET_ENV_atoi(sync_interval, value);
     HVFS_ROOT_GET_ENV_atoi(ring_vid_max, value);
@@ -207,6 +208,11 @@ int root_config(void)
     if (!hro.conf.root_store) {
         hro.conf.root_store = HVFS_ROOT_STORE;
     }
+
+    if (!hro.conf.profile_interval) {
+        hro.conf.profile_interval = 5;
+    }
+    
     {
         __path = xzalloc(256);
 
@@ -344,6 +350,10 @@ static void *root_timer_thread_main(void *arg)
         if (hro.state > HRO_STATE_LAUNCH) {
             /* ok, check the site entry state now */
             site_mgr_check(cur);
+            /* write profile? */
+            if (hro.conf.prof_plot == ROOT_PROF_PLOT) {
+                root_profile_flush(cur);
+            }
         }
     }
 
@@ -383,6 +393,7 @@ int root_setup_timers(void)
     }
     interval = __gcd(hro.conf.hb_interval, hro.conf.sync_interval);
     interval = __gcd(interval, hro.conf.ring_push_interval);
+    interval = __gcd(interval, hro.conf.profile_interval);
     if (interval) {
         value.it_interval.tv_sec = interval;
         value.it_interval.tv_usec = 1;
@@ -461,6 +472,11 @@ int root_init(void)
     if (err)
         goto out_timers;
 
+    /* FIXME: setup the profile unit */
+    err = root_setup_profile();
+    if (err)
+        goto out_profile;
+
     /* maks the SIGUSR1 signal for main thread */
     {
         sigset_t set;
@@ -473,6 +489,7 @@ int root_init(void)
     /* ok to run */
     hro.state = HRO_STATE_RUNNING;
 
+out_profile:
 out_timers:
 out_spool:
 out_addr_mgr:

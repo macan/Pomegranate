@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-21 11:24:27 macan>
+ * Time-stamp: <2011-04-27 17:43:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,96 @@
 #include "hvfs.h"
 #include "mds.h"
 #include "prof.h"
+#include "profile.h"
+#include "async.h"
+
+static inline
+void dump_profiling_r2(time_t t, struct hvfs_profile *hp)
+{
+    int i = 0;
+    
+    if (!hmo.conf.profiling_thread_interval)
+        return;
+    if (t < hmo.prof.ts + hmo.conf.profiling_thread_interval) {
+        return;
+    }
+    hmo.prof.ts = t;
+    hp->flag |= HP_UP2DATE;
+
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, t);
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic_read(&hmo.ic.csize));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.cbht.lookup));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.cbht.modify));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.cbht.split));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.cbht.buckets));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.cbht.depth));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.cbht.aitb));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.itb.cowed));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.itb.async_unlink));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.itb.split_submit));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.itb.split_local));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mds.split));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mds.forward));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mds.ausplit));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.txc.ftx));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.txc.total));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, 
+                             (hmo.prof.xnet ?
+                              atomic64_read(&hmo.prof.xnet->msg_alloc) : 0));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, 
+                             (hmo.prof.xnet ? 
+                              atomic64_read(&hmo.prof.xnet->msg_free) : 0));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, 
+                             (hmo.prof.xnet ?
+                              atomic64_read(&hmo.prof.xnet->inbytes) : 0));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, 
+                             (hmo.prof.xnet ? 
+                              atomic64_read(&hmo.prof.xnet->outbytes) : 0));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, 
+                             (hmo.prof.xnet ?
+                              atomic64_read(&hmo.prof.xnet->active_links) : 
+                              0));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mds.loop_fwd));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mds.paused_mreq));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.cbht.aentry));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.misc.au_submit));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.misc.au_handle));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.misc.au_bitmap));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.misc.au_dd));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.misc.au_ddr));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mds.bitmap_in));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mds.bitmap_out));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mdsl.itb_load));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mdsl.itb_wb));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mdsl.bitmap));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mds.gossip_bitmap));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.misc.reqin_total));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.misc.reqin_handle));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.misc.reqin_drop));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mds.gossip_ft));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.itb.rsearch_depth));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.itb.wsearch_depth));
+    hp->nr = i;
+
+    /* submit a async send request */
+    {
+        struct async_update_request *aur =
+            xzalloc(sizeof(struct async_update_request));
+        int err = 0;
+
+        if (unlikely(!aur)) {
+            hvfs_err(mds, "xzalloc() AU request faield, ignore this update.\n");
+        } else {
+            aur->op = AU_PROFILE;
+            aur->arg = (u64)(&hmo.hp);
+            INIT_LIST_HEAD(&aur->list);
+            err = au_submit(aur);
+            if (err) {
+                hvfs_err(mds, "submit AU request failed, ignore this update.\n");
+            }
+        }
+    }
+}
 
 static inline
 void dump_profiling_plot(time_t t)
@@ -45,6 +135,10 @@ void dump_profiling_plot(time_t t)
      *  mds.bitmap_in mds.bitmap_out mdsl.itb_load, mdsl.itb_wb, mdsl.bitmap
      *  mds.gossip_bitmap misc.reqin_total misc.reqin_handle misc.reqin_drop
      *  mds.gossip_ft itb.rsearch_depth itb.wsearch_depth"
+     *
+     * Note that, we send the header to R2 server for aggregation. If you
+     * change the header, make sure change the header define in
+     * dump_profiling_r2() and r2/x2r.c -> hvfs_mds_profile_setup()!
      */
     hvfs_pf("PLOT %ld %d %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
             "%ld %ld %d %d %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
@@ -155,12 +249,21 @@ void dump_profiling_human(time_t t)
               atomic_read(&hmo.txc.total));
 }
 
-void dump_profiling(time_t t)
+void dump_profiling(time_t t, struct hvfs_profile *hp)
 {
-    if (likely(hmo.conf.prof_plot)) {
+    switch (hmo.conf.prof_plot) {
+    case MDS_PROF_PLOT:
         dump_profiling_plot(t);
-    } else {
+        break;
+    case MDS_PROF_HUMAN:
         dump_profiling_human(t);
+        break;
+    case MDS_PROF_R2:
+        /* always send the current profiling copy to HVFS_RING(0)? */
+        dump_profiling_r2(t, hp);
+        break;
+    case MDS_PROF_NONE:
+    default:
+        ;
     }
-    /* always send the current delta copy to HVFS_RING(0)? */
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-02 13:22:58 macan>
+ * Time-stamp: <2011-04-28 15:31:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,6 +27,113 @@
 #include "lprof.h"
 
 static inline
+void dump_profiling_r2(time_t t, struct hvfs_profile *hp)
+{
+    int i = 0;
+
+    if (!hmo.conf.profiling_thread_interval)
+        return;
+    if (t < hmo.prof.ts + hmo.conf.profiling_thread_interval) {
+        return;
+    }
+    hmo.prof.ts = t;
+    hp->flag |= HP_UP2DATE;
+
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, t);
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.ring.reqout));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.ring.update));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.ring.size));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mds.itb));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mds.bitmap));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mds.txg));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mdsl.range_in));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mdsl.range_out));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mdsl.range_copy));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.misc.reqin_total));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.misc.reqin_handle));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, hmo.prof.xnet ?
+                             atomic64_read(&hmo.prof.xnet->msg_alloc) : 0);
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, hmo.prof.xnet ?
+                             atomic64_read(&hmo.prof.xnet->msg_free) : 0);
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, hmo.prof.xnet ?
+                             atomic64_read(&hmo.prof.xnet->inbytes) : 0);
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, hmo.prof.xnet ?
+                             atomic64_read(&hmo.prof.xnet->outbytes) : 0);
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, hmo.prof.xnet ?
+                             atomic64_read(&hmo.prof.xnet->active_links) : 0);
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.storage.wbytes));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.storage.rbytes));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.storage.wreq));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.storage.rreq));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.storage.cpbytes));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.storage.aio_submitted));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.storage.aio_handled));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic_read(&hmo.prof.misc.tcc_size));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic_read(&hmo.prof.misc.tcc_used));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic_read(&hmo.storage.active));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.storage.memcache));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.pending_ios));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmi.mi_bused));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmi.mi_bfree));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmi.mi_bwrite));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmi.mi_bread));
+    hp->nr = i;
+
+    /* send the request to R2 server now */
+    {
+        static struct hvfs_profile ghp = {.nr = 0,};
+        struct hvfs_profile diff;
+        struct xnet_msg *msg;
+        u64 dsite;
+        int err = 0, i;
+
+        if (!ghp.nr) {
+            diff = ghp = *hp;
+            /* reset time stamp to ZERO */
+            diff.hpv[0].value = 0;
+        } else {
+            diff = *hp;
+            for (i = 0; i < hp->nr; i++) {
+                diff.hpv[i].value -= ghp.hpv[i].value;
+            }
+            ghp = *hp;
+        }
+
+        /* reset the flag now */
+        hp->flag &= (~HP_UP2DATE);
+
+        /* prepare the xnet_msg */
+        msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+        if (!msg) {
+            hvfs_err(mdsl, "xnet_alloc_msg() failed.\n");
+            err = -ENOMEM;
+            goto out;
+        }
+
+        /* send this profile to r2 server */
+        dsite = mdsl_select_ring(&hmo);
+        xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0, hmo.site_id, dsite);
+        xnet_msg_fill_cmd(msg, HVFS_R2_PROFILE, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+        xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+        xnet_msg_add_sdata(msg, &diff, sizeof(diff));
+
+        err = xnet_send(hmo.xc, msg);
+        if (err) {
+            hvfs_err(mdsl, "Profile request to R2(%lx) failed w/ %d\n",
+                     dsite, err);
+            goto out_free_msg;
+        }
+    out_free_msg:
+        xnet_free_msg(msg);
+    }
+
+out:
+    return;
+}
+
+static inline
 void dump_profiling_plot(time_t t)
 {
     if (!hmo.conf.profiling_thread_interval)
@@ -45,6 +152,10 @@ void dump_profiling_plot(time_t t)
      * storage.aio_submitted, storage.aio_handled misc.tcc_size misc.tcc_used
      * storage.active stroage.memcache hmo.pending_ios hmi.mi_bused
      * hmi.mi_bfree hmi.mi_bwrite hmi.mi_bread"
+     *
+     * Note that, we send this profile header to r2 server. If you are
+     * modifying this header, please make sure modify the defination in
+     * root/profile.c -> hvfs_mdsl_profile_setup()!
      */
     hvfs_pf("PLOT %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
             "%ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %d %d %d %ld "
@@ -125,11 +236,20 @@ void dump_profiling_human(time_t t)
               atomic64_read(&hmo.prof.misc.reqin_handle));
 }
 
-void mdsl_dump_profiling(time_t t)
+void mdsl_dump_profiling(time_t t, struct hvfs_profile *hp)
 {
-    if (likely(hmo.conf.prof_plot)) {
+    switch (hmo.conf.prof_plot) {
+    case MDSL_PROF_PLOT:
         dump_profiling_plot(t);
-    } else {
+        break;
+    case MDSL_PROF_HUMAN:
         dump_profiling_human(t);
+        break;
+    case MDSL_PROF_R2:
+        /* always send the current profiling copy to HVFS_RING(0)? */
+        dump_profiling_r2(t, hp);
+        break;
+    case MDSL_PROF_NONE:
+    default:;
     }
 }

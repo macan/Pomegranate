@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-09 19:15:01 macan>
+ * Time-stamp: <2011-04-28 14:27:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -190,6 +190,10 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
         goto out;
     }
 
+    /* Reply ABI:
+     * @tx.arg0: network magic
+     */
+
     /* this means we have got the reply, parse it! */
     ASSERT(msg->pair, xnet);
     if (msg->pair->tx.err == -ERECOVER) {
@@ -272,6 +276,9 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
         if (err) {
             hvfs_err(root, "hst to xsst failed w/ %d\n", err);
         }
+
+        /* set network magic */
+        xnet_set_magic(msg->pair->tx.arg0);
     }
     
 out:
@@ -460,7 +467,7 @@ int main(int argc, char *argv[])
     hvfs_info(xnet, "R2 Unit Test Client running...\n");
     hvfs_info(xnet, "type 0/1/2/3 => MDS/CLIENT/MDSL/RING\n");
     hvfs_info(xnet, "fsid => 0-$\n");
-    hvfs_info(xnet, "op 0/1 => hb/mkfs\n");
+    hvfs_info(xnet, "op 0/1/2 => hb/mkfs/watch\n");
 
     value = getenv("type");
     if (value) {

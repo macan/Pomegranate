@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-09 17:57:31 macan>
+ * Time-stamp: <2011-04-26 17:07:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,6 +30,7 @@
 #include "rprof.h"
 #include "mgr.h"
 #include "xnet.h"
+#include "profile.h"
 
 struct root_conf
 {
@@ -43,7 +44,9 @@ struct root_conf
     char *profiling_file;
     char *conf_file;
     char *log_file;
+#ifndef HVFS_ROOT_HOME
 #define HVFS_ROOT_HOME          "/tmp/hvfs"
+#endif
 #define HVFS_ROOT_STORE         "root_store"
 #define HVFS_BITMAP_STORE       "bitmap_store"
 #define HVFS_SITE_STORE         "site_store"
@@ -73,9 +76,12 @@ struct root_conf
     u32 hb_interval;            /* interval to check the site entry
                                  * heartbeat */
     u32 sync_interval;          /* interval to do self sync */
+    u32 profile_interval;       /* interval to dump sth */
 
     u32 ring_vid_max;
 
+#define ROOT_PROF_NONE          0x00
+#define ROOT_PROF_PLOT          0x01
     u8 prof_plot;
 
     /* conf */
@@ -130,6 +136,9 @@ struct hvfs_root_object
     pthread_t *spool_thread;    /* array of service threads */
     pthread_t timer_thread;
 
+    /* profile section */
+    struct hvfs_profile_ex hp_mds, hp_mdsl, hp_bp, hp_client;
+
     u8 spool_thread_stop;       /* running flag for service thread */
     u8 timer_thread_stop;       /* running flag for timer thread */
 };
@@ -167,6 +176,7 @@ int root_do_ftreport(struct xnet_msg *);
 int root_do_addsite(struct xnet_msg *);
 int root_do_rmvsite(struct xnet_msg *);
 int root_do_shutdown(struct xnet_msg *);
+int root_do_profile(struct xnet_msg *);
 
 int bparse_hxi(void *, union hvfs_x_info **);
 int bparse_ring(void *, struct chring_tx **);
@@ -183,5 +193,17 @@ int cli_dynamic_del_site(struct ring_entry *, u64);
 int cli_do_addsite(struct sockaddr_in *, u64, u64);
 int cli_do_rmvsite(struct sockaddr_in *, u64, u64);
 struct xnet_group *cli_get_active_site(struct chring *);
+
+/* profile.c */
+int root_profile_update_mds(struct hvfs_profile *,
+                            struct xnet_msg *);
+int root_profile_update_mdsl(struct hvfs_profile *,
+                             struct xnet_msg *);
+int root_profile_update_bp(struct hvfs_profile *,
+                           struct xnet_msg *);
+int root_profile_update_client(struct hvfs_profile *,
+                               struct xnet_msg *);
+int root_setup_profile(void);
+void root_profile_flush(time_t);
 
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-09 16:38:43 macan>
+ * Time-stamp: <2011-04-28 16:17:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -195,17 +195,26 @@ int mds_mdsl_dispatch(struct xnet_msg *msg)
 
 int mds_ring_dispatch(struct xnet_msg *msg)
 {
-    if (msg->tx.cmd == HVFS_MDS2MDS_AUBITMAP_R) {
+    switch (msg->tx.cmd) {
+    case HVFS_MDS2MDS_AUBITMAP_R:
         mds_aubitmap_r(msg);
-    } else if (msg->tx.cmd == HVFS_R22MDS_PAUSE) {
+        break;
+    case HVFS_R22MDS_PAUSE:
         mds_pause(msg);
-    } else if (msg->tx.cmd == HVFS_R22MDS_RESUME) {
+        break;
+    case HVFS_R22MDS_RESUME:
         mds_resume(msg);
-    } else if (msg->tx.cmd == HVFS_R22MDS_COMMIT) {
+        break;
+    case HVFS_R22MDS_COMMIT:
         mds_snapshot_fr2(msg);
-    } else if (msg->tx.cmd == HVFS_FR2_RU) {
+        break;
+    case HVFS_FR2_RU:
         mds_ring_update(msg);
-    } else {
+        break;
+    case HVFS_FR2_AU:
+        mds_addr_table_update(msg);
+        break;
+    default:
         hvfs_err(mds, "Invalid request %d from R2 %lx.\n",
                  msg->tx.reqno, msg->tx.ssite_id);
         xnet_free_msg(msg);
@@ -216,23 +225,7 @@ int mds_ring_dispatch(struct xnet_msg *msg)
 
 int mds_root_dispatch(struct xnet_msg *msg)
 {
-    if (msg->tx.cmd == HVFS_MDS2MDS_AUBITMAP_R) {
-        mds_aubitmap_r(msg);
-    } else if (msg->tx.cmd == HVFS_R22MDS_PAUSE) {
-        mds_pause(msg);
-    } else if (msg->tx.cmd == HVFS_R22MDS_RESUME) {
-        mds_resume(msg);
-    } else if (msg->tx.cmd == HVFS_R22MDS_COMMIT) {
-        mds_snapshot_fr2(msg);
-    } else if (msg->tx.cmd == HVFS_FR2_RU) {
-        mds_ring_update(msg);
-    } else {
-        hvfs_err(mds, "Invalid request %d from R2 %lx.\n",
-                 msg->tx.reqno, msg->tx.ssite_id);
-        xnet_free_msg(msg);
-    }
-
-    return 0;
+    return mds_ring_dispatch(msg);
 }
 
 int mds_amc_dispatch(struct xnet_msg *msg)

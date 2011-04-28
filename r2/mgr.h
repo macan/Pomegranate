@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-30 15:31:02 macan>
+ * Time-stamp: <2011-04-28 14:01:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -122,6 +122,7 @@ struct root_entry
      * it. */
     u64 gdt_flen;
     u8 *gdt_bitmap;
+    u8 magic:4;                 /* magic for xnet */
 };
 
 struct root_disk
@@ -129,7 +130,8 @@ struct root_disk
 #define ROOT_DISK_INVALID       0x00
 #define ROOT_DISK_VALID         0x01
     u8 state;
-    u8 pad0;
+    u8 magic:4;                 /* magic for xnet */
+    u8 pad0:4;
     u16 pad1;
     u32 reserved;
     u64 fsid;
