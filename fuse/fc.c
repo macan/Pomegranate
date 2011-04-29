@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-22 14:23:25 macan>
+ * Time-stamp: <2011-04-29 22:39:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -179,11 +179,7 @@ struct soc_entry *__soc_lookup(const char *key)
  */
 size_t g_pagesize = 0;
 static void *zero_page = NULL;
-struct __pfs_fuse_mgr
-{
-    u32 sync_write:1;
-    u32 use_config:1;
-} pfs_fuse_mgr;
+struct __pfs_fuse_mgr pfs_fuse_mgr = {.inited = 0,};
 
 #define PFS_FUSE_CONFIG_UUID            0xffff000000000000
 
@@ -1043,8 +1039,9 @@ struct pfs_config_entry
     };
 };
 
-#define PFS_CONFIG_ACTIVE_ENTRY         (3)
+#define PFS_CONFIG_ACTIVE_ENTRY         (5)
 struct pfs_config_entry pfs_ce_default[PFS_CONFIG_ACTIVE_ENTRY] = {
+#define PC_DATA_ZIP                     0
     {
         .name = "data_zip", 
         .flag = PCE_BOOL, 
@@ -1052,6 +1049,7 @@ struct pfs_config_entry pfs_ce_default[PFS_CONFIG_ACTIVE_ENTRY] = {
             .uvalue = 0,
         },
     },
+#define PC_LRU_TRANSLATE_CACHE_TTL      1
     {
         .name = "lru_translate_cache_ttl",
         .flag = PCE_U64,
@@ -1059,8 +1057,25 @@ struct pfs_config_entry pfs_ce_default[PFS_CONFIG_ACTIVE_ENTRY] = {
             .uvalue = 0,
         },
     },
+#define PC_SYNC_WRITE                   2
     {
         .name = "pfs_fuse_sync_write",
+        .flag = PCE_BOOL,
+        {
+            .uvalue = 0,
+        },
+    },
+#define PC_NOATIME                      3
+    {
+        .name = "noatime",
+        .flag = PCE_BOOL,
+        {
+            .uvalue = 0,
+        },
+    },
+#define PC_NODIRATIME                   4
+    {
+        .name = "nodiratime",
         .flag = PCE_BOOL,
         {
             .uvalue = 0,
@@ -1343,8 +1358,7 @@ pack:
     stbuf->st_nlink = hs.mdu.nlink;
     stbuf->st_uid = hs.mdu.uid;
     stbuf->st_gid = hs.mdu.gid;
-    stbuf->st_ctime = max((time_t)hs.mdu.ctime, 
-                          (time_t)hs.mdu.mtime);
+    stbuf->st_ctime = (time_t)hs.mdu.ctime;
     stbuf->st_atime = (time_t)hs.mdu.atime;
     stbuf->st_mtime = (time_t)hs.mdu.mtime;
     if (unlikely(S_ISDIR(hs.mdu.mode))) {
@@ -2472,7 +2486,7 @@ hit:
                          name, err);
                 goto out;
             }
-            err = __hvfs_linkadd(puuid, psalt, 0, &hs);
+            err = __hvfs_linkadd(hs.puuid, hs.psalt, 0, &hs);
             if (err) {
                 hvfs_err(xnet, "do internal file linkadd (SDT) on '%s'"
                          " failed w/ %d\n", name, err);
@@ -2664,7 +2678,7 @@ hit:
                          name, err);
                 goto out;
             }
-            err = __hvfs_update(puuid, psalt, &hs, &mu);
+            err = __hvfs_update(hs.puuid, hs.psalt, &hs, &mu);
             if (err) {
                 hvfs_err(xnet, "do internal update on uuid<%lx,%lx> "
                          "failed w/ %d\n",
@@ -2757,7 +2771,7 @@ static int hvfs_chown(const char *pathname, uid_t uid, gid_t gid)
                          name, err);
                 goto out;
             }
-            err = __hvfs_update(puuid, psalt, &hs, &mu);
+            err = __hvfs_update(hs.puuid, hs.psalt, &hs, &mu);
             if (err) {
                 hvfs_err(xnet, "do internal update on uuid<%lx,%lx> "
                          "failed w/ %d\n",
@@ -3116,7 +3130,7 @@ hit:
                          name, err);
                 goto out;
             }
-            err = __hvfs_update(puuid, psalt, &hs, &mu);
+            err = __hvfs_update(hs.puuid, hs.psalt, &hs, &mu);
             if (err) {
                 hvfs_err(xnet, "do internal update on uuid<%lx,%lx> "
                          "failed w/ %d\n",
@@ -3226,6 +3240,8 @@ hit:
     {
         struct bhhead *bhh = (struct bhhead *)fi->fh;
 
+        hs.name = name;
+        hs.uuid = 0;
         err = __hvfs_stat(puuid, psalt, 0, &hs);
         if (err) {
             hvfs_err(xnet, "do internal file 2rd stat (SDT) on '%s' "
@@ -3294,6 +3310,29 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
         goto out;
     }
     /* return the # of bytes we read */
+    if (!pfs_fuse_mgr.noatime && err > 0) {
+        /* update the atime now */
+        struct mdu_update mu;
+        struct timeval tv;
+        u64 puuid = hs.puuid, psalt = hs.psalt;
+        int __err;
+
+        gettimeofday(&tv, NULL);
+
+        mu.valid = MU_ATIME;
+        mu.atime = tv.tv_sec;
+        __err = __hvfs_update(puuid, psalt, &hs, &mu);
+        if (__err == -EACCES) {
+            /* this means that we have hit a link target, it should not
+             * happen! */
+            hvfs_err(xnet, "internal fault: in open() we stat hard, but "
+                     "the result lost?\n");
+        } else if (__err) {
+            hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
+                     pathname, err);
+            goto out;
+        }
+    }
     
 out:
     return err;
@@ -3887,6 +3926,8 @@ static int hvfs_release_dir(const char *pathname, struct fuse_file_info *fi)
     return 0;
 }
 
+/* use user defined configs
+ */
 static void *hvfs_init(struct fuse_conn_info *conn)
 {
     int err = 0;
@@ -3902,16 +3943,27 @@ realloc:
         hvfs_err(xnet, "mprotect ZERO page failed w/ %d\n", errno);
     }
 
-    /* disable dynamic magic config */
-    pfs_fuse_mgr.use_config = 0;
+    if (!pfs_fuse_mgr.inited) {
+        /* disable dynamic magic config/atime/diratime */
+        pfs_fuse_mgr.inited = 1;
+        pfs_fuse_mgr.sync_write = 0;
+        pfs_fuse_mgr.use_config = 0;
+        pfs_fuse_mgr.noatime = 1;
+        pfs_fuse_mgr.nodiratime = 1;
+        pfs_fuse_mgr.ttl = 5;
+    }
     
-    pfs_fuse_mgr.sync_write = 0;
-    pfs_ce_default[2].uvalue = 0;
+    /* setup dynamic config values */
+    pfs_ce_default[PC_SYNC_WRITE].uvalue = pfs_fuse_mgr.use_config;
 
     /* increase this ttl value can increase performance greatly (5->60 +~20%)
      */
-    pfs_ce_default[1].uvalue = 5;
-    if (__ltc_init(5, 0)) {
+    pfs_ce_default[PC_LRU_TRANSLATE_CACHE_TTL].uvalue = pfs_fuse_mgr.ttl;
+    pfs_ce_default[PC_SYNC_WRITE].uvalue = pfs_fuse_mgr.sync_write;
+    pfs_ce_default[PC_NOATIME].uvalue = pfs_fuse_mgr.noatime;
+    pfs_ce_default[PC_NODIRATIME].uvalue = pfs_fuse_mgr.nodiratime;
+    
+    if (__ltc_init(pfs_fuse_mgr.ttl, 0)) {
         hvfs_err(xnet, "LRU Translate Cache init failed. Cache DISABLED!\n");
     }
 

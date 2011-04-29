@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-25 13:55:57 macan>
+ * Time-stamp: <2011-04-29 09:34:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,8 +29,38 @@
 int main(int argc, char *argv[])
 {
     char *hargv[20], *value;
+    int noatime = -1, nodiratime = -1, ttl = -1;
     int hargc;
     int err = 0;
+
+    value = getenv("noatime");
+    if (value) {
+        noatime = atoi(value);
+    }
+    value = getenv("nodiratime");
+    if (value) {
+        nodiratime = atoi(value);
+    }
+    value = getenv("ttl");
+    if (value) {
+        ttl = atoi(value);
+    }
+
+    if (noatime >= 0 || nodiratime >= 0 || ttl >= 0) {
+        /* reset minor value to default value */
+        if (noatime < 0)
+            noatime = 1;
+        if (nodiratime < 0)
+            nodiratime = 1;
+        if (ttl < 0)
+            ttl = 5;
+        pfs_fuse_mgr.inited = 1;
+        pfs_fuse_mgr.sync_write = 0;
+        pfs_fuse_mgr.use_config = 0;
+        pfs_fuse_mgr.noatime = (noatime > 0 ? 1 : 0);
+        pfs_fuse_mgr.nodiratime = (nodiratime > 0 ? 1 : 0);
+        pfs_fuse_mgr.ttl = ttl;
+    }
 
     /* reconstruct the HVFS arguments */
     /* setup client's self id */

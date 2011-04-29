@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-24 11:40:18 macan>
+ * Time-stamp: <2011-04-29 09:35:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,4 +38,16 @@
 
 extern struct fuse_operations pfs_ops;
 extern size_t g_pagesize;
+
+struct __pfs_fuse_mgr
+{
+    u32 inited:1;               /* indicated whether myself is inited */
+    u32 sync_write:1;
+    u32 use_config:1;
+    u32 noatime:1;
+    u32 nodiratime:1;
+    u32 ttl:8;                  /* lru translate cache ttl */
+};
+
+extern struct __pfs_fuse_mgr pfs_fuse_mgr;
 #endif
