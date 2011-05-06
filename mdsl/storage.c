@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-03 11:19:18 macan>
+ * Time-stamp: <2011-05-05 11:23:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1755,6 +1755,27 @@ out:
     return err;
 }
 
+int __range_write_conditional(u64 duuid, u64 itbid, struct mmap_args *ma, 
+                              u64 location)
+{
+    struct fdhash_entry *fde;
+    int err = 0;
+
+    fde = mdsl_storage_fd_lookup_create(duuid, MDSL_STORAGE_RANGE, (u64)ma);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create %lx/%ld range %ld failed\n",
+                 duuid, itbid, ma->range_id);
+        err = PTR_ERR(fde);
+        goto out;
+    }
+    if (*((u64 *)(fde->mwin.addr) + (itbid - fde->mwin.offset)) == 0)
+        *((u64 *)(fde->mwin.addr) + (itbid - fde->mwin.offset)) = location;
+
+    mdsl_storage_fd_put(fde);
+out:
+    return err;
+}
+
 /* mdsl_storage_fd_mmap()
  *
  * @win: the window size of the mmap region
@@ -2679,7 +2700,11 @@ int mdsl_storage_update_range(struct txg_open_entry *toe)
         hvfs_debug(mdsl, "write II %lx %ld to location %ld\n",
                    pos->duuid, pos->itbid, pos->location);
 
-        err = __range_write(pos->duuid, pos->itbid, &ma, pos->location);
+        if (pos->overwrite)
+            err = __range_write(pos->duuid, pos->itbid, &ma, pos->location);
+        else
+            err = __range_write_conditional(pos->duuid, pos->itbid, &ma, 
+                                            pos->location);
         if (err) {
             hvfs_err(mdsl, "range write failed w/ %d\n", err);
             goto put_fde;

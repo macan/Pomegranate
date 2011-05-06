@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-04-26 15:45:59 macan>
+# Time-stamp: <2011-05-03 14:05:25 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -102,7 +102,7 @@ endif
 ifdef USE_FUSE
 CFLAGS += -D_FILE_OFFSET_BITS=64 -D_REENTRANT
 LFLAGS += -lfuse
-FUSE_AR_SOURCE = fc.c
+FUSE_AR_SOURCE = fc.c store.c
 endif
 
 ifeq ($(DISABLE_PYTHON),)
@@ -145,7 +145,7 @@ R2_H_SOURCE = root.h mgr.h root_config.h rprof.h
 LIB_H_SOURCE = lib.h ring.h minilzo.h
 API_H_SOURCE = 
 BRANCH_H_SOURCE = branch.h bp.h bdb_dummy.h
-FUSE_H_SOURCE = pfs.h
+FUSE_H_SOURCE = pfs.h store.h
 
 inc_h_depend_files = $(patsubst %.h, $(INC_PATH)/%.h, $(INC_H_SOURCE)) \
 						$(LIB_PATH)/hash.c

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 16:19:14 macan>
+ * Time-stamp: <2011-05-05 11:12:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -473,6 +473,7 @@ int mdsl_storage_fd_read(struct fdhash_entry *fde,
 int mdsl_storage_dir_make_exist(char *path);
 int __range_lookup(u64, u64, struct mmap_args *, u64 *);
 int __range_write(u64, u64, struct mmap_args *, u64);
+int __range_write_conditional(u64, u64, struct mmap_args *, u64);
 int __mdisk_lookup(struct fdhash_entry *, int, u64, range_t **);
 int __mdisk_add_range(struct fdhash_entry *, u64, u64, u64);
 int mdsl_storage_toe_commit(struct txg_open_entry *, struct txg_end *);

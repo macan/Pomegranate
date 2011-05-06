@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-21 13:46:50 macan>
+ * Time-stamp: <2011-05-05 11:04:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -143,7 +143,8 @@ struct itb_info
     u64 duuid;
     u64 itbid;
     u64 location;
-    u64 master;                 /* which itb master file we writen to */
+    u32 master;                 /* which itb master file we writen to */
+    u32 overwrite:1;            /* should we overwrite the range position? */
 };
 
 #define ITB_INFO_DISK_SIZE (sizeof(struct itb_info) - sizeof(struct list_head))

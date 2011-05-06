@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-22 10:52:41 macan>
+ * Time-stamp: <2011-05-05 10:27:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,7 +52,12 @@ int mds_loadin_control(void)
     return 0;
 }
 
-/* mds_read_itb
+/* mds_read_itb() load the itb from mdsl.
+ *
+ * Note: if a itb is split but has not been commited to disk, and the node
+ * crashed. Then, on reloading the itb, we should check and resplit the
+ * itb. This resplit itb will be selectively commited to mdsl and not be
+ * transfered to other mds.
  *
  * Err convention: Kernel err-ptr convention
  */

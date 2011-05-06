@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 13:03:00 macan>
+ * Time-stamp: <2011-05-05 18:08:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -712,6 +712,12 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
             } else {
                 err = txg_wb_itb_ll(cta, i);
                 ih->state = ITB_STATE_CLEAN;
+            }
+            /* Note: this just split itb own ref count as 2, thus we put one
+             * do not free it */
+            if (ih->flag == ITB_JUST_SPLIT) {
+                ih->flag = ITB_ACTIVE;
+                itb_put((struct itb *)ih);
             }
             xrwlock_wunlock(&ih->lock);
             if (tmpi) {

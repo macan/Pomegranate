@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-29 09:34:05 macan>
+ * Time-stamp: <2011-05-03 14:17:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,12 +23,13 @@
 
 #include "pfs.h"
 #include "xnet.h"
+#include "store.h"
 
 /* Please use environment variables to pass HVFS specific values
  */
 int main(int argc, char *argv[])
 {
-    char *hargv[20], *value;
+    char *hargv[20], *value, *dstore = NULL;
     int noatime = -1, nodiratime = -1, ttl = -1;
     int hargc;
     int err = 0;
@@ -45,8 +46,12 @@ int main(int argc, char *argv[])
     if (value) {
         ttl = atoi(value);
     }
+    value = getenv("dstore");
+    if (value) {
+        dstore = strdup(value);
+    }
 
-    if (noatime >= 0 || nodiratime >= 0 || ttl >= 0) {
+    if (noatime >= 0 || nodiratime >= 0 || ttl >= 0 || dstore) {
         /* reset minor value to default value */
         if (noatime < 0)
             noatime = 1;
@@ -59,7 +64,19 @@ int main(int argc, char *argv[])
         pfs_fuse_mgr.use_config = 0;
         pfs_fuse_mgr.noatime = (noatime > 0 ? 1 : 0);
         pfs_fuse_mgr.nodiratime = (nodiratime > 0 ? 1 : 0);
+        pfs_fuse_mgr.use_dstore = (dstore ? 1 : 0);
         pfs_fuse_mgr.ttl = ttl;
+    }
+
+    /* init the dstore */
+    if (dstore) {
+        hvfs_datastore_init();
+        err = hvfs_datastore_adding(dstore);
+        if (err) {
+            hvfs_err(xnet, "Parsing dstore config file failed w/ %d\n",
+                     err);
+            return EINVAL;
+        }
     }
 
     /* reconstruct the HVFS arguments */
@@ -140,6 +157,9 @@ int main(int argc, char *argv[])
     }
 out:
     __core_exit();
+    if (dstore) {
+        hvfs_datastore_exit();
+    }
 
     return err;
 }

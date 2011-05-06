@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-07 19:31:43 macan>
+ * Time-stamp: <2011-05-05 16:40:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,6 +55,8 @@ int itb_split_local(struct itb *oi, int odepth, struct itb_lock *l,
         err = -EHWAIT;
         goto out;
     }
+    /* set a JUST_SPLIT flag */
+    ni->h.flag = ITB_JUST_SPLIT;
 
     /* we need to get the wlock of the old ITB to prevent any concurrent
      * access */
@@ -191,14 +193,24 @@ ni->h.itbid);
         hvfs_err(mds, "adding bitmap delta failed, lose consistency.\n");
     }
     
-    /* FIXME: we should adding the async split update here! */
-#if 1
+    /* Add the new itb to current txg's dirty list */
+    {
+        itb_get(ni);
+        ni->h.txg = txg->txg;
+        ni->h.state = ITB_STATE_DIRTY;
+        INIT_LIST_HEAD(&ni->h.list);
+        txg_add_itb(txg, ni);
+    }
+    
+    /* Add this new itb as a async update request to transfer it to remote
+     * site */
     {
         struct async_update_request *aur = 
             xzalloc(sizeof(struct async_update_request));
 
         if (!aur) {
-            hvfs_err(mds, "xallloc() AU request failed, data lossing.\n");
+            hvfs_err(mds, "xallloc() AU request failed, data transfer lossing."
+                     " We hope this split can be commited to storage.\n");
             err = -ENOMEM;
         } else {
             aur->op = AU_ITB_SPLIT;
@@ -206,14 +218,14 @@ ni->h.itbid);
             INIT_LIST_HEAD(&aur->list);
             err = au_submit(aur);
             if (err) {
-                hvfs_err(mds, "submit AU request failed, data lossing.\n");
+                hvfs_err(mds, "submit AU request failed, data transfer lossing."
+                         " We hope this split can be commited to stroage.\n");
                 xfree(aur);
             }
             atomic64_inc(&hmo.prof.itb.split_submit);
         }
     }
-#endif
-    
+
     xrwlock_wunlock(&oi->h.lock);
     xrwlock_wunlock(&be->lock);
 
@@ -467,8 +479,8 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
         hi.hash = hash;
         hi.itbid = itbid;
         
-        hvfs_err(mds, "Self bitmap load uuid %lx offset %ld\n",
-                 e->uuid, offset);
+        hvfs_warning(mds, "Self bitmap load uuid %lx offset %ld\n",
+                     e->uuid, offset);
 
         /* cut the bitmap to valid range */
         err = mds_bc_dir_lookup(&hi, &location, &size);
@@ -750,9 +762,9 @@ int mds_bitmap_load(struct dhe *e, u64 offset)
             list_add_tail(&bitmap->list, &e->bitmap);
             /* FIXME: XNET clear the auto free flag */
             for (i = 0; i < 100; i++) {
-                sprintf(line + i, "%02x", bitmap->array[i]);
+                sprintf(line + 2 * i, "%02x", bitmap->array[i]);
             }
-            hvfs_warning(mds, "bitmap %s\n", line);
+            hvfs_warning(mds, "bitmap(100B) %s\n", line);
             xnet_clear_auto_free(msg->pair);
         }
         xlock_unlock(&e->lock);

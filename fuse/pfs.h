@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-29 09:35:15 macan>
+ * Time-stamp: <2011-05-03 13:56:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,6 +46,7 @@ struct __pfs_fuse_mgr
     u32 use_config:1;
     u32 noatime:1;
     u32 nodiratime:1;
+    u32 use_dstore:1;
     u32 ttl:8;                  /* lru translate cache ttl */
 };
 

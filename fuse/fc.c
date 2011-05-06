@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-29 22:39:50 macan>
+ * Time-stamp: <2011-05-04 19:22:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3603,6 +3603,505 @@ u64 SELECT_SITE(u64 itbid, u64 psalt, int type, u32 *vid)
     return p->site_id;
 }
 
+/* Note: attr namespace of pomegranate file system: prefix => pfs
+ *
+ * Format: pfs.class.column.op
+ *
+ * There are mainly two classes: native and tag. Class native is used to
+ * access raw column data, while class tag is used to access tag orient
+ * attributes.
+ *
+ * Table:
+ *        class    column    op      [other region]
+ *        native    [0-5]    read    .offset.len
+ *                           write   [.len]
+ *                           lookup  {return column info}
+ *        tag       [0-5]    add     .kv_list <key=value;key2=value2;...>
+ *                           delete  .key
+ *                           update  .key.value
+ *                           test    .key
+ *                           search  .search_expr {act on a directory, trigger 
+ *                                                 BDB search}
+ *
+ * Avaliable columns are:
+ * for file => 0 -> XTABLE_INDIRECT_COLUMN
+ * for dir  => HVFS_DIR_FF_COLUMN -> XTABLE_INDIRECT_COLUMN
+ */
+#define HVFS_XATTR_CLASS_NATIVE         0
+#define HVFS_XATTR_CLASS_TAG            1
+
+#define HVFS_XATTR_NATIVE_READ          0
+#define HVFS_XATTR_NATIVE_WRITE         1
+#define HVFS_XATTR_NATIVE_LOOKUP        2
+
+#define HVFS_XATTR_TAG_ADD              0
+#define HVFS_XATTR_TAG_DELETE           1
+#define HVFS_XATTR_TAG_UPDATE           2
+#define HVFS_XATTR_TAG_TEST             3
+#define HVFS_XATTR_TAG_SEARCH           4
+
+/* get next xattr token */
+#define HVFS_XATTR_NT(key, p, s, err, out) do { \
+        char *__in = NULL;                      \
+        if (!p) {                               \
+            __in = key;                         \
+        }                                       \
+        p = strtok_r(__in, ". ", (s));          \
+        if (!p) {                               \
+            err = -EINVAL;                      \
+            goto out;                           \
+        }                                       \
+    } while (0)
+
+/* Convention:
+ *
+ * Return value: >0 => size; <0 => error: =0 => ok
+ */
+static
+ssize_t __hvfs_xattr_native_read(char *key, char *p, char **s, 
+                                 struct hstat *hs, int column, 
+                                 char *value, size_t size)
+{
+    off_t offset;
+    ssize_t len, rlen;
+    ssize_t err = 0;
+    
+    /* Note: for native read, we have to parse the offset and length from key
+     * string */
+
+    /* get offset */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    offset = atol(p);
+
+    /* get length */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    len = atol(p);
+
+    /* check column size */
+    ASSERT(column == hs->mc.cno, xnet);
+    if (hs->mc.c.len < len) {
+        len = hs->mc.c.len;
+    }
+
+    /* sanity check */
+    if (!size) {
+        return len;
+    } else if (size < len) {
+        return -ERANGE;
+    }
+
+    /* ok, issue a read request to MDSL */
+    rlen = __hvfs_fread(hs, column, (void **)&p, &hs->mc.c, offset, len);
+    if (rlen < 0) {
+        hvfs_err(xnet, "__hvfs_fread() offset %ld len %ld failed w/ %ld\n",
+                 offset, len, rlen);
+        err = rlen;
+        goto out;
+    }
+
+    err = rlen;
+    
+out:
+    return err;
+}
+
+static
+ssize_t __hvfs_xattr_native_write(char *key, char *p, char **s,
+                                  struct hstat *hs, int column,
+                                  char *value, size_t size)
+{
+    ssize_t len = size;
+    u64 hash;
+    ssize_t err = 0;
+
+    /* Note: for native write, we just write the value buffer to MDSL */
+
+    /* get optional length */
+    HVFS_XATTR_NT(key, p, s, err, default_len);
+    len = atol(p);
+default_len:
+    if (len > size)
+        len = size;
+    if (!len)
+        return 0;
+    
+    /* calculate which itbid we should stored it in */
+    {
+        struct dhe *e;
+
+        e = mds_dh_search(&hmo.dh, hs->puuid);
+        if (IS_ERR(e)) {
+            hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
+            err = PTR_ERR(e);
+            goto out;
+        }
+        hash = hs->hash;
+        hs->hash = mds_get_itbid(e, hs->hash);
+        mds_dh_put(e);
+    }
+
+    if (value) {
+        err = __hvfs_fwrite(hs, column, 0, value, len, &hs->mc.c);
+        if (err) {
+            hvfs_err(xnet, "do internal fwrite on uuid'%lx,%lx' "
+                     "failed w/ %ld\n",
+                     hs->uuid, hash, err);
+            goto out;
+        }
+    } else {
+        hvfs_err(xnet, "No data region found\n");
+        err = -EINVAL;
+        goto out;
+    }
+
+    /* update the file attributes */
+    {
+        struct mdu_update mu;
+
+        mu.valid = MU_COLUMN;
+        mu.column_no = 1;
+        hs->mc.cno = column;
+        hs->hash = hash;
+
+        err = __hvfs_update(hs->puuid, hs->psalt, hs, &mu);
+        if (err) {
+            hvfs_err(xnet, "do internal update on ino<%lx,%lx> "
+                     "failed w/ %ld\n",
+                     hs->uuid, hs->hash, err);
+            goto out;
+        }
+    }
+    err = len;
+
+out:
+    return err;
+}
+
+/* Return a buffer as:
+ *
+ * ".stored_itbid.length.offset"
+ */
+static
+ssize_t __hvfs_xattr_native_lookup(char *key, char *p, char **s,
+                                   struct hstat *hs, int column,
+                                   char *value, size_t size)
+{
+    char buf[256];
+    ssize_t err = 0;
+    int len;
+
+    /* check column size */
+    ASSERT(column == hs->mc.cno, xnet);
+
+    /* pack the result to buffer */
+    len = snprintf(buf, 256, "%ld.%ld.%ld", hs->mc.c.stored_itbid,
+                   hs->mc.c.len, hs->mc.c.offset);
+    if (!size)
+        return len;
+    else if (size < len) {
+        return -ERANGE;
+    }
+
+    memcpy(value, buf, len);
+    err = len;
+
+    return err;
+}
+
+static
+ssize_t __hvfs_xattr_tag_add(char *key, char *p, char **s,
+                             struct hstat *hs, int column,
+                             char *value, size_t size)
+{
+    ssize_t err = 0;
+
+    return err;
+}
+
+static
+ssize_t __hvfs_xattr_tag_delete(char *key, char *p, char **s,
+                                struct hstat *hs, int column,
+                                char *value, size_t size)
+{
+    ssize_t err = 0;
+
+    return err;
+}
+
+static
+ssize_t __hvfs_xattr_tag_update(char *key, char *p, char **s,
+                                struct hstat *hs, int column,
+                                char *value, size_t size)
+{
+    ssize_t err = 0;
+
+    return err;
+}
+
+static
+ssize_t __hvfs_xattr_tag_test(char *key, char *p, char **s,
+                              struct hstat *hs, int column,
+                              char *value, size_t size)
+{
+    ssize_t err = 0;
+
+    return err;
+}
+
+static
+ssize_t __hvfs_xattr_tag_search(char *key, char *p, char **s,
+                                struct hstat *hs, int column,
+                                char *value, size_t size)
+{
+    ssize_t err = 0;
+
+    return err;
+}
+
+static 
+ssize_t __hvfs_xattr_main(char *key, char *value, size_t size, int flags, 
+                          int column, struct hstat *hs)
+{
+    char *dup = strdup(key), *p = NULL, *s = NULL;
+    ssize_t err = 0;
+    int class, op, __col;
+    
+    /* get namespace */
+    HVFS_XATTR_NT(dup, p, &s, err, out);
+    if (strcmp(p, "pfs") != 0) {
+        hvfs_err(xnet, "Request for unsupport namespace: %s\n",
+                 p);
+        err = -ENOTSUP;
+        goto out;
+    }
+    
+    /* get class */
+    HVFS_XATTR_NT(dup, p, &s, err, out);
+    if (strcmp(p, "native") == 0) {
+        class = HVFS_XATTR_CLASS_NATIVE;
+    } else if (strcmp(p, "tag") == 0) {
+        class = HVFS_XATTR_CLASS_TAG;
+    } else {
+        hvfs_err(xnet, "Request for unknown class: %s\n",
+                 p);
+        err = -ENOTSUP;
+        goto out;
+    }
+    
+    /* get column */
+    HVFS_XATTR_NT(dup, p, &s, err, out);
+    __col = atoi(p);
+    if (column + __col > XTABLE_INDIRECT_COLUMN) {
+        hvfs_err(xnet, "Request for column %d overflow level 0\n",
+                 __col);
+        err = -EINVAL;
+        goto out;
+    }
+    column += __col;
+    
+    /* get op */
+    HVFS_XATTR_NT(dup, p, &s, err, out);
+    if (class == HVFS_XATTR_CLASS_NATIVE) {
+        if (strcmp(p, "read") == 0) {
+            op = HVFS_XATTR_NATIVE_READ;
+        } else if (strcmp(p, "write") == 0) {
+            op = HVFS_XATTR_NATIVE_WRITE;
+        } else if (strcmp(p, "lookup") == 0) {
+            op = HVFS_XATTR_NATIVE_LOOKUP;
+        } else {
+            hvfs_err(xnet, "Request for unknown native op: %s\n",
+                     p);
+            err = -ENOTSUP;
+            goto out;
+        }
+    } else if (class == HVFS_XATTR_CLASS_TAG) {
+        if (strcmp(p, "add") == 0) {
+            op = HVFS_XATTR_TAG_ADD;
+        } else if (strcmp(p, "delete") == 0) {
+            op = HVFS_XATTR_TAG_DELETE;
+        } else if (strcmp(p, "update") == 0) {
+            op = HVFS_XATTR_TAG_UPDATE;
+        } else if (strcmp(p, "test") == 0) {
+            op = HVFS_XATTR_TAG_TEST;
+        } else if (strcmp(p, "search") == 0) {
+            op = HVFS_XATTR_TAG_SEARCH;
+        } else {
+            hvfs_err(xnet, "Request for unknown tag op: %s\n",
+                     p);
+            err = -ENOTSUP;
+            goto out;
+        }
+    }
+    
+    /* prepare column info  */
+    err = __hvfs_stat(hs->puuid, hs->psalt, column, hs);
+    if (err) {
+        hvfs_err(xnet, "do internal file state (SDT) on uuid'%lx,%lx' "
+                 "faield w/ %ld\n",
+                 hs->uuid, hs->hash, err);
+        goto out;
+    }
+
+    /* ok, call handlers now */
+    switch (class) {
+    case HVFS_XATTR_CLASS_NATIVE:
+        switch (op) {
+        case HVFS_XATTR_NATIVE_READ:
+            err = __hvfs_xattr_native_read(dup, p, &s, hs, column, 
+                                           value, size);
+            break;
+        case HVFS_XATTR_NATIVE_WRITE:
+            err = __hvfs_xattr_native_write(dup, p, &s, hs, column,
+                                            value, size);
+            break;
+        case HVFS_XATTR_NATIVE_LOOKUP:
+            err = __hvfs_xattr_native_lookup(dup, p, &s, hs, column,
+                                             value, size);
+            break;
+        default:
+            hvfs_err(xnet, "Request for unknown op: %d\n", op);
+            err = -ENOTSUP;
+            goto out;
+        }
+    case HVFS_XATTR_CLASS_TAG:
+        switch (op) {
+        case HVFS_XATTR_TAG_ADD:
+            err = __hvfs_xattr_tag_add(dup, p, &s, hs, column,
+                                       value, size);
+            break;
+        case HVFS_XATTR_TAG_DELETE:
+            err = __hvfs_xattr_tag_delete(dup, p, &s, hs, column,
+                                          value, size);
+            break;
+        case HVFS_XATTR_TAG_UPDATE:
+            err = __hvfs_xattr_tag_update(dup, p, &s, hs, column,
+                                          value, size);
+            break;
+        case HVFS_XATTR_TAG_TEST:
+            err = __hvfs_xattr_tag_test(dup, p, &s, hs, column,
+                                        value, size);
+            break;
+        case HVFS_XATTR_TAG_SEARCH:
+            err = __hvfs_xattr_tag_search(dup, p, &s, hs, column,
+                                          value, size);
+            break;
+        default:
+            hvfs_err(xnet, "Request for unknown op: %d\n", op);
+            err = -ENOTSUP;
+            goto out;
+        }
+    default:
+        hvfs_err(xnet, "Request for unknown class: %d\n", class);
+        err = -ENOTSUP;
+        goto out;
+    }
+out:
+    return err;
+}
+
+static int hvfs_setxattr(const char *pathname, const char *key,
+                         const char *value, size_t size, int flags)
+{
+    struct hstat hs = {0,};
+    char *dup = strdup(pathname), *path, *name, *spath = NULL;
+    char *p = NULL, *n, *s = NULL;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0, column = 0;
+
+    SPLIT_PATHNAME(dup, path, name);
+    n = path;
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    if (err > 0) {
+        goto hit;
+    }
+    
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hvfs_debug(xnet, "token: %s\n", p);
+        /* ok, we should do stat on this directory based on the puuid, psalt
+         * we got */
+        /* Step 1: find in the SDT, zero uuid means using name to lookup */
+        hs.name = p;
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err) {
+        goto out;
+    }
+
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
+hit:
+    hs.name = name;
+    hs.uuid = 0;
+    err = __hvfs_stat(puuid, psalt, 0, &hs);
+    if (err) {
+        hvfs_err(xnet, "do internal file stat (SDT) on '%s' failed w/ %d\n",
+                 name, err);
+        goto out;
+    }
+    if (S_ISDIR(hs.mdu.mode)) {
+        /* We want to manipulate dir xattr, be carefull on reserved columns.
+         * The first free column we can use start from HVFS_DIR_FF_COLUMN */
+        column = HVFS_DIR_FF_COLUMN;
+    }
+
+    /* manipulate the columns and update the metadata */
+    err = __hvfs_xattr_main((char *)key, (char *)value, size, flags, 
+                            column, &hs);
+    if (err) {
+        hvfs_err(xnet, "__hvfs_xattr_main() failed w/ %d\n", err);
+        goto out;
+    }
+
+out:
+    return err;
+}
+
+static int hvfs_getxattr(const char *pathname, const char *name,
+                         char *value, size_t size)
+{
+    int err = 0;
+
+    return err;
+}
+
+static int hvfs_listxattr(const char *pathname, char *list, size_t size)
+{
+    int err = 0;
+
+    return err;
+}
+
+static int hvfs_removexattr(const char *pathname, const char *name)
+{
+    int err = 0;
+
+    return err;
+}
+
 static int hvfs_opendir(const char *pathname, struct fuse_file_info *fi)
 {
     hvfs_dir_t *dir;
@@ -3636,12 +4135,11 @@ static int __hvfs_readdir_plus(u64 duuid, u64 salt, void *buf,
 
     /* check if the cached entries can serve the request */
     if (off < dir->goffset) {
-        /* seek backward is not allowed */
-        hvfs_err(xnet, "Sorry, in PomegranateFS, seek backward readdir "
-                 "is not allowed\n");
-        return -EINVAL;
+        /* seek backward, just zero out our brain */
+        xfree(dir->di);
+        memset(dir, 0, sizeof(*dir));
     }
-    hvfs_debug(xnet, "readdir_plus itbid %ld off %ld goff %ld csize %d\n", 
+    hvfs_err(xnet, "readdir_plus itbid %ld off %ld goff %ld csize %d\n", 
                dir->itbid, off, dir->goffset, dir->csize);
 
     if (dir->goffset + dir->csize > 0 && 
@@ -3828,6 +4326,7 @@ static int hvfs_readdir_plus(const char *pathname, void *buf,
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
+    hvfs_err(xnet, "recv readdir request at offset %ld\n", off);
     SPLIT_PATHNAME(dup, path, name);
     n = path;
 
@@ -3948,6 +4447,7 @@ realloc:
         pfs_fuse_mgr.inited = 1;
         pfs_fuse_mgr.sync_write = 0;
         pfs_fuse_mgr.use_config = 0;
+        pfs_fuse_mgr.use_dstore = 0;
         pfs_fuse_mgr.noatime = 1;
         pfs_fuse_mgr.nodiratime = 1;
         pfs_fuse_mgr.ttl = 5;
@@ -4094,6 +4594,11 @@ struct fuse_operations pfs_ops = {
     .statfs = hvfs_statfs_plus,
     .flush = NULL,
     .release = hvfs_release,
+    .fsync = NULL,
+    .setxattr = hvfs_setxattr,
+    .getxattr = hvfs_getxattr,
+    .listxattr = hvfs_listxattr,
+    .removexattr = hvfs_removexattr,
     .opendir = hvfs_opendir,
     .readdir = hvfs_readdir_plus,
     .releasedir = hvfs_release_dir,

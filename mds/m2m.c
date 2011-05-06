@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-08 16:58:04 macan>
+ * Time-stamp: <2011-05-05 10:57:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -304,6 +304,7 @@ void mds_ausplit(struct xnet_msg *msg)
     /* pre-dirty the itb */
     t = mds_get_open_txg(&hmo);
     i->h.txg = t->txg;
+    i->h.flag = ITB_ACTIVE;
     i->h.state = ITB_STATE_DIRTY;
     /* re-init */
     itb_reinit(i);
@@ -807,7 +808,7 @@ void mds_audirdelta(struct xnet_msg *msg)
      * arg1: flag << 32 | nlink
      */
 
-    hvfs_warning(mds, "Recv uuid %ld nlink %d from site %lx salt %ld\n", 
+    hvfs_warning(mds, "Recv uuid %lx nlink %d from site %lx salt %lx\n", 
                  hdd->duuid, atomic_read(&hdd->nlink), msg->tx.ssite_id,
                  hdd->salt);
 
@@ -892,8 +893,8 @@ void mds_audirdelta_r(struct xnet_msg *msg)
     ASSERT(msg->tx.arg0 == hdd->duuid, mds);
     async_audirdelta_cleanup(msg->tx.arg0, msg->tx.arg1);
 
-    hvfs_warning(mds, "Recv AUDD reply uuid %ld nlink %d from site %lx "
-                 "salt %ld\n",
+    hvfs_warning(mds, "Recv AUDD reply uuid %lx nlink %d from site %lx "
+                 "salt %lx\n",
                  hdd->duuid, atomic_read(&hdd->nlink), msg->tx.ssite_id,
                  hdd->salt);
 

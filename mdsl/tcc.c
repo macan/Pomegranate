@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-02 13:17:21 macan>
+ * Time-stamp: <2011-05-05 11:05:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -233,6 +233,12 @@ int itb_append(struct itb *itb, struct itb_info *ii, u64 site, u64 txg)
             .iov_nr = 1,
         };
         u32 master;
+        
+        /* setup overwrite flag */
+        if (itb->h.flag == ITB_JUST_SPLIT)
+            ii->overwrite = 0;
+        else
+            ii->overwrite = 1;
         
         /* prepare write to the file: "[target dir]/itb" */
         fde = mdsl_storage_fd_lookup_create(itb->h.puuid, MDSL_STORAGE_MD, 0);

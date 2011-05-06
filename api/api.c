@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 15:18:07 macan>
+ * Time-stamp: <2011-05-01 13:22:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3924,7 +3924,7 @@ int __hvfs_create(u64 puuid, u64 psalt, struct hstat *hs,
                              HASH_SEL_EH);
         hi->puuid = puuid;
         hi->psalt = psalt;
-        hi->flag = INDEX_CREATE;
+        hi->flag = INDEX_CREATE | flag;
         if (imu) {
             off_t offset = sizeof(*mu);
             

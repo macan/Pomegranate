@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-27 17:35:14 macan>
+ * Time-stamp: <2011-05-05 16:39:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -41,7 +41,9 @@ LIST_HEAD(g_bitmap_deltas);
 xlock_t g_bitmap_deltas_lock;
 
 LIST_HEAD(g_dir_deltas);
+LIST_HEAD(g_dir_deltas_sent);
 xlock_t g_dir_deltas_lock;
+xlock_t g_dir_deltas_sent_lock;
 
 void async_update_checking(time_t t)
 {
@@ -131,8 +133,9 @@ int __aur_itb_split(struct async_update_request *aur)
 #endif
         hvfs_warning(mds, "Send the AU split %ld request to %lx. self salt %lx\n", 
                      i->h.itbid, msg->tx.dsite_id, e->salt);
-        /* FIXME: for now we just send the whole ITB */
-        ASSERT(list_empty(&i->h.list), mds);
+
+        /* Note: for now we just send the whole ITB, it is always linked to
+         * txg's dirty list, but we only read it */
         xnet_msg_add_sdata(msg, i, atomic_read(&i->h.len));
         err = xnet_send(hmo.xc, msg);
         if (err) {
@@ -150,7 +153,7 @@ int __aur_itb_split(struct async_update_request *aur)
         itb_put((struct itb *)i->h.twin);
         hvfs_warning(mds, "Receive the AU split %ld reply from %lx.\n", 
                      i->h.itbid, msg->pair->tx.ssite_id);
-        itb_free(i);
+        itb_put(i);
         atomic64_inc(&hmo.prof.mds.split);
     msg_free:
         xnet_free_msg(msg);
@@ -162,26 +165,30 @@ int __aur_itb_split(struct async_update_request *aur)
         struct bucket *nb;
         struct bucket_entry *nbe;
         struct itb *ti, *saved_oi;
-        struct hvfs_txg *t;
 
-        /* pre-dirty this itb */
-        t = mds_get_open_txg(&hmo);
-        i->h.txg = t->txg;
-        i->h.state = ITB_STATE_DIRTY;
-        INIT_LIST_HEAD(&i->h.list);
-        txg_add_itb(t, i);
-        txg_put(t);
+        /* Note: we have add this itb to previous or current txg's dirty list,
+         * so we just insert this entry to CBHT and clear the JUST_SPLIT
+         * flag. */
+
         /* change the splited ITB's state to NORMAL */
+        xrwlock_wlock(&i->h.lock);
         saved_oi = (struct itb *)i->h.twin;
         i->h.twin = 0;
+        if (i->h.flag == ITB_JUST_SPLIT) {
+            i->h.flag = ITB_ACTIVE;
+            ASSERT(atomic_read(&i->h.ref) == 2, mds);
+            itb_put(i);
+        }
+        xrwlock_wunlock(&i->h.lock);
 
         /* insert into the CBHT */
         err = mds_cbht_insert_bbrlocked(&hmo.cbht, i, &nb, &nbe, &ti);
         if (err == -EEXIST) {
             /* someone create the new ITB, we have data losing */
             hvfs_err(mds, "Someone create ITB %ld(%ld), data losing ... "
-                     "[failed fatal error]\n",
-                     i->h.itbid, saved_oi->h.itbid);
+                     "[failed fatal error]\n{self %p, other %p}\n",
+                     i->h.itbid, saved_oi->h.itbid,
+                     i, ti);
         } else if (err) {
             hvfs_err(mds, "Internal error %d, data losing. "
                      "[failed fatal error]\n", err);
@@ -424,7 +431,9 @@ int __aur_dir_delta(struct async_update_request *aur)
             dda->dd = pos->buf[i];
             dda->dd.salt = lib_random(0x3fffffab);
             /* Step 3: add it to the g_dir_deltas */
+            xlock_lock(&g_dir_deltas_lock);
             list_add(&dda->list, &g_dir_deltas);
+            xlock_unlock(&g_dir_deltas_lock);
             new++;
         }
         atomic64_add(pos->asize, &hmo.prof.misc.au_dd);
@@ -451,6 +460,12 @@ int __aur_dir_delta(struct async_update_request *aur)
             continue;
         }
         dda->dd.site_id = p->site_id;
+
+        /* If we do not remove this entry, another update will be triggered,
+         * and the update maybe not idempotent ... So, we need to remove the
+         * entry! */
+        list_del(&dda->list);
+
         /* Step 2: send it to dest site, using isend(ONESHOT) */
         if (dda->dd.site_id == hmo.site_id) {
             /* 
@@ -481,12 +496,9 @@ int __aur_dir_delta(struct async_update_request *aur)
                          dda->dd.duuid, err);
             }
 
-            /* we have updated the cbht before. if we do not remove this
-             * entry, another update will be triggered, and the update maybe
-             * not idempotent ... So, we need to remove the entry! */
-            list_del(&dda->list);
+            /* We have update the CBHT state, thus, we can free it now */
             xfree(dda);
-
+            
             local++;
         } else {
             err = txg_ddc_send_request(dda);
@@ -495,6 +507,11 @@ int __aur_dir_delta(struct async_update_request *aur)
                          err);
             }
             remote++;
+
+            /* add to sent list */
+            xlock_lock(&g_dir_deltas_sent_lock);
+            list_add(&dda->list, &g_dir_deltas_sent);
+            xlock_unlock(&g_dir_deltas_sent_lock);
         }
     }
     xlock_unlock(&g_dir_deltas_lock);
@@ -515,15 +532,15 @@ void async_audirdelta_cleanup(u64 uuid, u64 salt)
     struct hvfs_txg *txg;
     int found = 0, err = 0;
 
-    xlock_lock(&g_dir_deltas_lock);
-    list_for_each_entry_safe(dda, n, &g_dir_deltas, list) {
+    xlock_lock(&g_dir_deltas_sent_lock);
+    list_for_each_entry_safe(dda, n, &g_dir_deltas_sent, list) {
         if (uuid == dda->dd.duuid && salt == dda->dd.salt) {
             list_del(&dda->list);
             found = 1;
             break;
         }
     }
-    xlock_unlock(&g_dir_deltas_lock);
+    xlock_unlock(&g_dir_deltas_sent_lock);
 
     /* we should insert the acked entries into the current txg's rddb list */
     if (found) {
@@ -554,7 +571,7 @@ int __aur_dir_delta_reply(struct async_update_request *aur)
 {
     struct hvfs_dir_delta_buf *pos, *n;
     struct list_head *tl = (struct list_head *)aur->arg;
-    int total = 0, skip = 0, acked = 0;
+    int remote = 0, skip = 0, acked = 0;
     int err = 0, i;
 
     /* we should iterate on the rddb list: first, we should select all the
@@ -572,7 +589,7 @@ int __aur_dir_delta_reply(struct async_update_request *aur)
                                  "failed w %d\n",
                                  pos->buf[i].duuid, err);
                     }
-                    total++;
+                    remote++;
                 } else {
                     skip++;
                 }
@@ -583,8 +600,8 @@ int __aur_dir_delta_reply(struct async_update_request *aur)
         atomic64_add(pos->asize, &hmo.prof.misc.au_ddr);
         xfree(pos);
     }
-    hvfs_warning(mds, "total = %d, skip = %d, acked = %d\n", 
-                 total, skip, acked);
+    hvfs_warning(mds, "remote(U) = %d, skip(L) = %d, acked(L) = %d\n", 
+                 remote, skip, acked);
 
     return err;
 }
@@ -836,6 +853,7 @@ int async_tp_init(void)
     xlock_init(&g_aum.lock);
     xlock_init(&g_bitmap_deltas_lock);
     xlock_init(&g_dir_deltas_lock);
+    xlock_init(&g_dir_deltas_sent_lock);
     
     sem_init(&hmo.async_sem, 0, 0);
 

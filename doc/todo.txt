@@ -393,3 +393,7 @@ Pomegranate TODOs:
 
     1. I have configured a TILE server, but how can we get performance 
        contrasts?
+
+       On gd51, a TILE generater is ready to run. After inserting millions
+       of tiles, we should compare ext3/hvfs.local and ceph/orangefs/
+       hvfs.cluster.

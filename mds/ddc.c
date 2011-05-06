@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-18 09:50:36 macan>
+ * Time-stamp: <2011-05-05 09:40:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -101,9 +101,10 @@ int txg_ddc_send_reply(struct hvfs_dir_delta *hdd)
         goto out_free_msg;
     }
 
-    hvfs_err(mds, "Send AUDD reply uuid %ld nlink %d to site %lx salt %ld\n",
-             hdd->duuid, atomic_read(&hdd->nlink), hdd->site_id,
-             hdd->salt);
+    hvfs_warning(mds, "Send AUDD reply uuid %lx nlink %d to site %lx "
+                 "salt %lx\n",
+                 hdd->duuid, atomic_read(&hdd->nlink), hdd->site_id,
+                 hdd->salt);
     /* We should not wait any reply :) */
 out_free_msg:
     xnet_free_msg(msg);
