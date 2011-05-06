@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-05-03 14:05:25 macan>
+# Time-stamp: <2011-05-06 05:23:36 ec2-user>
 #
 # This is the makefile for HVFS project.
 #
@@ -72,11 +72,12 @@ BDB_LIB_PATH = $(BDB_MAIN)/lib
 
 # Debuging the memory and locks
 XCFLAGS = -O2 -rdynamic -g -pg -fPIC
+GCC4_OPT = -fno-strict-aliasing
 DEADCODESTRIP := -fdata-sections -ffunction-sections \
 				 -Wl,--gc-sections
 O3_OPT = -frename-registers -funroll-loops
 
-CFLAGS += $(XCFLAGS) $(O3_OPT)
+CFLAGS += $(XCFLAGS) $(O3_OPT) $(GCC4_OPT)
 CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" -DGIT_SHA="\"$(GIT_SHA)\""\
 			-DCHOST="\"$(COMPILE_HOST)\"" -I$(INC_PATH) \
 			-I$(PYTHON_INC) -I$(API) -I$(BRANCH) \
