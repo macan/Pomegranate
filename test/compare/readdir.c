@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-04 09:21:35 macan>
+ * Time-stamp: <2011-05-09 11:12:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,26 +31,38 @@ int main (int argc, char *argv[])
     }
     printf("opened %s\n", argv[1]);
     DIR *d = opendir(argv[1]);
-    struct dirent *e = readdir(d);
+    struct dirent *e = NULL, se;
     long int pos = 0;
     int i = 0;
 
-    while (e) {
-        printf("%lx %s\n", e->d_fileno, e->d_name);
+    do {
         if (i == 3) {
             pos = telldir(d);
-            printf(" => Position: %li\n", pos);
         }
         e = readdir(d);
+        if (i == 3) {
+            if (e)
+                se = *e;
+            else
+                pos = 0;
+        }
         i++;
-    }
+    } while (e);
 
     if (pos) {
-        printf(" => read %s at Position %li\n", argv[1], pos);
         seekdir(d, pos);
         e = readdir(d);
-        printf("%lx %s\n", e->d_fileno, e->d_name);
+        if (e) {
+            if (se.d_fileno != e->d_fileno ||
+                strcmp(se.d_name, e->d_name) != 0) {
+                printf("seekdir -> readdir FAILED\n");
+            } else {
+                printf("OK\n");
+            }
+        } else
+            printf("seekdir FAILED!\n");
     }
+
     closedir(d);
 
     return 0;
