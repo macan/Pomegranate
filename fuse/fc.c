@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-04 19:22:00 macan>
+ * Time-stamp: <2011-05-08 21:17:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -4117,6 +4117,9 @@ static int hvfs_opendir(const char *pathname, struct fuse_file_info *fi)
     return 0;
 }
 
+/* If we have read some dirents, we return 0; otherwise, we should return 1 to
+ * indicate a error.
+ */
 static int __hvfs_readdir_plus(u64 duuid, u64 salt, void *buf,
                                fuse_fill_dir_t filler, off_t off,
                                hvfs_dir_t *dir)
@@ -4126,6 +4129,7 @@ static int __hvfs_readdir_plus(u64 duuid, u64 salt, void *buf,
     struct dentry_info *tdi;
     struct hvfs_index hi;
     u64 dsite;
+    off_t saved_offset = off;
     u32 vid;
     int err = 0, retry_nr, res = 0;
 
@@ -4139,10 +4143,10 @@ static int __hvfs_readdir_plus(u64 duuid, u64 salt, void *buf,
         xfree(dir->di);
         memset(dir, 0, sizeof(*dir));
     }
-    hvfs_err(xnet, "readdir_plus itbid %ld off %ld goff %ld csize %d\n", 
+    hvfs_debug(xnet, "readdir_plus itbid %ld off %ld goff %ld csize %d\n", 
                dir->itbid, off, dir->goffset, dir->csize);
 
-    if (dir->goffset + dir->csize > 0 && 
+    if (dir->csize > 0 && 
         off <= dir->goffset + dir->csize) {
         /* ok, easy to fill the dentry */
         struct stat st;
@@ -4154,6 +4158,7 @@ static int __hvfs_readdir_plus(u64 duuid, u64 salt, void *buf,
                 /* fill in */
                 memcpy(name, tdi->name, tdi->namelen);
                 name[tdi->namelen] = '\0';
+                memset(&st, 0, sizeof(st));
                 st.st_ino = tdi->uuid;
                 st.st_mode = tdi->mode;
                 res = filler(buf, name, &st, off + 1);
@@ -4311,7 +4316,11 @@ static int __hvfs_readdir_plus(u64 duuid, u64 salt, void *buf,
         dir->itbid += 1;
     } while (1);
 
-    err = 0;
+    if (off > saved_offset)
+        err = 0;
+    else
+        err = 1;
+    
 out:
     return err;
 }
@@ -4326,7 +4335,6 @@ static int hvfs_readdir_plus(const char *pathname, void *buf,
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     int err = 0;
 
-    hvfs_err(xnet, "recv readdir request at offset %ld\n", off);
     SPLIT_PATHNAME(dup, path, name);
     n = path;
 
@@ -4402,10 +4410,13 @@ hit:
 
     err = __hvfs_readdir_plus(puuid, psalt, buf, filler, off, 
                               (hvfs_dir_t *)fi->fh);
-    if (err) {
+    if (err < 0) {
         hvfs_err(xnet, "do internal readdir on '%s' failed w/ %d\n",
                  (name ? name : p), err);
         goto out;
+    } else if (err == 1) {
+        /* stop loudly */
+        err = -ENOENT;
     }
 
 out:
