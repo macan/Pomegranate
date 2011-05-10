@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 14:53:02 macan>
+ * Time-stamp: <2011-05-10 16:22:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2175,13 +2175,26 @@ int xnet_msg_add_sdata(struct xnet_msg *msg, void *buf, u32 len)
     
     if (msg->siov_ulen >= msg->siov_alen) {
         /* not enough to hold new entry, alloc more entries */
+        int copy = 0;
+        
+        if (msg->siov_alen == g_xnet_conf.siov_nr) {
+            msg->siov = NULL;
+            copy = 1;
+        }
+        
         msg->siov = xrealloc(msg->siov, sizeof(struct iovec) * 
                              (msg->siov_alen + g_xnet_conf.siov_nr));
         if (!msg->siov || msg->siov_alen + g_xnet_conf.siov_nr > IOV_MAX) {
             /* user always ignore the return error, thus we speak loudly! */
             hvfs_err(xnet, "Memory corruption, death nearing ...\n");
+            if (msg->siov_alen == g_xnet_conf.siov_nr)
+                msg->siov = (void *)msg + sizeof(struct xnet_msg);
             err = -ENOMEM;
             goto out;
+        }
+        if (copy) {
+            memcpy(msg->siov, (void *)msg + sizeof(struct xnet_msg),
+                   sizeof(struct iovec) * msg->siov_alen);
         }
         msg->siov_alen += g_xnet_conf.siov_nr;
     }
@@ -2213,7 +2226,8 @@ void xnet_msg_free_sdata(struct xnet_msg *msg)
         ASSERT(msg->siov[i].iov_base, xnet);
         xfree(msg->siov[i].iov_base);
     }
-    xfree(msg->siov);
+    if (msg->siov_alen > g_xnet_conf.siov_nr)
+        xfree(msg->siov);
 }
 
 int xnet_msg_add_rdata(struct xnet_msg *msg, void *buf, u32 len)

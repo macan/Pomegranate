@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-17 13:46:18 macan>
+ * Time-stamp: <2011-05-10 16:29:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,7 +44,12 @@ struct xnet_msg *xnet_alloc_msg(u8 alloc_flag)
         return NULL;
 #endif
 
+#ifndef USE_XNET_SIMPLE
     msg = xzalloc(sizeof(struct xnet_msg));
+#else
+    msg = xzalloc(sizeof(struct xnet_msg) + sizeof(struct iovec) *
+                  (g_xnet_conf.siov_nr));
+#endif
     if (unlikely(!msg)) {
         hvfs_err(xnet, "xzalloc() struct xnet_msg failed\n");
         return NULL;
@@ -56,6 +61,8 @@ struct xnet_msg *xnet_alloc_msg(u8 alloc_flag)
     sem_init(&msg->event, 0, 0);
     atomic64_inc(&g_xnet_prof.msg_alloc);
     atomic_set(&msg->ref, 1);
+    msg->siov = (void *)msg + sizeof(struct xnet_msg);
+    msg->siov_alen = g_xnet_conf.siov_nr;
 #endif
 
     return msg;
@@ -103,10 +110,12 @@ void xnet_free_msg(struct xnet_msg *msg)
             /* FIXME: do we need to free the data region */
         }
     } else {
-        if (msg->siov)
-            xfree(msg->siov);
-        if (msg->riov)
-            xfree(msg->riov);
+        if (msg->siov_alen > g_xnet_conf.siov_nr) {
+            if (msg->siov)
+                xfree(msg->siov);
+            if (msg->riov)
+                xfree(msg->riov);
+        }
     }
     xfree(msg);
 #ifdef USE_XNET_SIMPLE
