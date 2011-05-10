@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-26 15:14:22 macan>
+ * Time-stamp: <2011-05-10 14:48:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -485,8 +485,10 @@ int mds_dh_dt_update(struct dh *, u64, struct dir_trigger_mgr *);
 struct dhe *mds_dh_search(struct dh *, u64);
 int mds_dh_remove(struct dh *, u64);
 u64 mds_get_itbid(struct dhe *, u64);
+u64 mds_get_itbid_depth(struct dhe *, u64, u8 *);
 int mds_dh_bitmap_update(struct dh *, u64, u64, u8);
 int mds_dh_bitmap_test(struct dh *, u64, u64);
+int mds_dhe_bitmap_test(struct dhe *, u64);
 void mds_dh_bitmap_dump(struct dh *, u64);
 void mds_dh_gossip(struct dh *);
 void mds_dh_evict(struct dh *);

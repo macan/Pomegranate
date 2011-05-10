@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-12 14:33:04 macan>
+ * Time-stamp: <2011-05-09 20:04:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -96,10 +96,11 @@ struct hvfs_index
 #define INDEX_KV                0x40000000 /* K/V mode access */
 #define INDEX_DTRIG             0x20000000 /* toggle the trigger mode */
     u32 flag;
-    u64 uuid;                   /* self uuid */
-    u64 hash;                   /* hash value of the name, or manual set */
-    u64 itbid;              /* uuid computed by client, or true uuid by MDS */
-    u64 puuid;                  /* parent uuid */
+    u64 uuid;               /* self uuid */
+    u64 hash;               /* hash value of the name, or manual set */
+    u64 itbid:56;           /* uuid computed by client, or true uuid by MDS */
+    u64 depth:8;            /* depth of significant bitmap bit */
+    u64 puuid;              /* parent uuid */
     union
     {
         u64 ssalt;              /* self salt, used within HMR reply */

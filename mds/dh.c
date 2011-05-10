@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-14 13:58:35 macan>
+ * Time-stamp: <2011-05-10 15:50:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -539,7 +539,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     p = ring_get_point(thi.itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
     if (unlikely(IS_ERR(p))) {
         hvfs_err(mds, "ring_get_point(%ld) failed with %ld\n", 
-                 thi.itbid, PTR_ERR(p));
+                 (u64)thi.itbid, PTR_ERR(p));
         e = ERR_PTR(-ECHP);
         goto out_free;
     }
@@ -547,7 +547,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         struct hvfs_txg *txg;
         
         hvfs_warning(mds, "Load DH (self): uuid %lx itbid %ld, site %lx\n", 
-                     thi.uuid, thi.itbid, p->site_id);
+                     thi.uuid, (u64)thi.itbid, p->site_id);
         /* the GDT service MDS server is myself, so we just lookup the entry
          * in my CBHT. */
         hmr = get_hmr();
@@ -645,7 +645,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     } else {
         /* ok, we should send the request to the remote site now */
         hvfs_warning(mds, "Load DH (remote): uuid %lx itbid %ld, site %lx\n", 
-                     thi.uuid, thi.itbid, p->site_id);
+                     thi.uuid, (u64)thi.itbid, p->site_id);
 
         /* prepare the msg */
         xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.xc->site_id, 
@@ -823,7 +823,7 @@ int mds_dh_reload_nolock(struct dhe *ue)
     p = ring_get_point(thi.itbid, hmi.gdt_salt, hmo.chring[CH_RING_MDS]);
     if (IS_ERR(p)) {
         hvfs_err(mds, "ring_get_point(%ld) failed with %ld\n", 
-                 thi.itbid, PTR_ERR(p));
+                 (u64)thi.itbid, PTR_ERR(p));
         err = -ECHP;
         goto out_free;
     }
@@ -831,7 +831,7 @@ int mds_dh_reload_nolock(struct dhe *ue)
         struct hvfs_txg *txg;
         
         hvfs_debug(mds, "Load DH (self): uuid %lx itbid %ld, site %lx\n", 
-                   thi.uuid, thi.itbid, p->site_id);
+                   thi.uuid, (u64)thi.itbid, p->site_id);
         /* the GDT service MDS server is myself, so we just lookup the entry
          * in my CBHT. */
         hmr = get_hmr();
@@ -926,7 +926,7 @@ int mds_dh_reload_nolock(struct dhe *ue)
     } else {
         /* ok, we should send the request to the remote site now */
         hvfs_debug(mds, "Load DH (remote): uuid %lx itbid %ld, site %lx\n", 
-                   thi.uuid, thi.itbid, p->site_id);
+                   thi.uuid, (u64)thi.itbid, p->site_id);
 
         /* prepare the msg */
         xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, hmo.xc->site_id, 
@@ -1126,7 +1126,8 @@ void mds_dh_gossip(struct dh *dh)
  * Convert the hash to itbid by lookup the bitmap. This is a hot path that we
  * should optimize it hardly.
  */
-u64 mds_get_itbid(struct dhe *e, u64 hash)
+static inline
+u64 __mds_get_itbid(struct dhe *e, u64 hash)
 {
     struct itbitmap *b;
     u64 offset = hash >> ITB_DEPTH;
@@ -1203,13 +1204,74 @@ out:
     return 0;
 }
 
+u64 mds_get_itbid(struct dhe *e, u64 hash)
+{
+    return __mds_get_itbid(e, hash);
+}
+
 /* mds_dh_bitmap_test()
  *
  * This function return the bit value of the position
  */
-int mds_dh_bitmap_test(struct dh *dh, u64 puuid, u64 itbid)
+static inline
+int __mds_dhe_bitmap_test(struct dhe *e, u64 itbid)
 {
     struct itbitmap *b;
+    int err = -EINVAL;
+
+retry:
+    xlock_lock(&e->lock);
+    list_for_each_entry(b, &e->bitmap, list) {
+        if (b->offset <= itbid && itbid < b->offset + XTABLE_BITMAP_SIZE) {
+            /* ok, we get the bitmap slice, just do it */
+            err = mds_bitmap_test_bit(b, itbid);
+            break;
+        } else if (b->offset > itbid) {
+            /* it means that we need to load the missing slice */
+            xlock_unlock(&e->lock);
+            err = mds_bitmap_load(e, itbid);
+            if (err == -EISEMPTY) {
+                err = 0;
+                goto out;
+            } else if (err) {
+                hvfs_err(mds, "Hoo, loading DHE %lx Bitmap %ld failed w/ %d\n",
+                         e->uuid, itbid, err);
+                goto out;
+            }
+            goto retry;
+        } else if (itbid >= b->offset + XTABLE_BITMAP_SIZE) {
+            if (b->flag & BITMAP_END) {
+                /* ok, the itbid we test does NOT exist! */
+                xlock_unlock(&e->lock);
+                err = 0;
+                break;
+            } else if (b->list.next == &e->bitmap) {
+                /* load the next slice */
+                xlock_unlock(&e->lock);
+                err = mds_bitmap_load(e, itbid);
+                if (err == -ENOTEXIST) {
+                    hvfs_err(mds, "Hoo, loading DHE %lx Bitmap %ld failed\n",
+                             e->uuid, itbid);
+                    goto out;
+                } else if (err == -EISEMPTY) {
+                    err = 0;
+                    break;
+                } else if (err) {
+                    hvfs_err(mds, "Hoo, loading DHE %lx Bitmap %ld failed\n",
+                             e->uuid, itbid);
+                    goto out;
+                }
+                goto retry;
+            }
+        }
+    }
+    xlock_unlock(&e->lock);
+out:    
+    return err;
+}
+
+int mds_dh_bitmap_test(struct dh *dh, u64 puuid, u64 itbid)
+{
     struct dhe *e;
     int err = -EINVAL;
 
@@ -1236,57 +1298,59 @@ int mds_dh_bitmap_test(struct dh *dh, u64 puuid, u64 itbid)
     } else {
         xlock_unlock(&e->lock);
     }
-retry:
-    xlock_lock(&e->lock);
-    list_for_each_entry(b, &e->bitmap, list) {
-        if (b->offset <= itbid && itbid < b->offset + XTABLE_BITMAP_SIZE) {
-            /* ok, we get the bitmap slice, just do it */
-            err = mds_bitmap_test_bit(b, itbid);
+
+    err = __mds_dhe_bitmap_test(e, itbid);
+
+out:
+    mds_dh_put(e);
+
+    return err;
+}
+
+int mds_dhe_bitmap_test(struct dhe *e, u64 itbid)
+{
+    return __mds_dhe_bitmap_test(e, itbid);
+}
+
+u64 mds_get_itbid_depth(struct dhe *e, u64 hash, u8 *depth)
+{
+    u64 itbid;
+    u8 d;
+
+    itbid = __mds_get_itbid(e, hash);
+
+    hash = (hash >> ITB_DEPTH);
+    hash &= ~itbid;
+    d = ffs64(hash);
+    if (d < 0) {
+        d = 56;
+    }
+
+    /* generate the hash value we have to test */
+    hash = (1 << d) | itbid;
+
+    while (--d >= 0) {
+        if (hash & (1 << d)) {
+            /* ok, we can break now, depth is d + 1 */
             break;
-        } else if (b->offset > itbid) {
-            /* it means that we need to load the missing slice */
-            xlock_unlock(&e->lock);
-            err = mds_bitmap_load(e, itbid);
-            if (err == -EISEMPTY) {
-                err = 0;
-                goto out;
-            } else if (err) {
-                hvfs_err(mds, "Hoo, loading DHE %lx Bitmap %ld failed w/ %d\n",
-                         e->uuid, itbid, err);
-                goto out;
-            }
-            goto retry;
-        } else if (itbid >= b->offset + XTABLE_BITMAP_SIZE) {
-            if (b->flag & BITMAP_END) {
-                /* ok, just create the slice now */
-                xlock_unlock(&e->lock);
-                err = 0;
+        } else {
+            /* this bit is zero, we should test */
+            if (__mds_dhe_bitmap_test(e, itbid & (1 << d)) > 0) {
+                /* ok, we can break now, depth is d + 1 */
                 break;
-            } else if (b->list.next == &e->bitmap) {
-                /* load the next slice */
-                xlock_unlock(&e->lock);
-                err = mds_bitmap_load(e, itbid);
-                if (err == -ENOTEXIST) {
-                    hvfs_err(mds, "Hoo, loading DHE %lx Bitmap %ld failed\n",
-                             e->uuid, itbid);
-                    goto out;
-                } else if (err == -EISEMPTY) {
-                    err = 0;
-                    break;
-                } else if (err) {
-                    hvfs_err(mds, "Hoo, loading DHE %lx Bitmap %ld failed\n",
-                             e->uuid, itbid);
-                    goto out;
-                }
-                goto retry;
             }
         }
     }
-    xlock_unlock(&e->lock);
-out:
-    mds_dh_put(e);
-    
-    return err;
+
+    /* ok, we got depth */
+    *depth = d + 1;
+    ASSERT(*depth > 0, mds);
+
+    /* depth default level is 3 */
+    if (*depth < 3)
+        *depth = 3;
+
+    return itbid;
 }
 
 /* mds_dh_bitmap_update()

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 13:27:58 macan>
+ * Time-stamp: <2011-05-10 12:31:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -62,6 +62,11 @@ int main(int argc, char *argv[])
     hvfs_info(mds, "[FLS64]: First set bit in 0x%lx is %d.\n", a, offset);
     offset = fls(a);
     hvfs_info(mds, "[FLS  ]: First set bit in 0x%lx is %d.\n", a, offset);
+
+    /* find last set bit? */
+    a = 0x1000100;
+    offset = ffs64(a);
+    hvfs_info(mds, "[FFS64]: First set bit in 0x%lx is %d.\n", a, offset);
 
     /* find first zero bit */
     atomic_set(&i, 0);

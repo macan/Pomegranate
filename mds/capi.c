@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-28 19:00:00 macan>
+ * Time-stamp: <2011-05-10 15:20:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -163,7 +163,7 @@ int xtable_put(struct amc_index *ai, struct iovec *iov, int *nr,
     if (unlikely(err)) {
         if (likely(err != -EFWD))
             hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
-                     hi.itbid, err);
+                     (u64)hi.itbid, err);
         goto out_hi;
     }
 
@@ -238,7 +238,7 @@ int xtable_get(struct amc_index *ai, struct iovec *iov, int *nr,
     if (unlikely(err)) {
         if (err != -EFWD)
             hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
-                     hi.itbid, err);
+                     (u64)hi.itbid, err);
         goto out;
     }
 
@@ -293,7 +293,7 @@ int xtable_del(struct amc_index *ai, struct iovec *iov, int *nr,
     if (err) {
         if (err != -EFWD)
             hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
-                     hi.itbid, err);
+                     (u64)hi.itbid, err);
         goto out;
     }
 
@@ -365,7 +365,7 @@ int xtable_update(struct amc_index *ai, struct iovec *iov, int *nr,
     if (err) {
         if (err != -EFWD)
             hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
-                     hi.itbid, err);
+                     (u64)hi.itbid, err);
         goto out_hi;
     }
 
@@ -458,7 +458,7 @@ int xtable_sput(struct amc_index *ai, struct iovec *iov, int *nr,
     if (unlikely(err)) {
         if (likely(err != -EFWD))
             hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
-                     hi.itbid, err);
+                     (u64)hi.itbid, err);
         goto out_hi;
     }
 
@@ -536,7 +536,7 @@ int xtable_sget(struct amc_index *ai, struct iovec *iov, int *nr,
     if (unlikely(err)) {
         if (err != -EFWD)
             hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
-                     hi.itbid, err);
+                     (u64)hi.itbid, err);
         goto out;
     }
 
@@ -596,7 +596,7 @@ int xtable_sdel(struct amc_index *ai, struct iovec *iov, int *nr,
     if (unlikely(err)) {
         if (err != -EFWD)
             hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
-                     hi.itbid, err);
+                     (u64)hi.itbid, err);
         goto out;
     }
 
@@ -673,7 +673,7 @@ int xtable_supdate(struct amc_index *ai, struct iovec *iov, int *nr,
     if (unlikely(err)) {
         if (err != -EFWD)
             hvfs_err(xnet, "adjust itbid %ld failed w/ %d\n", 
-                     hi.itbid, err);
+                     (u64)hi.itbid, err);
         goto out_hi;
     }
 

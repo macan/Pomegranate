@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-05 16:40:44 macan>
+ * Time-stamp: <2011-05-10 15:12:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -267,6 +267,15 @@ out_relock:
     goto out;
 }
 
+/* ITB resplit
+ *
+ * Note: this is the itb re-split function, we may send the new itb to remote
+ * site or just drop it.
+ */
+int itb_resplit(struct itb *oi, u32 flag)
+{
+}
+
 /* ITB overflow
  *
  * NOTE:
@@ -328,7 +337,7 @@ void mds_bitmap_refresh(struct hvfs_index *hi)
     if (hi->itbid < 8)
         return;
     hvfs_info(mds, "refresh uuid %lx bitmap slice offset %ld.\n",
-              hi->puuid, hi->itbid);
+              hi->puuid, (u64)hi->itbid);
 
     e = mds_dh_search(&hmo.dh, hi->puuid);
     if (IS_ERR(e)) {

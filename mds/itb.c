@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-05 10:27:16 macan>
+ * Time-stamp: <2011-05-09 21:36:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -169,6 +169,23 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
 
         hvfs_debug(mds, "Load ITB %ld w/ txg %ld\n", 
                    i->h.itbid, i->h.txg);
+
+        /* do we need re-split it */
+#if 0
+        if (i->h.txg < t->txg - 1) {
+            /* ok, this is a itb from a old txg, check if we need re-split */
+            if (itb_need_resplit(puuid, psalt, i)) {
+
+                err = itb_resplit(i, ITB_RESPLIT_COMMIT);
+                if (err) {
+                    hvfs_err(mds, "itb_resplit() failed w/ %d\n", err);
+                }
+            }
+        } else if (i->h.txg >= t->txg) {
+            hvfs_err(mds, "MDS's txg decreased? (cur %ld vs old %ld)\n",
+                     t->txg, i->h.txg);
+        }
+#endif
 
         /* changing the dirty info */
         t = mds_get_open_txg(&hmo);

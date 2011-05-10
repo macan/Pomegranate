@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-02 18:17:54 macan>
+ * Time-stamp: <2011-05-10 12:44:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -251,7 +251,7 @@ resend:
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                  MDS_BITMAP_SET);
             hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
-                       rhi->puuid, rhi->itbid);
+                       rhi->puuid, (u64)rhi->itbid);
         }
     }
 
@@ -394,7 +394,7 @@ resend:
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                  MDS_BITMAP_SET);
             hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
-                       rhi->puuid, rhi->itbid);
+                       rhi->puuid, (u64)rhi->itbid);
         }
         if (hmr->flag & MD_REPLY_WITH_DC) {
             struct column *c;
@@ -515,7 +515,7 @@ resend:
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                  MDS_BITMAP_SET);
             hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
-                       rhi->puuid, rhi->itbid);
+                       rhi->puuid, (u64)rhi->itbid);
         }
     }
     /* ok, we got the correct respond, dump it */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-01 13:22:52 macan>
+ * Time-stamp: <2011-05-10 15:15:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -120,7 +120,7 @@ void __UNUSED__ hmr_print(struct hvfs_md_reply *hmr)
     hvfs_info(xnet, "hmr-> HI: namelen %d, flag 0x%x, uuid %lx, hash %ld, "
               "itbid %ld, puuid %lx, psalt %ld\n", 
               hi->namelen, hi->flag, hi->uuid, hi->hash,
-              hi->itbid, hi->puuid, hi->psalt);
+              (u64)hi->itbid, hi->puuid, hi->psalt);
     p += sizeof(struct hvfs_index);
     if (hmr->flag & MD_REPLY_WITH_MDU) {
         m = (struct mdu *)p;
@@ -1267,7 +1267,7 @@ resend:
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                  MDS_BITMAP_SET);
             hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
-                       rhi->puuid, rhi->itbid);
+                       rhi->puuid, (u64)rhi->itbid);
         }
     }
     /* ok, create the gdt entry now */
@@ -1443,7 +1443,7 @@ resend:
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                  MDS_BITMAP_SET);
             hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
-                       rhi->puuid, rhi->itbid);
+                       rhi->puuid, (u64)rhi->itbid);
         }
     }
     /* ok, we got the correct respond, dump it */
@@ -1586,7 +1586,7 @@ resend:
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                  MDS_BITMAP_SET);
             hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
-                       rhi->puuid, rhi->itbid);
+                       rhi->puuid, (u64)rhi->itbid);
         }
     }
     /* Then, we should release the gdt entry now */

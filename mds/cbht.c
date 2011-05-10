@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-26 10:41:21 macan>
+ * Time-stamp: <2011-05-10 15:12:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -916,7 +916,7 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
         hvfs_debug(mds, "Oh, itb_search() return %d."
                    "(itb [%ld,%ld], hi [%ld,%ld,%s]), itb %p\n", 
                    err, i->h.puuid, i->h.itbid, hi->puuid, 
-                   hi->itbid, hi->name, i);
+                   (u64)hi->itbid, hi->name, i);
         goto out;
     }
     if (unlikely((hi->flag & INDEX_ACQUIRE) ||
@@ -1075,7 +1075,7 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
                 if (unlikely(!(hmo.conf.option & HVFS_MDS_LIMITED))) {
                     hvfs_err(mds, "want to create itbid %ld depth %d, "
                              "hi psalt %lx\n", 
-                             hi->itbid, i->h.depth, hi->psalt);
+                             (u64)hi->itbid, i->h.depth, hi->psalt);
                     itb_free(i);
                     /* FIXME: we should return EHWAIT actually! */
                     err = -EHWAIT;
@@ -1162,7 +1162,7 @@ retry_dir:
     b = mds_cbht_search_dir(hash, &sdepth);
     if (unlikely(IS_ERR(b))) {
         hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
-                 "internal error!\n", hi->itbid);
+                 "internal error!\n", (u64)hi->itbid);
         return -ENOENT;
     }
     /* OK, we get the bucket, and holding the bucket.rlock, no bucket spliting
@@ -1247,7 +1247,7 @@ void mds_cbht_search_dump_itb(struct hvfs_index *hi)
     b = mds_cbht_search_dir(hash, &sdepth);
     if (unlikely(IS_ERR(b))) {
         hvfs_err(mds, "No buckets exist? Find 0x%lx in the EH dir, "
-                 "internal error!\n", hi->itbid);
+                 "internal error!\n", (u64)hi->itbid);
         return;
     }
     /* OK, we get the bucket, and holding the bucket.rlock, no bucket spliting
@@ -1266,7 +1266,7 @@ void mds_cbht_search_dump_itb(struct hvfs_index *hi)
 
     offset = hi->hash & ((1 << ITB_DEPTH) - 1);
     hvfs_info(mds, "criminal: %s hash 0x%lx ITB.id %ld @ offset %ld\n", 
-              hi->name, hi->hash, hi->itbid, offset);
+              hi->name, hi->hash, (u64)hi->itbid, offset);
 
     /* always holding the bucket.rlock */
     xrwlock_rlock(&be->lock);

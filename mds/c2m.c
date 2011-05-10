@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-26 20:49:57 macan>
+ * Time-stamp: <2011-05-10 15:14:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -223,7 +223,7 @@ void mds_lookup(struct hvfs_tx *tx)
     }
 
     hvfs_debug(mds, "LOOKUP %ld %ld %lx %s %d uuid %ld flag %x\n",
-               hi->puuid, hi->itbid, hi->hash, hi->name, hi->namelen,
+               hi->puuid, (u64)hi->itbid, hi->hash, hi->name, hi->namelen,
                hi->uuid, hi->flag);
 
     if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
@@ -891,7 +891,7 @@ void mds_list(struct hvfs_tx *tx)
     }
 
     hvfs_debug(mds, "LIST %ld %ld %lx %s %d uuid %ld flag %x\n",
-               hi->puuid, hi->itbid, hi->hash, hi->name, hi->namelen,
+               hi->puuid, (u64)hi->itbid, hi->hash, hi->name, hi->namelen,
                hi->uuid, hi->flag);
 
     /* Note that, we should check if we should do message forwarding here */

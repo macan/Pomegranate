@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 14:17:11 macan>
+ * Time-stamp: <2011-05-10 12:53:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -166,7 +166,7 @@ void hmr_print(struct hvfs_md_reply *hmr)
     hvfs_info(xnet, "hmr-> HI: namelen %d, flag 0x%x, uuid %lx, hash %ld, "
               "itbid %ld, puuid %lx, psalt %lx\n", 
               hi->namelen, hi->flag, hi->uuid, hi->hash,
-              hi->itbid, hi->puuid, hi->psalt);
+              (u64)hi->itbid, hi->puuid, hi->psalt);
     p += sizeof(struct hvfs_index);
     if (hmr->flag & MD_REPLY_WITH_MDU) {
         m = (struct mdu *)p;
@@ -316,7 +316,7 @@ resend:
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                  MDS_BITMAP_SET);
             hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
-                       rhi->puuid, rhi->itbid);
+                       rhi->puuid, (u64)rhi->itbid);
         }
     }
 
@@ -465,7 +465,7 @@ resend:
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                  MDS_BITMAP_SET);
             hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
-                       rhi->puuid, rhi->itbid);
+                       rhi->puuid, (u64)rhi->itbid);
         }
     }
 
@@ -624,7 +624,7 @@ resend:
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                  MDS_BITMAP_SET);
             hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
-                       rhi->puuid, rhi->itbid);
+                       rhi->puuid, (u64)rhi->itbid);
         }
         if (hmr->flag & MD_REPLY_WITH_DC) {
             struct column *c;
@@ -759,7 +759,7 @@ resend:
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                  MDS_BITMAP_SET);
             hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
-                       rhi->puuid, rhi->itbid);
+                       rhi->puuid, (u64)rhi->itbid);
         }
     }
     /* ok, we got the correct respond, dump it */
@@ -988,7 +988,7 @@ resend:
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                  MDS_BITMAP_SET);
             hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
-                       rhi->puuid, rhi->itbid);
+                       rhi->puuid, (u64)rhi->itbid);
         }
         if (hmr->flag & MD_REPLY_WITH_DC) {
             struct column *c;
@@ -1031,7 +1031,7 @@ void __data_write(struct hvfs_index *hi, struct column *c)
     hvfs_debug(xnet, "Read uuid %lx column itbid %ld len %ld offset %ld "
                "target len %d itbid %ld\n",
                hi->uuid, c->stored_itbid, c->len, c->offset, len,
-               hi->itbid);
+               (u64)hi->itbid);
     
     si = xzalloc(sizeof(*si) + sizeof(struct column_req));
     if (!si) {
@@ -1285,7 +1285,7 @@ resend:
             mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                  MDS_BITMAP_SET);
             hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
-                       rhi->puuid, rhi->itbid);
+                       rhi->puuid, (u64)rhi->itbid);
         }
         if (hmr->flag & MD_REPLY_WITH_DC) {
             struct column *c;
@@ -1442,7 +1442,7 @@ int test_update(u64 loop)
             hvfs_info(xnet, "rhi: %d %d %x uuid %lx %lx"
                       " %ld puuid %lx %lx dlen %ld\n",
                       rhi->namelen, rhi->column, rhi->flag,
-                      rhi->uuid, rhi->hash, rhi->itbid, 
+                      rhi->uuid, rhi->hash, (u64)rhi->itbid, 
                       rhi->puuid, rhi->psalt, rhi->dlen);
             memset(&c, 0, sizeof(c));
             rhi->namelen = 0;
@@ -1451,7 +1451,7 @@ int test_update(u64 loop)
             hvfs_info(xnet, "rhi: %d %d %x uuid %lx %lx"
                       " %ld puuid %lx %lx dlen %ld\n",
                       rhi->namelen, rhi->column, rhi->flag,
-                      rhi->uuid, rhi->hash, rhi->itbid, 
+                      rhi->uuid, rhi->hash, (u64)rhi->itbid, 
                       rhi->puuid, rhi->psalt, rhi->dlen);
         }
     }
@@ -1560,7 +1560,7 @@ int test_update(u64 loop)
                 mds_dh_bitmap_update(&hmo.dh, rhi->puuid, rhi->itbid, 
                                      MDS_BITMAP_SET);
                 hvfs_debug(xnet, "update %ld bitmap %ld to 1.\n", 
-                           rhi->puuid, rhi->itbid);
+                           rhi->puuid, (u64)rhi->itbid);
             }
         }
     out_unlink_msg:
@@ -2435,6 +2435,7 @@ resend:
             hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
             goto out;
         }
+        data += err;
         /* parse root_tx */
         err = bparse_root(data, &rt);
         if (err < 0) {

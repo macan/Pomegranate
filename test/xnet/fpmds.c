@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-12 10:10:02 macan>
+ * Time-stamp: <2011-05-10 12:38:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -64,7 +64,7 @@ void hmr_print(struct hvfs_md_reply *hmr)
     hvfs_info(xnet, "hmr-> HI: namelen %d, flag 0x%x, uuid %lx, hash %ld, "
               "itbid %ld, puuid %lx, psalt %lx\n", 
               hi->namelen, hi->flag, hi->uuid, hi->hash,
-              hi->itbid, hi->puuid, hi->psalt);
+              (u64)hi->itbid, hi->puuid, hi->psalt);
     p += sizeof(struct hvfs_index);
     if (hmr->flag & MD_REPLY_WITH_MDU) {
         m = (struct mdu *)p;

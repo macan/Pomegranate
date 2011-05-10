@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 15:05:06 macan>
+ * Time-stamp: <2011-05-10 15:48:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -300,6 +300,7 @@ int mds_fe_dispatch(struct xnet_msg *msg)
 {
     u64 itbid;
     int err = 0;
+    u8 depth = 0;
 #ifdef HVFS_DEBUG_LATENCY
     lib_timer_def();
 #endif
@@ -380,7 +381,8 @@ int mds_fe_dispatch(struct xnet_msg *msg)
                                  HASH_SEL_EH);
         }
     recal_itbid:
-        itbid = mds_get_itbid(e, hi->hash);
+        itbid = mds_get_itbid_depth(e, hi->hash, &depth);
+        hi->depth = depth;
         /* recheck CH ring and forward the request on demand */
         if (itbid != hi->itbid || hmo.conf.option & HVFS_MDS_CHRECHK) {
             p = ring_get_point(itbid, hi->psalt, hmo.chring[CH_RING_MDS]);
@@ -410,7 +412,7 @@ int mds_fe_dispatch(struct xnet_msg *msg)
                 mds_dh_put(e);
                 hvfs_debug(mds, "NEED FORWARD the request to Site %lx "
                            "(%ld vs %ld).\n",
-                           p->site_id, itbid, hi->itbid);
+                           p->site_id, itbid, (u64)hi->itbid);
                 /* doing the forward now */
                 hi->flag |= INDEX_BIT_FLIP;
                 hi->itbid = itbid;

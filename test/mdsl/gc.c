@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-21 15:55:27 macan>
+ * Time-stamp: <2011-05-09 11:36:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -126,7 +126,7 @@ void *racer(void *arg)
                      err);
             continue;
         } else {
-            hvfs_info(mdsl, "Append (%d) itb %ld len %d to itb file %ld\n",
+            hvfs_info(mdsl, "Append (%d) itb %ld len %d to itb file %d\n",
                       (++counter), itb->h.itbid, atomic_read(&itb->h.len),
                       ii.master);
         }

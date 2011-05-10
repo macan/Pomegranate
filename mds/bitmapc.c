@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-18 11:35:44 macan>
+ * Time-stamp: <2011-05-10 15:18:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -393,7 +393,7 @@ int mds_bc_dir_lookup(struct hvfs_index *hi, u64 *location, u64 *size)
     int nr = 0, err = 0;
     
     hvfs_debug(mds, "BC LOOKUP %ld %ld %lx %lx\n",
-               hi->puuid, hi->itbid, hi->hash, hi->uuid);
+               hi->puuid, (u64)hi->itbid, hi->hash, hi->uuid);
     /* alloc hmr */
     hmr = get_hmr();
     if (!hmr) {
@@ -427,7 +427,7 @@ retry:
     mdu = hmr_extract_local(hmr, EXTRACT_MDU, &nr);
     if (!mdu) {
         hvfs_err(mds, "extract MDU failed on lookup %ld %ld %lx\n",
-                 hi->puuid, hi->itbid, hi->hash);
+                 hi->puuid, (u64)hi->itbid, hi->hash);
         err = -EINVAL;
         goto out_free;
     }
@@ -435,13 +435,13 @@ retry:
     column = hmr_extract_local(hmr, EXTRACT_DC, &nr);
     if (!column) {
         hvfs_err(mds, "extract DC failed on lookup %ld %ld %lx\n",
-                 hi->puuid, hi->itbid, hi->hash);
+                 hi->puuid, (u64)hi->itbid, hi->hash);
         err = -EINVAL;
         goto out_free;
     }
     hvfs_debug(mds, "BC LOOKUP ITE puuid %ld uuid %ld itbid %ld "
                "column offset %ld len %ld itbid %ld size %ld\n",
-               hi->puuid, hi->uuid, hi->itbid, 
+               hi->puuid, hi->uuid, (u64)hi->itbid, 
                column->offset, column->len, column->stored_itbid,
                mdu->size);
     *location = column->offset;
@@ -627,7 +627,7 @@ int __customized_send_request(struct bc_commit *commit)
         mc->c.offset = msg->pair->tx.arg0;
         hvfs_err(mds, "Update puuid %lx uuid %lx itbid %ld column offset %ld "
                  "len %ld itbid %ld\n",
-                 hi.puuid, hi.uuid, hi.itbid, mc->c.offset,
+                 hi.puuid, hi.uuid, (u64)hi.itbid, mc->c.offset,
                  mc->c.len, mc->c.stored_itbid);
         
         /* search and update in the CBHT */
@@ -814,7 +814,7 @@ int mds_bc_backend_commit(void)
         mdu = hmr_extract_local(hmr, EXTRACT_MDU, &nr);
         if (!mdu) {
             hvfs_err(mds, "extract MDU failed on lookup %ld %ld %lx\n",
-                         hi.puuid, hi.itbid, hi.hash);
+                     hi.puuid, (u64)hi.itbid, hi.hash);
             list_del_init(&pos->list);
             list_add(&pos->list, &errlist);
             continue;
@@ -823,7 +823,7 @@ int mds_bc_backend_commit(void)
         column = hmr_extract_local(hmr, EXTRACT_DC, &nr);
         if (!column) {
             hvfs_err(mds, "extract DC failed on lookup %ld %ld %lx\n",
-                     hi.puuid, hi.itbid, hi.hash);
+                     hi.puuid, (u64)hi.itbid, hi.hash);
             list_del_init(&pos->list);
             list_add(&pos->list, &errlist);
             continue;
