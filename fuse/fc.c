@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-08 21:17:51 macan>
+ * Time-stamp: <2011-05-09 11:34:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3931,6 +3931,10 @@ ssize_t __hvfs_xattr_main(char *key, char *value, size_t size, int flags,
             err = -ENOTSUP;
             goto out;
         }
+    } else {
+        hvfs_err(xnet, "Invalid class, internal error!\n");
+        err = -EFAULT;
+        goto out;
     }
     
     /* prepare column info  */
