@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 14:17:11 macan>
+ * Time-stamp: <2011-05-11 10:52:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2435,6 +2435,7 @@ resend:
             hvfs_err(root, "chring_tx 2 chring failed w/ %d\n", err);
             goto out;
         }
+        data += err;
         /* parse root_tx */
         err = bparse_root(data, &rt);
         if (err < 0) {
