@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-08 21:17:51 macan>
+ * Time-stamp: <2011-05-16 16:03:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 
 #include "hvfs.h"
 #include "pfs.h"
+#include "branch.h"
 #include <fuse.h>
 
 /* we only accept this format: "/path/to/name" */
@@ -3616,25 +3617,47 @@ u64 SELECT_SITE(u64 itbid, u64 psalt, int type, u32 *vid)
  *        native    [0-5]    read    .offset.len
  *                           write   [.len]
  *                           lookup  {return column info}
- *        tag       [0-5]    add     .kv_list <key=value;key2=value2;...>
- *                           delete  .key
- *                           update  .key.value
- *                           test    .key
- *                           search  .search_expr {act on a directory, trigger 
- *                                                 BDB search}
+ *
+ *        dt        ignore   create  .pfs_path.type.where.priority.local_path
+ *                           cat     .pfs_path
+ *
+ *        branch    ignore   create  .name.tag.level.op_list
+ *                           delete  .name
+ *
+ *        tag       [0-5]    set     .B.kv_list <key=value;key2=value2;...>
+ *                           delete  .B.key
+ *                           update  .B.key.value
+ *                           test    .B.key
+ *                           search  .B.dbname.prefix.search_expr 
+ *                                            {trigger BDB search}
+ *
+ * DT can only be attached to a directory
+ *
+ * B is a position holder for Branch descriptor.
+ *
+ * B = B[:branch_name[:key1[:key2:....]]] {key1, key2 is a list of tags we
+ *                                         should index}
  *
  * Avaliable columns are:
  * for file => 0 -> XTABLE_INDIRECT_COLUMN
  * for dir  => HVFS_DIR_FF_COLUMN -> XTABLE_INDIRECT_COLUMN
  */
 #define HVFS_XATTR_CLASS_NATIVE         0
-#define HVFS_XATTR_CLASS_TAG            1
+#define HVFS_XATTR_CLASS_DT             1
+#define HVFS_XATTR_CLASS_BRANCH         2
+#define HVFS_XATTR_CLASS_TAG            3
 
 #define HVFS_XATTR_NATIVE_READ          0
 #define HVFS_XATTR_NATIVE_WRITE         1
 #define HVFS_XATTR_NATIVE_LOOKUP        2
 
-#define HVFS_XATTR_TAG_ADD              0
+#define HVFS_XATTR_DT_CREATE            0
+#define HVFS_XATTR_DT_CAT               1
+
+#define HVFS_XATTR_BRANCH_CREATE        0
+#define HVFS_XATTR_BRANCH_DELETE        1
+
+#define HVFS_XATTR_TAG_SET              0
 #define HVFS_XATTR_TAG_DELETE           1
 #define HVFS_XATTR_TAG_UPDATE           2
 #define HVFS_XATTR_TAG_TEST             3
@@ -3647,6 +3670,32 @@ u64 SELECT_SITE(u64 itbid, u64 psalt, int type, u32 *vid)
             __in = key;                         \
         }                                       \
         p = strtok_r(__in, ". ", (s));          \
+        if (!p) {                               \
+            err = -EINVAL;                      \
+            goto out;                           \
+        }                                       \
+    } while (0)
+
+/* get next B token */
+#define HVFS_B_NT(key, p, s, err, out) do {     \
+        char *__in = NULL;                      \
+        if (!p) {                               \
+            __in = key;                         \
+        }                                       \
+        p = strtok_r(__in, ": ", (s));          \
+        if (!p) {                               \
+            err = -EINVAL;                      \
+            goto out;                           \
+        }                                       \
+    } while (0)
+
+/* get next KVL token */
+#define HVFS_KVL_NT(key, p, s, err, out) do {   \
+        char *__in = NULL;                      \
+        if (!p) {                               \
+            __in = key;                         \
+        }                                       \
+        p = strtok_r(__in, "; ", (s));          \
         if (!p) {                               \
             err = -EINVAL;                      \
             goto out;                           \
@@ -3808,13 +3857,170 @@ ssize_t __hvfs_xattr_native_lookup(char *key, char *p, char **s,
     return err;
 }
 
+/* tag_set() read in several other regions: B and KV list
+ */
 static
-ssize_t __hvfs_xattr_tag_add(char *key, char *p, char **s,
+ssize_t __hvfs_xattr_tag_set(char *key, char *p, char **s,
                              struct hstat *hs, int column,
                              char *value, size_t size)
 {
     ssize_t err = 0;
+    char **B_kl = NULL, *B_name = NULL;
+    u8 no_B = 0, B_index_all = 0;
+    short kl_size = 0, kl_off = 0;
 
+    /* get B */
+    HVFS_XATTR_NT(key, p, s, err, out);
+
+    /* parse B */
+    {
+        char *b = NULL, *t;
+
+        /* get header */
+        HVFS_B_NT(p, b, &t, err, out);
+        if (*b != 'B') {
+            hvfs_err(xnet, "TAG add: Invalid B header '%s'\n", b);
+            err = -EINVAL;
+            goto out;
+        }
+
+        /* get name */
+        HVFS_B_NT(p, b, &t, err, no_branch);
+        B_name = strdup(b);
+
+        /* get key list */
+        do {
+            HVFS_B_NT(p, b, &t, err, next_token);
+            /* add this key to list, enlarge the array if needed */
+            if (strcmp(b, "@all") == 0) {
+                B_index_all = 1;
+                goto next_token;
+            }
+            if (kl_off >= kl_size) {
+                B_kl = xrealloc(B_kl, kl_size + 8);
+                if (!B_kl) {
+                    hvfs_err(xnet, "xrealloc() key list failed\n");
+                    err = -ENOMEM;
+                    goto out;
+                }
+                kl_size += 8;
+            }
+            B_kl[kl_off++] = strdup(b);
+        } while (b);
+        
+    no_branch:
+        no_B = 1;
+    }
+next_token:
+
+    /* get kv_list */
+    HVFS_XATTR_NT(key, p, s, err, out_free);
+
+    /* write this kv_list to MDSL and update metadata */
+    {
+        u64 hash;
+        
+        /* calculate which itbid we should stored it in */
+        {
+            struct dhe *e;
+
+            e = mds_dh_search(&hmo.dh, hs->puuid);
+            if (IS_ERR(e)) {
+                hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", PTR_ERR(e));
+                err = PTR_ERR(e);
+                goto out;
+            }
+            hash = hs->hash;
+            hs->hash = mds_get_itbid(e, hs->hash);
+            mds_dh_put(e);
+        }
+
+        err = __hvfs_fwrite(hs, column, 0, p, strlen(p), &hs->mc.c);
+        if (err) {
+            hvfs_err(xnet, "do internal fwrite on uuid'%lx,%lx' "
+                     "failed w/ %ld\n",
+                     hs->uuid, hash, err);
+            goto out_free;
+        }
+
+        /* update the file attributes */
+        {
+            struct mdu_update mu;
+            
+            mu.valid = MU_COLUMN;
+            mu.column_no = 1;
+            hs->mc.cno = column;
+            hs->hash = hash;
+            
+            err = __hvfs_update(hs->puuid, hs->psalt, hs, &mu);
+            if (err) {
+                hvfs_err(xnet, "do internal update on ino<%lx,%lx> "
+                         "failed w/ %ld\n",
+                         hs->uuid, hs->hash, err);
+                goto out_free;
+            }
+        }
+    }
+
+    /* send the selected key list to branch system */
+    if (!no_B) {
+        char primary_key[256];
+        
+        if (B_index_all) {
+            /* index the whole kv list */
+            snprintf(primary_key, 256, "+%lx::%lx:%lx", hs->puuid,
+                     hs->uuid, hs->hash);
+            err = branch_publish(hs->puuid, hs->uuid, B_name, primary_key,
+                                 1, p, strlen(p));
+            if (err) {
+                hvfs_err(xnet, "publish kv_list '%s' to B'%s' failed w/ %ld",
+                         p, B_name, err);
+                goto out_free;
+            }
+        } else if (!kl_off) {
+            /* no active kv pairs */
+            goto out_free;
+        } else {
+            /* filter the kv list */
+            char *kvl = alloca(strlen(p)), *k = NULL, *t = NULL;
+            int offset = 0, i;
+
+            do {
+                HVFS_KVL_NT(p, k, &t, err, kvl_ok);
+                for(i = 0; i < kl_off; i++) {
+                    if (strcmp(k, B_kl[i]) == 0) {
+                        /* match */
+                        offset += sprintf(kvl + offset, "%s;", k);
+                    }
+                }
+            } while (k);
+        kvl_ok:
+            if (offset > 0) {
+                /* construct primary key */
+                snprintf(primary_key, 256, "+%lx::%lx:%lx", hs->puuid, 
+                         hs->uuid, hs->hash);
+                err = branch_publish(hs->puuid, hs->uuid, B_name, primary_key,
+                                     1, kvl, strlen(kvl));
+                if (err) {
+                    hvfs_err(xnet, "publish kv_list '%s' to B'%s' "
+                             "failed w/ %ld\n",
+                             kvl, B_name, err);
+                    goto out_free;
+                }
+            }
+        }
+    }
+
+out_free:
+    if (kl_off) {
+        while (kl_off >= 0) {
+            xfree(B_kl[kl_off]);
+            kl_off--;
+        }
+    }
+    xfree(B_kl);
+    
+out:
     return err;
 }
 
@@ -3824,7 +4030,157 @@ ssize_t __hvfs_xattr_tag_delete(char *key, char *p, char **s,
                                 char *value, size_t size)
 {
     ssize_t err = 0;
+    char *B_name = NULL;
+    char *buf = NULL;
+    u8 no_B = 0;
 
+    /* get B */
+    HVFS_XATTR_NT(key, p, s, err, out);
+
+    /* parse B */
+    {
+        char *b = NULL, *t;
+
+        /* get header */
+        HVFS_B_NT(p, b, &t, err, out);
+        if (*b != 'B') {
+            hvfs_err(xnet, "TAG del: Invalid B header '%s'\n", b);
+            err = -EINVAL;
+            goto out;
+        }
+
+        /* get name */
+        HVFS_B_NT(p, b, &t, err, no_branch);
+        B_name = strdup(b);
+        goto next_token;
+
+    no_branch:
+        no_B = 1;
+    }
+next_token:
+
+    /* get key */
+    HVFS_XATTR_NT(key, p, s, err, out);
+
+    /* read in the column data */
+    buf = xzalloc(hs->mc.c.len + 1);
+    if (!buf) {
+        hvfs_err(xnet, "xzalloc() column data buffer failed\n");
+        goto out;
+    }
+    
+    err = __hvfs_fread(hs, column, (void **)buf, &hs->mc.c, 0, 
+                       hs->mc.c.len);
+    if (err < 0) {
+        hvfs_err(xnet, "__hvfs_fread() offset 0 len %ld failed w/ %ld\n",
+                 hs->mc.c.len, err);
+        goto out;
+    } else if (err != hs->mc.c.len) {
+        hvfs_err(xnet, "__hvfs_fread() offset 0 len %ld but return %ldB\n",
+                 hs->mc.c.len, err);
+        err = -EAGAIN;
+        goto out;
+    }
+
+    /* remove the key */
+    {
+        char *f = NULL, *fe, needle[strlen(p) + 2];
+
+        memset(needle, 0, sizeof(needle));
+        sprintf(needle, "%s=", p);
+        
+        f = strstr(buf, needle);
+        if (!f) {
+            hvfs_err(xnet, "Find key'%s' in column data failed, no such key\n",
+                     p);
+            err = -ENOENT;
+            goto out_free;
+        }
+
+        fe = f;
+        while (*fe != ';') {
+            if (fe >= buf + hs->mc.c.len)
+                break;
+            fe++;
+        }
+
+        memmove(f, fe, (buf + hs->mc.c.len - fe));
+
+        /* write the data back to MDSL and update metadata */
+        {
+            u64 hash;
+            
+            /* calculate which itbid we should stored it in */
+            {
+                struct dhe *e;
+                
+                e = mds_dh_search(&hmo.dh, hs->puuid);
+                if (IS_ERR(e)) {
+                    hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", 
+                             PTR_ERR(e));
+                    err = PTR_ERR(e);
+                    goto out;
+                }
+                hash = hs->hash;
+                hs->hash = mds_get_itbid(e, hs->hash);
+                mds_dh_put(e);
+            }
+            
+            err = __hvfs_fwrite(hs, column, 0, buf, 
+                                hs->mc.c.len - (fe - f), &hs->mc.c);
+            if (err) {
+                hvfs_err(xnet, "do internal fwrite on uuid'%lx,%lx' "
+                         "failed w/ %ld\n",
+                         hs->uuid, hash, err);
+                goto out_free;
+            }
+            
+            /* update the file attributes */
+            {
+                struct mdu_update mu;
+                
+                mu.valid = MU_COLUMN;
+                mu.column_no = 1;
+                hs->mc.cno = column;
+                hs->hash = hash;
+                
+                err = __hvfs_update(hs->puuid, hs->psalt, hs, &mu);
+                if (err) {
+                    hvfs_err(xnet, "do internal update on ino<%lx,%lx> "
+                             "failed w/ %ld\n",
+                             hs->uuid, hs->hash, err);
+                    goto out_free;
+                }
+            }
+        }
+    }
+
+    /* update the index using the buffer we got
+     *
+     * Describe why we do the following operations:
+     *
+     * We want to delete a secondary index entry. In BDB, if you push a KV
+     * pair with an exist key, then you actually update the original KV
+     * pair. Thus, if we want to delete a secondary index entry, we just
+     * update the old KV pair.
+     */
+    if (!no_B) {
+        char primary_key[256];
+
+        snprintf(primary_key, 256, "+%lx::%lx:%lx", hs->puuid,
+                 hs->uuid, hs->hash);
+        err = branch_publish(hs->puuid, hs->uuid, B_name, primary_key,
+                             1, buf, hs->mc.c.len);
+        if (err) {
+            hvfs_err(xnet, "publish kv_list '%s' to B'%s' failed w/ %ld",
+                     buf, B_name, err);
+            goto out_free;
+        }
+    }
+
+out_free:    
+    xfree(buf);
+out:
     return err;
 }
 
@@ -3834,27 +4190,407 @@ ssize_t __hvfs_xattr_tag_update(char *key, char *p, char **s,
                                 char *value, size_t size)
 {
     ssize_t err = 0;
+    char *B_name = NULL;
+    char *buf = NULL, *ukey = NULL, *uvalue = NULL;
+    u8 no_B = 0;
 
+    /* get B */
+    HVFS_XATTR_NT(key, p, s, err, out);
+
+    /* parse B */
+    {
+        char *b = NULL, *t;
+
+        /* get header */
+        HVFS_B_NT(p, b, &t, err, out);
+        if (*b != 'B') {
+            hvfs_err(xnet, "TAG update: Invalid B header '%s'\n", b);
+            err = -EINVAL;
+            goto out;
+        }
+
+        /* get name */
+        HVFS_B_NT(p, b, &t, err, no_branch);
+        B_name = strdup(b);
+        goto next_token;
+
+    no_branch:
+        no_B = 1;
+    }
+next_token:
+
+    /* get key */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    ukey = strdup(p);
+
+    /* get value */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    uvalue = strdup(p);
+
+    /* read in the column data */
+    buf = xzalloc(hs->mc.c.len + strlen(ukey) + strlen(uvalue) + 
+                  3 /* ';' ';' '\0'*/);
+    if (!buf) {
+        hvfs_err(xnet, "xzalloc() column data buffer failed\n");
+        goto out;
+    }
+
+    err = __hvfs_fread(hs, column, (void **)buf, &hs->mc.c, 0,
+                       hs->mc.c.len);
+    if (err < 0) {
+        hvfs_err(xnet, "__hvfs_fread() offset 0 len %ld failed w/ %ld\n",
+                 hs->mc.c.len, err);
+        goto out;
+    } else if (err != hs->mc.c.len) {
+        hvfs_err(xnet, "__hvfs_fread() offset 0 len %ld but return %ldB\n",
+                 hs->mc.c.len, err);
+        err = -EAGAIN;
+        goto out;
+    }
+
+    /* update the key */
+    {
+        off_t noff;
+        char *f = NULL, *fe, needle[strlen(ukey) + 2];
+
+        memset(needle, 0, sizeof(needle));
+        sprintf(needle, "%s=", ukey);
+
+        f = strstr(buf, needle);
+        if (!f) {
+            hvfs_warning(xnet, "Find key'%s' in column data failed, "
+                         "no such key\n",
+                     ukey);
+            f = fe = buf;
+            goto append_new;
+        }
+
+        fe = f;
+        while (*fe != ';') {
+            if (fe >= buf + hs->mc.c.len)
+                break;
+            fe++;
+        }
+
+        /* overwrite the old KV pair */
+        memmove(f, fe, (buf + hs->mc.c.len - fe));
+        
+    append_new:
+        /* write a new KV pair */
+        noff = hs->mc.c.len - (fe - f);
+        if (buf[noff - 1] != ';')
+            buf[noff++] = ';';
+        noff += sprintf(buf + noff, "%s=%s;", ukey, uvalue);
+        buf[noff] = '\0';
+
+        /* write the data back to MDSL and update metadata */
+        {
+            u64 hash;
+            
+            /* calculate which itbid we should stored it in */
+            {
+                struct dhe *e;
+                
+                e = mds_dh_search(&hmo.dh, hs->puuid);
+                if (IS_ERR(e)) {
+                    hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n", 
+                             PTR_ERR(e));
+                    err = PTR_ERR(e);
+                    goto out;
+                }
+                hash = hs->hash;
+                hs->hash = mds_get_itbid(e, hs->hash);
+                mds_dh_put(e);
+            }
+            
+            err = __hvfs_fwrite(hs, column, 0, buf, 
+                                noff, &hs->mc.c);
+            if (err) {
+                hvfs_err(xnet, "do internal fwrite on uuid'%lx,%lx' "
+                         "failed w/ %ld\n",
+                         hs->uuid, hash, err);
+                goto out;
+            }
+            
+            /* update the file attributes */
+            {
+                struct mdu_update mu;
+                
+                mu.valid = MU_COLUMN;
+                mu.column_no = 1;
+                hs->mc.cno = column;
+                hs->hash = hash;
+                
+                err = __hvfs_update(hs->puuid, hs->psalt, hs, &mu);
+                if (err) {
+                    hvfs_err(xnet, "do internal update on ino<%lx,%lx> "
+                             "failed w/ %ld\n",
+                             hs->uuid, hs->hash, err);
+                    goto out;
+                }
+            }
+        }
+    }
+
+    /* Update the index using the buffer we got
+     *
+     * Describe why we do the following operations:
+     *
+     * We want to delete a secondary index entry. In BDB, if you push a KV
+     * pair with an exist key, then you actually update the original KV
+     * pair. Thus, if we want to delete a secondary index entry, we just
+     * update the old KV pair.
+     */
+    if (!no_B) {
+        char primary_key[256];
+
+        snprintf(primary_key, 256, "+%lx::%lx:%lx", hs->puuid,
+                 hs->uuid, hs->hash);
+        err = branch_publish(hs->puuid, hs->uuid, B_name, primary_key,
+                             1, buf, hs->mc.c.len);
+        if (err) {
+            hvfs_err(xnet, "publish kv_list '%s' to B'%s' failed w/ %ld",
+                     buf, B_name, err);
+            goto out;
+        }
+    }
+    err = 0;
+    
+out:
+    xfree(ukey);
+    xfree(uvalue);
+    xfree(buf);
+    
     return err;
 }
 
+/* tag_test() return the value and value length if the specific key exists,
+ * otherwise return -ENOENT.
+ */
 static
 ssize_t __hvfs_xattr_tag_test(char *key, char *p, char **s,
                               struct hstat *hs, int column,
                               char *value, size_t size)
 {
     ssize_t err = 0;
+    char *B_name = NULL;
+    char *buf = NULL, *ukey = NULL;
+    u8 no_B = 0;
 
+    /* get B */
+    HVFS_XATTR_NT(key, p, s, err, out);
+
+    /* parse B */
+    {
+        char *b = NULL, *t;
+
+        /* get header */
+        HVFS_B_NT(p, b, &t, err, out);
+        if (*b != 'B') {
+            hvfs_err(xnet, "TAG test: Invalid B header '%s'\n", b);
+            err = -EINVAL;
+            goto out;
+        }
+
+        /* get name */
+        HVFS_B_NT(p, b, &t, err, no_branch);
+        B_name = strdup(b);
+        goto next_token;
+
+    no_branch:
+        no_B = 1;
+    }
+next_token:
+
+    /* get key */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    ukey = p;
+    
+    /* readin the column data */
+    buf = xzalloc(hs->mc.c.len + 1);
+    if (!buf) {
+        hvfs_err(xnet, "xzalloc() column data buffer failed\n");
+        goto out;
+    }
+
+    err = __hvfs_fread(hs, column, (void **)&buf, &hs->mc.c, 0,
+                       hs->mc.c.len);
+    if (err < 0) {
+        hvfs_err(xnet, "__hvfs_fread() offset 0 len %ld failed w/ %ld\n",
+                 hs->mc.c.len, err);
+        goto out;
+    } else if (err != hs->mc.c.len) {
+        hvfs_err(xnet, "__hvfs_fread() offset 0 len %ld but return %ldB\n",
+                 hs->mc.c.len, err);
+        err = -EAGAIN;
+        goto out;
+    }
+
+    /* find the key */
+    {
+        int klen = strlen(p);
+        char *f = NULL, *fe, needle[klen + 2];
+
+        memset(needle, 0, sizeof(needle));
+        sprintf(needle, "%s=", p);
+
+        f = strstr(buf, needle);
+        if (!f) {
+            /* key not found */
+            err = -ENOENT;
+            goto out;
+        }
+
+        /* find it, copy the value out */
+        fe = f;
+        while (*fe != ';') {
+            if (fe >= buf + hs->mc.c.len)
+                break;
+            fe++;
+        }
+        
+        if (!size) {
+            err = fe - f - klen - 1;
+            goto out;
+        }
+
+        if (size < fe - f - klen - 1) {
+            err = -ERANGE;
+            goto out;
+        }
+
+        /* return length */
+        err = fe - f - klen - 1;
+        memcpy(value, f + klen + 1, err);
+    }
+
+out:
+    xfree(buf);
+    
     return err;
 }
 
+/* tag_search() get a query string from key, and return value (and length)
+ */
 static
 ssize_t __hvfs_xattr_tag_search(char *key, char *p, char **s,
                                 struct hstat *hs, int column,
                                 char *value, size_t size)
 {
     ssize_t err = 0;
+    char *B_name = NULL;
+    char *buf = NULL, *dbname = NULL, *prefix = NULL, *sexpr = NULL;
+    u8 no_B = 0;
 
+    /* get B */
+    HVFS_XATTR_NT(key, p, s, err, out);
+
+    /* parse B */
+    {
+        char *b = NULL, *t;
+
+        /* get header */
+        HVFS_B_NT(p, b, &t, err, out);
+        if (*b != 'B') {
+            hvfs_err(xnet, "TAG search: Invalid B header '%s'\n", b);
+            err = -EINVAL;
+            goto out;
+        }
+
+        /* get name */
+        HVFS_B_NT(p, b, &t, err, no_branch);
+        B_name = strdup(b);
+        goto next_token;
+
+    no_branch:
+        no_B = 1;
+    }
+next_token:
+
+    /* get dbname */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    dbname = strdup(p);
+
+    /* get prefix */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    prefix = strdup(p);
+    
+    /* get search_expr */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    sexpr = p;
+
+    /* seach in the branch, send the request to all the bp sites */
+    {
+        struct xnet_group *xg = NULL;
+        struct iovec *iov;
+        size_t tsize = 0, bsize;
+        off_t offset = 0;
+        int i;
+
+        xg = cli_get_active_site(hmo.chring[CH_RING_BP]);
+
+        if (!xg) {
+            hvfs_err(xnet, "get active BP site failed, ENOMEM?\n");
+            goto out;
+        }
+        
+        iov = alloca(sizeof(struct iovec) * xg->asize);
+        memset(iov, 0, sizeof(struct iovec) * xg->asize);
+
+        for (i = 0; i < xg->asize; i++) {
+            buf = NULL;
+            bsize = 0;
+
+            err = branch_search(B_name, xg->sites[i].site_id, dbname, prefix, 
+                                sexpr, (void **)&buf, &bsize);
+            if (err) {
+                hvfs_err(xnet, "Search query '%s' in site %lx failed w/ %ld\n",
+                         sexpr, xg->sites[i].site_id, err);
+            }
+            /* set the flag */
+            xg->sites[i].flags |= XNET_GROUP_RECVED;
+            
+            /* alloc an iov and save our buffer in it */
+            iov[i].iov_base = buf;
+            iov[i].iov_len = bsize;
+
+            tsize += bsize;
+        }
+
+        if (!size) {
+            /* return current buffer size */
+            err = tsize;
+            goto out_free;
+        } else if (size < tsize) {
+            err = -ERANGE;
+            goto out_free;
+        }
+
+        /* pack the result in the large buffer */
+        for (i = 0; i < xg->asize; i++) {
+            if (xg->sites[i].flags & XNET_GROUP_RECVED) {
+                memcpy(value + offset, iov[i].iov_base, iov[i].iov_len);
+                offset += iov[i].iov_len;
+            } else {
+                hvfs_warning(xnet, "Site %lx responds error for this search\n",
+                             xg->sites[i].site_id);
+            }
+        }
+        err = tsize;
+        
+    out_free:
+        for (i = 0; i < xg->asize; i++) {
+            if (xg->sites[i].flags & XNET_GROUP_RECVED) {
+                xfree(iov[i].iov_base);
+            }
+        }
+        xfree(xg);
+    }
+
+out:
+    xfree(dbname);
+    xfree(prefix);
+    
     return err;
 }
 
@@ -3881,6 +4617,10 @@ ssize_t __hvfs_xattr_main(char *key, char *value, size_t size, int flags,
         class = HVFS_XATTR_CLASS_NATIVE;
     } else if (strcmp(p, "tag") == 0) {
         class = HVFS_XATTR_CLASS_TAG;
+    } else if (strcmp(p, "dt") == 0) {
+        class = HVFS_XATTR_CLASS_DT;
+    } else if (strcmp(p, "branch") == 0) {
+        class = HVFS_XATTR_CLASS_BRANCH;
     } else {
         hvfs_err(xnet, "Request for unknown class: %s\n",
                  p);
@@ -3901,7 +4641,8 @@ ssize_t __hvfs_xattr_main(char *key, char *value, size_t size, int flags,
     
     /* get op */
     HVFS_XATTR_NT(dup, p, &s, err, out);
-    if (class == HVFS_XATTR_CLASS_NATIVE) {
+    switch (class) {
+    case HVFS_XATTR_CLASS_NATIVE:
         if (strcmp(p, "read") == 0) {
             op = HVFS_XATTR_NATIVE_READ;
         } else if (strcmp(p, "write") == 0) {
@@ -3914,9 +4655,10 @@ ssize_t __hvfs_xattr_main(char *key, char *value, size_t size, int flags,
             err = -ENOTSUP;
             goto out;
         }
-    } else if (class == HVFS_XATTR_CLASS_TAG) {
-        if (strcmp(p, "add") == 0) {
-            op = HVFS_XATTR_TAG_ADD;
+        break;
+    case HVFS_XATTR_CLASS_TAG:
+        if (strcmp(p, "set") == 0) {
+            op = HVFS_XATTR_TAG_SET;
         } else if (strcmp(p, "delete") == 0) {
             op = HVFS_XATTR_TAG_DELETE;
         } else if (strcmp(p, "update") == 0) {
@@ -3931,6 +4673,35 @@ ssize_t __hvfs_xattr_main(char *key, char *value, size_t size, int flags,
             err = -ENOTSUP;
             goto out;
         }
+        break;
+    case HVFS_XATTR_CLASS_DT:
+        if (strcmp(p, "create") == 0) {
+            op = HVFS_XATTR_DT_CREATE;
+        } else if (strcmp(p, "cat") == 0) {
+            op = HVFS_XATTR_DT_CAT;
+        } else {
+            hvfs_err(xnet, "Request for unknown dtrigger op: %s\n",
+                     p);
+            err = -ENOTSUP;
+            goto out;
+        }
+        break;
+    case HVFS_XATTR_CLASS_BRANCH:
+        if (strcmp(p, "create") == 0) {
+            op = HVFS_XATTR_BRANCH_CREATE;
+        } else if (strcmp(p, "delete") == 0) {
+            op = HVFS_XATTR_BRANCH_DELETE;
+        } else {
+            hvfs_err(xnet, "Request for unknown branch op: %s\n",
+                     p);
+            err = -ENOTSUP;
+            goto out;
+        }
+        break;
+    default:
+        hvfs_err(xnet, "Invalid class, internal error!\n");
+        err = -EFAULT;
+        goto out;
     }
     
     /* prepare column info  */
@@ -3963,10 +4734,11 @@ ssize_t __hvfs_xattr_main(char *key, char *value, size_t size, int flags,
             err = -ENOTSUP;
             goto out;
         }
+        break;
     case HVFS_XATTR_CLASS_TAG:
         switch (op) {
-        case HVFS_XATTR_TAG_ADD:
-            err = __hvfs_xattr_tag_add(dup, p, &s, hs, column,
+        case HVFS_XATTR_TAG_SET:
+            err = __hvfs_xattr_tag_set(dup, p, &s, hs, column,
                                        value, size);
             break;
         case HVFS_XATTR_TAG_DELETE:
@@ -3990,6 +4762,11 @@ ssize_t __hvfs_xattr_main(char *key, char *value, size_t size, int flags,
             err = -ENOTSUP;
             goto out;
         }
+        break;
+    case HVFS_XATTR_CLASS_DT:
+        break;
+    case HVFS_XATTR_CLASS_BRANCH:
+        break;
     default:
         hvfs_err(xnet, "Request for unknown class: %d\n", class);
         err = -ENOTSUP;
@@ -4080,24 +4857,234 @@ out:
     return err;
 }
 
-static int hvfs_getxattr(const char *pathname, const char *name,
+static int hvfs_getxattr(const char *pathname, const char *key,
                          char *value, size_t size)
 {
-    int err = 0;
+    struct hstat hs = {0,};
+    char *dup = strdup(pathname), *path, *name, *spath = NULL;
+    char *p = NULL, *n, *s = NULL;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0, column = 0;
 
+    SPLIT_PATHNAME(dup, path, name);
+    n = path;
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    if (err > 0) {
+        goto hit;
+    }
+    
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hvfs_debug(xnet, "token: %s\n", p);
+        /* ok, we should do stat on this directory based on the puuid, psalt
+         * we got */
+        /* Step 1: find in the SDT, zero uuid means using name to lookup */
+        hs.name = p;
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err) {
+        goto out;
+    }
+
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
+hit:
+    hs.name = name;
+    hs.uuid = 0;
+    err = __hvfs_stat(puuid, psalt, 0, &hs);
+    if (err) {
+        hvfs_err(xnet, "do internal file stat (SDT) on '%s' failed w/ %d\n",
+                 name, err);
+        goto out;
+    }
+    if (S_ISDIR(hs.mdu.mode)) {
+        /* We want to manipulate dir xattr, be carefull on reserved columns.
+         * The first free column we can use start from HVFS_DIR_FF_COLUMN */
+        column = HVFS_DIR_FF_COLUMN;
+    }
+
+    /* manipulate the columns and update the metadata */
+    err = __hvfs_xattr_main((char *)key, (char *)value, size, 0, 
+                            column, &hs);
+    if (err) {
+        hvfs_err(xnet, "__hvfs_xattr_main() failed w/ %d\n", err);
+        goto out;
+    }
+
+out:
     return err;
 }
 
+/* Return an array of NULL-terminated strings, but now we just return a blob
+ * of column data.
+ */
 static int hvfs_listxattr(const char *pathname, char *list, size_t size)
 {
-    int err = 0;
+    struct hstat hs = {0,};
+    char *dup = strdup(pathname), *path, *name, *spath = NULL;
+    char *p = NULL, *n, *s = NULL;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0, column = 0;
 
+    SPLIT_PATHNAME(dup, path, name);
+    n = path;
+
+    spath = strdup(path);
+    err = __ltc_lookup(spath, &puuid, &psalt);
+    if (err > 0) {
+        goto hit;
+    }
+    
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        hvfs_debug(xnet, "token: %s\n", p);
+        /* ok, we should do stat on this directory based on the puuid, psalt
+         * we got */
+        /* Step 1: find in the SDT, zero uuid means using name to lookup */
+        hs.name = p;
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err) {
+        goto out;
+    }
+
+    __ltc_update(spath, (void *)puuid, (void *)psalt);
+hit:
+    hs.name = name;
+    hs.uuid = 0;
+    err = __hvfs_stat(puuid, psalt, 0, &hs);
+    if (err) {
+        hvfs_err(xnet, "do internal file stat (SDT) on '%s' failed w/ %d\n",
+                 name, err);
+        goto out;
+    }
+    if (S_ISDIR(hs.mdu.mode)) {
+        /* We want to manipulate dir xattr, be carefull on reserved columns.
+         * The first free column we can use start from HVFS_DIR_FF_COLUMN */
+        column = HVFS_DIR_FF_COLUMN;
+    }
+
+    /* iterate on avaliable columns, and retrieve their content */
+    {
+        struct iovec *iov = NULL;
+        char *buf = NULL;
+        size_t tsize = 0;
+        off_t offset = 0;
+        int i;
+
+        iov = alloca(sizeof(struct iovec) * XTABLE_INDIRECT_COLUMN);
+        memset(iov, 0, sizeof(struct iovec) * XTABLE_INDIRECT_COLUMN);
+        
+        for (i = column; i < XTABLE_INDIRECT_COLUMN; i++) {
+            buf = NULL;
+            err = __hvfs_stat(puuid, psalt, i, &hs);
+            if (err) {
+                hvfs_err(xnet, "do internal file stat (SDT) on '%s' "
+                         "failed w/ %d\n",
+                         name, err);
+                goto out_free;
+            }
+            
+            if (hs.mc.c.len > 0) {
+                err = __hvfs_fread(&hs, i, (void **)&buf, &hs.mc.c, 0,
+                                   hs.mc.c.len);
+                if (err < 0) {
+                    hvfs_err(xnet, "__hvfs_fread() offset 0 len %ld "
+                             "failed w/ %d\n",
+                             hs.mc.c.len, err);
+                    goto out_free;
+                } else if (err != hs.mc.c.len) {
+                    hvfs_err(xnet, "__hvfs_fread() offset 0 len %ld "
+                             "but return %dB\n",
+                             hs.mc.c.len, err);
+                    /* ignore this mismatch */
+                }
+                iov[i].iov_base = buf;
+                iov[i].iov_len = hs.mc.c.len;
+                tsize += hs.mc.c.len;
+            }
+        }
+
+        if (!size) {
+            /* return current buffer size */
+            err = tsize + 1;
+            goto out_free;
+        } else if (size < tsize + 1) {
+            err = -ERANGE;
+            goto out_free;
+        }
+
+        /* pack the result in the large buffer */
+        for (i = column; i < XTABLE_INDIRECT_COLUMN; i++) {
+            if (iov[i].iov_len) {
+                memcpy(list + offset, iov[i].iov_base, iov[i].iov_len);
+                offset += iov[i].iov_len;
+            }
+        }
+        err = tsize + 1;
+
+    out_free:
+        for (i = column; i < XTABLE_INDIRECT_COLUMN; i++) {
+            if (iov[i].iov_base)
+                xfree(iov[i].iov_base);
+        }
+    }
+out:
+    
     return err;
 }
 
-static int hvfs_removexattr(const char *pathname, const char *name)
+static int hvfs_removexattr(const char *pathname, const char *key)
 {
-    int err = 0;
+    int err = -ENOTSUP;
+
+    hvfs_err(xnet, "Remove xattr is not supported, please refer doc to "
+             "remove a xattr key/value pairs in Pomegranate.\n");
 
     return err;
 }

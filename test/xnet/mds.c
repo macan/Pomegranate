@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-08 00:08:09 macan>
+ * Time-stamp: <2011-05-17 08:55:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1224,7 +1224,7 @@ int main(int argc, char *argv[])
                      self, HVFS_RING(0), err);
             goto out;
         }
-        hvfs_info(xnet, "HMI gdt uuid %ld salt %lx txg %lx\n", 
+        hvfs_info(xnet, "HMI gdt uuid %ld salt %lx txg %ld\n", 
                   hmi.gdt_uuid, hmi.gdt_salt,
                   atomic64_read(&hmi.mi_txg));
     }
@@ -1242,7 +1242,6 @@ int main(int argc, char *argv[])
 
     msg_wait();
 
-    hmo.prof.xnet = NULL;
     xnet_unregister_type(hmo.xc);
 
     st_destroy();

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-21 12:25:35 macan>
+ * Time-stamp: <2011-05-10 12:04:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -222,6 +222,31 @@ int fls64(unsigned long word)
         return -1;
     
     return __fls64(word);
+}
+
+/**
+ * __ffs - find first bit in word.
+ * @word: The word to search
+ *
+ * Undefined if no bit exists, so code should check against 0 first.
+ */
+static __inline__ unsigned long __ffs(unsigned long word)
+{
+	__asm__("bsfq %1,%0"
+		:"=r" (word)
+		:"rm" (word));
+	return word;
+}
+
+/* ffs64: wapper for __ffs(), and return -1 if the word is zero.
+ */
+static inline
+unsigned long ffs64(unsigned long word)
+{
+    if (!word)
+        return -1;
+
+    return __ffs(word);
 }
 
 static char *si_code[] 

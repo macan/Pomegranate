@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-04-25 13:22:00 macan>
+# Time-stamp: <2011-05-17 08:09:28 macan>
 #
 # Armed with EMACS.
 #
@@ -438,6 +438,8 @@ class pamc_shell(cmd.Cmd):
     def do_setattr(self, line):
         '''Set the attributes of a file in current pathname. 
         Usage: setattr /path/to/name key1=value1,key2=value2
+
+        Examples: setattr /abc atime=1000,ctime=500
 
         Result description:
         the column region is always ZERO (please use stat to get the correct values)

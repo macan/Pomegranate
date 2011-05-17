@@ -384,6 +384,15 @@ Pomegranate TODOs:
     1. Add get/setxattr interface to FUSE client, which can exploit our
        native support for xTable.
 
+       xattr interface is progressing, report here:
+
+       1. We have two major classes in xattr operations: native and tag
+
+
+       INF. How could we get the kv_list? This kv_list is not send to 
+            any MDS, thus it is client's responsibility to send it to 
+            BP server.
+
     2. Add a local data store to redirect large file I/O to other file 
        systems.
 

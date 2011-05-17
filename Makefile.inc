@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-05-06 05:23:36 ec2-user>
+# Time-stamp: <2011-05-17 05:22:12 ec2-user>
 #
 # This is the makefile for HVFS project.
 #
@@ -87,7 +87,7 @@ CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" -DGIT_SHA="\"$(GIT_SHA)\""\
 			-D_USE_SPINLOCK_ -DHVFS_DEBUG_LATENCY_ -DXNET_BLOCKING \
 			-DXNET_EAGER_WRITEV -DCPU_CORE=$(__CORES__) \
 			-DMDSL_ACC_SYNC -DMDSL_RADICAL_DEL -DMDSL_DROP_CACHE_ \
-			-DFUSE_SAFE_OPEN
+			-DFUSE_SAFE_OPEN -DXNET_CONN_EINTR
 
 ifdef USE_BDB
 CFLAGS += -I$(BDB_INC_PATH) -DUSE_BDB=1

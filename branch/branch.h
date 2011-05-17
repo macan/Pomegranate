@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-16 10:54:36 macan>
+ * Time-stamp: <2011-05-16 15:29:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -302,6 +302,8 @@ struct branch_local_op
 };
 int branch_init(int hsize, int bto, u64 memlimit, struct branch_local_op *op);
 void branch_destroy(void);
+int branch_search(char *branch_name, u64 bpsite, char *dbname, char *prefix,
+                  char *expr, void **outstr, size_t *outsize);
 
 /* enhanced APIs we export based the version from api.c */
 int hvfs_stat_eh(u64 puuid, u64 psalt, int column, struct hstat *);
