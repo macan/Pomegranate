@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-26 10:51:48 macan>
+ * Time-stamp: <2011-05-17 09:02:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -198,7 +198,8 @@ void mds_itimer_default(int signo, siginfo_t *info, void *arg)
     /* Note that, we must check the profiling interval at here, otherwise
      * checking the profiling interval at timer_thread will lost some
      * statistics */
-    dump_profiling(cur, &hmo.hp);
+    if (!hmo.timer_thread_stop)
+        dump_profiling(cur, &hmo.hp);
     hmo.tick = cur;
     hvfs_verbose(mds, "Did this signal handler called?\n");
 
@@ -1250,8 +1251,10 @@ void mds_destroy(void)
 
     /* stop the timer thread */
     hmo.timer_thread_stop = 1;
-    if (hmo.timer_thread)
-        pthread_join(hmo.timer_thread, NULL);
+    /* Bug fix: hmo.timer_thread is type pthread_t, this value is a ID which
+     * can be zero. Thus, we can not rely on ZERO detection for invalid
+     * values. */
+    pthread_join(hmo.timer_thread, NULL);
 
     sem_destroy(&hmo.timer_sem);
 

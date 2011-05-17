@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-10 12:38:21 macan>
+ * Time-stamp: <2011-05-17 11:06:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1242,7 +1242,6 @@ int main(int argc, char *argv[])
 
     msg_wait();
 
-    hmo.prof.xnet = NULL;
     xnet_unregister_type(hmo.xc);
 
     st_destroy();
