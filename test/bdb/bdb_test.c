@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-12 11:04:00 macan>
+ * Time-stamp: <2011-05-12 15:31:18 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1347,7 +1347,7 @@ int range_join_db(char *type, char *tag_color, char *tag_location)
                     strcmp(skey, tag_color) < 0) {
                     goto out_color;
                 }
-                printf("COLOR %s pKEY %s\n", skey, pkey);
+                printf("COLOR %s pKEY %s\n", skey, xkey);
                 __set_add_key(xkey, base_db, 3, &sea);
                 break;
             }

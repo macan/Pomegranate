@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-22 14:47:13 macan>
+ * Time-stamp: <2011-05-12 16:22:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,7 +52,12 @@ struct bdb *bdb_open(u64 site_id, char *branch_name,
 {
     char db[256];
     struct bdb *bdb;
+#ifdef USE_BDB_RECOVERY
+    int envflags = DB_CREATE | DB_INIT_LOCK | DB_INIT_LOG |
+        DB_INIT_MPOOL | DB_INIT_RECOVERY;
+#else
     int envflags = DB_CREATE | DB_INIT_CDB | DB_INIT_MPOOL;
+#endif
     int err = 0;
     
     err = bdb_dir_make_exist(HVFS_BP_HOME);

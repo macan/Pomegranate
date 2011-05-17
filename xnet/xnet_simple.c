@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 14:53:02 macan>
+ * Time-stamp: <2011-05-17 08:40:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1451,12 +1451,14 @@ retry:
             do {
                 err = connect(csock, &xa->sa, sizeof(xa->sa));
                 if (err < 0) {
-                    if (errno == EINTR)
-                        continue;
                     if (errno == EISCONN) {
                         err = 0;
                         break;
                     }
+                    if (errno == EINTR)
+                        continue;
+                    else
+                        break;
                 } else
                     break;
             } while (1);
@@ -1785,7 +1787,24 @@ retry:
                     goto out;
                 }
             }
+#ifdef XNET_CONN_EINTR
+            do {
+                err = connect(csock, &xa->sa, sizeof(xa->sa));
+                if (err < 0) {
+                    if (errno == EISCONN) {
+                        err = 0;
+                        break;
+                    }
+                    if (errno == EINTR)
+                        continue;
+                    else
+                        break;
+                } else
+                    break;
+            } while (1);
+#else
             err = connect(csock, &xa->sa, sizeof(xa->sa));
+#endif
             if (err < 0) {
                 xlock_unlock(&xa->clock);
                 hvfs_err(xnet, "connect() %s %d failed '%s' %d times\n",

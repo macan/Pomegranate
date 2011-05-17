@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-01 13:22:52 macan>
+ * Time-stamp: <2011-05-17 08:08:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -5397,13 +5397,13 @@ void __kv2mu(char *kv, struct mdu_update *mu)
     time_t t = time(NULL);
 
 #define NEXT_TOKEN ({                           \
-        p = strtok_r(n, "=, ", &s);             \
-        if (!p)                                 \
-            break;                              \
+            p = strtok_r(n, "=,; ", &s);        \
+            if (!p)                             \
+                break;                          \
         })
-
+    
     do {
-        p = strtok_r(n, "=, ", &s);
+        p = strtok_r(n, "=,; ", &s);
         if (!p) {
             /* end */
             break;
@@ -5579,7 +5579,7 @@ int hvfs_fupdate(char *path, char *name, void **data)
     }
     
     do {
-        p = strtok_r(n, ",", &s);
+        p = strtok_r(n, ",; ", &s);
         if (!p) {
             /* end */
             break;
