@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-04-12 19:36:27 macan>
+# Time-stamp: <2011-05-17 18:20:20 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -79,11 +79,15 @@ clean :
 	@$(MAKE) --no-print-directory -C $(BRANCH) -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(XNET) -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(TEST)/mds -e "HOME_PATH=$(HOME_PATH)" clean
+	@$(MAKE) --no-print-directory -C $(TEST)/mdsl -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(TEST)/xnet -e "HOME_PATH=$(HOME_PATH)" clean
-	@$(MAKE) --no-print-directory -C $(TEST)/result -e "HOME_PATH=$(HOME_PATH)" clean
+	@$(MAKE) --no-print-directory -C $(TEST)/fuse -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(TRIGGERS) -e "HOME_PATH=$(HOME_PATH)" clean
 	@$(MAKE) --no-print-directory -C $(FUSE) -e "HOME_PATH=$(HOME_PATH)" clean
 	-@rm -rf $(LIB_PATH)/ring $(LIB_PATH)/a.out
+
+depclean:
+	@$(MAKE) --no-print-directory -C $(TEST)/result -e "HOME_PATH=$(HOME_PATH)" clean
 
 # Note: the following region is only for UNIT TESTing
 # region for unit test
@@ -102,6 +106,8 @@ unit_test : $(ut_depend_files) $(HVFS_LIB) $(MDS_LIB) $(XNET_LIB) \
 	@$(MAKE) --no-print-directory -C $(TEST)/xnet -e "HOME_PATH=$(HOME_PATH)"
 	@echo -e " " CD"\t" $(TEST)/mdsl
 	@$(MAKE) --no-print-directory -C $(TEST)/mdsl -e "HOME_PATH=$(HOME_PATH)"
+	@echo -e " " CD"\t" $(TEST)/fuse
+	@$(MAKE) --no-print-directory -C $(TEST)/fuse -e "HOME_PATH=$(HOME_PATH)"
 	@echo "Targets for unit test are ready."
 
 install: unit_test triggers

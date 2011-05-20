@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-17 08:08:20 macan>
+ * Time-stamp: <2011-05-18 15:02:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -6912,6 +6912,172 @@ void __hvfs_dt_set_where(u16 where, char *p)
     }
 }
 
+/* __hvfs_reg_dtrigger()
+ *
+ * Register a new DTRIG to the directory. We do not check any conflicts on
+ * it. Priority is sorted yet.
+ *
+ * Note: user should supply hstat structure, including hs.[puuid, uuid, psalt,
+ * hash, mdu, mc]. It means that user should do final GDT stat on
+ * HVFS_TRIG_COLUMN column.
+ */
+int __hvfs_reg_dtrigger(struct hstat *hs, u16 priority, u16 where, 
+                        u32 type, void *data, size_t len)
+{
+    void *old_dtrig, *new_dtrig;
+    size_t total_len, rlen;
+    int err = 0;
+
+    /* sanity check */
+    if (hs->mc.cno != HVFS_TRIG_COLUMN) {
+        hvfs_err(xnet, "Invalid column id %ld\n", hs->mc.cno);
+        return -EINVAL;
+    }
+    
+    /* read in the dtrig content */
+    old_dtrig = NULL;
+    rlen = __hvfs_fread(hs, HVFS_TRIG_COLUMN, &old_dtrig, &hs->mc.c, 
+                       0, hs->mc.c.len);
+    if (rlen < 0) {
+        hvfs_err(xnet, "do internal fread on uuid<%lx,%lx> failed w/ %ld\n",
+                 hs->uuid, hs->hash, rlen);
+        err = rlen;
+        goto out;
+    }
+    
+    total_len = hs->mc.c.len + len + 20;
+    new_dtrig = xmalloc(total_len);
+    if (!new_dtrig) {
+        hvfs_err(xnet, "xmalloc() new dtrig region failed\n");
+        err = -ENOMEM;
+        if (hs->mc.c.len)
+            xfree(old_dtrig);
+        goto out;
+    }
+
+    /* insert ourself to the old_dtrig buffer */
+    if (hs->mc.c.len > 0) {
+        void *p;
+        int old_priority;
+        off_t offset = 0, old_offset = 0;
+        size_t tmp_len;
+
+        p = new_dtrig;
+        while (offset < total_len) {
+            hvfs_debug(xnet, "ooffset %ld offset %ld\n", old_offset, offset);
+            if (old_offset >= hs->mc.c.len)
+                goto just_copy;
+            old_priority = *(int *)(old_dtrig + old_offset + 12);
+            tmp_len = *(int *)(old_dtrig + old_offset + 16);
+            hvfs_debug(xnet, "opri %d pri %d len %ld\n",
+                       old_priority, priority, tmp_len);
+            if (old_priority < priority) {
+            just_copy:
+                p = new_dtrig + offset;
+                /* type */
+                __hvfs_dt_set_type(type, p);
+                p += 4;
+                /* where */
+                __hvfs_dt_set_where(where, p);
+                p += 8;
+                /* priority */
+                *(int *)p  = priority;
+                p += 4;
+                /* length */
+                *(int *)p = len;
+                p += 4;
+                /* copy in the new dtrigger */
+                memcpy(p, data, len);
+                p += len;
+                /* copy the remain old dtriggers */
+                memcpy(p, old_dtrig + old_offset, (total_len - len - 20 - offset));
+                break;
+            } else {
+                /* copy this entry to new dtrigger */
+                memcpy(new_dtrig + offset, old_dtrig + old_offset,
+                       tmp_len + 20);
+                old_offset += tmp_len + 20;
+            }
+            offset += tmp_len + 20;
+        }
+        xfree(old_dtrig);
+    } else {
+        void *p = new_dtrig;
+
+        /* type */
+        __hvfs_dt_set_type(type, p);
+        p += 4;
+        /* where */
+        __hvfs_dt_set_where(where, p);
+        p += 8;
+        /* priority */
+        *(int *)p = priority;
+        p += 4;
+        /* length */
+        *(int *)p = len;
+        p += 4;
+        /* copy in the new dtrigger */
+        memcpy(p, data, len);
+    }
+
+    /* calculate which itbid we should stored it in */
+    {
+        struct dhe *e;
+
+        e = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
+        if (IS_ERR(e)) {
+            hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n",
+                     PTR_ERR(e));
+            err = PTR_ERR(e);
+            goto out;
+        }
+        hs->hash = mds_get_itbid(e, hs->hash);
+        mds_dh_put(e);
+    }
+    
+    /* ok, we can update the directory trigger now */
+    err = __hvfs_fwrite(hs, HVFS_TRIG_COLUMN, 0, new_dtrig, 
+                        total_len, &hs->mc.c);
+    if (err) {
+        hvfs_err(xnet, "do internal fwrite on uuid<%lx,%lx> failed w/ %d\n",
+                 hs->uuid, hs->hash, err);
+        xfree(new_dtrig);
+        goto out;
+    }
+    xfree(new_dtrig);
+
+    /* update the gdt column and file attributes */
+    {
+        struct mdu_update *mu;
+
+        mu = xzalloc(sizeof(*mu) + sizeof(struct mu_column));
+        if (!mu) {
+            hvfs_err(xnet, "xzalloc() mdu_update failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        mu->valid = MU_COLUMN | MU_FLAG_ADD;
+        mu->flags = HVFS_MDU_IF_TRIG;
+        mu->column_no = 1;
+        hs->mc.cno = HVFS_TRIG_COLUMN;
+
+        /* GDT update */
+        hs->hash = 0;
+        err = __hvfs_update(hmi.gdt_uuid, hmi.gdt_salt, hs, mu);
+        if (err) {
+            hvfs_err(xnet, "do internal update on uuid<%lx,%lx> "
+                     "failed w/ %d\n",
+                     hs->uuid, hs->hash, err);
+            xfree(mu);
+            goto out;
+        }
+        xfree(mu);
+    }
+    
+out:
+    return err;
+}
+
 /* hvfs_reg_dtrigger()
  *
  * Register a new DTRIG to the directory. We do not check any conflicts on
@@ -6921,10 +7087,8 @@ int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
                       u32 type, void *data, size_t len)
 {
     struct hstat hs = {0,};
-    void *old_dtrig, *new_dtrig;
     char *p = NULL, *n = path, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
-    size_t total_len, rlen;
     int err = 0;
 
     if (!path || !data)
@@ -6995,144 +7159,110 @@ int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
         }
     }
 
+    err = __hvfs_reg_dtrigger(&hs, priority, where, type, data, len);
+
+out:
+    return err;
+}
+
+/* __hvfs_cat_dtrigger()
+ *
+ * Cat the dtrigger content to user
+ *
+ * Note: user should supply hstat structure, including hs.[uuid, uuid, psalt,
+ * hash, mdu, mc]. It means that user should do final GDT stat on
+ * HVFS_TRIG_COLUMN column.
+ */
+int __hvfs_cat_dtrigger(struct hstat *hs, void **data)
+{
+    void *old_dtrig;
+    size_t rlen;
+    int err = 0;
+
+    /* sanity check */
+    if (hs->mc.cno != HVFS_TRIG_COLUMN) {
+        hvfs_err(xnet, "Invalid column id %ld\n", hs->mc.cno);
+        return -EINVAL;
+    }
+    
     /* read in the dtrig content */
     old_dtrig = NULL;
-    rlen = __hvfs_fread(&hs, HVFS_TRIG_COLUMN, &old_dtrig, &hs.mc.c, 
-                       0, hs.mc.c.len);
+    rlen = __hvfs_fread(hs, HVFS_TRIG_COLUMN, &old_dtrig, &hs->mc.c,
+                       0, hs->mc.c.len);
     if (rlen < 0) {
-        hvfs_err(xnet, "do internal fread on '%s' failed w/ %ld\n",
-                 name, rlen);
+        hvfs_err(xnet, "do internal fread on uuid<%lx,%lx> failed w/ %ld\n",
+                 hs->uuid, hs->hash, rlen);
         err = rlen;
         goto out;
     }
-    
-    total_len = hs.mc.c.len + len + 20;
-    new_dtrig = xmalloc(total_len);
-    if (!new_dtrig) {
-        hvfs_err(xnet, "xmalloc() new dtrig region failed\n");
-        err = -ENOMEM;
-        if (hs.mc.c.len)
-            xfree(old_dtrig);
-        goto out;
-    }
 
-    /* insert ourself to the old_dtrig buffer */
-    if (hs.mc.c.len > 0) {
-        void *p;
-        int old_priority;
-        off_t offset = 0, old_offset = 0;
-        size_t tmp_len;
-
-        p = new_dtrig;
-        while (offset < total_len) {
-            hvfs_debug(xnet, "ooffset %ld offset %ld\n", old_offset, offset);
-            if (old_offset >= hs.mc.c.len)
-                goto just_copy;
-            old_priority = *(int *)(old_dtrig + old_offset + 12);
-            tmp_len = *(int *)(old_dtrig + old_offset + 16);
-            hvfs_debug(xnet, "opri %d pri %d len %ld\n",
-                       old_priority, priority, tmp_len);
-            if (old_priority < priority) {
-            just_copy:
-                p = new_dtrig + offset;
-                /* type */
-                __hvfs_dt_set_type(type, p);
-                p += 4;
-                /* where */
-                __hvfs_dt_set_where(where, p);
-                p += 8;
-                /* priority */
-                *(int *)p  = priority;
-                p += 4;
-                /* length */
-                *(int *)p = len;
-                p += 4;
-                /* copy in the new dtrigger */
-                memcpy(p, data, len);
-                p += len;
-                /* copy the remain old dtriggers */
-                memcpy(p, old_dtrig + old_offset, (total_len - len - 20 - offset));
-                break;
-            } else {
-                /* copy this entry to new dtrigger */
-                memcpy(new_dtrig + offset, old_dtrig + old_offset,
-                       tmp_len + 20);
-                old_offset += tmp_len + 20;
+    /* parse the dtrig content and echo the result */
+    if (hs->mc.c.len > 0) {
+        char *type, *where, b[64], *p = b;
+        int priority, length;
+        off_t offset = 0;
+        int i, nr = 0;
+        
+        while (offset < hs->mc.c.len) {
+            hvfs_debug(xnet, "offset %ld\n", offset);
+            type = (char *)(old_dtrig + offset);
+            where = (char *)(old_dtrig + offset + 4);
+            priority = *(int *)(old_dtrig + offset + 12);
+            length = *(int *)(old_dtrig + offset + 16);
+            p = b;
+            memset(p, 0, sizeof(b));
+            memcpy(p, type, 4);
+            *(p + 4) = ' ';
+            p += 5;
+            for (i = 0; i < 8; i++) {
+                if (*(where + i) != '\0')
+                    *(p + i) = *(where + i);
+                else
+                    *(p + i) = ' ';
             }
-            offset += tmp_len + 20;
+            p += 8;
+            p += snprintf(p, 50, " %d %d\n", priority, length);
+            hvfs_info(xnet, "%s", b);
+            offset += length + 20;
+            nr++;
+        }
+        /* save the content to user's buffer now */
+        if (!(*data)) {
+            *data = xzalloc(nr * 36 + sizeof(u32));
+            if (*data) {
+                *(u32 *)(*data) = nr * 36;
+            }
+        }
+        if (*data) {
+            off_t loff = sizeof(u32);
+            offset = 0;
+
+            while (offset < hs->mc.c.len) {
+                hvfs_debug(xnet, "offset %ld\n", offset);
+                type = (char *)(old_dtrig + offset);
+                where = (char *)(old_dtrig + offset + 4);
+                priority = *(int *)(old_dtrig + offset + 12);
+                length = *(int *)(old_dtrig + offset + 16);
+                p = b;
+                memset(p, 0, sizeof(b));
+                memcpy(p, type, 4);
+                *(p + 4) = ' ';
+                p += 5;
+                for (i = 0; i < 8; i++) {
+                    if (*(where + i) != '\0')
+                        *(p + i) = *(where + i);
+                    else
+                        *(p + i) = ' ';
+                }
+                p += 8;
+                p += snprintf(p, 50, " %d %d\n", priority, length);
+                loff += sprintf(*data + loff, "%s", b);
+                offset += length + 20;
+            }
         }
         xfree(old_dtrig);
     } else {
-        void *p = new_dtrig;
-
-        /* type */
-        __hvfs_dt_set_type(type, p);
-        p += 4;
-        /* where */
-        __hvfs_dt_set_where(where, p);
-        p += 8;
-        /* priority */
-        *(int *)p = priority;
-        p += 4;
-        /* length */
-        *(int *)p = len;
-        p += 4;
-        /* copy in the new dtrigger */
-        memcpy(p, data, len);
-    }
-
-    /* calculate which itbid we should stored it in */
-    {
-        struct dhe *e;
-
-        e = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
-        if (IS_ERR(e)) {
-            hvfs_err(xnet, "mds_dh_search() failed w/ %ld\n",
-                     PTR_ERR(e));
-            err = PTR_ERR(e);
-            goto out;
-        }
-        hs.hash = mds_get_itbid(e, hs.hash);
-        mds_dh_put(e);
-    }
-    
-    /* ok, we can update the directory trigger now */
-    err = __hvfs_fwrite(&hs, HVFS_TRIG_COLUMN, 0, new_dtrig, 
-                        total_len, &hs.mc.c);
-    if (err) {
-        hvfs_err(xnet, "do internal fwrite on '%s' failed w/ %d\n",
-                 name, err);
-        xfree(new_dtrig);
-        goto out;
-    }
-    xfree(new_dtrig);
-
-    /* update the gdt column and file attributes */
-    {
-        struct mdu_update *mu;
-
-        mu = xzalloc(sizeof(*mu) + sizeof(struct mu_column));
-        if (!mu) {
-            hvfs_err(xnet, "xzalloc() mdu_update failed\n");
-            err = -ENOMEM;
-            goto out;
-        }
-        mu->valid = MU_COLUMN | MU_FLAG_ADD;
-        mu->flags = HVFS_MDU_IF_TRIG;
-        mu->column_no = 1;
-        hs.mc.cno = HVFS_TRIG_COLUMN;
-
-        /* GDT update */
-        hs.uuid = puuid;
-        hs.hash = 0;
-        err = __hvfs_update(hmi.gdt_uuid, hmi.gdt_salt, &hs, mu);
-        if (err) {
-            hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
-                     name, err);
-            xfree(mu);
-            goto out;
-        }
-        xfree(mu);
+        hvfs_plain(xnet, "None\n");
     }
     
 out:
@@ -7141,15 +7271,13 @@ out:
 
 /* hvfs_cat_dtrigger()
  *
- * Cat the dtrigger content to user
+ * Cat the dtrigger content to console
  */
 int hvfs_cat_dtrigger(char *path, char *name, void **data)
 {
     struct hstat hs = {0,};
-    void *old_dtrig;
     char *p = NULL, *n = path, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
-    size_t rlen;
     int err = 0;
 
     if (!path || !data)
@@ -7220,51 +7348,129 @@ int hvfs_cat_dtrigger(char *path, char *name, void **data)
         }
     }
 
-    /* read in the dtrig content */
-    old_dtrig = NULL;
-    rlen = __hvfs_fread(&hs, HVFS_TRIG_COLUMN, &old_dtrig, &hs.mc.c,
-                       0, hs.mc.c.len);
-    if (rlen < 0) {
-        hvfs_err(xnet, "do internal fread on '%s' failed w/ %ld\n",
-                 name, rlen);
-        err = rlen;
+    {
+        void *ldata = NULL;
+
+        err = __hvfs_cat_dtrigger(&hs, &ldata);
+        if (!err) {
+            xfree(ldata);
+        }
+    }
+    
+out:
+    return err;
+}
+
+/* __hvfs_clear_dtrigger()
+ *
+ * Clear ALL the registered DTs
+ */
+int __hvfs_clear_dtrigger(struct hstat *hs)
+{
+    struct mdu_update mu;
+    int err = 0;
+
+    memset(&mu, 0, sizeof(mu));
+    mu.valid = MU_COLUMN | MU_FLAG_CLR;
+    mu.flags = HVFS_MDU_IF_TRIG;
+    mu.column_no = 1;
+    hs->mc.cno = HVFS_TRIG_COLUMN;
+    memset(&hs->mc.c, 0, sizeof(hs->mc.c));
+
+    /* GDT update */
+    hs->hash = 0;
+    err = __hvfs_update(hmi.gdt_uuid, hmi.gdt_salt, hs, &mu);
+    if (err) {
+        hvfs_err(xnet, "do internal update on uuid<%lx,%lx> failed w/ %d\n",
+                 hs->uuid, hs->hash, err);
         goto out;
     }
 
-    /* parse the dtrig content and echo the result */
-    if (hs.mc.c.len > 0) {
-        char *type, *where, b[64], *p = b;
-        int priority, length;
-        off_t offset = 0;
-        int i;
-        
-        while (offset < hs.mc.c.len) {
-            hvfs_debug(xnet, "offset %ld\n", offset);
-            type = (char *)(old_dtrig + offset);
-            where = (char *)(old_dtrig + offset + 4);
-            priority = *(int *)(old_dtrig + offset + 12);
-            length = *(int *)(old_dtrig + offset + 16);
-            p = b;
-            memset(p, 0, sizeof(b));
-            memcpy(p, type, 4);
-            *(p + 4) = ' ';
-            p += 5;
-            for (i = 0; i < 8; i++) {
-                if (*(where + i) != '\0')
-                    *(p + i) = *(where + i);
-                else
-                    *(p + i) = ' ';
-            }
-            p += 8;
-            p += snprintf(p, 50, " %d %d\n", priority, length);
-            hvfs_info(xnet, "%s", b);
-            offset += length + 20;
+out:
+    return err;
+}
+
+/* hvfs_clear_dtrigger()
+ *
+ * Clear ALL the registered DTs
+ */
+int hvfs_clear_dtrigger(char *path, char *name)
+{
+    struct hstat hs = {0,};
+    char *p = NULL, *n = path, *s = NULL;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
+    int err = 0;
+
+    if (!path)
+        return -EINVAL;
+
+    /* parse the path and do __stat on each directory */
+    do {
+        p = strtok_r(n, "/", &s);
+        if (!p) {
+            /* end */
+            break;
         }
-        xfree(old_dtrig);
+        hs.name = p;
+        hs.uuid = 0;
+        /* Step 1: find in the SDT */
+        err = __hvfs_stat(puuid, psalt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (SDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        /* Step 2: find in the GDT */
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, HVFS_TRIG_COLUMN, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal dir stat (GDT) on '%s' failed w/ %d\n",
+                     p, err);
+            break;
+        }
+        psalt = hs.ssalt;
+    } while (!(n = NULL));
+
+    if (err)
+        goto out;
+
+    /* ok, check if this is a directory */
+    if (name && strlen(name) > 0) {
+        /* stat the last dir */
+        hs.name = name;
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, -1, &hs);
+        if (err) {
+            hvfs_err(xnet, "do last dir stat (SDT) on '%s' failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
+        puuid = hs.uuid;
+        hs.hash = 0;
+        err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, HVFS_TRIG_COLUMN, &hs);
+        if (err) {
+            hvfs_err(xnet, "do last dir stat (GDT) on '%s' failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
+        psalt = hs.ssalt;
     } else {
-        hvfs_plain(xnet, "None\n");
+        /* check if it is root directory */
+        if (puuid == hmi.root_uuid) {
+            err = __hvfs_fill_root(&hs);
+            if (err) {
+                hvfs_err(xnet, "fill root entry failed w/ %d\n", err);
+                goto out;
+            }
+            hs.psalt = hmi.gdt_salt;
+            hs.puuid = hmi.gdt_uuid;
+            hs.hash = hvfs_hash(hmi.root_uuid, hs.psalt, 0, HASH_SEL_GDT);
+        }
     }
-    
+
+    err = __hvfs_clear_dtrigger(&hs);
+
 out:
     return err;
 }

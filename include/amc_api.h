@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-15 19:19:42 macan>
+ * Time-stamp: <2011-05-18 14:32:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -147,7 +147,12 @@ int hvfs_fwrite(char *path, char *name, int column, void *data,
 int hvfs_fcommit(int id);
 int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
                       u32 type, void *data, size_t len);
+int __hvfs_reg_dtrigger(struct hstat *, u16 priority, u16 where,
+                        u32 type, void *data, size_t len);
 int hvfs_cat_dtrigger(char *path, char *name, void **data);
+int __hvfs_cat_dtrigger(struct hstat *, void **data);
+int hvfs_clear_dtrigger(char *path, char *name);
+int __hvfs_clear_dtrigger(struct hstat *);
 int hvfs_statfs(void **data);
 void hvfs_free(void *p);
 

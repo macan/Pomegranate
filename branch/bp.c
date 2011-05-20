@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-21 17:31:14 macan>
+ * Time-stamp: <2011-05-20 23:27:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1292,6 +1292,44 @@ int bo_filter_input(struct branch_processor *bp,
     }
 
 out:
+    return err;
+}
+
+/* filter_output() just push the request to low level operatoers
+ */
+int bo_filter_output(struct branch_processor *bp,
+                     struct branch_operator *bo,
+                     struct branch_line_disk *bld,
+                     struct branch_line_disk **obld,
+                     int *len, int *errstate)
+{
+    int err = 0;
+
+    /* push the request to my children */
+    if (bo->left && bo->left->output) {
+        err = bo->left->output(bp, bo->left, bld, obld, len, errstate);
+        if (*errstate == BO_STOP) {
+            /* ignore any errors */
+            if (err) {
+                hvfs_err(xnet, "output on BO %d's left branch %d "
+                         "failed w/ %d\n",
+                         bo->id, bo->left->id, err);
+            }
+        }
+    }
+    *errstate = 0;
+    if (bo->right && bo->right->output) {
+        err = bo->right->output(bp, bo->right, bld, obld, len, errstate);
+        if (*errstate == BO_STOP) {
+            /* ignore any errors */
+            if (err) {
+                hvfs_err(xnet, "output on BO %d's right branch %d "
+                         "failed w/ %d\n",
+                         bo->id, bo->right->id, err);
+            }
+        }
+    }
+
     return err;
 }
 
@@ -4828,6 +4866,7 @@ int __bo_install_cb(struct branch_operator *bo, char *name)
         bo->open = bo_filter_open;
         bo->close = bo_filter_close;
         bo->input = bo_filter_input;
+        bo->output = bo_filter_output;
         bo->flush = bo_filter_flush;
     } else if (strcmp(name, "sum") == 0) {
         bo->open = bo_sum_open;

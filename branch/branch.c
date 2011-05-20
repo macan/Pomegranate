@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-26 18:15:27 macan>
+ * Time-stamp: <2011-05-21 00:21:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2832,7 +2832,7 @@ int branch_dumpbor(char *branch_name, u64 bpsite)
             {
                 struct branch_groupby_disk *bgd;
                 struct branch_groupby_entry_disk *bged;
-                int j;
+                int i, j;
 
                 bgd = (struct branch_groupby_disk *)bore->data;
                 ASSERT(bgd->type == BRANCH_DISK_GB, xnet);
