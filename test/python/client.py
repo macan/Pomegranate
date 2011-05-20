@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-05-17 08:09:28 macan>
+# Time-stamp: <2011-05-20 13:03:42 macan>
 #
 # Armed with EMACS.
 #
@@ -73,7 +73,9 @@ class bcolors:
             print str(string)
 
 class struct_hmo(Structure):
-    _fields_ = [("others", c_char * 1568),
+    '''struct_hmo is a shadow structure of hvfs_mds_object.
+    thus, if you change hvfs_mds_object, you must change 'others' offset'''
+    _fields_ = [("others", c_char * 1968),
                 ("branch_dispatch", c_void_p),
                 ("cb_exit", c_void_p),
                 ("cb_hb", c_void_p),
@@ -189,7 +191,7 @@ class pamc_shell(cmd.Cmd):
                 "regdtrigger", "catdtrigger", "statfs", "setattr",
                 "getactivesite", "addsite", "rmvsite", "shutdown",
                 "cbranch", "bc", "bp", "getbor", "search", 
-                "pst",]
+                "pst", "clrdtrigger"]
 
     def __init__(self, ub = False):
         cmd.Cmd.__init__(self)
@@ -915,7 +917,7 @@ class pamc_shell(cmd.Cmd):
                min:id:rid:<l|r>[:<reg>:[left|right|all|match]]
                knn:id:rid:<l|r>:<reg>:<left|right|all|match>:type:center:+/-distance
                groupby:id:rid:<l|r>:<reg>:<left|right|all|match>:[sum/avg/max/min/count]
-               indexer:id:rid:<l|r>:<plain|bdb>:<dbname>:<table>
+               indexer:id:rid:<l|r>:<plain|bdb>:<dbname>:<prefix>
         '''
         l = shlex.split(line)
         if len(l) < 3:
@@ -1200,6 +1202,34 @@ class pamc_shell(cmd.Cmd):
         '''
 
         xnet.st_print()
+
+    def do_clrdtrigger(self, line):
+        '''Clear ALL the attached DTriggers.
+        Usage: clrdtrigger /path/to/name
+        '''
+        l = shlex.split(line)
+        if len(l) < 1:
+            print "Invalid argument. Please see help clrdtrigger."
+            return
+
+        l[0] = os.path.normpath(l[0])
+
+        path, file = os.path.split(l[0])
+        if path == "" or path[0] != '/':
+            print "Relative path name is not supported yet."
+            return
+
+        # ok
+        try:
+            c_path = c_char_p(path)
+            c_file = c_char_p(file)
+            err = api.hvfs_clear_dtrigger(c_path, c_file)
+            if err != 0:
+                print "api.hvfs_clear_dtrigger() failed w/ %d" % err
+                return
+        except ValueError, ve:
+            print "ValueError %s" % ve
+        print "+OK"
 
     def do_quit(self, line):
         print "Quiting ..."

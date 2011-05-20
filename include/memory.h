@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 12:49:25 macan>
+ * Time-stamp: <2011-05-21 02:57:12 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -106,7 +106,7 @@ static inline void *xrealloc(void *ptr, size_t size)
 
 #ifdef USE_JEMALLOC
 #define JEMALLOC_MANGLE
-#include "jemalloc.h"
+#include "jemalloc/jemalloc.h"
 
 static inline void *xzalloc(size_t size)
 {

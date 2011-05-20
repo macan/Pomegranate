@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-16 16:03:36 macan>
+ * Time-stamp: <2011-05-21 02:31:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3618,8 +3618,9 @@ u64 SELECT_SITE(u64 itbid, u64 psalt, int type, u32 *vid)
  *                           write   [.len]
  *                           lookup  {return column info}
  *
- *        dt        ignore   create  .pfs_path.type.where.priority.local_path
- *                           cat     .pfs_path
+ *        dt        ignore   create  .type.where.priority.local_path
+ *                           cat
+ *                           clear
  *
  *        branch    ignore   create  .name.tag.level.op_list
  *                           delete  .name
@@ -3653,6 +3654,7 @@ u64 SELECT_SITE(u64 itbid, u64 psalt, int type, u32 *vid)
 
 #define HVFS_XATTR_DT_CREATE            0
 #define HVFS_XATTR_DT_CAT               1
+#define HVFS_XATTR_DT_CLEAR             2
 
 #define HVFS_XATTR_BRANCH_CREATE        0
 #define HVFS_XATTR_BRANCH_DELETE        1
@@ -3676,6 +3678,19 @@ u64 SELECT_SITE(u64 itbid, u64 psalt, int type, u32 *vid)
         }                                       \
     } while (0)
 
+/* get next xattr token as a path */
+#define HVFS_XATTR_NT_PATH(key, p, s, err, out) do {    \
+        char *__in = NULL;                              \
+        if (!p) {                                       \
+            __in = key;                                 \
+        }                                               \
+        p = strtok_r(__in, " ", (s));                   \
+        if (!p) {                                       \
+            err = -EINVAL;                              \
+            goto out;                                   \
+        }                                               \
+    } while (0)
+
 /* get next B token */
 #define HVFS_B_NT(key, p, s, err, out) do {     \
         char *__in = NULL;                      \
@@ -3695,7 +3710,20 @@ u64 SELECT_SITE(u64 itbid, u64 psalt, int type, u32 *vid)
         if (!p) {                               \
             __in = key;                         \
         }                                       \
-        p = strtok_r(__in, "; ", (s));          \
+        p = strtok_r(__in, ";, ", (s));         \
+        if (!p) {                               \
+            err = -EINVAL;                      \
+            goto out;                           \
+        }                                       \
+    } while (0)
+
+/* get next OPL token */
+#define HVFS_OPL_NT(key, p, s, err, out) do {   \
+        char *__in = NULL;                      \
+        if (!p) {                               \
+            __in = key;                         \
+        }                                       \
+        p = strtok_r(__in, ":;, ", (s));        \
         if (!p) {                               \
             err = -EINVAL;                      \
             goto out;                           \
@@ -3740,7 +3768,7 @@ ssize_t __hvfs_xattr_native_read(char *key, char *p, char **s,
     }
 
     /* ok, issue a read request to MDSL */
-    rlen = __hvfs_fread(hs, column, (void **)&p, &hs->mc.c, offset, len);
+    rlen = __hvfs_fread(hs, column, (void **)&value, &hs->mc.c, offset, len);
     if (rlen < 0) {
         hvfs_err(xnet, "__hvfs_fread() offset %ld len %ld failed w/ %ld\n",
                  offset, len, rlen);
@@ -3853,6 +3881,445 @@ ssize_t __hvfs_xattr_native_lookup(char *key, char *p, char **s,
 
     memcpy(value, buf, len);
     err = len;
+
+    return err;
+}
+
+/* dt_create() create a new dir trigger (DTrigger) on a directory, we have
+ * already assure this is a directory.
+ */
+static
+ssize_t __hvfs_xattr_dt_create(char *key, char *p, char **s,
+                               struct hstat *hs, int column,
+                               char *value, size_t size)
+{
+    /* we got a key as '.type.where.priority.local_path' */
+    struct stat stat;
+    char *fpath = NULL;
+    void *buf = NULL;
+    int dfd, br, bt;
+    u32 type;
+    u16 where, priority;
+    ssize_t err = 0;
+
+    /* for dt_create, we have to parse the above fields from key string */
+
+    /* get type */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    type = atoi(p);
+
+    /* get where */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    where = atoi(p);
+
+    /* get priority */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    priority = atoi(p);
+
+    /* get local_path, it should be a file, refer to PFS file or local file */
+    HVFS_XATTR_NT_PATH(key, p, s, err, out);
+    fpath = strdup(p);
+
+    /* is myself a directory */
+    if (!S_ISDIR(hs->mdu.mode)) {
+        hvfs_err(xnet, "dtrigger can only be installed to a directory.\n");
+        err = -ENOTDIR;
+        goto out;
+    }
+
+    /* open trigger file */
+    dfd = open(fpath, O_RDWR);
+    if (dfd < 0) {
+        hvfs_err(xnet, "file path '%s' is invalid to open: %s\n",
+                 fpath, strerror(errno));
+        err = -errno;
+        goto out;
+    }
+    err = fstat(dfd, &stat);
+    if (err < 0) {
+        hvfs_err(xnet, "stat file '%s' failed w/ %s\n",
+                 fpath, strerror(errno));
+        err = -errno;
+        goto out_close;
+    }
+    
+    buf = xmalloc(stat.st_size);
+    if (!buf) {
+        hvfs_err(xnet, "xmalloc dtrigger buffer failed\n");
+        err = -ENOMEM;
+        goto out_close;
+    }
+
+    bt = 0;
+    do {
+        br = read(dfd, buf + bt, stat.st_size - bt);
+        if (br < 0) {
+            hvfs_err(xnet, "read from dtrigger file '%s' failed w/ %s\n",
+                     fpath, strerror(errno));
+            err = -errno;
+            goto out_close;
+        } else if (br == 0) {
+            hvfs_err(xnet, "read from dtrigger file '%s' w/ EOF\n",
+                     fpath);
+            err = -EFAULT;
+            goto out_close;
+        }
+        bt += br;
+    } while (bt < stat.st_size);
+
+    /* stat the GDT now */
+    hs->hash = 0;
+    err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, HVFS_TRIG_COLUMN, hs);
+    if (err) {
+        hvfs_err(xnet, "do last dir stat (GDT) on uuid<%lx,%lx> "
+                 "failed w/ %ld\n",
+                 hs->uuid, hs->hash, err);
+        goto out_close;
+    }
+
+    /* ok, we register this trigger to the specific directory */
+    err = __hvfs_reg_dtrigger(hs, priority, where, type, buf, stat.st_size);
+    if (err) {
+        hvfs_err(xnet, "reg dtrigger failed w/ %ld\n", err);
+        goto out_close;
+    }
+
+out_close:
+    xfree(buf);
+    close(dfd);
+
+out:
+    return err;
+}
+
+/* dt_cat() dump the DTrigger content to a buffer
+ */
+static
+ssize_t __hvfs_xattr_dt_cat(char *key, char *p, char **s,
+                            struct hstat *hs, int column,
+                            char *value, size_t size)
+{
+    void *data = NULL;
+    ssize_t err = 0;
+
+    /* for dt_cat, we get a result buffer and return it to user */
+
+    /* is myself a directory */
+    if (!S_ISDIR(hs->mdu.mode)) {
+        hvfs_err(xnet, "dtrigger can only be installed to a directory.\n");
+        err = -ENOTDIR;
+        goto out;
+    }
+
+    /* stat the GDT now */
+    hs->hash = 0;
+    err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, HVFS_TRIG_COLUMN, hs);
+    if (err) {
+        hvfs_err(xnet, "do last dir stat (GDT) on uuid<%lx,%lx> "
+                 "failed w/ %ld\n",
+                 hs->uuid, hs->hash, err);
+        goto out;
+    }
+
+    /* ok, we cat the trigger */
+    err = __hvfs_cat_dtrigger(hs, &data);
+    if (err) {
+        hvfs_err(xnet, "cat dtrigger failed w/ %ld\n", err);
+        goto out;
+    }
+
+    {
+        if (!size) {
+            err = *(u32 *)data;
+            goto out;
+        } else if (*(u32 *)data > size) {
+            err = -ERANGE;
+            goto out;
+        }
+
+        memcpy(value, data + sizeof(u32), *(u32 *)data);
+    }
+    err = *(u32 *)data;
+        
+out:
+    xfree(data);
+
+    return err;
+}
+
+/* dt_clear() clear ALL the registered DTriggers
+ */
+static
+ssize_t __hvfs_xattr_dt_clear(char *key, char *p, char **s,
+                              struct hstat *hs, int column,
+                              char *value, size_t size)
+{
+    ssize_t err = 0;
+
+    /* dor dt_clear, we clean ALL the DTriggers attached w/ this directory */
+
+    /* is myself a directory */
+    if (!S_ISDIR(hs->mdu.mode)) {
+        hvfs_err(xnet, "dtrigger can only be cleared in a directory.\n");
+        err = -ENOTDIR;
+        goto out;
+    }
+
+    /* stat the GDT now */
+    hs->hash = 0;
+    err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, HVFS_TRIG_COLUMN, hs);
+    if (err) {
+        hvfs_err(xnet, "do last dir stat (GDT) on uuid<%lx,%lx> "
+                 "failed w/ %ld\n",
+                 hs->uuid, hs->hash, err);
+        goto out;
+    }
+
+    /* ok, we can clear the trigger now */
+    err = __hvfs_clear_dtrigger(hs);
+    if (err) {
+        hvfs_err(xnet, "clear dtrigger failed w/ %ld\n", err);
+        goto out;
+    }
+
+out:
+    return err;
+}
+
+/* branch_create() create a new branch w/ name.tag.level.op_list
+ *
+ * op_list defination: each op seperated by ','
+ *
+ * filter:id:rid:<l|r>:<reg>
+ * sum:id:rid:<l|r>:<reg>:<left|right|all|match>
+ * count:id:rid:<l|r>:<reg>:<left|right|all|match>
+ * avg:id:rid:<l|r>:<reg>:<left|right|all|match>
+ * max:id:rid:<l|r>:<reg>:<left|right|all|match>
+ * min:id:rid:<l|r>:<reg>:<left|right|all|match>
+ * knn:id:rid:<l|r>:<reg>:<left|right|all|match>:type:center:+/-distance
+ * groupby:id:rid:<l|r>:<reg>:<left|right|all|match>:sum/avg/max/min/count
+ * indexer:id:rid:<l|r>:<plain|bdb>:<dbname>:<prefix>
+ */
+static
+ssize_t __hvfs_xattr_branch_create(char *key, char *p, char **s,
+                                   struct hstat *hs, int column,
+                                   char *value, size_t size)
+{
+    struct branch_ops *ops = NULL;
+    char *bname = NULL, *tag = NULL;
+    ssize_t err = 0;
+    int nr = 0, i;
+    u8 level;
+
+    /* Note: for branch_create, we have to pase tag, level and op_list from
+     * key string */
+
+    /* get branch name */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    bname = strdup(p);
+    
+    /* get tag */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    tag = strdup(p);
+
+    /* get level */
+    HVFS_XATTR_NT(key, p, s, err, out);
+    level = atoi(p);
+
+    /* get op_list */
+    HVFS_XATTR_NT_PATH(key, p, s, err, out);
+
+    /* ok, we begin parse the op list now */
+    {
+        char *buf = NULL;
+        char *o = NULL, *t = NULL;
+        int offset;
+
+        ops = xzalloc(sizeof(*ops));
+        if (!ops) {
+            hvfs_err(xnet, "xzalloc branch_ops failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        
+        do {
+            ops = xrealloc(ops, sizeof(*ops) + (nr + 1) * 
+                           sizeof(struct branch_op));
+            if (!ops) {
+                hvfs_err(xnet, "xrealloc branch_ops failed\n");
+                err = -ENOMEM;
+                goto out;
+            }
+            nr++;
+
+            buf = xzalloc(256);
+            if (!buf) {
+                hvfs_err(xnet, "xzalloc() string bufffer failed\n");
+                err = -ENOMEM;
+                goto out;
+            }
+            offset = 0;
+            
+            /* get op name */
+            HVFS_OPL_NT(p, o, &t, err, oplist_end);
+            if (strcmp(o, "filter") == 0) {
+                ops->ops[ops->nr].op = BRANCH_OP_FILTER;
+            } else if (strcmp(o, "sum") == 0) {
+                ops->ops[ops->nr].op = BRANCH_OP_SUM;
+            } else if (strcmp(o, "max") == 0) {
+                ops->ops[ops->nr].op = BRANCH_OP_MAX;
+            } else if (strcmp(o, "min") == 0) {
+                ops->ops[ops->nr].op = BRANCH_OP_MIN;
+            } else if (strcmp(o, "knn") == 0) {
+                ops->ops[ops->nr].op = BRANCH_OP_KNN;
+            } else if (strcmp(o, "groupby") == 0) {
+                ops->ops[ops->nr].op = BRANCH_OP_GROUPBY;
+            } else if (strcmp(o, "rank") == 0) {
+                ops->ops[ops->nr].op = BRANCH_OP_RANK;
+            } else if (strcmp(o, "indexer") == 0) {
+                ops->ops[ops->nr].op = BRANCH_OP_INDEXER;
+            } else if (strcmp(o, "count") == 0) {
+                ops->ops[ops->nr].op = BRANCH_OP_COUNT;
+            } else if (strcmp(o, "avg") == 0) {
+                ops->ops[ops->nr].op = BRANCH_OP_AVG;
+            } else {
+                hvfs_err(xnet, "Invalid OP name '%s'\n", o);
+                err = -EINVAL;
+                goto out;
+            }
+
+            /* get op id */
+            HVFS_OPL_NT(p, o, &t, err, out);
+            ops->ops[ops->nr].id = atoi(o);
+
+            /* get op rid */
+            HVFS_OPL_NT(p, o, &t, err, out);
+            ops->ops[ops->nr].rid = atoi(o);
+            
+            /* get op lor */
+            HVFS_OPL_NT(p, o, &t, err, out);
+            switch (*o) {
+            case 'l':
+                ops->ops[ops->nr].lor = 0;
+                break;
+            case 'r':
+                ops->ops[ops->nr].lor = 1;
+                break;
+            default:
+                hvfs_err(xnet, "Invalid OP LoR '%s'\n", o);
+                err = -EINVAL;
+                goto out;
+            }
+
+            /* get op reg or indexer.type */
+            HVFS_OPL_NT(p, o, &t, err, out);
+            switch (ops->ops[ops->nr].op) {
+            case BRANCH_OP_INDEXER:
+                if (strcmp(o, "plain") == 0) {
+                    offset += sprintf(buf + offset, "type:plain;");
+                } else if (strcmp(o, "bdb") == 0) {
+                    offset += sprintf(buf + offset, "type:bdb;");
+                } else {
+                    hvfs_err(xnet, "Invalid INDEXER type: '%s\n'",
+                             o);
+                    xfree(buf);
+                    err = -EINVAL;
+                    goto out;
+                }
+                break;
+            case BRANCH_OP_FILTER:
+                /* rule:<reg>;output_filename:<identifier> */
+                offset += sprintf(buf + offset, 
+                                  "rule:%s;output_filename:f%d",
+                                  o, ops->ops[ops->nr].id);
+                goto final;
+            default:
+                offset += sprintf(buf + offset, "rule:%s;", o);
+            }
+
+            /* get op lor key, or dbname */
+            HVFS_OPL_NT(p, o, &t, err, out);
+            switch(ops->ops[ops->nr].op) {
+            case BRANCH_OP_INDEXER:
+                offset += sprintf(buf + offset, "schema:%s:", o);
+                /* get prefix */
+                HVFS_OPL_NT(p, o, &t, err, out);
+                offset += sprintf(buf + offset, "%s", o);
+                break;
+            case BRANCH_OP_SUM:
+            case BRANCH_OP_COUNT:
+            case BRANCH_OP_AVG:
+            case BRANCH_OP_MAX:
+            case BRANCH_OP_MIN:
+                offset += sprintf(buf + offset, "lor:%s", o);
+                break;
+            case BRANCH_OP_KNN:
+                offset += sprintf(buf + offset, "lor:%s;", o);
+                /* get knn type */
+                HVFS_OPL_NT(p, o, &t, err, out);
+                offset += sprintf(buf + offset, "knn:%s:", o);
+                /* get knn center */
+                HVFS_OPL_NT(p, o, &t, err, out);
+                offset += sprintf(buf + offset, "%ld:", atol(o));
+                /* get knn distance */
+                HVFS_OPL_NT(p, o, &t, err, out);
+                offset += sprintf(buf + offset, "%s", o);
+                break;
+            case BRANCH_OP_GROUPBY:
+                offset += sprintf(buf + offset, "lor:%s;", o);
+                /* get groupby aggr operator */
+                HVFS_OPL_NT(p, o, &t, err, out);
+                offset += sprintf(buf + offset, "groupby:%s", o);
+                break;
+            default:
+                hvfs_err(xnet, "Invalid OP type %d, or internal error\n",
+                         ops->ops[ops->nr].op);
+                goto out;
+            }
+            
+        final:
+            /* setup branch_op */
+            ops->ops[ops->nr].data = buf;
+            ops->ops[ops->nr].len = strlen(buf);
+            ASSERT(offset == ops->ops[ops->nr].len, xnet);
+            
+            /* finally, update index */
+            ops->nr++;
+        } while (1);
+    oplist_end:
+        xfree(buf);
+    }
+
+    /* issue a branch_create request */
+    err = branch_create(hs->puuid, hs->uuid, bname, tag, level, ops);
+    if (err) {
+        hvfs_err(xnet, "branch_create(%s) failed w/ %ld\n",
+                 bname, err);
+        goto out;
+    }
+
+out:
+    xfree(tag);
+    /* free ops->ops[] array */
+    for (i = 0; i < ops->nr; i++) {
+        xfree(ops->ops[i].data);
+    }
+    xfree(ops);
+    
+    return err;
+}
+
+/* branch_delete() delete an exist branch
+ *
+ * Note: a branch metadata file is just a REGULAR file, you can remove it by
+ * normal 'rm'.
+ */
+static
+ssize_t __hvfs_xattr_branch_delete(char *key, char *p, char **s,
+                                   struct hstat *hs, int column,
+                                   char *vlue, size_t size)
+{
+    ssize_t err = -ENOTSUP;
 
     return err;
 }
@@ -4602,6 +5069,7 @@ ssize_t __hvfs_xattr_main(char *key, char *value, size_t size, int flags,
     ssize_t err = 0;
     int class, op, __col;
     
+    hvfs_err(xnet, "key %s\n", key);
     /* get namespace */
     HVFS_XATTR_NT(dup, p, &s, err, out);
     if (strcmp(p, "pfs") != 0) {
@@ -4679,6 +5147,8 @@ ssize_t __hvfs_xattr_main(char *key, char *value, size_t size, int flags,
             op = HVFS_XATTR_DT_CREATE;
         } else if (strcmp(p, "cat") == 0) {
             op = HVFS_XATTR_DT_CAT;
+        } else if (strcmp(p, "clear") == 0) {
+            op = HVFS_XATTR_DT_CLEAR;
         } else {
             hvfs_err(xnet, "Request for unknown dtrigger op: %s\n",
                      p);
@@ -4764,8 +5234,40 @@ ssize_t __hvfs_xattr_main(char *key, char *value, size_t size, int flags,
         }
         break;
     case HVFS_XATTR_CLASS_DT:
+        switch (op) {
+        case HVFS_XATTR_DT_CREATE:
+            err = __hvfs_xattr_dt_create(dup, p, &s, hs, column,
+                                         value, size);
+            break;
+        case HVFS_XATTR_DT_CAT:
+            err = __hvfs_xattr_dt_cat(dup, p, &s, hs, column,
+                                      value, size);
+            break;
+        case HVFS_XATTR_DT_CLEAR:
+            err = __hvfs_xattr_dt_clear(dup, p, &s, hs, column,
+                                        value, size);
+            break;
+        default:
+            hvfs_err(xnet, "Request for unknown op: %d\n", op);
+            err = -ENOTSUP;
+            goto out;
+        }
         break;
     case HVFS_XATTR_CLASS_BRANCH:
+        switch (op) {
+        case HVFS_XATTR_BRANCH_CREATE:
+            err = __hvfs_xattr_branch_create(dup, p, &s, hs, column,
+                                             value, size);
+            break;
+        case HVFS_XATTR_BRANCH_DELETE:
+            err = __hvfs_xattr_branch_delete(dup, p, &s, hs, column,
+                                             value, size);            
+            break;
+        default:
+            hvfs_err(xnet, "Request for unknown op: %d\n", op);
+            err = -ENOTSUP;
+            goto out;
+        }
         break;
     default:
         hvfs_err(xnet, "Request for unknown class: %d\n", class);
@@ -4831,14 +5333,25 @@ static int hvfs_setxattr(const char *pathname, const char *key,
 
     __ltc_update(spath, (void *)puuid, (void *)psalt);
 hit:
-    hs.name = name;
-    hs.uuid = 0;
-    err = __hvfs_stat(puuid, psalt, 0, &hs);
-    if (err) {
-        hvfs_err(xnet, "do internal file stat (SDT) on '%s' failed w/ %d\n",
-                 name, err);
-        goto out;
+    if (strlen(name) == 0) {
+        /* fill root entry */
+        err = __hvfs_fill_root(&hs);
+        if (err) {
+            hvfs_err(xnet, "fill root entry failed w/ %d\n", err);
+            goto out;
+        }
+    } else {
+        /* fill a named entry */
+        hs.name = name;
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal file stat (SDT) on '%s' failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
     }
+    
     if (S_ISDIR(hs.mdu.mode)) {
         /* We want to manipulate dir xattr, be carefull on reserved columns.
          * The first free column we can use start from HVFS_DIR_FF_COLUMN */
@@ -4848,10 +5361,16 @@ hit:
     /* manipulate the columns and update the metadata */
     err = __hvfs_xattr_main((char *)key, (char *)value, size, flags, 
                             column, &hs);
-    if (err) {
+    if (err < 0) {
         hvfs_err(xnet, "__hvfs_xattr_main() failed w/ %d\n", err);
         goto out;
+    } else if (err != size) {
+        hvfs_err(xnet, "__hvfs_xattr_main() dirty %dB vs %ldB\n",
+                 err, size);
+        err = -ENOSPC;
+        goto out;
     }
+    err = 0;
 
 out:
     return err;
@@ -4912,14 +5431,25 @@ static int hvfs_getxattr(const char *pathname, const char *key,
 
     __ltc_update(spath, (void *)puuid, (void *)psalt);
 hit:
-    hs.name = name;
-    hs.uuid = 0;
-    err = __hvfs_stat(puuid, psalt, 0, &hs);
-    if (err) {
-        hvfs_err(xnet, "do internal file stat (SDT) on '%s' failed w/ %d\n",
-                 name, err);
-        goto out;
+    if (strlen(name) == 0) {
+        /* fill root entry */
+        err = __hvfs_fill_root(&hs);
+        if (err) {
+            hvfs_err(xnet, "fill root entry failed w/ %d\n", err);
+            goto out;
+        }
+    } else {
+        /* fill a named entry */
+        hs.name = name;
+        hs.uuid = 0;
+        err = __hvfs_stat(puuid, psalt, 0, &hs);
+        if (err) {
+            hvfs_err(xnet, "do internal file stat (SDT) on '%s' failed w/ %d\n",
+                     name, err);
+            goto out;
+        }
     }
+    
     if (S_ISDIR(hs.mdu.mode)) {
         /* We want to manipulate dir xattr, be carefull on reserved columns.
          * The first free column we can use start from HVFS_DIR_FF_COLUMN */
@@ -4929,7 +5459,7 @@ hit:
     /* manipulate the columns and update the metadata */
     err = __hvfs_xattr_main((char *)key, (char *)value, size, 0, 
                             column, &hs);
-    if (err) {
+    if (err < 0) {
         hvfs_err(xnet, "__hvfs_xattr_main() failed w/ %d\n", err);
         goto out;
     }
