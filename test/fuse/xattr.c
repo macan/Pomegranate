@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-20 23:05:00 macan>
+ * Time-stamp: <2011-05-21 15:10:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -212,7 +212,8 @@ int __branch_optest(int argc, char *argv[])
             "max:5:2:l:.*:all;min:6:2:r:.*:all;"
             "knn:7:3:l:.*:all:linear:100:+-10;"
             "groupby:8:3:r:.*:all:sum/avg/max/min;"
-            "indexer:9:4:l:plain:DB:00",
+            "indexer:9:4:l:plain:DB:00;"
+            "indexer:10:4:r:bdb:DB:00",
             argv[2]);
     err = setxattr(".", buf, NULL, 0, 0);
     if (err) {
