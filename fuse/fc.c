@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-20 23:15:57 macan>
+ * Time-stamp: <2011-05-21 02:31:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -4211,7 +4211,6 @@ ssize_t __hvfs_xattr_branch_create(char *key, char *p, char **s,
                 goto out;
             }
 
-            hvfs_err(xnet, "BUF %s P %s\n", buf, o);
             /* get op reg or indexer.type */
             HVFS_OPL_NT(p, o, &t, err, out);
             switch (ops->ops[ops->nr].op) {
@@ -4238,7 +4237,6 @@ ssize_t __hvfs_xattr_branch_create(char *key, char *p, char **s,
                 offset += sprintf(buf + offset, "rule:%s;", o);
             }
 
-            hvfs_err(xnet, "BUF %s P %s\n", buf, o);
             /* get op lor key, or dbname */
             HVFS_OPL_NT(p, o, &t, err, out);
             switch(ops->ops[ops->nr].op) {
@@ -4284,7 +4282,6 @@ ssize_t __hvfs_xattr_branch_create(char *key, char *p, char **s,
             ops->ops[ops->nr].data = buf;
             ops->ops[ops->nr].len = strlen(buf);
             ASSERT(offset == ops->ops[ops->nr].len, xnet);
-            hvfs_err(xnet, "BUF %s\n", buf);
             
             /* finally, update index */
             ops->nr++;
