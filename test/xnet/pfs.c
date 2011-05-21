@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-03 14:17:52 macan>
+ * Time-stamp: <2011-05-21 23:43:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 #include "pfs.h"
 #include "xnet.h"
 #include "store.h"
+#include "branch.h"
 
 /* Please use environment variables to pass HVFS specific values
  */
@@ -144,6 +145,19 @@ int main(int argc, char *argv[])
                  strerror(err > 0 ? err : -err));
         return err;
     }
+
+    /* init branch subsystem */
+    hvfs_info(xnet, "Enable branch feeder mode.\n");
+
+    err = branch_init(0, 0, 0, NULL);
+    if (err) {
+        hvfs_err(xnet, "branch_init() failed w/ '%s'\n",
+                 strerror(err > 0 ? err : -err));
+        goto out;
+    }
+
+    hmo.branch_dispatch = branch_dispatch_split;
+    hmo.cb_branch_destroy = branch_destroy;
     
 #if FUSE_USE_VERSION >= 26
     err = fuse_main(argc, argv, &pfs_ops, NULL);

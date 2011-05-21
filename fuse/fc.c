@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-21 02:31:16 macan>
+ * Time-stamp: <2011-05-22 05:36:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3740,7 +3740,7 @@ ssize_t __hvfs_xattr_native_read(char *key, char *p, char **s,
                                  char *value, size_t size)
 {
     off_t offset;
-    ssize_t len, rlen;
+    ssize_t len = -1, rlen;
     ssize_t err = 0;
     
     /* Note: for native read, we have to parse the offset and length from key
@@ -3751,8 +3751,12 @@ ssize_t __hvfs_xattr_native_read(char *key, char *p, char **s,
     offset = atol(p);
 
     /* get length */
-    HVFS_XATTR_NT(key, p, s, err, out);
+    HVFS_XATTR_NT(key, p, s, err, ok_cal_len);
     len = atol(p);
+ok_cal_len:
+    if (len == -1) {
+        len = hs->mc.c.len - offset;
+    }
 
     /* check column size */
     ASSERT(column == hs->mc.cno, xnet);
@@ -4455,7 +4459,9 @@ next_token:
             do {
                 HVFS_KVL_NT(p, k, &t, err, kvl_ok);
                 for(i = 0; i < kl_off; i++) {
-                    if (strcmp(k, B_kl[i]) == 0) {
+                    if (strstr(k, B_kl[i]) == k &&
+                        (k[strlen(B_kl[i])] == '=' ||
+                         k[strlen(B_kl[i])] == ' ')) {
                         /* match */
                         offset += sprintf(kvl + offset, "%s;", k);
                     }
@@ -4475,11 +4481,13 @@ next_token:
                     goto out_free;
                 }
             }
+            err = 0;
         }
     }
 
 out_free:
     if (kl_off) {
+        kl_off--;
         while (kl_off >= 0) {
             xfree(B_kl[kl_off]);
             kl_off--;
@@ -4536,7 +4544,7 @@ next_token:
         goto out;
     }
     
-    err = __hvfs_fread(hs, column, (void **)buf, &hs->mc.c, 0, 
+    err = __hvfs_fread(hs, column, (void **)&buf, &hs->mc.c, 0, 
                        hs->mc.c.len);
     if (err < 0) {
         hvfs_err(xnet, "__hvfs_fread() offset 0 len %ld failed w/ %ld\n",
@@ -4570,8 +4578,11 @@ next_token:
                 break;
             fe++;
         }
+        if (*fe == ';')
+            fe++;
 
         memmove(f, fe, (buf + hs->mc.c.len - fe));
+        buf[hs->mc.c.len - (fe - f)] = '\0';
 
         /* write the data back to MDSL and update metadata */
         {
@@ -4637,13 +4648,14 @@ next_token:
         snprintf(primary_key, 256, "+%lx::%lx:%lx", hs->puuid,
                  hs->uuid, hs->hash);
         err = branch_publish(hs->puuid, hs->uuid, B_name, primary_key,
-                             1, buf, hs->mc.c.len);
+                             1, buf, strlen(buf));
         if (err) {
             hvfs_err(xnet, "publish kv_list '%s' to B'%s' failed w/ %ld",
                      buf, B_name, err);
             goto out_free;
         }
     }
+    err = 0;
 
 out_free:    
     xfree(buf);
@@ -4702,7 +4714,7 @@ next_token:
         goto out;
     }
 
-    err = __hvfs_fread(hs, column, (void **)buf, &hs->mc.c, 0,
+    err = __hvfs_fread(hs, column, (void **)&buf, &hs->mc.c, 0,
                        hs->mc.c.len);
     if (err < 0) {
         hvfs_err(xnet, "__hvfs_fread() offset 0 len %ld failed w/ %ld\n",
@@ -4725,9 +4737,9 @@ next_token:
 
         f = strstr(buf, needle);
         if (!f) {
-            hvfs_warning(xnet, "Find key'%s' in column data failed, "
+            hvfs_warning(xnet, "Find key '%s' in column data '%s' failed, "
                          "no such key\n",
-                     ukey);
+                         ukey, buf);
             f = fe = buf;
             goto append_new;
         }
@@ -4738,7 +4750,9 @@ next_token:
                 break;
             fe++;
         }
-
+        if (*fe == ';')
+            fe++;
+        
         /* overwrite the old KV pair */
         memmove(f, fe, (buf + hs->mc.c.len - fe));
         
@@ -4814,7 +4828,7 @@ next_token:
         snprintf(primary_key, 256, "+%lx::%lx:%lx", hs->puuid,
                  hs->uuid, hs->hash);
         err = branch_publish(hs->puuid, hs->uuid, B_name, primary_key,
-                             1, buf, hs->mc.c.len);
+                             1, buf, strlen(buf));
         if (err) {
             hvfs_err(xnet, "publish kv_list '%s' to B'%s' failed w/ %ld",
                      buf, B_name, err);

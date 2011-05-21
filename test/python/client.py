@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-05-20 13:03:42 macan>
+# Time-stamp: <2011-05-22 00:00:40 macan>
 #
 # Armed with EMACS.
 #

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-18 15:02:07 macan>
+ * Time-stamp: <2011-05-21 23:53:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -6754,16 +6754,18 @@ int hvfs_pstat(struct file_handle *fh, void **data, size_t *size)
 
     err = __hvfs_stat(puuid, psalt, 0, &hs);
     if (err) {
-        hvfs_err(xnet, "do internal file stat (SDT) on '%s' failed w/ %d\n",
-                 fh->name, err);
+        hvfs_err(xnet, "do internal file stat (SDT) on '%s|<%lx,%lx>' "
+                 "failed w/ %d\n",
+                 fh->name, fh->uuid, fh->hash, err);
         goto out;
     }
     if (S_ISDIR(hs.mdu.mode)) {
         hs.hash = 0;
         err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, 1, &hs);
         if (err) {
-            hvfs_err(xnet, "do last dir stat (GDT) on '%s' failed w/ %d\n",
-                     fh->name, err);
+            hvfs_err(xnet, "do last dir stat (GDT) on '%s|<%lx,%lx>' "
+                     "failed w/ %d\n",
+                     fh->name, fh->uuid, fh->hash, err);
             goto out;
         }
     }

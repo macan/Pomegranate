@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-21 15:29:46 macan>
+ * Time-stamp: <2011-05-21 23:50:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1569,23 +1569,23 @@ int bo_sum_flush(struct branch_processor *bp,
 
 /* Note that we want to reuse the TAG variable, thus we have to use MACRO
  * instead of function call */
-#define __sum_update(bs, tag) do {                          \
-        if ((bs)->flag & BS_COUNT)                          \
-            (bs)->value++;                                  \
-        else if ((bs)->flag & BS_SUM) {                     \
-            char *p;                                        \
-            long value = 0;                                 \
-            sscanf(tag, "%a[_:a-zA-Z0-9].%ld", &p, &value); \
-            xfree(p);                                       \
-            (bs)->value += value;                           \
-        } else if ((bs)->flag & BS_AVG) {                   \
-            char *p;                                        \
-            long value = 0;                                 \
-            sscanf(tag, "%a[_:a-zA-Z0-9].%ld", &p, &value); \
-            xfree(p);                                       \
-            (bs)->value += value;                           \
-            (bs)->lnr++;                                    \
-        }                                                   \
+#define __sum_update(bs, tag) do {                              \
+        if ((bs)->flag & BS_COUNT)                              \
+            (bs)->value++;                                      \
+        else if ((bs)->flag & BS_SUM) {                         \
+            char *p;                                            \
+            long value = 0;                                     \
+            sscanf(tag, "%a[_+-:a-zA-Z0-9].%ld", &p, &value);   \
+            xfree(p);                                           \
+            (bs)->value += value;                               \
+        } else if ((bs)->flag & BS_AVG) {                       \
+            char *p;                                            \
+            long value = 0;                                     \
+            sscanf(tag, "%a[_+-:a-zA-Z0-9].%ld", &p, &value);   \
+            xfree(p);                                           \
+            (bs)->value += value;                               \
+            (bs)->lnr++;                                        \
+        }                                                       \
     } while (0)
 
 int bo_sum_input(struct branch_processor *bp,
@@ -2085,7 +2085,7 @@ void __bmm_update(struct bo_mm *bm, struct branch_line_disk *bld)
     tag = alloca(bld->tag_len + 1);
     memcpy(tag, bld->data + bld->name_len, bld->tag_len);
     tag[bld->tag_len] = '\0';
-    sscanf(tag, "%a[_:a-zA-Z0-9].%ld", &p, &value);
+    sscanf(tag, "%a[_+-:a-zA-Z0-9].%ld", &p, &value);
     xfree(p);
 
     switch (bm->flag) {
@@ -2807,7 +2807,7 @@ void __knn_linear_update(struct bo_knn *bk, struct branch_line_disk *bld)
     tag = alloca(bld->tag_len + 1);
     memcpy(tag, bld->data + bld->name_len, bld->tag_len);
     tag[bld->tag_len] = '\0';
-    sscanf(tag, "%a[_:a-zA-Z0-9].%ld", &p, &value);
+    sscanf(tag, "%a[_+-:a-zA-Z0-9].%ld", &p, &value);
     xfree(p);
 
     high = low = bk->bkn.bkl.center;
@@ -2869,7 +2869,7 @@ void __knn_xlinear_update(struct bo_knn *bk, struct branch_line_disk *bld)
     tag = alloca(bld->tag_len + 1);
     memcpy(tag, bld->data + bld->name_len, bld->tag_len);
     tag[bld->tag_len] = '\0';
-    sscanf(tag, "%a[_:a-zA-Z0-9].%ld", &p, &value);
+    sscanf(tag, "%a[_+-:a-zA-Z0-9].%ld", &p, &value);
     xfree(p);
 
     if (!list_empty(&bk->bkn.bkl.ke)) {
@@ -3527,7 +3527,7 @@ void __groupby_update(struct bo_groupby *bg, struct branch_line_disk *bld)
     tag = alloca(bld->tag_len + 1);
     memcpy(tag, bld->data + bld->name_len, bld->tag_len);
     tag[bld->tag_len] = '\0';
-    sscanf(tag, "%a[_:a-zA-Z0-9].%ld", &group, &value);
+    sscanf(tag, "%a[_+-:a-zA-Z0-9].%ld", &group, &value);
 
 retest:
     if (BGB_HT_TEST(group, bg, bge)) {
