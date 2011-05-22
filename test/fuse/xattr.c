@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-22 05:51:39 macan>
+ * Time-stamp: <2011-05-22 15:23:43 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -266,25 +266,127 @@ out:
     return err;
 }
 
+int __branch_delete(int argc, char *argv[])
+{
+    char buf[1024];
+
+    sprintf(buf, "./branches/%s", argv[2]);
+    unlink(buf);
+    sprintf(buf, "./branches/.%s.filter.f1", argv[2]);
+    unlink(buf);
+    sprintf(buf, "./branches/.%s.indexer.p9", argv[2]);
+    unlink(buf);
+    sprintf(buf, "./branches/.%s.e0000", argv[2]);
+    unlink(buf);
+
+    return 0;
+}
+
 int __integrated_optest(int argc, char *argv[])
 {
     char buf[1024];
+    struct stat st;
     int err = 0;
 
-    if (argc < 4) {
-        printf("Usage: %s dtrigger_file branch_name dtrigger_file\n",
+    if (argc < 5) {
+        printf("Usage: %s dtrigger_file branch_name search_expr "
+               "dtrigger_file\n",
                argv[0]);
         return EINVAL;
     }
 
     /* make a new directory */
+    err = mkdir("./xattr.integrated", 0777);
+    if (err < 0) {
+        perror("mkdir():");
+        err = errno;
+        goto out;
+    }
     
     /* setxattr to setup a automated dtrigger */
+    sprintf(buf, "pfs.dt.0.create.%d.%d.%d.%s", 1, 4, 100, argv[4]);
+    err = setxattr("./xattr.integrated", buf, NULL, 0, 0);
+    if (err) {
+        perror("setxattr('./xattr.integrated'):");
+        err = errno;
+        goto out_rmdir;
+    }
+
+    sprintf(buf, "pfs.dt.0.create.%d.%d.%d.%s", 1, 8, 100, argv[4]);
+    err = setxattr("./xattr.integrated", buf, NULL, 0, 0);
+    if (err) {
+        perror("setxattr('./xattr.integrated'):");
+        err = errno;
+        goto out_rmdir;
+    }
 
     /* insert some entry into the directory */
+    err = open("./xattr.integrated/a", O_CREAT, S_IRUSR | S_IWUSR);
+    if (err < 0) {
+        perror("open('./xattr.integrated/a'):");
+        err = errno;
+        goto out_rmdir;
+    }
+    close(err);
 
+    err = open("./xattr.integrated/b", O_CREAT, S_IRUSR | S_IWUSR);
+    if (err < 0) {
+        perror("open('./xattr.integrated/b'):");
+        err = errno;
+        goto out_rmdir;
+    }
+    close(err);
+
+    err = open("./xattr.integrated/c", O_CREAT, S_IRUSR | S_IWUSR);
+    if (err < 0) {
+        perror("open('./xattr.integrated/c'):");
+        err = errno;
+        goto out_rmdir;
+    }
+    close(err);
+
+    /* wait a moment */
+    sleep(30);
+
+    /* get the ino of this directory */
+    err = stat("./xattr.integrated", &st);
+    if (err) {
+        perror("stat('./xattr.integrated'):");
+        err = errno;
+        goto out_rmdir;
+    }
+    
     /* search the newly inserted files */
+    sprintf(buf, "pfs.tag.1.search.B:default-%lx.default_db.default."
+            "r:@ctime>100",
+            st.st_ino);
+    err = getxattr("./xattr.integrated", buf, buf, sizeof(buf));
+    if (err < 0) {
+        perror("getxattr('./xattr.integrated', tag.search):");
+        err = errno;
+        goto out_rmdir;
+    } else {
+        buf[err] = '\0';
+    }
 
+    printf("TAG SEARCH '@ctime>100' => (%dB) {\n", err);
+    {
+        char *str = NULL;
+        
+        branch_dumpbase(buf, err, &str);
+
+        printf("%s", str);
+        free(str);
+    }
+    printf("}\n");
+
+out_rmdir:
+    unlink("./xattr.integrated/a");
+    unlink("./xattr.integrated/b");    
+    unlink("./xattr.integrated/c");
+    rmdir("./xattr.integrated");
+    
+out:
     return err;
 }
 
@@ -403,7 +505,7 @@ int __tag_optest(int argc, char *argv[])
     printf("Len %dB: '%s'\n", err, buf);
 
     /* we must wait at lease 30 seconds to search it */
-    //sleep(30);
+    sleep(30);
 
     /* getxattr to search type key: r:type=png */
     sprintf(buf, "pfs.tag.1.search.B:%s.DB.00.%s", argv[2], argv[3]);
@@ -416,7 +518,7 @@ int __tag_optest(int argc, char *argv[])
         buf[err] = '\0';
     }
 
-    printf("TAG SEARCH (%dB) '%s' => {\n", err, argv[3]);
+    printf("TAG SEARCH '%s' => (%dB) {\n", argv[3], err);
     {
         char *str = NULL;
         
@@ -437,15 +539,31 @@ out:
 
 int main(int argc, char *argv[])
 {
-#if 0
+    printf("NOTE: you must run this test in the root directory of PFS "
+           "(aka mountpoint).\n");
+
+    printf("Perform XATTR native optest ...\n");
     __native_optest(argc, argv);
+    printf("Done.\n");
+    
+    printf("Perform XATTR DT optest ...\n");
     __dt_optest(argc, argv);
+    printf("Done.\n");
+
+    printf("Perform XATTR branch optest ...\n");
     if (__branch_optest(argc, argv) == 0) {
+        printf("Done.\n");
+        printf("Perform XATTR tag optest ...\n");
         __tag_optest(argc, argv);
     }
-#else
-    __tag_optest(argc, argv);
-#endif
+    printf("Done.\n");
+
+    printf("Perform XATTR integrated optest ...\n");
+    __integrated_optest(argc, argv);
+    printf("Done.\n");
+
+    /* clean up branch */
+    __branch_delete(argc, argv);
 
     return 0;
 }

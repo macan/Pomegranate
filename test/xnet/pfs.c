@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-21 23:43:55 macan>
+ * Time-stamp: <2011-05-22 06:06:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +25,11 @@
 #include "xnet.h"
 #include "store.h"
 #include "branch.h"
+
+void pfs_cb_branch_destroy(void *arg)
+{
+    branch_destroy();
+}
 
 /* Please use environment variables to pass HVFS specific values
  */
@@ -157,7 +162,7 @@ int main(int argc, char *argv[])
     }
 
     hmo.branch_dispatch = branch_dispatch_split;
-    hmo.cb_branch_destroy = branch_destroy;
+    hmo.cb_branch_destroy = pfs_cb_branch_destroy;
     
 #if FUSE_USE_VERSION >= 26
     err = fuse_main(argc, argv, &pfs_ops, NULL);
