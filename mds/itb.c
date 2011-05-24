@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-05 10:27:16 macan>
+ * Time-stamp: <2011-05-25 03:31:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -877,8 +877,8 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.mtime = tv.tv_sec;
 
         if (mu->valid & MU_LLFS) {
-            e->s.mdu.lr = *((struct llfs_ref *)hi->data +
-                            sizeof(struct mdu_update));
+            e->s.mdu.lr = *(struct llfs_ref *)(hi->data +
+                                               sizeof(struct mdu_update));
             coffset = sizeof(struct llfs_ref);
         }
         if (unlikely(mu->valid & MU_COLUMN)) {
@@ -979,8 +979,8 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.mtime = mu->mtime;
 
         if (mu->valid & MU_LLFS) {
-            e->s.mdu.lr = *(struct llfs_ref *)(hi->data +
-                            sizeof(struct mdu_update));
+            e->s.mdu.lr = *(struct llfs_ref *)(hi->data + 
+                                               sizeof(struct mdu_update));
             coffset = sizeof(struct llfs_ref);
         }
         if (mu->valid & MU_COLUMN) {
