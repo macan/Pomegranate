@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-22 15:23:43 macan>
+ * Time-stamp: <2011-05-26 10:16:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,6 +30,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <attr/xattr.h>
+
+#define HVFS_MDU_IF_LARGE       0x04000000 /* large file */
 
 struct base_dbs
 {
@@ -142,6 +144,49 @@ int __native_optest(int argc, char *argv[])
 
     /* finally, unlink the file */
     unlink("./xattr.native");
+
+out:
+    return err;
+}
+
+int __native_umftest(int argc, char *argv[])
+{
+    char buf[4096];
+    int err = 0;
+
+    err = mkdir("./xattr.umf", 0777);
+    if (err < 0) {
+        perror("mkdir():");
+        err = errno;
+        goto out;
+    }
+
+    /* setxattr */
+    sprintf(buf, "pfs.native.0.umf.set.%d", HVFS_MDU_IF_LARGE);
+    err = setxattr("./xattr.umf", buf, NULL, 0, 0);
+    if (err) {
+        perror("setxattr('./xattr.umf'):");
+        err = errno;
+        goto out_rmdir;
+    }
+
+    /* check the flag value */
+    sprintf(buf, "pfs.native.0.umf.cat");
+    err = getxattr("./xattr.umf", buf, buf, sizeof(buf));
+    if (err < 0) {
+        perror("getxattr('./xattr.umf'):");
+        err = errno;
+        goto out_rmdir;
+    }
+    if (*(unsigned int *)buf & HVFS_MDU_IF_LARGE) {
+        printf("OK to cat the LARGE flag.\n");
+    } else {
+        printf("BAD, failed with LARGE flag.\n");
+    }
+
+out_rmdir:
+    /* finally, rmdir */
+    rmdir("./xattr.umf");
 
 out:
     return err;
@@ -546,6 +591,10 @@ int main(int argc, char *argv[])
     __native_optest(argc, argv);
     printf("Done.\n");
     
+    printf("Perform XATTR native UMF test ...\n");
+    __native_umftest(argc, argv);
+    printf("Done.\n");
+
     printf("Perform XATTR DT optest ...\n");
     __dt_optest(argc, argv);
     printf("Done.\n");

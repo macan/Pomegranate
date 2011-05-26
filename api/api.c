@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-21 23:53:56 macan>
+ * Time-stamp: <2011-05-25 03:28:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -5183,7 +5183,7 @@ int __hvfs_pack_result(struct hstat *hs, void **data)
             p++;
         }
     } else {
-        p += snprintf(p, 128, "$%ld$%ld$ ", hs->mdu.lr.fsid,
+        p += snprintf(p, 128, "$%lx$%lx$ ", hs->mdu.lr.fsid,
                       hs->mdu.lr.rfino);
     }
     p += snprintf(p, 256, "[%ld %ld %ld %ld]\n",
@@ -5615,7 +5615,7 @@ int hvfs_fupdate(char *path, char *name, void **data)
             goto out_free;
         }
     } else {
-        /* update the final file by name */
+        /* update the final file/directory by name */
         hs.name = name;
         hs.uuid = 0;
         err = __hvfs_update(puuid, psalt, &hs, mu);
@@ -5623,6 +5623,17 @@ int hvfs_fupdate(char *path, char *name, void **data)
             hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
                      name, err);
             goto out_free;
+        }
+        if (S_ISDIR(hs.mdu.mode)) {
+            hs.name = NULL;
+            hs.hash = 0;
+            err = __hvfs_update(hmi.gdt_uuid, hmi.gdt_salt, &hs, mu);
+            if (err) {
+                hvfs_err(xnet, "do internal update (GDT) on '%s' "
+                         "failed w/ %d\n",
+                         name, err);
+                goto out_free;
+            }
         }
     }
 

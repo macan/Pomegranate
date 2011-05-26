@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-08 15:17:03 macan>
+ * Time-stamp: <2011-05-26 08:37:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,7 +32,7 @@
 #include "root.h"
 #include "amc_api.h"
 /* which fuse version should we use? */
-#warning "We use FUSE version 2.6"
+#warning "We need FUSE version 2.6"
 #define FUSE_USE_VERSION 26
 #include <fuse.h>
 #include <fuse/fuse_lowlevel.h>
@@ -48,8 +48,12 @@ struct __pfs_fuse_mgr
     u32 noatime:1;
     u32 nodiratime:1;
     u32 use_dstore:1;
+    u32 noxattr:1;
     u32 ttl:8;                  /* lru translate cache ttl */
 };
 
 extern struct __pfs_fuse_mgr pfs_fuse_mgr;
+
+void __pfs_reset_xattr(void);
+
 #endif

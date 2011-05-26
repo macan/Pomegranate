@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-22 06:06:33 macan>
+ * Time-stamp: <2011-05-25 05:49:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,7 +36,7 @@ void pfs_cb_branch_destroy(void *arg)
 int main(int argc, char *argv[])
 {
     char *hargv[20], *value, *dstore = NULL;
-    int noatime = -1, nodiratime = -1, ttl = -1;
+    int noatime = -1, nodiratime = -1, ttl = -1, noxattr = -1;
     int hargc;
     int err = 0;
 
@@ -56,8 +56,13 @@ int main(int argc, char *argv[])
     if (value) {
         dstore = strdup(value);
     }
+    value = getenv("noxattr");
+    if (value) {
+        noxattr = atoi(value);
+    }
 
-    if (noatime >= 0 || nodiratime >= 0 || ttl >= 0 || dstore) {
+    if (noatime >= 0 || nodiratime >= 0 || ttl >= 0 || noxattr >= 0 
+        || dstore) {
         /* reset minor value to default value */
         if (noatime < 0)
             noatime = 1;
@@ -65,6 +70,8 @@ int main(int argc, char *argv[])
             nodiratime = 1;
         if (ttl < 0)
             ttl = 5;
+        if (noxattr < 0)
+            noxattr = 1;
         pfs_fuse_mgr.inited = 1;
         pfs_fuse_mgr.sync_write = 0;
         pfs_fuse_mgr.use_config = 0;
@@ -72,6 +79,7 @@ int main(int argc, char *argv[])
         pfs_fuse_mgr.nodiratime = (nodiratime > 0 ? 1 : 0);
         pfs_fuse_mgr.use_dstore = (dstore ? 1 : 0);
         pfs_fuse_mgr.ttl = ttl;
+        pfs_fuse_mgr.noxattr = (noxattr > 0 ? 1 : 0);
     }
 
     /* init the dstore */
@@ -84,6 +92,10 @@ int main(int argc, char *argv[])
             return EINVAL;
         }
     }
+
+    /* should we reset xattrs? */
+    if (pfs_fuse_mgr.noxattr)
+        __pfs_reset_xattr();
 
     /* reconstruct the HVFS arguments */
     /* setup client's self id */

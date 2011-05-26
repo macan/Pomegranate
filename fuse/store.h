@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-03 13:54:48 macan>
+ * Time-stamp: <2011-05-24 05:56:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -108,9 +108,9 @@ u32 hvfs_type_revert(char *type)
 void hvfs_datastore_init(void);
 int hvfs_datastore_adding(char *conf_filename);
 struct hvfs_datastore *hvfs_datastore_add_new(u32 type, char *pathname);
-u64 hvfs_datastore_fsid(char *type, char *name);
+u64 hvfs_datastore_fsid(char *name);
 struct hvfs_datastore *hvfs_datastore_add_new(u32 type, char *pathname);
-struct hvfs_datastore *hvfs_datatore_get(u32 type, u64 fsid);
+struct hvfs_datastore *hvfs_datastore_get(u32 type, u64 fsid);
 char *hvfs_datastore_getone(u32 type, u64 fsid, char *entry);
 void hvfs_datastore_free(struct hvfs_datastore *hd);
 void hvfs_datastore_exit(void);

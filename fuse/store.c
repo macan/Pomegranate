@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-03 14:22:55 macan>
+ * Time-stamp: <2011-05-25 05:07:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -131,31 +131,21 @@ out_close:
  * This function hash the input string 'name' using the ELF hash
  * function for strings.
  *
- * Note: ELF(type)|ELF(name)
+ * Note: ELF(name)
  */
-u64 hvfs_datastore_fsid(char *type, char *name)
+u64 hvfs_datastore_fsid(char *name)
 {
     u32 h = 0;
 	u32 g;
-    u64 r = 0;
 
-	while(*type) {
-		h = (h<<4) + *name++;
-		if ((g = (h & 0xf0000000)))
-			h ^=g>>24;
-		h &=~g;
-	}
-    r = h;
-    
 	while(*name) {
 		h = (h<<4) + *name++;
 		if ((g = (h & 0xf0000000)))
 			h ^=g>>24;
 		h &=~g;
 	}
-    r = h | (r << 32);
     
-	return r;
+	return h;
 }
 
 struct hvfs_datastore *hvfs_datastore_add_new(u32 type, char *pathname)
@@ -206,11 +196,18 @@ struct hvfs_datastore *hvfs_datastore_get(u32 type, u64 fsid)
     if (type & LLFS_TYPE_ANY)
         select = lib_random(g_hdm.nr);
 
+    /* Logic here:
+     * 1. if type and fsid matched in one hd entry;
+     * 2. otherwise: type == LLFS_TYPE_ANY and
+     * 2.1 fsid == 0 && select == cur OR
+     * 2.2 fsid == hd entry 's fsid
+     */
     list_for_each_entry(pos, &g_hdm.g_dstore_list, list) {
         if ((type == pos->type &&
-             fsid == hvfs_datastore_fsid(hvfs_type_convert(type),
-                                         pos->pathname)) ||
-            ((type & LLFS_TYPE_ANY) && select == cur))
+             fsid == hvfs_datastore_fsid(pos->pathname)) ||
+            ((type & LLFS_TYPE_ANY) && 
+             ((fsid == 0 && select == cur) ||
+              (fsid == hvfs_datastore_fsid(pos->pathname)))))
             return pos;
         cur++;
     }
