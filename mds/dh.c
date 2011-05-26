@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-10 15:50:10 macan>
+ * Time-stamp: <2011-05-27 00:07:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -204,7 +204,9 @@ u32 mds_dh_hash(u64 uuid)
  *
  * Return value: -EEXIST or new dhe w/ ref+1
  */
-struct dhe *mds_dh_insert(struct dh *dh, struct hvfs_index *hi)
+static inline
+struct dhe *mds_dh_insert_ex(struct dh *dh, struct hvfs_index *hi,
+                             u32 mdu_flags)
 {
     struct regular_hash *rh;
     struct dhe *e, *tpos;
@@ -226,6 +228,7 @@ struct dhe *mds_dh_insert(struct dh *dh, struct hvfs_index *hi)
     /* NOTE: this is the self salt! */
     e->salt = hi->ssalt;
     e->life = lib_rdtsc();
+    e->mdu_flags = mdu_flags;
     atomic_set(&e->ref, 1);
 
     i = 0;
@@ -247,6 +250,11 @@ struct dhe *mds_dh_insert(struct dh *dh, struct hvfs_index *hi)
     atomic_inc(&dh->asize);
     
     return e;
+}
+
+struct dhe *mds_dh_insert(struct dh *dh, struct hvfs_index *hi)
+{
+    return mds_dh_insert_ex(dh, hi, 0);
 }
 
 /* mds_dh_dt_update() update the e->data pointer as needed
@@ -489,6 +497,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     struct dhe *e = ERR_PTR(-ENOTEXIST);
     struct dir_trigger_mgr *dtm = NULL;
     u64 tsid;                   /* target site id */
+    u32 mdu_flags = 0;
     int err = 0, no;
 
     msg = xnet_alloc_msg(XNET_MSG_CACHE);
@@ -618,12 +627,14 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                 }
             }
             thi.ssalt = m->salt;
+            /* setup mdu_flags */
+            mdu_flags = m->mdu.flags;
         }
         
-        e = mds_dh_insert(dh, &thi);
+        e = mds_dh_insert_ex(dh, &thi, mdu_flags);
         if (IS_ERR(e)) {
             if (e != ERR_PTR(-EEXIST)) {
-                hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
+                hvfs_err(mds, "mds_dh_insert_ex() failed %ld\n", PTR_ERR(e));
             } else {
                 /* already exist, update or free dtm if needed */
                 if (dtm) {
@@ -727,16 +738,18 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                     }
                 }
                 rhi->ssalt = saved_salt;
+                /* setup mdu_flags */
+                mdu_flags = m->mdu.flags;
             }
             
             /* Note that, we know that the LDH will return the HI with ssalt
              * set. */
             
             /* key, we got the mdu, let us insert it to the dh table */
-            e = mds_dh_insert(dh, rhi);
+            e = mds_dh_insert_ex(dh, rhi, mdu_flags);
             if (IS_ERR(e)) {
                 if(e != ERR_PTR(-EEXIST)) {
-                    hvfs_err(mds, "mds_dh_insert() failed %ld\n", PTR_ERR(e));
+                    hvfs_err(mds, "mds_dh_insert_ex() failed %ld\n", PTR_ERR(e));
                     goto out_free;
                 } else {
                     /* already exist, update or free dtm if needed */

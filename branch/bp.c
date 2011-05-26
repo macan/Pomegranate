@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-21 17:31:14 macan>
+ * Time-stamp: <2011-05-21 23:50:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1295,6 +1295,44 @@ out:
     return err;
 }
 
+/* filter_output() just push the request to low level operatoers
+ */
+int bo_filter_output(struct branch_processor *bp,
+                     struct branch_operator *bo,
+                     struct branch_line_disk *bld,
+                     struct branch_line_disk **obld,
+                     int *len, int *errstate)
+{
+    int err = 0;
+
+    /* push the request to my children */
+    if (bo->left && bo->left->output) {
+        err = bo->left->output(bp, bo->left, bld, obld, len, errstate);
+        if (*errstate == BO_STOP) {
+            /* ignore any errors */
+            if (err) {
+                hvfs_err(xnet, "output on BO %d's left branch %d "
+                         "failed w/ %d\n",
+                         bo->id, bo->left->id, err);
+            }
+        }
+    }
+    *errstate = 0;
+    if (bo->right && bo->right->output) {
+        err = bo->right->output(bp, bo->right, bld, obld, len, errstate);
+        if (*errstate == BO_STOP) {
+            /* ignore any errors */
+            if (err) {
+                hvfs_err(xnet, "output on BO %d's right branch %d "
+                         "failed w/ %d\n",
+                         bo->id, bo->right->id, err);
+            }
+        }
+    }
+
+    return err;
+}
+
 /* sum_open() to load in the metadata for sum rules
  *
  * API: (string in branch_op->data)
@@ -1531,23 +1569,23 @@ int bo_sum_flush(struct branch_processor *bp,
 
 /* Note that we want to reuse the TAG variable, thus we have to use MACRO
  * instead of function call */
-#define __sum_update(bs, tag) do {                      \
-        if ((bs)->flag & BS_COUNT)                      \
-            (bs)->value++;                              \
-        else if ((bs)->flag & BS_SUM) {                 \
-            char *p;                                    \
-            long value = 0;                             \
-            sscanf(tag, "%a[_a-zA-Z].%ld", &p, &value); \
-            xfree(p);                                   \
-            (bs)->value += value;                       \
-        } else if ((bs)->flag & BS_AVG) {               \
-            char *p;                                    \
-            long value = 0;                             \
-            sscanf(tag, "%a[_a-zA-Z].%ld", &p, &value); \
-            xfree(p);                                   \
-            (bs)->value += value;                       \
-            (bs)->lnr++;                                \
-        }                                               \
+#define __sum_update(bs, tag) do {                              \
+        if ((bs)->flag & BS_COUNT)                              \
+            (bs)->value++;                                      \
+        else if ((bs)->flag & BS_SUM) {                         \
+            char *p;                                            \
+            long value = 0;                                     \
+            sscanf(tag, "%a[_+-:a-zA-Z0-9].%ld", &p, &value);   \
+            xfree(p);                                           \
+            (bs)->value += value;                               \
+        } else if ((bs)->flag & BS_AVG) {                       \
+            char *p;                                            \
+            long value = 0;                                     \
+            sscanf(tag, "%a[_+-:a-zA-Z0-9].%ld", &p, &value);   \
+            xfree(p);                                           \
+            (bs)->value += value;                               \
+            (bs)->lnr++;                                        \
+        }                                                       \
     } while (0)
 
 int bo_sum_input(struct branch_processor *bp,
@@ -2047,7 +2085,7 @@ void __bmm_update(struct bo_mm *bm, struct branch_line_disk *bld)
     tag = alloca(bld->tag_len + 1);
     memcpy(tag, bld->data + bld->name_len, bld->tag_len);
     tag[bld->tag_len] = '\0';
-    sscanf(tag, "%a[_a-zA-Z].%ld", &p, &value);
+    sscanf(tag, "%a[_+-:a-zA-Z0-9].%ld", &p, &value);
     xfree(p);
 
     switch (bm->flag) {
@@ -2769,7 +2807,7 @@ void __knn_linear_update(struct bo_knn *bk, struct branch_line_disk *bld)
     tag = alloca(bld->tag_len + 1);
     memcpy(tag, bld->data + bld->name_len, bld->tag_len);
     tag[bld->tag_len] = '\0';
-    sscanf(tag, "%a[_a-zA-Z].%ld", &p, &value);
+    sscanf(tag, "%a[_+-:a-zA-Z0-9].%ld", &p, &value);
     xfree(p);
 
     high = low = bk->bkn.bkl.center;
@@ -2831,7 +2869,7 @@ void __knn_xlinear_update(struct bo_knn *bk, struct branch_line_disk *bld)
     tag = alloca(bld->tag_len + 1);
     memcpy(tag, bld->data + bld->name_len, bld->tag_len);
     tag[bld->tag_len] = '\0';
-    sscanf(tag, "%a[_a-zA-Z].%ld", &p, &value);
+    sscanf(tag, "%a[_+-:a-zA-Z0-9].%ld", &p, &value);
     xfree(p);
 
     if (!list_empty(&bk->bkn.bkl.ke)) {
@@ -3489,7 +3527,7 @@ void __groupby_update(struct bo_groupby *bg, struct branch_line_disk *bld)
     tag = alloca(bld->tag_len + 1);
     memcpy(tag, bld->data + bld->name_len, bld->tag_len);
     tag[bld->tag_len] = '\0';
-    sscanf(tag, "%a[_a-zA-Z].%ld", &group, &value);
+    sscanf(tag, "%a[_+-:a-zA-Z0-9].%ld", &group, &value);
 
 retest:
     if (BGB_HT_TEST(group, bg, bge)) {
@@ -4828,6 +4866,7 @@ int __bo_install_cb(struct branch_operator *bo, char *name)
         bo->open = bo_filter_open;
         bo->close = bo_filter_close;
         bo->input = bo_filter_input;
+        bo->output = bo_filter_output;
         bo->flush = bo_filter_flush;
     } else if (strcmp(name, "sum") == 0) {
         bo->open = bo_sum_open;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-17 22:59:49 macan>
+ * Time-stamp: <2011-05-24 04:34:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,6 +43,7 @@ struct dhe
     u64 life;                   /* when this dhe is loaded */
     time_t update;              /* reload update time */
     void *data;                 /* pointer to Trigger data (DTM) */
+    u32 mdu_flags;              /* shadow copy of MDU flags */
     atomic_t ref;               /* the reference count */
 };
 

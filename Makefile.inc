@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-05-17 08:58:36 macan>
+# Time-stamp: <2011-05-21 09:51:14 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -94,9 +94,13 @@ LFLAGS += -L$(BDB_LIB_PATH) -ldb
 BDBFLAGS += -L$(BDB_LIB_PATH) -ldb
 endif
 
-ifdef USE_JEMALLOC
-CFLAGS += -DUSE_JEMALLOC
-LFLAGS += -ljemalloc
+ifeq ($(JEMALLOC),)
+else
+$(info USE JEMALLOC malloc function @ $(JEMALLOC).)
+CFLAGS += -DUSE_JEMALLOC=1 -I$(JEMALLOC)/include
+LFLAGS += -L$(JEMALLOC)/lib -ljemalloc
+JEMALLOC=
+$(info ========================================================)
 endif
 
 ifdef USE_FUSE
@@ -117,6 +121,8 @@ TEST_MDS_SOURCE = cbht.c tx.c dh.c cmd_sender.c misc.c itbsplit.c \
 TEST_MDSL_SOURCE = mdsl.c storage.c gc.c
 TEST_XNET_SOURCE = xnet.c mds.c fpmds.c m2m.c xs.c ausplit.c mdsl.c client.c \
 					root.c r2cli.c amc.c cr.c client_lat.c bp.c
+TEST_FUSE_SOURCE = xattr.c
+
 ifdef USE_FUSE
 TEST_XNET_SOURCE += pfs.c
 endif
