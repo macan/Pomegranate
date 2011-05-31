@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-07 15:15:40 macan>
+ * Time-stamp: <2011-05-31 09:01:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -266,6 +266,8 @@ int mds_bitmap_create(struct dhe *, u64, int);
 /* mds_bitmap_lookup()
  *
  * Test the offset in this slice, return the bit!
+ *
+ * ABI is the same as test_bit().
  */
 static inline
 int mds_bitmap_lookup(struct itbitmap *b, u64 offset)
