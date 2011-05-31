@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-02 17:41:42 macan>
+ * Time-stamp: <2011-05-31 06:57:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -123,6 +123,29 @@ out_free:
     return err;
 }
 
+int dh_get_itbid_depth(void)
+{
+    u64 itbid, hash, h;
+    int d, i = 0;
+    int err = 0;
+
+    hash = 0xadf332849808;
+    itbid = 0;
+    h = hash & ~itbid;
+    d = ffs64(h);
+    i = fls64(itbid);
+    hvfs_info(mds, "hash %lx itbid %ld => FFS64(hash & ~itbid) = %d "
+              "FLS64(itbid) = %d\n"
+              "We need test the following ITBs: (if unset, then break)\n",
+              hash, itbid, d, i);
+    
+    for (i++; i < d; i++) {
+        hvfs_info(mds, "\t => %ld {%d}\n", itbid | (1 << i), i + 1);
+    }
+    
+    return err;
+}
+
 int main(int argc, char *argv[])
 {
     int err = 0;
@@ -174,9 +197,15 @@ int main(int argc, char *argv[])
     hvfs_info(mds, ">>>>>>>>>>>>\n");
     
     /* re-search in DH */
+    hvfs_info(mds, "re-search in DH, one success, others failed!\n");
     for (i = 0; i < tc; i++) {
         dh_search(i);
     }
+
+    /* get_itbid_depth test */
+    hvfs_info(mds, "Test get itbid and depth.\n");
+
+    dh_get_itbid_depth();
 
     mds_destroy();
 out:    

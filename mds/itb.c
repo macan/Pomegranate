@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-27 00:07:41 macan>
+ * Time-stamp: <2011-05-28 00:36:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -60,8 +60,10 @@ int mds_loadin_control(void)
  * transfered to other mds.
  *
  * Err convention: Kernel err-ptr convention
+ *
+ * ABI: hvfs_index fields usage: {.puuid, .psalt, .itbid, .depth}
  */
-struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
+struct itb *mds_read_itb(struct hvfs_index *hi)
 {
     struct storage_index si;
     struct xnet_msg *msg;
@@ -80,8 +82,8 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
         return ERR_PTR(-EHWAIT);
     }
     
-    si.sic.uuid = puuid;
-    si.sic.arg0 = itbid;
+    si.sic.uuid = hi->puuid;
+    si.sic.arg0 = hi->itbid;
     si.sm.cnr = 0;              /* no data */
     msg = xnet_alloc_msg(XNET_MSG_CACHE);
     if (!msg) {
@@ -92,7 +94,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
             return ERR_PTR(-ENOMEM); /* return the err */
         }
     }
-    p = ring_get_point(itbid, psalt, hmo.chring[CH_RING_MDSL]);
+    p = ring_get_point(hi->itbid, hi->psalt, hmo.chring[CH_RING_MDSL]);
     if (IS_ERR(p)) {
         hvfs_debug(mds, "ring_get_point() failed with %ld\n", PTR_ERR(p));
         i = ERR_PTR(-ECHP);
@@ -101,7 +103,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
     /* prepare the msg */
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY, 
                      hmo.xc->site_id, p->site_id);
-    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_ITB, puuid, itbid);
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_ITB, hi->puuid, hi->itbid);
     msg->tx.reserved = p->vid;
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
@@ -109,7 +111,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
     xnet_msg_add_sdata(msg, &si, sizeof(si));
     
     /* recheck the cbht state */
-    if (mds_cbht_exist_check(&hmo.cbht, puuid, itbid) == -EEXIST) {
+    if (mds_cbht_exist_check(&hmo.cbht, hi->puuid, hi->itbid) == -EEXIST) {
         i = ERR_PTR(-EAGAIN);
         goto out_free;
     }
@@ -126,7 +128,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
         hvfs_err(mds, "MDSL %lx respond %d w/ uuid %lx salt %ld ITB %ld "
                  "read request.\n",
                  msg->pair->tx.ssite_id, msg->pair->tx.err, 
-                 puuid, psalt, itbid);
+                 hi->puuid, hi->psalt, (u64)hi->itbid);
         i = ERR_PTR(msg->pair->tx.err);
     } else {
         struct hvfs_txg *t;
@@ -171,21 +173,14 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
                    i->h.itbid, i->h.txg);
 
         /* do we need re-split it */
-#if 0
-        if (i->h.txg < t->txg - 1) {
-            /* ok, this is a itb from a old txg, check if we need re-split */
-            if (itb_need_resplit(puuid, psalt, i)) {
-
-                err = itb_resplit(i, ITB_RESPLIT_COMMIT);
-                if (err) {
-                    hvfs_err(mds, "itb_resplit() failed w/ %d\n", err);
-                }
+        if (itb_need_resplit(hi, i)) {
+            int err = 0;
+            
+            err = itb_resplit(i, ITB_RESPLIT_COMMIT, hi->depth);
+            if (err) {
+                hvfs_err(mds, "itb_resplit() failed w/ %d\n", err);
             }
-        } else if (i->h.txg >= t->txg) {
-            hvfs_err(mds, "MDS's txg decreased? (cur %ld vs old %ld)\n",
-                     t->txg, i->h.txg);
         }
-#endif
 
         /* changing the dirty info */
         t = mds_get_open_txg(&hmo);

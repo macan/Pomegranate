@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-27 00:07:26 macan>
+ * Time-stamp: <2011-06-01 00:30:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1237,8 +1237,9 @@ retry:
     list_for_each_entry(b, &e->bitmap, list) {
         if (b->offset <= itbid && itbid < b->offset + XTABLE_BITMAP_SIZE) {
             /* ok, we get the bitmap slice, just do it */
-            err = mds_bitmap_test_bit(b, itbid);
-            break;
+            err = mds_bitmap_test_bit(b, itbid) ? 1 : 0 ;
+            xlock_unlock(&e->lock);
+            goto out;
         } else if (b->offset > itbid) {
             /* it means that we need to load the missing slice */
             xlock_unlock(&e->lock);
@@ -1257,7 +1258,7 @@ retry:
                 /* ok, the itbid we test does NOT exist! */
                 xlock_unlock(&e->lock);
                 err = 0;
-                break;
+                goto out;
             } else if (b->list.next == &e->bitmap) {
                 /* load the next slice */
                 xlock_unlock(&e->lock);
@@ -1268,7 +1269,7 @@ retry:
                     goto out;
                 } else if (err == -EISEMPTY) {
                     err = 0;
-                    break;
+                    goto out;
                 } else if (err) {
                     hvfs_err(mds, "Hoo, loading DHE %lx Bitmap %ld failed\n",
                              e->uuid, itbid);
@@ -1279,7 +1280,19 @@ retry:
         }
     }
     xlock_unlock(&e->lock);
-out:    
+
+    /* Hoo, we have not found the bitmap slice, We need to request the bitmap
+     * slice from the GDT server */
+    err = mds_bitmap_load(e, itbid);
+    if (err == -ENOTEXIST) {
+        goto out;
+    } else if (err) {
+        hvfs_err(mds, "Hoo, loading DHE %lx Bitmap %ld failed\n", 
+                 e->uuid, itbid);
+        goto out;
+    }
+    goto retry;
+out:
     return err;
 }
 
@@ -1328,42 +1341,49 @@ int mds_dhe_bitmap_test(struct dhe *e, u64 itbid)
 u64 mds_get_itbid_depth(struct dhe *e, u64 hash, u8 *depth)
 {
     u64 itbid;
-    u8 d;
+    s8 d, i;
 
     itbid = __mds_get_itbid(e, hash);
 
     hash = (hash >> ITB_DEPTH);
     hash &= ~itbid;
     d = ffs64(hash);
-    if (d < 0) {
-        d = 56;
-    }
+    i = fls64(itbid);
 
-    /* generate the hash value we have to test */
-    hash = (1 << d) | itbid;
-
-    while (--d >= 0) {
-        if (hash & (1 << d)) {
-            /* ok, we can break now, depth is d + 1 */
+    *depth = i + 1;
+    for (i++; i < d; i++) {
+        /* if the bit is unset, we break */
+        if (__mds_dhe_bitmap_test(e, itbid | (1 << i)) <= 0)
             break;
-        } else {
-            /* this bit is zero, we should test */
-            if (__mds_dhe_bitmap_test(e, itbid & (1 << d)) > 0) {
-                /* ok, we can break now, depth is d + 1 */
-                break;
-            }
-        }
+        *depth = i + 1;
     }
 
-    /* ok, we got depth */
-    *depth = d + 1;
-    ASSERT(*depth > 0, mds);
-
-    /* depth default level is 3 */
+    /* ok, we got depth, but depth default level is 3 */
     if (*depth < 3)
         *depth = 3;
 
     return itbid;
+}
+
+u8 __mds_get_depth(struct dhe *e, u64 itbid)
+{
+    s8 i;
+    u8 depth;
+
+    i = fls64(itbid);
+    depth = i + 1;
+    
+    for (i++; i < 64 - ITB_DEPTH; i++) {
+        /* if the bit is unset, we break */
+        if (__mds_dhe_bitmap_test(e, itbid | (1 << i)) <= 0)
+            break;
+        depth = i + 1;
+    }
+
+    if (depth < 3)
+        depth = 3;
+
+    return depth;
 }
 
 /* mds_dh_bitmap_update()

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-10 15:12:19 macan>
+ * Time-stamp: <2011-05-27 01:32:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1048,7 +1048,7 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
     int err = 0;
 
     /* Step1: read the itb from mdsl */
-    i = mds_read_itb(hi->puuid, hi->psalt, hi->itbid);
+    i = mds_read_itb(hi);
     if (IS_ERR(i)) {
         /* read itb failed, for what? */
         if (i == ERR_PTR(-EAGAIN) || i == ERR_PTR(-EHWAIT))

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-10 15:12:40 macan>
+ * Time-stamp: <2011-06-01 00:29:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,7 +55,8 @@ int itb_split_local(struct itb *oi, int odepth, struct itb_lock *l,
         err = -EHWAIT;
         goto out;
     }
-    /* set a JUST_SPLIT flag */
+    /* set a JUST_SPLIT flag, it is VERY important to detect duplicated commit
+     * back for one ITB in mdsl */
     ni->h.flag = ITB_JUST_SPLIT;
 
     /* we need to get the wlock of the old ITB to prevent any concurrent
@@ -188,7 +189,7 @@ can_continue:
     itb_get(oi);
 
     err = mds_add_bitmap_delta(txg, hmo.site_id, oi->h.puuid, oi->h.itbid, 
-ni->h.itbid);
+                               ni->h.itbid);
     if (err) {
         hvfs_err(mds, "adding bitmap delta failed, lose consistency.\n");
     }
@@ -267,13 +268,184 @@ out_relock:
     goto out;
 }
 
+/* ITB resplit check
+ */
+int itb_need_resplit(struct hvfs_index *hi, struct itb *i)
+{
+    hvfs_debug(mds, "HI %ld d %d <==> ITB %ld d %d\n",
+               (u64)hi->itbid, hi->depth, i->h.itbid, i->h.depth);
+    if (hi->itbid == i->h.itbid) {
+        if (i->h.depth < hi->depth) {
+            hvfs_warning(mds, "ITB %ld in <%lx,%lx> need resplit: "
+                         "depth %d vs %d\n",
+                         (u64)hi->itbid, hi->puuid, hi->psalt,
+                         i->h.depth, hi->depth);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 /* ITB resplit
  *
  * Note: this is the itb re-split function, we may send the new itb to remote
- * site or just drop it.
+ * storage site or just drop it.
+ *
+ * Note: holding no lock; this itb has not been inserted to cbht yet.
  */
-int itb_resplit(struct itb *oi, u32 flag)
+static inline
+int __itb_resplit(struct itb *oi, u32 flag, u8 tdepth)
 {
+    struct itb_index *ii;
+    struct itb *ni;
+    int err = 0, moved = 0, j, offset, done = 0, need_rescan = 0;
+    u8 saved_depth = 0;
+
+    /* we get one new ITB, and increase the oi->h.depth and select the
+     * corresponding ites to the new itb */
+    ni = get_free_itb(NULL);
+    if (unlikely(!ni)) {
+        hvfs_debug(mds, "get_free_itb() failed\n");
+        err = -EHWAIT;
+        goto out;
+    }
+    /* set a JUST_SPLIT flag, it is VERY important to detect duplicated commit
+     * back for one ITB in mdsl */
+    ni->h.flag = ITB_JUST_SPLIT;
+
+    /* we know that we are the owner of this itb, thus feel free to do any
+     * thing w/o locking */
+    if (unlikely(oi->h.depth >= tdepth))
+        goto out;
+
+retry:
+    oi->h.depth++;
+    (ni)->h.depth = oi->h.depth;
+    (ni)->h.itbid = oi->h.itbid | (1UL << (oi->h.depth - 1));
+    (ni)->h.puuid = oi->h.puuid;
+
+    ASSERT(list_empty(&ni->h.list), mds);
+    /* check and transfer ite between the two ITBs */
+    for (j = 0; j < (1 << ITB_DEPTH); j++) {
+    rescan:
+        ii = &oi->index[j];
+        if (ii->flag == ITB_INDEX_FREE)
+            continue;
+        offset = j;
+        done = 0;
+        do {
+            int conflict = 0;
+            
+            if (ii->flag == ITB_INDEX_UNIQUE) {
+                hvfs_debug(mds, "self %d UNIQUE\n", offset);
+                done = 1;
+            } else if (ii->flag == ITB_INDEX_CONFLICT) {
+                conflict = ii->conflict;
+                hvfs_debug(mds, "self %d conflict %d\n", offset, conflict);
+            }
+            if ((oi->ite[ii->entry].hash >> ITB_DEPTH) & 
+                (1UL << (oi->h.depth - 1))) {
+                /* move to the new itb */
+                
+                hvfs_debug(mds, "offset %d flag %d, %s hash %lx -- bit %ld, "
+                           "moved %d\n",
+                           offset, ii->flag, oi->ite[ii->entry].s.name,
+                           oi->ite[ii->entry].hash >> ITB_DEPTH, 
+                           (1UL << (oi->h.depth - 1)), moved);
+                if (ii->flag == 0)
+                    ASSERT(0, mds);
+                __itb_add_ite_blob(ni, &oi->ite[ii->entry]);
+                itb_del_ite(oi, &oi->ite[ii->entry], offset, j);
+                moved++;
+                if (offset == j)
+                    need_rescan = 1;
+            }
+            if (done)
+                break;
+            if (need_rescan) {
+                need_rescan = 0;
+                goto rescan;
+            }
+            ii = &oi->index[conflict];
+            offset = conflict;
+        } while (1);
+    }
+
+    /* check if we moved sufficient entries */
+    if (moved == 0) {
+        /* this means we should split more deeply, however, the itbid of the
+         * old ITB can not change, so we just retry our access w/ depth++.
+         */
+        if (!saved_depth)
+            saved_depth = oi->h.depth - 1;
+        hvfs_err(mds, "ITB %ld HIT untested code-path w/ depth %d(%ld).\n", 
+                 oi->h.itbid, oi->h.depth, ni->h.itbid);
+        if (oi->h.depth >= tdepth) {
+            goto can_continue;
+        }
+        if (unlikely(oi->h.depth == 50)) {
+            hvfs_err(mds, "We should consider the hash conflicts in "
+                     "the same bucket!\n");
+            ASSERT(0, mds);
+        }
+        goto retry;
+    }
+
+can_continue:
+    if (unlikely(saved_depth))
+        oi->h.depth = saved_depth;
+    if (err) {
+        hvfs_err(mds, "adding bitmap delta failed, lose consistency.\n");
+    }
+
+    switch (flag) {
+    case ITB_RESPLIT_COMMIT:
+    {
+        /* add the new itb to current dirty list, ONE refcount */
+        struct hvfs_txg *txg = mds_get_open_txg(&hmo);
+
+        ni->h.txg = txg->txg;
+        ni->h.state = ITB_STATE_DIRTY;
+        INIT_LIST_HEAD(&ni->h.list);
+        txg_add_itb(txg, ni);
+        break;
+    }
+    case ITB_RESPLIT_RESEND:
+    {
+        hvfs_err(mds, "do NOT resend any resplits! (<%lx> %ld)\n",
+                 oi->h.puuid, oi->h.itbid);
+        err = -EINVAL;
+        /* fall through */
+    }
+    case ITB_RESPLIT_DROP:
+    default:
+        /* free the new itb */
+        itb_put(ni);
+    }
+
+out:
+    return err;
+}
+
+/* this is a wrapper for __itb_resplit()
+ */
+int itb_resplit(struct itb *oi, u32 flag, u8 tdepth)
+{
+    int err = 0;
+    
+    hvfs_err(mds, "itb %ld do resplit to depth %d\n", oi->h.itbid, tdepth);
+    
+    do {
+        err = __itb_resplit(oi, flag, tdepth);
+        if (err) {
+            hvfs_err(mds, "__itb_resplit(%ld) from <%lx> failed w/ %d\n",
+                     oi->h.itbid, oi->h.puuid, err);
+            break;
+        }
+    } while (oi->h.depth < tdepth);
+
+    return err;
 }
 
 /* ITB overflow

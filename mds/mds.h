@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-10 14:48:21 macan>
+ * Time-stamp: <2011-05-31 09:20:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -366,7 +366,7 @@ int mds_cbht_exist_check(struct eh *, u64, u64);
 void mds_cbht_scan(struct eh *, int);
 
 /* for itb.c */
-struct itb *mds_read_itb(u64, u64, u64);
+struct itb *mds_read_itb(struct hvfs_index *);
 void ite_update(struct hvfs_index *, struct ite *);
 struct itb *get_free_itb_fast();
 struct itb *get_free_itb(struct hvfs_txg *);
@@ -486,6 +486,7 @@ struct dhe *mds_dh_search(struct dh *, u64);
 int mds_dh_remove(struct dh *, u64);
 u64 mds_get_itbid(struct dhe *, u64);
 u64 mds_get_itbid_depth(struct dhe *, u64, u8 *);
+u8 __mds_get_depth(struct dhe *, u64);
 int mds_dh_bitmap_update(struct dh *, u64, u64, u8);
 int mds_dh_bitmap_test(struct dh *, u64, u64);
 int mds_dhe_bitmap_test(struct dhe *, u64);
@@ -595,8 +596,14 @@ struct hvfs_txg *mds_get_wb_txg(struct hvfs_mds_object *hmo)
     return hmo->txg[TXG_WB];
 }
 
+/* xtable.c */
 int itb_split_local(struct itb *, int, struct itb_lock *, struct hvfs_txg *,
                     struct hvfs_index *hi);
+int itb_need_resplit(struct hvfs_index *hi, struct itb *i);
+#define ITB_RESPLIT_COMMIT      0x00
+#define ITB_RESPLIT_DROP        0x01
+#define ITB_RESPLIT_RESEND      0x02
+int itb_resplit(struct itb *, u32 flag, u8 tdepth);
 
 /* bitmapc.c */
 int mds_bitmap_cache_init(void);

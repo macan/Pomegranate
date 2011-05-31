@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-10 15:14:00 macan>
+ * Time-stamp: <2011-05-31 09:15:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -936,6 +936,8 @@ void mds_list(struct hvfs_tx *tx)
         if (!IS_ERR(e)) {
             if (unlikely(e->data))
                 hi->flag |= INDEX_DTRIG;
+            /* set the depth now */
+            hi->depth = __mds_get_depth(e, hi->itbid);
             mds_dh_put(e);
         }
     }
