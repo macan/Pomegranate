@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-26 10:21:05 macan>
+ * Time-stamp: <2011-06-08 03:37:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1349,6 +1349,8 @@ hit:
                      bhh->hs.mdu.version);
 #endif
             if (MDU_VERSION_COMPARE(hs.mdu.version, bhh->hs.mdu.version)) {
+                /* FIXME: This means that server's mdu has been updated. We
+                 * should clean up the bh cache here! */
                 bhh->hs.mdu = hs.mdu;
                 bhh->hs.mc = hs.mc;
             } else {
@@ -2359,7 +2361,11 @@ hit2:
             goto out_rollback2;
         }
 
-        /* update the column info */
+        /* update the column info
+         *
+         * FIXME: we need to get and update many columns' content other than
+         * column ZERO!
+         */
         if (!S_ISDIR(saved_hs.mdu.mode)) {
             struct mdu_update mu = {
                 .valid = MU_COLUMN,
@@ -3339,7 +3345,7 @@ int hvfs_large_read(const char *pathname, char *buf, size_t size,
 {
     struct bhhead *bhh = (struct bhhead *)fi->fh;
     u64 fsid, rfino;
-    size_t bl, br;
+    ssize_t bl, br;
     int fd;
     int err = 0;
 
@@ -3419,6 +3425,11 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
 
     hs = bhh->hs;
 
+    /* if the buffer is larger than file size, truncate to asize */
+    if (offset + size > bhh->asize) {
+        size = bhh->asize - offset;
+    }
+    
     err = __bh_read(bhh, buf, offset, size);
     if (err == -EFBIG) {
         /* read in the data now */
@@ -3469,10 +3480,11 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
                      "the result lost?\n");
         } else if (__err) {
             hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
-                     pathname, err);
+                     pathname, __err);
             goto out;
         }
     }
+    hvfs_err(xnet, "HVFS READ return len %d\n", err);
     
 out:
     return err;
@@ -3642,7 +3654,7 @@ static int hvfs_large_write(const char *pathname, const char *buf,
 {
     struct bhhead *bhh = (struct bhhead *)fi->fh;
     u64 fsid, rfino;
-    size_t bl, bw;
+    ssize_t bl, bw;
     int fd;
     int err = 0;
     
@@ -3809,9 +3821,11 @@ static int hvfs_release(const char *pathname, struct fuse_file_info *fi)
             /* finally, update bhh->hs */
             bhh->hs.mdu = hs.mdu;
         }
-        /* close the file */
-        if (bhh->ptr)
+        /* close the file if needed */
+        if (bhh->ptr) {
             close((int)(u64)bhh->ptr);
+            bhh->ptr = NULL;
+        }
     }
 
     __put_bhhead(bhh);
@@ -5464,12 +5478,12 @@ ssize_t __hvfs_xattr_main(char *key, char *value, size_t size, int flags,
     ssize_t err = 0;
     int class, op, __col;
     
-    hvfs_err(xnet, "key %s\n", key);
+    hvfs_debug(xnet, "key %s\n", key);
     /* get namespace */
     HVFS_XATTR_NT(dup, p, &s, err, out);
     if (strcmp(p, "pfs") != 0) {
-        hvfs_err(xnet, "Request for unsupport namespace: %s\n",
-                 p);
+        hvfs_debug(xnet, "Request for unsupport namespace: %s\n",
+                   p);
         err = -ENOTSUP;
         goto out;
     }
@@ -5865,7 +5879,8 @@ hit:
     err = __hvfs_xattr_main((char *)key, (char *)value, size, 0, 
                             column, &hs);
     if (err < 0) {
-        hvfs_err(xnet, "__hvfs_xattr_main() failed w/ %d\n", err);
+        if (err != -ENOTSUP)
+            hvfs_err(xnet, "__hvfs_xattr_main() failed w/ %d\n", err);
         goto out;
     }
 
