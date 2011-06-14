@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-12 14:33:04 macan>
+ * Time-stamp: <2011-06-14 13:13:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -203,6 +203,7 @@ struct mdu_update
 #define MU_NLINK_DELTA  (1 << 14) /* delta update to nlink, almost same as
                                    * linkadd operation */
 #define MU_DEV          (1 << 15)
+#define MU_SRR          (1 << 16) /* suppress rename relocation fix */
 
     u64 atime;
     u64 mtime;

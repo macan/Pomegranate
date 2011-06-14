@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-17 09:47:17 macan>
+ * Time-stamp: <2011-06-14 13:11:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -35,6 +35,16 @@ struct llfs_ref
     u64 hash;
     u64 puuid;
 #endif
+};
+
+/* the rename relocation header */
+struct rename_reloc
+{
+#define RENAME_RELOC_MAGIC      0xac4055d144e5a3e /* across dir rename
+                                                   * magic */
+    u64 head;                   /* if this is a valid cross directory
+                                 * rename */
+    u64 puuid;                  /* the original puuid */
 };
 
 /* the HVFS metadata unit */
@@ -82,11 +92,12 @@ struct mdu
     u64 mtime;                  /* modify time */
     u64 dtime;                  /* delete time */
     
-    /* section for advance function: 20B */
+    /* section for advance function: 16B */
     union 
     {
         struct llfs_ref lr;
         char symname[16];
+        struct rename_reloc rr;
     };
 };
 

@@ -306,6 +306,8 @@ Pomegranate TODOs:
        Although we have copied the column info, client could't use this
        info to access the file data in new directory. It did not exist!
 
+       Schedule @ 6/14/2011
+
     5. Add SOC(Stat Oneshot Cache) cache for create/mknod operation
 
        SOC cache records the just created mdu info for files and 
@@ -396,7 +398,12 @@ Pomegranate TODOs:
     2. Add a local data store to redirect large file I/O to other file 
        systems.
 
+       It works! @ 6/7/2011
+
     3. How about thousands of TCP connection to MDS?
+
+    4. Directory triggers/example.so is not compatible with compare test 
+       cases! Because example.so changed MDU.version!
 
 33. THINKs
 
@@ -406,3 +413,7 @@ Pomegranate TODOs:
        On gd51, a TILE generater is ready to run. After inserting millions
        of tiles, we should compare ext3/hvfs.local and ceph/orangefs/
        hvfs.cluster.
+
+34. MDS TODOs
+
+    1. Dynamic txg interval: latency oriented and data safety oriented.

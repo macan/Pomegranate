@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-08 03:37:30 macan>
+ * Time-stamp: <2011-06-14 15:30:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -205,8 +205,11 @@ struct bhhead
 #define BH_CLEAN        0x00
 #define BH_DIRTY        0x01
 #define BH_CONFIG       0x80
+#define BH_RR           0x40
+#define BH_RRFAIL       0x20
     u32 flag;
     atomic_t ref;
+    u64 rr_puuid, rr_psalt;     /* rename reloc info */
     void *ptr;                  /* private pointer */
 };
 
@@ -339,6 +342,38 @@ struct bhhead *__odc_lookup(u64 uuid)
         return NULL;
 }
 
+static inline void __bh_rrinit(struct bhhead *bhh)
+{
+    if (bhh->flag & BH_RR)
+        return;
+    
+    if (unlikely(bhh->hs.mdu.rr.head == RENAME_RELOC_MAGIC)) {
+        bhh->rr_puuid = bhh->hs.mdu.rr.puuid;
+        
+        /* find the psalt now */
+        {
+            struct dhe *e;
+
+            e = mds_dh_search(&hmo.dh, bhh->hs.mdu.rr.puuid);
+            if (IS_ERR(e)) {
+                hvfs_err(xnet, "mds_dh_search() failed w/ %ld, EIO\n", 
+                         PTR_ERR(e));
+                /* content corrupted */
+                bhh->flag |= BH_RRFAIL;
+                return;
+            }
+            bhh->rr_psalt = e->salt;
+            mds_dh_put(e);
+        }
+        bhh->flag |= BH_RR;
+    }
+}
+
+static inline void __bh_rrfina(struct bhhead *bhh)
+{
+    bhh->flag &= ~BH_RR;
+}
+
 static inline
 struct bhhead* __get_bhhead(struct hstat *hs)
 {
@@ -358,6 +393,13 @@ struct bhhead* __get_bhhead(struct hstat *hs)
         bhh->asize = hs->mdu.size;
         atomic_set(&bhh->ref, 1);
 
+        /* if it is a rename relocated file */
+        __bh_rrinit(bhh);
+        if (bhh->flag & BH_RRFAIL) {
+            xfree(bhh);
+            return NULL;
+        }
+        
         /* try to insert into the table */
         tmp_bhh = __odc_insert(bhh);
         if (tmp_bhh != bhh) {
@@ -372,7 +414,7 @@ struct bhhead* __get_bhhead(struct hstat *hs)
 
 static inline void __set_bhh_dirty(struct bhhead *bhh)
 {
-    bhh->flag = BH_DIRTY;
+    bhh->flag |= BH_DIRTY;
 }
 static inline void __clr_bhh_dirty(struct bhhead *bhh)
 {
@@ -627,18 +669,25 @@ static int __bh_sync(struct bhhead *bhh)
     u64 hash;
     int err = 0, i;
 
+    hs = bhh->hs;
+
     if (bhh->asize > bhh->size) {
+        if (bhh->flag & BH_RR) {
+            hs.puuid = bhh->rr_puuid;
+            hs.psalt = bhh->rr_psalt;
+        }
+    
         /* oh, we have to fill the remain pages */
-        err = __bh_fill(&bhh->hs, 0, &bhh->hs.mc.c, bhh, NULL, 
+        err = __bh_fill(&hs, 0, &bhh->hs.mc.c, bhh, NULL, 
                         bhh->asize, 0);
         if (err < 0) {
             hvfs_err(xnet, "fill the buffer cache failed w/ %d\n",
                      err);
             goto out;
         }
+        hs.puuid = bhh->hs.puuid;
+        hs.psalt = bhh->hs.psalt;
     }
-
-    hs = bhh->hs;
 
     xrwlock_wlock(&bhh->clock);
     size = bhh->asize;
@@ -2353,6 +2402,17 @@ hit2:
         }
     } else {
         hs.uuid = saved_hs.uuid;
+
+        /* If it is a large file or symname link file, column may not be
+         * used. We should check and update column here, but we do not
+         * update rename reloc fields */
+        if (!((saved_hs.mdu.flags & HVFS_MDU_IF_LARGE) ||
+              (S_ISLNK(saved_hs.mdu.mode) && saved_hs.mdu.size <= 16) ||
+              (saved_hs.mdu.rr.head == RENAME_RELOC_MAGIC))) {
+            saved_hs.mdu.rr.head = RENAME_RELOC_MAGIC;
+            saved_hs.mdu.rr.puuid = saved_hs.puuid;
+        }
+
         err = __hvfs_create(puuid, psalt, &hs, INDEX_CREATE_COPY,
                             (struct mdu_update *)&saved_hs.mdu);
         if (err) {
@@ -2365,14 +2425,18 @@ hit2:
          *
          * FIXME: we need to get and update many columns' content other than
          * column ZERO!
+         *
+         * INDEX_COLUMN_ALL API is broken! try to fix it another time. Use
+         * this API to get all the column info
          */
         if (!S_ISDIR(saved_hs.mdu.mode)) {
             struct mdu_update mu = {
-                .valid = MU_COLUMN,
+                .valid = MU_COLUMN | MU_SRR,
                 .column_no = 1,
             };
             hs.mc = saved_hs.mc;
             
+            /* finally update it */
             err = __hvfs_update(puuid, psalt, &hs, &mu);
             if (err) {
                 hvfs_err(xnet, "do internal update on '%s' failed w/ %d\n",
@@ -3311,6 +3375,11 @@ hit:
     }
 
     fi->fh = (u64)__get_bhhead(&hs);
+    if (!fi->fh) {
+        err = -EIO;
+        goto out;
+    }
+    
     /* we should restat the file to detect any new file syncs */
 #ifdef FUSE_SAFE_OPEN
     {
@@ -3432,6 +3501,10 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
     
     err = __bh_read(bhh, buf, offset, size);
     if (err == -EFBIG) {
+        if (bhh->flag & BH_RR) {
+            hs.puuid = bhh->rr_puuid;
+            hs.psalt = bhh->rr_psalt;
+        }
         /* read in the data now */
         rlen = __hvfs_fread(&hs, 0 /* column is ZERO */, (void **)&buf, 
                             &hs.mc.c, offset, size);
@@ -3453,14 +3526,16 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
                      err);
             goto out;
         }
-        /* restore the bytes */
+        /* restore the bytes and some hstat fields */
         err = bytes;
+        hs.puuid = bhh->hs.puuid;
+        hs.psalt = bhh->hs.psalt;
     } else if (err < 0) {
         hvfs_err(xnet, "buffer cache read '%s' failed w/ %d\n", 
                  pathname, err);
         goto out;
     }
-    /* return the # of bytes we read */
+
     if (!pfs_fuse_mgr.noatime && err > 0) {
         /* update the atime now */
         struct mdu_update mu;
@@ -3484,7 +3559,7 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
             goto out;
         }
     }
-    hvfs_err(xnet, "HVFS READ return len %d\n", err);
+    /* return the # of bytes we read */
     
 out:
     return err;
@@ -3634,6 +3709,11 @@ static int hvfs_cached_write(const char *pathname, const char *buf,
     if (offset + size > bhh->asize)
         bhh->asize = offset + size;
 
+    if (bhh->flag & BH_RR) {
+        hs.puuid = bhh->rr_puuid;
+        hs.psalt = bhh->rr_psalt;
+    }
+    
     err = __bh_fill(&hs, 0, &hs.mc.c, bhh, (void *)buf, offset, size);
     if (err < 0) {
         hvfs_err(xnet, "fill the buffer cache failed w/ %d\n",
@@ -6527,6 +6607,11 @@ hit:
     }
 
     fi->fh = (u64)__get_bhhead(&hs);
+    if (!fi->fh) {
+        err = -EIO;
+        goto out;
+    }
+    
     /* Save the hstat in SOC cache */
     {
         struct soc_entry *se = __se_alloc(pathname, &hs);

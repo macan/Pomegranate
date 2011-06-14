@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-25 07:26:42 macan>
+ * Time-stamp: <2011-06-14 13:32:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -991,6 +991,11 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
             for (i = 0; i < mu->column_no; i++) {
                 /* copy to the dst location */
                 e->column[(mc + i)->cno] = (mc + i)->c;
+            }
+            /* finally, reset the mdu.rr magic */
+            if (!(mu->valid & MU_SRR)) {
+                if (e->s.mdu.rr.head == RENAME_RELOC_MAGIC)
+                    memset(&e->s.mdu.rr, 0, sizeof(e->s.mdu.rr));
             }
         }
 
