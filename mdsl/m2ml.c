@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-22 11:26:37 macan>
+ * Time-stamp: <2011-06-15 03:46:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -216,8 +216,9 @@ void mdsl_itb(struct xnet_msg *msg)
         goto out_put2;
     }
 
-    hvfs_warning(mdsl, "Read ITB %ld len %d to %lx\n", 
-                 itb->h.itbid, atomic_read(&itb->h.len), msg->tx.ssite_id);
+    hvfs_warning(mdsl, "Read DIR %lx ITB %ld len %d to %lx\n",
+                 msg->tx.arg0, itb->h.itbid, 
+                 atomic_read(&itb->h.len), msg->tx.ssite_id);
     data_len = atomic_read(&itb->h.len) - sizeof(itb->h);
     if (data_len > 0) {
         data = xmalloc(data_len);

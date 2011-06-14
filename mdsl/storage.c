@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-05 11:23:38 macan>
+ * Time-stamp: <2011-06-15 03:29:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -320,6 +320,7 @@ int append_buf_destroy_drop(struct fdhash_entry *fde)
                 /* calculate the written length */
                 atomic64_add(fde->abuf.len, &hmo.prof.storage.wbytes);
             }
+            hvfs_warning(mdsl, "ABuf: unlink file '%s'\n", path);
         }
         close(fde->fd);
     } else {

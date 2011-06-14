@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-25 05:49:24 macan>
+ * Time-stamp: <2011-06-15 03:43:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -161,6 +161,23 @@ int main(int argc, char *argv[])
         hvfs_err(xnet, "__core_main() failed w/ '%s'\n",
                  strerror(err > 0 ? err : -err));
         return err;
+    }
+
+    /* warn on non-atomic rename and imcompatible w/ MDSL_RADICAL_DEL */
+    hvfs_info(xnet, "This PFS client only implements a %sNon-ATOMIC%s "
+              "rename.\n",
+              HVFS_COLOR_RED, HVFS_COLOR_END);
+#ifdef MDSL_RADICAL_DEL
+    if (1) {
+#else
+    if (hmo.conf.option & HVFS_MDSL_RADICAL_DEL) {
+#endif
+        hvfs_info(xnet, "This Non-ATOMIC rename %sCONFLICTS%s with macro "
+                  "MDSL_RADICAL_DEL and option HVFS_MDSL_RADICAL_DEL.\n",
+                  HVFS_COLOR_RED, HVFS_COLOR_END);
+        hvfs_info(xnet, "You can disable macro MDSL_RADICAL_DEL in "
+                  "makefile.inc. Otherwise, rename may lead to file "
+                  "content losing.\n");
     }
 
     /* init branch subsystem */

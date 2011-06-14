@@ -306,7 +306,13 @@ Pomegranate TODOs:
        Although we have copied the column info, client could't use this
        info to access the file data in new directory. It did not exist!
 
-       Schedule @ 6/14/2011
+       Schedule @ 6/14/2011 => Done @ 6/15/2011
+
+       1. rename a regular file across directory is working UNLESS the 
+          origianl directory is not deleted!
+          
+          In other words, this implementation conflicts with 
+          macro MDSL_RADICAL_DEL and option HVFS_MDSL_RADICAL_DEL.
 
     5. Add SOC(Stat Oneshot Cache) cache for create/mknod operation
 

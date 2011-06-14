@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-14 15:30:33 macan>
+ * Time-stamp: <2011-06-15 02:45:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -206,7 +206,6 @@ struct bhhead
 #define BH_DIRTY        0x01
 #define BH_CONFIG       0x80
 #define BH_RR           0x40
-#define BH_RRFAIL       0x20
     u32 flag;
     atomic_t ref;
     u64 rr_puuid, rr_psalt;     /* rename reloc info */
@@ -347,24 +346,10 @@ static inline void __bh_rrinit(struct bhhead *bhh)
     if (bhh->flag & BH_RR)
         return;
     
-    if (unlikely(bhh->hs.mdu.rr.head == RENAME_RELOC_MAGIC)) {
+    if (unlikely(bhh->hs.mdu.flags & HVFS_MDU_IF_RR)) {
         bhh->rr_puuid = bhh->hs.mdu.rr.puuid;
+        bhh->rr_psalt = bhh->hs.mdu.rr.psalt;
         
-        /* find the psalt now */
-        {
-            struct dhe *e;
-
-            e = mds_dh_search(&hmo.dh, bhh->hs.mdu.rr.puuid);
-            if (IS_ERR(e)) {
-                hvfs_err(xnet, "mds_dh_search() failed w/ %ld, EIO\n", 
-                         PTR_ERR(e));
-                /* content corrupted */
-                bhh->flag |= BH_RRFAIL;
-                return;
-            }
-            bhh->rr_psalt = e->salt;
-            mds_dh_put(e);
-        }
         bhh->flag |= BH_RR;
     }
 }
@@ -395,10 +380,6 @@ struct bhhead* __get_bhhead(struct hstat *hs)
 
         /* if it is a rename relocated file */
         __bh_rrinit(bhh);
-        if (bhh->flag & BH_RRFAIL) {
-            xfree(bhh);
-            return NULL;
-        }
         
         /* try to insert into the table */
         tmp_bhh = __odc_insert(bhh);
@@ -2401,6 +2382,8 @@ hit2:
             goto out_rollback2;
         }
     } else {
+        int setrr = 0;
+        
         hs.uuid = saved_hs.uuid;
 
         /* If it is a large file or symname link file, column may not be
@@ -2408,9 +2391,11 @@ hit2:
          * update rename reloc fields */
         if (!((saved_hs.mdu.flags & HVFS_MDU_IF_LARGE) ||
               (S_ISLNK(saved_hs.mdu.mode) && saved_hs.mdu.size <= 16) ||
-              (saved_hs.mdu.rr.head == RENAME_RELOC_MAGIC))) {
-            saved_hs.mdu.rr.head = RENAME_RELOC_MAGIC;
+              (saved_hs.mdu.flags & HVFS_MDU_IF_RR))) {
             saved_hs.mdu.rr.puuid = saved_hs.puuid;
+            saved_hs.mdu.rr.psalt = saved_hs.psalt;
+
+            setrr = 1;
         }
 
         err = __hvfs_create(puuid, psalt, &hs, INDEX_CREATE_COPY,
@@ -2435,6 +2420,11 @@ hit2:
                 .column_no = 1,
             };
             hs.mc = saved_hs.mc;
+
+            if (setrr) {
+                mu.valid |= MU_FLAG_ADD;
+                mu.flags = HVFS_MDU_IF_RR;
+            }
             
             /* finally update it */
             err = __hvfs_update(puuid, psalt, &hs, &mu);
