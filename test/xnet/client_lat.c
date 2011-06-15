@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-11 10:52:23 macan>
+ * Time-stamp: <2011-06-16 05:04:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,8 +49,8 @@ u64 __attribute__((unused)) create_failed = 0;
 u64 __attribute__((unused)) lookup_failed = 0;
 u64 __attribute__((unused)) unlink_failed = 0;
 
-#define RESOLUTION      (500)   /* us */
-#define MAX_LATENCY     (30000)  /* 15 seconds */
+#define RESOLUTION      (100)   /* us */
+#define MAX_LATENCY     (50000) /* 5 seconds */
 
 u64 range_begin = 0;
 u64 range_end = 1024;
@@ -1791,12 +1791,14 @@ void *__msg_send(void *arg)
 int msg_send_mt(int entry, int op, int thread)
 {
     pthread_t pt[thread];
-    struct msg_send_args msa[thread];
+    struct msg_send_args *msa;
     u64 all = 0;
     int i, j, err = 0;
 
     entry /= thread;
-    memset(msa, 0, sizeof(msa));
+    msa = xzalloc(sizeof(*msa) * thread);
+    if (!msa)
+        return ENOMEM;
     
     for (i = 0; i < thread; i++) {
         msa[i].tid = i;
@@ -1809,7 +1811,6 @@ int msg_send_mt(int entry, int op, int thread)
         if (err)
             goto out;
     }
-
     
     for (i = 0; i < thread; i++) {
         pthread_join(pt[i], NULL);
@@ -1831,7 +1832,7 @@ int msg_send_mt(int entry, int op, int thread)
             all += msa[0].latency[i];
             hvfs_info(xnet, "\t%03.2f%s <= %6.1f ms %ld %ld\n", 
                       (double)all / entry * 100, "%",
-                      (double)((i + 1) * 500) / 1000, all, msa[0].latency[i]);
+                      (double)((i + 1) * RESOLUTION) / 1000, all, msa[0].latency[i]);
         }
     }
 
