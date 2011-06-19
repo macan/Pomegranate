@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-07 16:34:26 macan>
+ * Time-stamp: <2011-06-17 04:02:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,6 +33,7 @@ struct spool_mgr
 {
     struct list_head reqin;
     struct list_head modify_req; /* for suspending modify requests */
+    struct list_head paused_req; /* for paused pending request */
     xlock_t rin_lock;
     xlock_t pmreq_lock;
     sem_t rin_sem;
@@ -51,9 +52,19 @@ int mds_spool_dispatch(struct xnet_msg *msg)
     list_add_tail(&msg->list, &spool_mgr.reqin);
     xlock_unlock(&spool_mgr.rin_lock);
     atomic64_inc(&hmo.prof.misc.reqin_total);
+    atomic64_inc(&hmo.prof.misc.reqin_qd);
     sem_post(&spool_mgr.rin_sem);
 
     return 0;
+}
+
+void mds_spool_redispatch(struct xnet_msg *msg, int sempost)
+{
+    xlock_lock(&spool_mgr.rin_lock);
+    list_add_tail(&msg->list, &spool_mgr.reqin);
+    xlock_unlock(&spool_mgr.rin_lock);
+    if (sempost)
+        sem_post(&spool_mgr.rin_sem);
 }
 
 int mds_spool_modify_pause(struct xnet_msg *msg)
@@ -62,6 +73,7 @@ int mds_spool_modify_pause(struct xnet_msg *msg)
     list_add_tail(&msg->list, &spool_mgr.modify_req);
     xlock_unlock(&spool_mgr.pmreq_lock);
     atomic64_inc(&hmo.prof.mds.paused_mreq);
+    atomic64_inc(&hmo.prof.misc.reqin_qd);
     
     return 0;
 }
@@ -187,10 +199,15 @@ int __serv_request(void)
             }
             xlock_unlock(&spool_mgr.pmreq_lock);
             if (msg) {
-                ASSERT(msg->xc, mds);
+                atomic64_dec(&hmo.prof.misc.reqin_qd);
                 return msg->xc->ops.dispatcher(msg);
             }
         }
+    }
+    if (likely(!hmo.reqin_pause)) {
+        xlock_lock(&spool_mgr.rin_lock);
+        list_splice_init(&spool_mgr.paused_req, &spool_mgr.reqin);
+        xlock_unlock(&spool_mgr.rin_lock);
     }
     
     xlock_lock(&spool_mgr.rin_lock);
@@ -205,12 +222,18 @@ int __serv_request(void)
         return -EHSTOP;
 
     /* ok, deal with it, we just calling the secondary dispatcher */
-    ASSERT(msg->xc, mds);
-    if (likely(!hmo.reqin_drop)) {
+    /* NOTE: important!
+     *
+     * reqin_pause will aggr many incoming request, if we have 256 or more
+     * requests pending, we begin dropping request. Thus, it is important to
+     * place hmo.reqin_drop branch BEFORE hmo.reqin_pause!
+     */
+    if (likely(!(hmo.reqin_drop | hmo.reqin_pause))) {
     dispatch:
+        atomic64_dec(&hmo.prof.misc.reqin_qd);
         atomic64_inc(&hmo.prof.misc.reqin_handle);
         return msg->xc->ops.dispatcher(msg);
-    } else {
+    } else if (hmo.reqin_drop) {
         if (HVFS_IS_CLIENT(msg->tx.ssite_id) ||
             HVFS_IS_AMC(msg->tx.ssite_id)) {
             atomic64_inc(&hmo.prof.misc.reqin_drop);
@@ -218,8 +241,23 @@ int __serv_request(void)
         } else {
             goto dispatch;
         }
-        return 0;
+    } else if (hmo.reqin_pause) {
+        /* we should iterate on reqin list to drain R2 messages! */
+        if (HVFS_IS_CLIENT(msg->tx.ssite_id) ||
+            HVFS_IS_AMC(msg->tx.ssite_id)) {
+            if (atomic64_read(&hmo.prof.misc.reqin_qd) > 256) {
+                hmo.reqin_drop = 1;
+            }
+            /* re-insert this request to paused req list */
+            xlock_lock(&spool_mgr.rin_lock);
+            list_add_tail(&msg->list, &spool_mgr.paused_req);
+            xlock_unlock(&spool_mgr.rin_lock);
+        } else {
+            goto dispatch;
+        }
     }
+
+    return 0;
 }
 
 static
@@ -264,6 +302,7 @@ int mds_spool_create(void)
     /* init the mgr struct */
     INIT_LIST_HEAD(&spool_mgr.reqin);
     INIT_LIST_HEAD(&spool_mgr.modify_req);
+    INIT_LIST_HEAD(&spool_mgr.paused_req);
     xlock_init(&spool_mgr.rin_lock);
     xlock_init(&spool_mgr.pmreq_lock);
     sem_init(&spool_mgr.rin_sem, 0, 0);

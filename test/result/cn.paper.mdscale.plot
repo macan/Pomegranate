@@ -22,4 +22,5 @@ set logscale x 2
 
 plot "paper/cn/mdscale.mdtest" using 1:2 t "HVFS" w linesp ls 2, \
      '' u 1:3 t "GIGA+" w linesp ls 3, \
-     '' u 1:4 t "HBase" w linesp ls 4
+     '' u 1:4 t "HBase" w linesp ls 4, \
+     '' u 1:5 t "Ceph" w linesp ls 5

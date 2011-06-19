@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 15:05:06 macan>
+ * Time-stamp: <2011-06-17 04:55:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -77,6 +77,33 @@ int __mds_fwd_loop_detect(struct mds_fwd *mf, u64 dsite)
     return looped;
 }
 
+static inline
+void __simply_send_reply(struct xnet_msg *msg, int err)
+{
+    struct xnet_msg *rpy = xnet_alloc_msg(XNET_MSG_CACHE);
+
+    if (!rpy) {
+        hvfs_err(mds, "xnet_alloc_msg() failed\n");
+        return;
+    }
+
+    xnet_msg_set_err(rpy, err);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(rpy, &rpy->tx, sizeof(rpy->tx));
+#endif
+    xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0, hmo.site_id,
+                     msg->tx.ssite_id);
+    xnet_msg_fill_reqno(rpy, msg->tx.reqno);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, 0, 0);
+    /* match the original request at the source site */
+    rpy->tx.handle = msg->tx.handle;
+
+    if (xnet_send(hmo.xc, rpy)) {
+        hvfs_err(mds, "xnet_send() REPLY failed\n");
+    }
+    xnet_free_msg(rpy);
+}
+
 /* mds_fe_handle_err()
  *
  * NOTE: how to handle the err from the dispatcher? We just print the err
@@ -87,6 +114,8 @@ void mds_fe_handle_err(struct xnet_msg *msg, int err)
     if (unlikely(err)) {
         hvfs_warning(mds, "MSG(%lx->%lx)(reqno %d) can't be handled w/ %d\n",
                      msg->tx.ssite_id, msg->tx.dsite_id, msg->tx.reqno, err);
+        /* send a reply error notify here */
+        __simply_send_reply(msg, err);
     }
 
     xnet_set_auto_free(msg);
@@ -234,7 +263,11 @@ int mds_resume(struct xnet_msg *msg)
 {
     struct xnet_msg *rpy;
     
-    hmo.reqin_drop = 0;
+    /* if reqin_drop is set, this means we have dropped some incoming
+     * requests */
+    if (hmo.reqin_drop)
+        hmo.reqin_drop = 0;
+    hmo.reqin_pause = 0;
 
     rpy = xnet_alloc_msg(XNET_MSG_CACHE);
     if (!rpy) {
@@ -303,6 +336,31 @@ int mds_fe_dispatch(struct xnet_msg *msg)
 #ifdef HVFS_DEBUG_LATENCY
     lib_timer_def();
 #endif
+
+    /* Level 0 state checking */
+    switch (hmo.state) {
+    case HMO_STATE_INIT:
+        /* wait */
+        while (hmo.state == HMO_STATE_INIT) {
+            sched_yield();
+        }
+        break;
+    case HMO_STATE_LAUNCH:
+        /* only accept R2 reqeust, otherwise reinsert back to reqin list */
+        mds_spool_redispatch(msg, 0);
+        break;
+    case HMO_STATE_RUNNING:
+        /* accept all requests */
+        break;
+    case HMO_STATE_PAUSE:
+        /* pause all request, the same as hmo.reqin_pause */
+        break;
+    case HMO_STATE_RDONLY:
+        /* read-only mode. FIXME */
+        break;
+    default:
+        HVFS_BUGON("Unknown MDS state\n");
+    }
 
     if (HVFS_IS_CLIENT(msg->tx.ssite_id)) {
         struct hvfs_index *hi;
@@ -385,9 +443,9 @@ int mds_fe_dispatch(struct xnet_msg *msg)
         if (itbid != hi->itbid || hmo.conf.option & HVFS_MDS_CHRECHK) {
             p = ring_get_point(itbid, hi->psalt, hmo.chring[CH_RING_MDS]);
             if (unlikely(IS_ERR(p))) {
+                mds_dh_put(e);
                 hvfs_err(mds, "ring_get_point() failed w/ %ld\n", PTR_ERR(p));
                 err = -ECHP;
-                mds_dh_put(e);
                 goto out;
             }
             if (hmo.site_id != p->site_id) {
@@ -397,12 +455,11 @@ int mds_fe_dispatch(struct xnet_msg *msg)
                     if (msg->tx.flag & XNET_FWD) {
                         goto recal_itbid;
                     } else {
+                        mds_dh_put(e);
                         hvfs_debug(mds, "itbid %ld %d RING CHANGED "
                                    "(%lx vs %lx)\n",
                                    itbid, (msg->tx.flag & XNET_FWD), 
                                    hmo.site_id, p->site_id);
-                        mds_dh_put(e);
-                        HVFS_BUG();
                         err = -ERINGCHG;
                         goto out;
                     }
@@ -462,10 +519,12 @@ int mds_fe_dispatch(struct xnet_msg *msg)
     } else if (HVFS_IS_ROOT(msg->tx.ssite_id)) {
         return mds_root_dispatch(msg);
     }
-        
+
+    err = -EINVAL;
     hvfs_err(mds, "MDS front-end handle INVALID request <0x%lx %d>\n", 
              msg->tx.ssite_id, msg->tx.reqno);
 out:
     mds_fe_handle_err(msg, err);
+
     return err;
 }

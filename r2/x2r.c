@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 14:04:09 macan>
+ * Time-stamp: <2011-06-17 09:39:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1108,7 +1108,7 @@ int root_do_offline(struct xnet_msg *msg)
 
     /* ABI:
      * tx.arg0: site_id
-     * tx.arg1: NONE
+     * tx.arg1: force or not (0)
      */
 
     if (HVFS_IS_MDS(msg->tx.arg0)) {
@@ -1129,7 +1129,7 @@ int root_do_offline(struct xnet_msg *msg)
         goto out;
     }
     
-    err = cli_dynamic_del_site(re, msg->tx.arg0);
+    err = cli_dynamic_del_site(re, msg->tx.arg0, msg->tx.arg1);
     if (err) {
         ring_mgr_put(re);
         hvfs_err(root, "ring_find_site() failed w/ %d\n", err);

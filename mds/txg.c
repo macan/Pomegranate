@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-05 18:08:13 macan>
+ * Time-stamp: <2011-06-16 04:44:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -352,7 +352,7 @@ void mds_snapshot_fr2(struct xnet_msg *msg)
     /* Magic:) if we see tx.arg1 is 1, then we pause request handling */
     if (msg->tx.arg1 == 1) {
         /* pause request handling now */
-        hmo.reqin_drop = 1;
+        hmo.reqin_pause = 1;
     }
 
     do {

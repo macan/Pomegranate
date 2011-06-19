@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-02 04:15:53 macan>
+ * Time-stamp: <2011-06-17 09:09:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -484,6 +484,30 @@ out:
     return;
 }
 
+void mdsl_cb_addr_table_update(void *arg)
+{
+    struct hvfs_site_tx *hst;
+    void *data = arg;
+    int err = 0;
+
+    hvfs_info(xnet, "Update address table ...\n");
+
+    err = bparse_addr(data, &hst);
+    if (err < 0) {
+        hvfs_err(xnet, "bparse_addr failed w/ %d\n", err);
+        goto out;
+    }
+    
+    err = hst_to_xsst(hst, err - sizeof(u32));
+    if (err) {
+        hvfs_err(xnet, "hst to xsst failed w/ %d\n", err);
+        goto out;
+    }
+
+out:
+    return;
+}
+
 int main(int argc, char *argv[])
 {
     struct xnet_type_ops ops = {
@@ -588,7 +612,6 @@ int main(int argc, char *argv[])
     }
 
     hmo.site_id = self;
-    mdsl_verify();
 
     if (mode == 0) {
         hmi.gdt_salt = 0;
@@ -617,6 +640,8 @@ int main(int argc, char *argv[])
         hmo.cb_exit = mdsl_cb_exit;
         hmo.cb_hb = mdsl_cb_hb;
         hmo.cb_ring_update = mdsl_cb_ring_update;
+        hmo.cb_addr_table_update = mdsl_cb_addr_table_update;
+
         /* use ring info to init the mdsl */
         err = r2cli_do_reg(self, HVFS_RING(0), fsid, 0);
         if (err) {
@@ -625,6 +650,8 @@ int main(int argc, char *argv[])
             goto out;
         }
     }
+
+    mdsl_verify();
 
     hvfs_info(xnet, "MDSL is UP for serving requests now.\n");
 

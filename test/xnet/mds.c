@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-02 04:15:30 macan>
+ * Time-stamp: <2011-06-16 10:29:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1039,6 +1039,30 @@ out:
     return;
 }
 
+void mds_cb_addr_table_update(void *arg)
+{
+    struct hvfs_site_tx *hst;
+    void *data = arg;
+    int err = 0;
+
+    hvfs_info(xnet, "Update address table ...\n");
+
+    err = bparse_addr(data, &hst);
+    if (err < 0) {
+        hvfs_err(xnet, "bparse_addr failed w/ %d\n", err);
+        goto out;
+    }
+    
+    err = hst_to_xsst(hst, err - sizeof(u32));
+    if (err) {
+        hvfs_err(xnet, "hst to xsst failed w/ %d\n", err);
+        goto out;
+    }
+
+out:
+    return;
+}
+
 static int g_branch_inited = 0;
 
 void mds_cb_branch_init(void *arg)
@@ -1216,6 +1240,7 @@ int main(int argc, char *argv[])
         hmo.cb_exit = mds_cb_exit;
         hmo.cb_hb = mds_cb_hb;
         hmo.cb_ring_update = mds_cb_ring_update;
+        hmo.cb_addr_table_update = mds_cb_addr_table_update;
 
         /* use ring info to init the mds */
         err = r2cli_do_reg(self, HVFS_RING(0), fsid, 0);

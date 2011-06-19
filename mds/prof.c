@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-27 17:43:42 macan>
+ * Time-stamp: <2011-06-17 09:03:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -93,6 +93,7 @@ void dump_profiling_r2(time_t t, struct hvfs_profile *hp)
     HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.mds.gossip_ft));
     HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.itb.rsearch_depth));
     HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.itb.wsearch_depth));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.misc.reqin_qd));
     hp->nr = i;
 
     /* submit a async send request */
@@ -134,7 +135,7 @@ void dump_profiling_plot(time_t t)
      *  misc.au_submit misc.au_handle misc.au_bitmap misc.au_dd misc.au_ddr
      *  mds.bitmap_in mds.bitmap_out mdsl.itb_load, mdsl.itb_wb, mdsl.bitmap
      *  mds.gossip_bitmap misc.reqin_total misc.reqin_handle misc.reqin_drop
-     *  mds.gossip_ft itb.rsearch_depth itb.wsearch_depth"
+     *  mds.gossip_ft itb.rsearch_depth itb.wsearch_depth misc.reqin_qd"
      *
      * Note that, we send the header to R2 server for aggregation. If you
      * change the header, make sure change the header define in
@@ -143,7 +144,7 @@ void dump_profiling_plot(time_t t)
     hvfs_pf("PLOT %ld %d %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
             "%ld %ld %d %d %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
             "%ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
-            "%ld %ld\n",
+            "%ld %ld %ld\n",
             t, 
             atomic_read(&hmo.ic.csize),
             atomic64_read(&hmo.prof.cbht.lookup),
@@ -190,7 +191,8 @@ void dump_profiling_plot(time_t t)
             atomic64_read(&hmo.prof.misc.reqin_drop),
             atomic64_read(&hmo.prof.mds.gossip_ft),
             atomic64_read(&hmo.prof.itb.rsearch_depth),
-            atomic64_read(&hmo.prof.itb.wsearch_depth)
+            atomic64_read(&hmo.prof.itb.wsearch_depth),
+            atomic64_read(&hmo.prof.misc.reqin_qd)
         );
 }
 
@@ -251,6 +253,9 @@ void dump_profiling_human(time_t t)
 
 void dump_profiling(time_t t, struct hvfs_profile *hp)
 {
+    if (hmo.state < HMO_STATE_LAUNCH)
+        return;
+    
     switch (hmo.conf.prof_plot) {
     case MDS_PROF_PLOT:
         dump_profiling_plot(t);

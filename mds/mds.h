@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-26 15:14:22 macan>
+ * Time-stamp: <2011-06-17 04:53:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -197,11 +197,11 @@ struct hvfs_mds_object
     struct hvfs_txc txc;
     struct itb_cache ic;
     struct bitmap_cache bc;
-#define HMO_STATE_INIT          0x00
-#define HMO_STATE_LAUNCH        0x01
-#define HMO_STATE_RUNNING       0x02
-#define HMO_STATE_PAUSE         0x03
-#define HMO_STATE_RDONLY        0x04
+#define HMO_STATE_INIT          0x00 /* do not accept message */
+#define HMO_STATE_LAUNCH        0x01 /* only accept R2 messages */
+#define HMO_STATE_RUNNING       0x02 /* accept all messages */
+#define HMO_STATE_PAUSE         0x03 /* pause client/amc messages */
+#define HMO_STATE_RDONLY        0x04 /* err reply modify messages */
     u64 state;
 
     u64 ring_site;
@@ -242,9 +242,11 @@ struct hvfs_mds_object
     u32 scrub_thread_stop:1;    /* running flag for scrub thread */
     u32 gossip_thread_stop:1;   /* running flag for gossip thread */
 
-    u8 spool_modify_pause;      /* pause the modification */
-    u8 scrub_running;           /* is scrub thread running */
-    u8 reqin_drop;              /* drop the incoming client requests */
+    u8 spool_modify_pause:1;    /* pause the modification */
+    u8 scrub_running:1;         /* is scrub thread running */
+    u8 reqin_drop:1;            /* drop the incoming client requests */
+    u8 reqin_pause:1;           /* pause the requesst handling for client and
+                                 * amc */
 
     int scrub_op;               /* scrub operation */
     atomic_t lease_seqno;       /* lease seqno */
@@ -538,6 +540,7 @@ void async_audirdelta_cleanup(u64, u64);
 int mds_spool_create(void);
 void mds_spool_destroy(void);
 int mds_spool_dispatch(struct xnet_msg *);
+void mds_spool_redispatch(struct xnet_msg *, int sempost);
 int mds_spool_modify_pause(struct xnet_msg *);
 void mds_spool_itb_check(time_t);
 void mds_spool_mp_check(time_t);

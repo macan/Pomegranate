@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-17 09:02:41 macan>
+ * Time-stamp: <2011-06-17 09:10:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -298,7 +298,7 @@ static void *mds_timer_thread_main(void *arg)
         /* next, checking the CBHT slow down */
         async_update_checking(cur);
         /* next, checking the bitmap cache. */
-        mds_bc_checking(cur);
+        mds_bc_notify_check();
         /* next, checking the heart beat beep */
         mds_hb_wrapper(cur);
         /* next, checking the scrub progress */
@@ -934,7 +934,7 @@ void mds_pre_init()
     lock_table_init();
 #endif
     /* setup the state */
-    hmo.state = HMO_STATE_LAUNCH;
+    hmo.state = HMO_STATE_INIT;
 }
 
 /* mds_verify()
@@ -960,6 +960,9 @@ int mds_verify(void)
         txg_put(t);
     }
 
+    /* enter into running mode */
+    hmo.state = HMO_STATE_RUNNING;
+
     return 0;
 }
 
@@ -971,7 +974,7 @@ int mds_config(void)
 {
     char *value;
 
-    if (hmo.state != HMO_STATE_LAUNCH) {
+    if (hmo.state != HMO_STATE_INIT) {
         hvfs_err(mds, "MDS state is not in launching, please call "
                  "mds_pre_init() firstly!\n");
         return -EINVAL;
@@ -1212,7 +1215,7 @@ int mds_init(int bdepth)
     }
 
     /* ok to run */
-    hmo.state = HMO_STATE_RUNNING;
+    hmo.state = HMO_STATE_LAUNCH;
     hmo.uptime = time(NULL);
 
 out_rpc:
@@ -1249,6 +1252,9 @@ void mds_destroy(void)
         hmo.cb_exit(&hmo);
     }
 
+    /* destroy the BC before timer thread */
+    mds_bitmap_cache_destroy();
+
     /* stop the timer thread */
     hmo.timer_thread_stop = 1;
     /* Bug fix: hmo.timer_thread is type pthread_t, this value is a ID which
@@ -1277,9 +1283,6 @@ void mds_destroy(void)
 
     /* destroy the dh */
     mds_dh_destroy(&hmo.dh);
-
-    /* destroy the BC */
-    mds_bitmap_cache_destroy();
 
     /* destroy the txc */
     mds_destroy_txc(&hmo.txc);

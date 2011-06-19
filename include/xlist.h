@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-02-01 10:04:59 macan>
+ * Time-stamp: <2011-06-16 21:26:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -120,6 +120,38 @@ static inline int list_is_last(const struct list_head *list,
 static inline int list_empty(const struct list_head *head)
 {
     return head->next == head;
+}
+
+/* list_plice: join two lists
+ */
+static inline void __list_splice(struct list_head *list,
+                                 struct list_head *head)
+{
+	struct list_head *first = list->next;
+	struct list_head *last = list->prev;
+	struct list_head *at = head->next;
+    
+	first->prev = head;
+	head->next = first;
+    
+	last->next = at;
+	at->prev = last;
+}
+
+static inline void list_splice(struct list_head *list,
+                               struct list_head *head)
+{
+    if (!list_empty(list))
+        __list_splice(list, head);
+}
+
+static inline void list_splice_init(struct list_head *list,
+                                    struct list_head *head)
+{
+    if (!list_empty(list)) {
+        __list_splice(list, head);
+        INIT_LIST_HEAD(list);
+    }
 }
 
 #define list_entry(ptr, type, member)           \

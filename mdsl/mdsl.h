@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-05 11:12:53 macan>
+ * Time-stamp: <2011-06-17 09:11:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -326,10 +326,11 @@ struct hvfs_mdsl_object
     struct chring *chring[CH_RING_NUM];
     struct mdsl_prof prof;
     struct mdsl_conf conf;
-#define HMO_STATE_LAUNCH        0x00
-#define HMO_STATE_RUNNING       0x01
-#define HMO_STATE_PAUSE         0x02
-#define HMO_STATE_RDONLY        0x03
+#define HMO_STATE_INIT          0x00
+#define HMO_STATE_LAUNCH        0x01
+#define HMO_STATE_RUNNING       0x02
+#define HMO_STATE_PAUSE         0x03
+#define HMO_STATE_RDONLY        0x04
     u32 state;
 
     u64 ring_site;

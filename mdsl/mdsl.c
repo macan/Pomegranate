@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 18:29:17 macan>
+ * Time-stamp: <2011-06-17 09:09:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -306,7 +306,7 @@ void mdsl_pre_init(void)
     lock_table_init();
 #endif
     /* setup the state */
-    hmo.state = HMO_STATE_LAUNCH;
+    hmo.state = HMO_STATE_INIT;
 }
 
 /* mdsl_verify()
@@ -330,6 +330,9 @@ int mdsl_verify(void)
         hvfs_err(mdsl, "dir %s do not exist.\n", path);
     }
 
+    /* setup running state */
+    hmo.state = HMO_STATE_RUNNING;
+
 out:
     return err;
 }
@@ -342,7 +345,7 @@ int mdsl_config(void)
 {
     char *value;
 
-    if (hmo.state != HMO_STATE_LAUNCH) {
+    if (hmo.state != HMO_STATE_INIT) {
         hvfs_err(mdsl, "MDSL state is no in launching, please call "
                  "mdsl_pre_init() firstly\n");
         return -EINVAL;
@@ -516,7 +519,7 @@ int mdsl_init(void)
     }
 
     /* ok to run */
-    hmo.state = HMO_STATE_RUNNING;
+    hmo.state = HMO_STATE_LAUNCH;
 
 out_aio:
 out_spool:

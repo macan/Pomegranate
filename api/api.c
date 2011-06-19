@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-25 03:28:41 macan>
+ * Time-stamp: <2011-06-17 09:41:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3609,7 +3609,7 @@ out:
     return err;
 }
 
-int hvfs_offline(char *type, int id)
+int hvfs_offline(char *type, int id, int force)
 {
     struct xnet_msg *msg;
     u64 site_id;
@@ -3641,7 +3641,7 @@ int hvfs_offline(char *type, int id)
     }
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hmo.xc->site_id, HVFS_ROOT(0));
-    xnet_msg_fill_cmd(msg, HVFS_R2_OFFLINE, site_id, 0);
+    xnet_msg_fill_cmd(msg, HVFS_R2_OFFLINE, site_id, force);
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-22 19:02:18 macan>
+ * Time-stamp: <2011-06-17 06:07:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -157,6 +157,7 @@ struct bc_entry *mds_bc_insert(struct bc_entry *);
 struct bc_entry *mds_bc_new(void);
 int mds_bc_dir_lookup(struct hvfs_index *hi, u64 *, u64 *);
 int mds_bc_backend_load(struct bc_entry *be, u64, u64);
+void mds_bc_notify_check(void);
 void mds_bc_checking(time_t);
 
 #endif

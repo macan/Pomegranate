@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-05-22 00:00:40 macan>
+# Time-stamp: <2011-06-17 11:02:45 macan>
 #
 # Armed with EMACS.
 #
@@ -781,15 +781,19 @@ class pamc_shell(cmd.Cmd):
 
     def do_offline(self, line):
         '''Offline a site or a group of sites.
-        Usage: offline 'mds/mdsl' id'''
+        Usage: offline 'mds/mdsl' id [force]'''
+        force = 0
         l = shlex.split(line)
         if len(l) < 2:
             print "Invalid argument. See help offline!"
             return
+        elif len(l) > 2:
+            force = l[2]
+
         # ok
         try:
             self.start_clock()
-            err = api.hvfs_offline(l[0], int(l[1]))
+            err = api.hvfs_offline(l[0], int(l[1]), int(force))
             if err != 0:
                 print "api.hvfs_offline() failed w/ %d" % err
                 return

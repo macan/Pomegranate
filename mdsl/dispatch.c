@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 16:18:14 macan>
+ * Time-stamp: <2011-06-16 05:36:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -104,8 +104,8 @@ int mdsl_ring_dispatch(struct xnet_msg *msg)
         break;
     default:
         hvfs_err(mdsl, "Invalid R2 request: 0x%lx\n", msg->tx.cmd);
+        xnet_free_msg(msg);
     }
-    xnet_free_msg(msg);
 
     return 0;
 }

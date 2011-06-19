@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-12-31 11:24:17 macan>
+ * Time-stamp: <2011-06-17 09:38:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -586,7 +586,7 @@ out:
     return err;
 }
 
-int cli_dynamic_del_site(struct ring_entry *re, u64 site_id)
+int cli_dynamic_del_site(struct ring_entry *re, u64 site_id, int force)
 {
     static atomic_t progress = {.counter = 0,};
     struct ring_args ra = {.gid_ns = 0,};
@@ -602,7 +602,11 @@ int cli_dynamic_del_site(struct ring_entry *re, u64 site_id)
     if (err) {
         hvfs_err(root, "try to snapshot on %lx failed w/ %d\n",
                  site_id, err);
-        goto out;
+        if (!force)
+            goto out;
+        else
+            hvfs_warning(root, "delete site %lx forcely, maybe data losing\n",
+                         site_id);
     }
 
     /* Step 2: change the ring */

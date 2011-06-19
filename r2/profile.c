@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-26 17:09:00 macan>
+ * Time-stamp: <2011-06-16 05:02:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -72,6 +72,7 @@ void hvfs_mds_profile_setup(struct hvfs_profile_ex *hp)
     HVFS_PROFILE_NAME_ADDIN(hp, i, "mds.gossip_ft");
     HVFS_PROFILE_NAME_ADDIN(hp, i, "itb.rsearch_depth");
     HVFS_PROFILE_NAME_ADDIN(hp, i, "itb.wsearch_depth");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "misc.reqin_qd");
     hp->nr = i;
 }
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 15:03:34 macan>
+ * Time-stamp: <2011-06-16 05:01:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -114,6 +114,7 @@ struct mds_misc_prof
     atomic64_t au_dd;           /* # of dir delta */
     atomic64_t au_ddr;          /* # of dir delta reply */
     atomic64_t reqin_drop;      /* # of dropped requets */
+    atomic64_t reqin_qd;        /* # of queued requests */
 };
 
 struct mds_prof

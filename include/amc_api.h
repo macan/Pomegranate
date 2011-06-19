@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-18 14:32:53 macan>
+ * Time-stamp: <2011-06-17 09:42:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -94,7 +94,7 @@ int hvfs_commit(int id);
 int hvfs_get_cluster(char *type);
 char *hvfs_active_site(char *type);
 int hvfs_online(char *type, int id);
-int hvfs_offline(char *type, int id);
+int hvfs_offline(char *type, int id, int force);
 
 /* APIs for Client */
 struct hstat

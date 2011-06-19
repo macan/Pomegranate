@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-16 05:04:01 macan>
+ * Time-stamp: <2011-06-16 06:35:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1604,6 +1604,8 @@ int msg_send(int entry, int op, int base, struct msg_send_args *msa)
             }
             idx = ((end.tv_sec - begin.tv_sec) * 1000000 + 
                    (end.tv_usec - begin.tv_usec)) / RESOLUTION;
+            if (idx < 0)
+                idx = 0;
             msa->latency[idx >= MAX_LATENCY ? MAX_LATENCY - 1 : idx]++;
         }
         hvfs_info(xnet, "Create Latency: \t %lf us\n",
@@ -1621,6 +1623,8 @@ int msg_send(int entry, int op, int base, struct msg_send_args *msa)
             }
             idx = ((end.tv_sec - begin.tv_sec) * 1000000 + 
                    (end.tv_usec - begin.tv_usec)) / RESOLUTION;
+            if (idx < 0)
+                idx = 0;
             msa->latency[idx >= MAX_LATENCY ? MAX_LATENCY - 1 : idx]++;
         }
         hvfs_info(xnet, "Lookup Latency: \t %lf us\n",
@@ -1638,6 +1642,8 @@ int msg_send(int entry, int op, int base, struct msg_send_args *msa)
             }
             idx = ((end.tv_sec - begin.tv_sec) * 1000000 + 
                    (end.tv_usec - begin.tv_usec)) / RESOLUTION;
+            if (idx < 0)
+                idx = 0;
             msa->latency[idx >= MAX_LATENCY ? MAX_LATENCY - 1 : idx]++;
         }
         hvfs_info(xnet, "Unlink Latency: \t %lf us\n",
@@ -1654,9 +1660,11 @@ int msg_send(int entry, int op, int base, struct msg_send_args *msa)
                 hvfs_err(xnet, "create 'client-xnet-test-%ld-%ld-%d' failed\n",
                          hmi.root_uuid, hmo.site_id, i + base);
             }
-            err = ((end.tv_sec - begin.tv_sec) * 1000000 + 
+            idx = ((end.tv_sec - begin.tv_sec) * 1000000 + 
                    (end.tv_usec - begin.tv_usec)) / RESOLUTION;
-            msa->latency[err >= MAX_LATENCY ? MAX_LATENCY - 1 : err]++;
+            if (idx < 0)
+                idx = 0;
+            msa->latency[idx >= MAX_LATENCY ? MAX_LATENCY - 1 : idx]++;
         }
         hvfs_info(xnet, "Create DIR Latency: \t %lf us\n",
                   acc / (double)entry);
@@ -1671,9 +1679,11 @@ int msg_send(int entry, int op, int base, struct msg_send_args *msa)
                 hvfs_err(xnet, "wdata 'client-xnet-test-%ld-%ld-%d' failed\n",
                          hmi.root_uuid, hmo.site_id, i + base);
             }
-            err = ((end.tv_sec - begin.tv_sec) * 1000000 + 
+            idx = ((end.tv_sec - begin.tv_sec) * 1000000 + 
                    (end.tv_usec - begin.tv_usec)) / RESOLUTION;
-            msa->latency[err >= MAX_LATENCY ? MAX_LATENCY - 1 : err]++;
+            if (idx < 0)
+                idx = 0;
+            msa->latency[idx >= MAX_LATENCY ? MAX_LATENCY - 1 : idx]++;
         }
         hvfs_info(xnet, "WDATA Latency: \t %lf us\n",
                   acc / (double)entry);
@@ -1688,9 +1698,11 @@ int msg_send(int entry, int op, int base, struct msg_send_args *msa)
                 hvfs_err(xnet, "rdata 'client-xnet-test-%ld-%ld-%d' failed\n",
                          hmi.root_uuid, hmo.site_id, i + base);
             }
-            err = ((end.tv_sec - begin.tv_sec) * 1000000 + 
+            idx = ((end.tv_sec - begin.tv_sec) * 1000000 + 
                    (end.tv_usec - begin.tv_usec)) / RESOLUTION;
-            msa->latency[err >= MAX_LATENCY ? MAX_LATENCY - 1 : err]++;
+            if (idx < 0)
+                idx = 0;
+            msa->latency[idx >= MAX_LATENCY ? MAX_LATENCY - 1 : idx]++;
         }
         hvfs_info(xnet, "RDATA Latency: \t %lf \n",
                   acc / (double)entry);

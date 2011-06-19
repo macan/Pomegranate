@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-18 11:35:44 macan>
+ * Time-stamp: <2011-06-19 20:59:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,9 +29,47 @@
 #define MDS_BC_HASH_SIZE_DEFAULT        (512)
 #define MDS_BC_ROOF_DEFAULT             (512)
 
+static pthread_t g_bcthread = 0;
+static sem_t g_bcsem;
+static u8 g_bcthread_stop = 0;
+
+void mds_bc_notify_check(void)
+{
+    sem_post(&g_bcsem);
+}
+
+static void *mds_bitmap_cache_thread_main(void *arg)
+{
+    sigset_t set;
+    time_t cur;
+    int err;
+
+    hvfs_debug(mds, "I am running...\n");
+
+    /* first, let us block the SIGALRM */
+    sigemptyset(&set);
+    sigaddset(&set, SIGALRM);
+    pthread_sigmask(SIG_BLOCK, &set, NULL); /* oh, we do not care about the
+                                             * errs */
+    /* then, we loop for the timer events */
+    while (!g_bcthread_stop) {
+        err = sem_wait(&g_bcsem);
+        if (err == EINTR)
+            continue;
+        cur = time(NULL);
+
+        /* do checking */
+        mds_bc_checking(cur);
+    }
+
+    hvfs_debug(mds, "Hooo, I am exiting...\n");
+    pthread_exit(0);
+}
+
 int mds_bitmap_cache_init(void)
 {
-    int i;
+    pthread_attr_t attr;
+    int i, err = 0, stacksize;
     
     if (!hmo.conf.bc_hash_size) {
         hmo.conf.bc_hash_size = MDS_BC_HASH_SIZE_DEFAULT;
@@ -56,13 +94,41 @@ int mds_bitmap_cache_init(void)
         xlock_init(&(hmo.bc.bcht + i)->lock);
     }
 
-    return 0;
+    err = pthread_attr_init(&attr);
+    if (err) {
+        hvfs_err(mds, "Init pthread attr failed\n");
+        goto out;
+    }
+    stacksize = (hmo.conf.stacksize > (1 << 20) ?
+                 hmo.conf.stacksize : (2 << 20));
+    err = pthread_attr_setstacksize(&attr, stacksize);
+    if (err) {
+        hvfs_err(mds, "set thread stack size to %d failed w/ %d\n",
+                 stacksize, err);
+        goto out;
+    }
+
+    /* init the bc semaphore */
+    sem_init(&g_bcsem, 0, 0);
+    
+    /* start a bc thread to commit back bc entries */
+    err = pthread_create(&g_bcthread, &attr, &mds_bitmap_cache_thread_main,
+                         NULL);
+    if (err)
+        goto out;
+
+out:
+    return err;
 }
 
 void mds_bitmap_cache_destroy(void)
 {
     if (hmo.bc.bcht)
         xfree(hmo.bc.bcht);
+    if (!g_bcthread_stop) {
+        g_bcthread_stop = 1;
+        pthread_join(g_bcthread, NULL);
+    }
 }
 
 static inline
@@ -586,7 +652,7 @@ int __customized_send_request(struct bc_commit *commit)
         struct mdu_update *mu;
         struct mu_column *mc;
         int retry_nr = 0;
-
+        
         e = mds_dh_search(&hmo.dh, hmi.gdt_uuid);
         if (IS_ERR(e)) {
             /* fatal error */
@@ -625,12 +691,17 @@ int __customized_send_request(struct bc_commit *commit)
         mc->c.stored_itbid = hi.itbid;
         mc->c.len = mu->size;
         mc->c.offset = msg->pair->tx.arg0;
-        hvfs_err(mds, "Update puuid %lx uuid %lx itbid %ld column offset %ld "
-                 "len %ld itbid %ld\n",
-                 hi.puuid, hi.uuid, hi.itbid, mc->c.offset,
-                 mc->c.len, mc->c.stored_itbid);
+        hvfs_warning(mds, "Update puuid %lx uuid %lx itbid %ld column offset %ld "
+                     "len %ld itbid %ld\n",
+                     hi.puuid, hi.uuid, hi.itbid, mc->c.offset,
+                     mc->c.len, mc->c.stored_itbid);
         
         /* search and update in the CBHT */
+        /* Note(6/17/2011): If err == -EHWAIT, it means that we are under high memory
+         * pressure. If we retry we will lockup timer handling thread, thus we
+         * just fail this request. */
+        /* Note(6/20/2011): We have split bitmap cache backend commit to
+         * seperate thread. EHWAIT is tolerant now */
     retry:
         txg = mds_get_open_txg(&hmo);
         err = mds_cbht_search(&hi, hmr, txg, &txg);
@@ -640,8 +711,13 @@ int __customized_send_request(struct bc_commit *commit)
                 err == -ERESTART) {
                 /* have a breath */
                 sched_yield();
-                if (++retry_nr < 10000) 
-                    goto retry;
+                if (++retry_nr > 10000) {
+                    sleep(1);
+                }
+                goto retry;
+            } else if (err == -EHWAIT) {
+                sleep(1);
+                goto retry;
             }
             hvfs_err(mds, "FATAL ERROR: update the ITE failed w/ %d\n", err);
         }
@@ -772,6 +848,9 @@ int mds_bc_backend_commit(void)
         /* fatal error */
         hvfs_err(mds, "This is a fatal error, we can not find the GDT DHE.\n");
         err = PTR_ERR(gdte);
+        xlock_lock(&hmo.bc.delta_lock);
+        list_splice(&deltas, &hmo.bc.deltas);
+        xlock_unlock(&hmo.bc.delta_lock);
         goto out;
     }
 
@@ -793,10 +872,18 @@ int mds_bc_backend_commit(void)
         err = mds_cbht_search(&hi, hmr, txg, &txg);
         txg_put(txg);
         if (err) {
+            /* Note: If err == -EHWAIT, it means that we are under high memory
+             * pressure. If we retry we will lockup timer handling thread, thus we
+             * just fail this request. */
+            /* Note(6/20/2011): We have split bitmap cache backend commit to
+             * seperate thread. EHWAIT is tolerant now */
             if (err == -EAGAIN || err == -ESPLIT ||
-                err == -ERESTART || err == -EHWAIT) {
+                err == -ERESTART) {
                 /* have a breath */
                 sched_yield();
+                goto retry;
+            } else if (err == -EHWAIT) {
+                sleep(1);
                 goto retry;
             }
             /* put the current delta to the error list */
