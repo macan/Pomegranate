@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-17 04:55:06 macan>
+ * Time-stamp: <2011-06-20 01:34:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -269,6 +269,11 @@ int mds_resume(struct xnet_msg *msg)
         hmo.reqin_drop = 0;
     hmo.reqin_pause = 0;
 
+    /* if msg->tx.arg1 == 1, change mds's state to ONLINE(Running) */
+    if (msg->tx.arg1 == 1) {
+        hmo.state = HMO_STATE_RUNNING;
+    }
+
     rpy = xnet_alloc_msg(XNET_MSG_CACHE);
     if (!rpy) {
         hvfs_err(mds, "xnet_alloc_msg() failed\n");
@@ -346,7 +351,7 @@ int mds_fe_dispatch(struct xnet_msg *msg)
         }
         break;
     case HMO_STATE_LAUNCH:
-        /* only accept R2 reqeust, otherwise reinsert back to reqin list */
+        /* reinsert back to reqin list */
         mds_spool_redispatch(msg, 0);
         break;
     case HMO_STATE_RUNNING:
@@ -358,8 +363,16 @@ int mds_fe_dispatch(struct xnet_msg *msg)
     case HMO_STATE_RDONLY:
         /* read-only mode. FIXME */
         break;
+    case HMO_STATE_OFFLINE:
+        /* only accept R2 reqeust, otherwise return an OFFLINE error */
+        if (!HVFS_IS_RING(msg->tx.ssite_id)) {
+            __simply_send_reply(msg, -EOFFLINE);
+            xnet_free_msg(msg);
+            return 0;
+        }
+        break;
     default:
-        HVFS_BUGON("Unknown MDS state\n");
+        HVFS_BUGON("Unknown MDS state");
     }
 
     if (HVFS_IS_CLIENT(msg->tx.ssite_id)) {

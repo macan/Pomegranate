@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-17 04:53:14 macan>
+ * Time-stamp: <2011-06-19 22:47:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -197,11 +197,13 @@ struct hvfs_mds_object
     struct hvfs_txc txc;
     struct itb_cache ic;
     struct bitmap_cache bc;
-#define HMO_STATE_INIT          0x00 /* do not accept message */
-#define HMO_STATE_LAUNCH        0x01 /* only accept R2 messages */
-#define HMO_STATE_RUNNING       0x02 /* accept all messages */
-#define HMO_STATE_PAUSE         0x03 /* pause client/amc messages */
-#define HMO_STATE_RDONLY        0x04 /* err reply modify messages */
+#define HMO_STATE_INIT          0x00 /* do not accept request and wait */
+#define HMO_STATE_LAUNCH        0x01 /* do not accept reqeusts */
+#define HMO_STATE_RUNNING       0x02 /* accept all requests */
+#define HMO_STATE_PAUSE         0x03 /* pause client/amc requests */
+#define HMO_STATE_RDONLY        0x04 /* err reply modify requests */
+#define HMO_STATE_OFFLINE       0x05 /* accept all requests, but return
+                                      * EOFFLINE (exclude R2) */
     u64 state;
 
     u64 ring_site;
@@ -544,6 +546,7 @@ void mds_spool_redispatch(struct xnet_msg *, int sempost);
 int mds_spool_modify_pause(struct xnet_msg *);
 void mds_spool_itb_check(time_t);
 void mds_spool_mp_check(time_t);
+void mds_spool_provoke(void);
 
 /* APIs */
 /* __txg_busy_loop_detector()

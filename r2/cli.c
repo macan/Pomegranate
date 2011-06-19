@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-17 09:38:54 macan>
+ * Time-stamp: <2011-06-19 22:23:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -347,7 +347,18 @@ out:
     return ERR_PTR(err);
 }
 
-int __cli_trigger_snapshot(u64 site_id)
+/* snapshot level: (DO NOT CHANGE!)
+ *
+ * 0: snapstho w/ memory commit;
+ * 1: snapshot w/ memory commit and request pause;
+ * 2: snapshot w/ memory commit and request drop;
+ * 3: snapstho w/ memory commit and reqeust error;
+ */
+#define SNAP_CACHE              0
+#define SNAP_CACHE_PAUSE        1
+#define SNAP_CACHE_DROP         2
+#define SNAP_CACHE_ERR          3
+int __cli_trigger_snapshot(u64 site_id, int level)
 {
     struct xnet_msg *msg;
     int err = 0;
@@ -361,7 +372,7 @@ int __cli_trigger_snapshot(u64 site_id)
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hro.xc->site_id, site_id);
     /* Note that, arg1 == 1 means to pause client/amc requests handling! */
-    xnet_msg_fill_cmd(msg, HVFS_R22MDS_COMMIT, site_id, 1);
+    xnet_msg_fill_cmd(msg, HVFS_R22MDS_COMMIT, site_id, level);
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -381,7 +392,12 @@ out:
     return err;
 }
 
-int __cli_resume(u64 site_id)
+/* Resume level:
+ *
+ * 0: defautl
+ * 1: change state to ONLINE(Running)
+ */
+int __cli_resume(u64 site_id, int level)
 {
     struct xnet_msg *msg;
     int err = 0;
@@ -394,7 +410,7 @@ int __cli_resume(u64 site_id)
     }
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
                      hro.xc->site_id, site_id);
-    xnet_msg_fill_cmd(msg, HVFS_R22MDS_RESUME, site_id, 0);
+    xnet_msg_fill_cmd(msg, HVFS_R22MDS_RESUME, site_id, level);
 #ifdef XNET_EAGER_WRITEV
     xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
 #endif
@@ -543,7 +559,7 @@ int cli_dynamic_add_site(struct ring_entry *re, u64 site_id)
     for (i = 0; i < xg->asize; i++) {
         hvfs_info(root, "Try to send pasue and evict message to %lx\n", 
                    xg->sites[i].site_id);
-        err = __cli_trigger_snapshot(xg->sites[i].site_id);
+        err = __cli_trigger_snapshot(xg->sites[i].site_id, SNAP_CACHE_PAUSE);
         if (err) {
             hvfs_err(root, "trigger a snapshot on site %lx failed w/ %d\n",
                      xg->sites[i].site_id, err);
@@ -570,7 +586,7 @@ bcast:
     
     /* resume request handling */
     for (i = 0; i < xg->asize; i++) {
-        err = __cli_resume(xg->sites[i].site_id);
+        err = __cli_resume(xg->sites[i].site_id, 1);
         if (err) {
             hvfs_err(root, "resume the request handling on site %lx "
                      "failed w/ %d\n", xg->sites[i].site_id, err);
@@ -598,7 +614,7 @@ int cli_dynamic_del_site(struct ring_entry *re, u64 site_id, int force)
     }
     
     /* Step 1: snapshot the infected site now */
-    err = __cli_trigger_snapshot(site_id);
+    err = __cli_trigger_snapshot(site_id, SNAP_CACHE_ERR);
     if (err) {
         hvfs_err(root, "try to snapshot on %lx failed w/ %d\n",
                  site_id, err);

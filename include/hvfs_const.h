@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-03 15:20:37 macan>
+ * Time-stamp: <2011-06-19 22:33:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -108,5 +108,6 @@ static char *hvfs_ccolor[] __attribute__((unused)) =
 #define ELOCKED         1041    /* lease locked */
 #define ERACE           1042    /* lease raced */
 #define EABORT          1043    /* transaction aborted */
+#define EOFFLINE        1044    /* Site is offline */
 
 #endif

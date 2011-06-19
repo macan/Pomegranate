@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-16 04:44:13 macan>
+ * Time-stamp: <2011-06-19 22:48:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -350,9 +350,20 @@ void mds_snapshot_fr2(struct xnet_msg *msg)
     int err = 0;
 
     /* Magic:) if we see tx.arg1 is 1, then we pause request handling */
-    if (msg->tx.arg1 == 1) {
+    switch (msg->tx.arg1) {
+    case 1:
         /* pause request handling now */
         hmo.reqin_pause = 1;
+        break;
+    case 2:
+        /* drop requests */
+        hmo.reqin_drop = 1;
+        break;
+    case 3:
+        /* pause request handling, after snapshot change state to OFFLINE */
+        hmo.reqin_pause = 1;
+        break;
+    default:;
     }
 
     do {
@@ -385,6 +396,16 @@ void mds_snapshot_fr2(struct xnet_msg *msg)
     err = xnet_send(hmo.xc, rpy);
     if (err) {
         hvfs_err(mds, "xnet_send() failed\n");
+    }
+
+    /* change MDS's state to OFFLINE */
+    if (msg->tx.arg1 == 3) {
+        hmo.state = HMO_STATE_OFFLINE;
+        /* resume request handling */
+        if (hmo.reqin_drop == 1)
+            hmo.reqin_drop = 0;
+        hmo.reqin_pause = 0;
+        mds_spool_provoke();
     }
 
     xnet_free_msg(rpy);
