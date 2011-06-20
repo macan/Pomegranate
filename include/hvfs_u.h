@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-03 15:14:34 macan>
+ * Time-stamp: <2011-05-31 08:55:19 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -143,6 +143,7 @@ static inline int variable_test_bit(int nr, volatile const unsigned long *addr)
 {
     int oldbit;
 
+    /* sbb sub 1 more if CF is set, while bt set CF = bit value */
     asm volatile("bt %2,%1\n\t"
                  "sbb %0,%0"
                  : "=r" (oldbit)
@@ -150,6 +151,9 @@ static inline int variable_test_bit(int nr, volatile const unsigned long *addr)
     
     return oldbit;
 }
+
+/* Note: test_bit() return 0 for 0, -1 for 1
+ */
 #define test_bit(nr,addr)                       \
     (__builtin_constant_p(nr) ?                 \
      constant_test_bit((nr),(addr)) :           \

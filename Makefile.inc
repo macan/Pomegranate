@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-05-21 09:32:41 macan>
+# Time-stamp: <2011-05-21 09:51:14 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -100,6 +100,8 @@ else
 $(info USE JEMALLOC malloc function @ $(JEMALLOC).)
 CFLAGS += -DUSE_JEMALLOC=1 -I$(JEMALLOC)/include
 LFLAGS += -L$(JEMALLOC)/lib -ljemalloc
+JEMALLOC=
+$(info ========================================================)
 endif
 
 ifdef USE_FUSE

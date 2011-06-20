@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-05-17 18:20:20 macan>
+# Time-stamp: <2011-05-21 14:42:59 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -88,6 +88,25 @@ clean :
 
 depclean:
 	@$(MAKE) --no-print-directory -C $(TEST)/result -e "HOME_PATH=$(HOME_PATH)" clean
+
+help :
+	@echo "Environment Variables:"
+	@echo ""
+	@echo "1. USE_BDB           if defined, compile w/ BerkeleyDB support;"
+	@echo "                     otherwise, use plain file."
+	@echo ""
+	@echo "2. DISABLE_PYTHON    if defined, do not compile w/ Python C API."
+	@echo "                     otherwise, compile and link with libpython."
+	@echo ""
+	@echo "3. JEMALLOC          Must defined w/ jemalloc install path prefix;"
+	@echo "                     otherwise, we can find the jemalloc lib path."
+	@echo ""
+	@echo "4. USE_FUSE          if defined, link with libfuse;"
+	@echo "                     otherwise, ignore fuse client."
+	@echo ""
+	@echo "5. PYTHON_INC        python include path"
+	@echo ""
+	@echo "6. BDB_HOME          BerkeleyDB install path prefix."
 
 # Note: the following region is only for UNIT TESTing
 # region for unit test

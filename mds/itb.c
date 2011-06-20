@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-05 10:27:16 macan>
+ * Time-stamp: <2011-05-25 07:26:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -877,8 +877,8 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.mtime = tv.tv_sec;
 
         if (mu->valid & MU_LLFS) {
-            e->s.mdu.lr = *((struct llfs_ref *)hi->data +
-                            sizeof(struct mdu_update));
+            e->s.mdu.lr = *(struct llfs_ref *)(hi->data +
+                                               sizeof(struct mdu_update));
             coffset = sizeof(struct llfs_ref);
         }
         if (unlikely(mu->valid & MU_COLUMN)) {
@@ -979,8 +979,8 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
             e->s.mdu.mtime = mu->mtime;
 
         if (mu->valid & MU_LLFS) {
-            e->s.mdu.lr = *(struct llfs_ref *)(hi->data +
-                            sizeof(struct mdu_update));
+            e->s.mdu.lr = *(struct llfs_ref *)(hi->data + 
+                                               sizeof(struct mdu_update));
             coffset = sizeof(struct llfs_ref);
         }
         if (mu->valid & MU_COLUMN) {
@@ -1819,9 +1819,15 @@ retry:
                     goto refresh;
                 }
             }
-            ite_unlink(&itb->ite[ii->entry], itb, offset, pos);
             hi->uuid = itb->ite[ii->entry].uuid;
             memcpy(data, &(itb->ite[ii->entry].g), HVFS_MDU_SIZE);
+            /* BUG-xxxxxx:
+             *
+             * ite_unlink() reset the bitmap, thus after ite_unlink() the old
+             * ite is free to be assigned to another entry. Then, we get a
+             * WRONG reply.
+             */
+            ite_unlink(&itb->ite[ii->entry], itb, offset, pos);
         } else if (hi->flag & INDEX_LINK_ADD) {
             /* hard link */
             hvfs_verbose(mds, "Find the ITE and hard link it.\n");

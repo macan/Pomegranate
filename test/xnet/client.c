@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 14:16:42 macan>
+ * Time-stamp: <2011-06-02 04:16:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2654,7 +2654,7 @@ int main(int argc, char *argv[])
     hmo.xc = xnet_register_type(0, sport, self, &ops);
     if (IS_ERR(hmo.xc)) {
         err = PTR_ERR(hmo.xc);
-        goto out;
+        return err;
     }
 
     hmo.site_id = self;
