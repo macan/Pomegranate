@@ -3,13 +3,14 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-04-28 14:44:42 macan>
+# Time-stamp: <2011-06-20 01:51:05 ec2-user>
 #
 # This is the mangement script for Pomegranate
 #
 # Armed with EMACS.
 
 SYSCTL_ADJ_SYN="sysctl -w net.ipv4.tcp_max_syn_backlog=8192;"
+_UID=`id -un`
 
 if [ "x$HVFS_HOME" == "x" ]; then
     HVFS_HOME=`pwd`
@@ -45,6 +46,22 @@ if [ "x$USERNAME" == "x" ]; then
 else
     UN="$USERNAME@"
 fi
+
+function do_exec_check() {
+    if [ x"$_UID" != "xroot" ]; then
+        _FILES=`ls $HVFS_HOME/test/xnet/*.ut`
+        for x in $_FILES; do
+            _FUID=`stat -c "%U" $x`
+            if [ x"$_FUID" != "xroot" ]; then
+                chown -R root $x
+            fi
+            _FSETUID=`stat -c "%a" $x`
+            if [ $_FSETUID -lt 4000 ]; then
+                chmod u+s $x
+            fi
+        done
+    fi
+}
 
 function do_conf_check() {
     if [ -d $HVFS_HOME/conf ]; then
@@ -714,6 +731,9 @@ function do_help() {
     echo "6. run into the file system mode."
     echo "   $ MODE=fs hvfs.sh start"
 }
+
+# Check and prepare exec permissons
+do_exec_check
 
 if [ "x$1" == "xstart" ]; then
     if [ "x$2" == "xmds" ]; then
