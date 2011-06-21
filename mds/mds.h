@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-19 22:47:28 macan>
+ * Time-stamp: <2011-06-20 22:38:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -270,6 +270,7 @@ struct hvfs_mds_object
     void (*cb_addr_table_update)(void *);
     void (*cb_branch_init)(void *);
     void (*cb_branch_destroy)(void *);
+    void (*cb_latency)(void *);
     u64 fsid;
 };
 
@@ -287,6 +288,7 @@ struct dconf_req
 #define DCONF_SET_UNLINK_INTV   3
 #define DCONF_SET_MDS_FLAG      4
 #define DCONF_SET_XNET_FLAG     5
+#define DCONF_GET_LATENCY       6
     u64 cmd;
     u64 arg0;
 };

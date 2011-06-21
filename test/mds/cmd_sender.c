@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-20 23:44:37 macan>
+ * Time-stamp: <2011-06-20 22:39:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,7 +65,8 @@ int main(int argc, char *argv[])
                 "    [2, set_prof_intv]\n"
                 "    [3, set_unlk_intv]\n"
                 "    [4, set_mds_flag]\n"
-                "    [5, set_xnet_flag]\n"                
+                "    [5, set_xnet_flag]\n"
+                "    [6, get_latency]\n"
             );
         fprintf(stdout,
                 "INPUT CMD > ");

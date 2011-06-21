@@ -1,5 +1,5 @@
 Writter: Ma Can <macan@ncic.ac.cn> or <ml.macana@gmail.com> (gmail is preferred)
-Time-stamp: <2010-10-15 13:38:00 macan>
+Time-stamp: <2011-06-21 11:19:21 macan>
 
 Making Pomegranate is very easy :) You just should following the next steps:
 
@@ -27,6 +27,25 @@ Making Pomegranate is very easy :) You just should following the next steps:
    please do NOT try to make and run the binary code on a 32 bits box.
 
    $ make
+
+   {
+
+   NOTE: there are some environment variables you can set BEFORE make.
+
+   CFLAGS=
+   JEMALLOC=/path/to/jemalloc/install/home
+   USE_BDB=1
+   USE_FUSE=1
+   DISABLE_PYTHON=1
+
+   For example, you want to enable 'HVFS_FUSE_STAT' for fuse client latency
+   stat, enable JEMALLOC support, enable BerkeleyDB support, enable FUSE
+   support, disable python support, then you get the following cmd line:
+
+   $ CFLAGS="-DHVFS_FUSE_STAT" JEMALLOC=/usr/local USE_BDB=1 USE_FUSE=1
+   DISABLE_PYTHON=1 make -j4 
+
+   }
 
 4. We have already done:)
 

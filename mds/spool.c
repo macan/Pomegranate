@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-19 22:46:53 macan>
+ * Time-stamp: <2011-06-20 06:00:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -210,9 +210,11 @@ int __serv_request(void)
         }
     }
     if (likely(!hmo.reqin_pause)) {
-        xlock_lock(&spool_mgr.rin_lock);
-        list_splice_init(&spool_mgr.paused_req, &spool_mgr.reqin);
-        xlock_unlock(&spool_mgr.rin_lock);
+        if (unlikely(!list_empty(&spool_mgr.paused_req))) {
+            xlock_lock(&spool_mgr.rin_lock);
+            list_splice_init(&spool_mgr.paused_req, &spool_mgr.reqin);
+            xlock_unlock(&spool_mgr.rin_lock);
+        }
     }
     
     xlock_lock(&spool_mgr.rin_lock);

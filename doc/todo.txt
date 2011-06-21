@@ -429,3 +429,5 @@ Pomegranate TODOs:
     1. Dynamic txg interval: latency oriented and data safety oriented.
 
     2. Add latency stat in FUSE client for every metadata operation.
+
+    3. Detect and optimize latency (especially on multiple MDSs)!

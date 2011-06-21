@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-26 08:37:39 macan>
+ * Time-stamp: <2011-06-21 11:43:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,5 +55,6 @@ struct __pfs_fuse_mgr
 extern struct __pfs_fuse_mgr pfs_fuse_mgr;
 
 void __pfs_reset_xattr(void);
+void pfs_cb_latency(void *);
 
 #endif

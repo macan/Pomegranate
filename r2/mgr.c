@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 14:11:51 macan>
+ * Time-stamp: <2011-06-20 09:15:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -135,7 +135,7 @@ int site_mgr_traverse(struct site_mgr *sm, site_mgr_trav_callback_t callback,
         rh = sm->sht + i;
         xlock_lock(&rh->lock);
         hlist_for_each_entry(pos, n, &rh->h, hlist) {
-            hvfs_info(root, "Hit site %lx\n", pos->site_id);
+            hvfs_warning(root, "Hit site %lx\n", pos->site_id);
             if (pos->state == SE_STATE_INIT ||
                 pos->state == SE_STATE_SHUTDOWN)
                 continue;

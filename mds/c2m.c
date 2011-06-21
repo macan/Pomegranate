@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-02-26 20:49:57 macan>
+ * Time-stamp: <2011-06-20 09:04:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -214,22 +214,13 @@ void mds_lookup(struct hvfs_tx *tx)
         goto send_rpy;
     }
 
-    if (tx->req->xm_datacheck)
-        hi = tx->req->xm_data;
-    else {
-        hvfs_err(mds, "Internal error, data lossing ...\n");
-        err = -EFAULT;
-        goto send_rpy;
-    }
+    /* NOTE: hi and hi->hash are checked in fe_dispatch() */
+    hi = tx->req->xm_data;
 
     hvfs_debug(mds, "LOOKUP %ld %ld %lx %s %d uuid %ld flag %x\n",
                hi->puuid, hi->itbid, hi->hash, hi->name, hi->namelen,
                hi->uuid, hi->flag);
 
-    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
-        hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 
-                             HASH_SEL_EH);
-    }
     /* alloc hmr */
     hmr = get_hmr();
     if (unlikely(!hmr)) {
@@ -278,18 +269,8 @@ void mds_create(struct hvfs_tx *tx)
         goto send_rpy;
     }
 
-    if (tx->req->xm_datacheck)
-        hi = tx->req->xm_data;
-    else {
-        hvfs_err(mds, "Internal error, data lossing ...\n");
-        err = -EFAULT;
-        goto send_rpy;
-    }
-
-    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
-        hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 
-                             HASH_SEL_EH);
-    }
+    /* NOTE: hi and hi->hash are checked in fe_dispatch() */
+    hi = tx->req->xm_data;
 
     /* alloc hmr */
     hmr = get_hmr();
@@ -349,18 +330,9 @@ void mds_acquire(struct hvfs_tx *tx)
         goto send_rpy;
     }
 
-    if (tx->req->xm_datacheck)
-        hi = tx->req->xm_data;
-    else {
-        hvfs_err(mds, "Internal error, data lossing ...\n");
-        err = -EFAULT;
-        goto send_rpy;
-    }
+    /* NOTE: hi and hi->hash are checked in fe_dispatch() */
+    hi = tx->req->xm_data;
 
-    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
-        hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen,
-                             HASH_SEL_EH);
-    }
     /* alloc hmr */
     hmr = get_hmr();
     if (unlikely(!hmr)) {
@@ -384,7 +356,7 @@ send_rpy:
 
 /* RELEASE
  *
- * use RELEASE to issue a search
+ * use RELEASE to release a lease.
  */
 void mds_release(struct hvfs_tx *tx)
 {
@@ -403,18 +375,9 @@ void mds_release(struct hvfs_tx *tx)
         goto send_rpy;
     }
 
-    if (tx->req->xm_datacheck)
-        hi = tx->req->xm_data;
-    else {
-        hvfs_err(mds, "Internal error, data lossing ...\n");
-        err = -EFAULT;
-        goto send_rpy;
-    }
+    /* NOTE: hi and hi->hash are checked in fe_dispatch() */
+    hi = tx->req->xm_data;
 
-    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
-        hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen,
-                             HASH_SEL_EH);
-    }
     /* alloc hmr */
     hmr = get_hmr();
     if (unlikely(!hmr)) {
@@ -450,18 +413,9 @@ void mds_update(struct hvfs_tx *tx)
         goto send_rpy;
     }
 
-    if (tx->req->xm_datacheck)
-        hi = tx->req->xm_data;
-    else {
-        hvfs_err(mds, "Internal error, data lossing ...\n");
-        err = -EFAULT;
-        goto send_rpy;
-    }
-    
-    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
-        hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 
-                             HASH_SEL_EH);
-    }
+    /* NOTE: hi and hi->hash are checked in fe_dispatch() */
+    hi = tx->req->xm_data;
+
     /* alloc hmr */
     hmr = get_hmr();
     if (unlikely(!hmr)) {
@@ -516,18 +470,9 @@ void mds_linkadd(struct hvfs_tx *tx)
         goto send_rpy;
     }
 
-    if (tx->req->xm_datacheck)
-        hi = tx->req->xm_data;
-    else {
-        hvfs_err(mds, "Internal error, data lossing ...\n");
-        err = -EFAULT;
-        goto send_rpy;
-    }
-    
-    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
-        hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 
-                             HASH_SEL_EH);
-    }
+    /* NOTE: hi and hi->hash are checked in fe_dispatch() */
+    hi = tx->req->xm_data;
+
     /* alloc hmr */
     hmr = get_hmr();
     if (unlikely(!hmr)) {
@@ -574,18 +519,9 @@ void mds_unlink(struct hvfs_tx *tx)
         goto send_rpy;
     }
 
-    if (tx->req->xm_datacheck)
-        hi = tx->req->xm_data;
-    else {
-        hvfs_err(mds, "Internal error, data lossing ...\n");
-        err = -EFAULT;
-        goto send_rpy;
-    }
-    
-    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
-        hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 
-                             HASH_SEL_EH);
-    }
+    /* NOTE: hi and hi->hash are checked in fe_dispatch() */
+    hi = tx->req->xm_data;
+
     /* alloc hmr */
     hmr = get_hmr();
     if (unlikely(!hmr)) {
@@ -612,7 +548,7 @@ send_rpy:
     goto actually_send;
 }
 
-/* symlink */
+/* SYMLINK */
 void mds_symlink(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
@@ -627,18 +563,9 @@ void mds_symlink(struct hvfs_tx *tx)
         goto send_rpy;
     }
 
-    if (tx->req->xm_datacheck)
-        hi = tx->req->xm_data;
-    else {
-        hvfs_err(mds, "Internal error, data lossing ...\n");
-        err = -EFAULT;
-        goto send_rpy;
-    }
-    
-    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
-        hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen, 
-                             HASH_SEL_EH);
-    }
+    /* NOTE: hi and hi->hash are checked in fe_dispatch() */
+    hi = tx->req->xm_data;
+
     /* alloc hmr */
     hmr = get_hmr();
     if (unlikely(!hmr)) {
@@ -696,13 +623,8 @@ void mds_lb(struct hvfs_tx *tx)
      * tx.arg1: offset
      */
 
-    if (tx->req->xm_datacheck)
-        hi = tx->req->xm_data;
-    else {
-        hvfs_err(mds, "Internal error,  data lossing ...\n");
-        err = -EINVAL;
-        goto send_err_rpy;
-    }
+    /* NOTE: hi and hi->hash are checked in fe_dispatch() */
+    hi = tx->req->xm_data;
 
     ASSERT(hi->uuid == tx->req->tx.arg0, mds);
     /* the offset should be aligned */
@@ -835,18 +757,9 @@ void mds_dump_itb(struct hvfs_tx *tx)
         goto out;
     }
 
-    if (tx->req->xm_datacheck)
-        hi = tx->req->xm_data;
-    else {
-        hvfs_err(mds, "Internal error, data lossing ...\n");
-        err = -EFAULT;
-        goto out;
-    }
+    /* NOTE: hi and hi->hash are checked in fe_dispatch() */
+    hi = tx->req->xm_data;
 
-    if (!(hi->hash) && (hi->flag & INDEX_BY_NAME)) {
-        hi->hash = hvfs_hash(hi->puuid, (u64)hi->name, hi->namelen,
-                             HASH_SEL_EH);
-    }
     mds_cbht_search_dump_itb(hi);
     /* dump the previous ITB */
     hi->itbid &= ~(1UL << (fls64(hi->itbid)));
@@ -882,13 +795,7 @@ void mds_list(struct hvfs_tx *tx)
         goto send_rpy;
     }
 
-    if (tx->req->xm_datacheck)
-        hi = tx->req->xm_data;
-    else {
-        hvfs_err(mds, "Internal error, data lossing ...\n");
-        err = -EFAULT;
-        goto send_rpy;
-    }
+    hi = tx->req->xm_data;
 
     hvfs_debug(mds, "LIST %ld %ld %lx %s %d uuid %ld flag %x\n",
                hi->puuid, hi->itbid, hi->hash, hi->name, hi->namelen,

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 20:02:04 macan>
+ * Time-stamp: <2011-06-21 10:38:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -161,6 +161,25 @@ static void __dconf_cmd_action(struct dconf_req *dcr, int fd)
         snprintf(str, 1023, "Change XNET tracing flag from %08x to %08x\n",
                  sflag, hvfs_xnet_tracing_flags);
         __dconf_write(str, fd);
+        break;
+    }
+    case DCONF_GET_LATENCY:
+    {
+        if (hmo.cb_latency) {
+            char *p = NULL;
+            
+            hmo.cb_latency(&p);
+            if (p)
+                __dconf_write(p, fd);
+            else {
+                sprintf(str, "Has latency callback, but failed execution!\n");
+                __dconf_write(str, fd);
+            }
+            xfree(p);
+        } else {
+            sprintf(str, "No latency callback registered!\n");
+            __dconf_write(str, fd);
+        }
         break;
     }
     default:

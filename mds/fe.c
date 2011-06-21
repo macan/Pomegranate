@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-20 01:34:06 macan>
+ * Time-stamp: <2011-06-20 06:18:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -402,34 +402,34 @@ int mds_fe_dispatch(struct xnet_msg *msg)
         if (unlikely(msg->tx.cmd & HVFS_CLT2MDS_NODHLOOKUP)) {
             return mds_client_dispatch(msg);
         }
-        if (msg->tx.cmd & HVFS_CLT2MDS_NOCACHE)
-            goto dh_lookup;
-        /* FIXME: how to origanize reqin_site? */
-        if (unlikely(mds_get_recent_reqno(msg->tx.ssite_id) > msg->tx.reqno)) {
-            /* resend request */
-            tx = mds_txc_search(&hmo.txc, msg->tx.ssite_id, msg->tx.reqno);
-            if (!tx) {
-                /* already evicted, respond w/ err */
-                hvfs_err(mds, "request from %lx w/ seqno %u has been evicted.\n",
-                         msg->tx.ssite_id, msg->tx.reqno);
-                err = -ETXCED;
-                goto out;
+        if (!(msg->tx.cmd & HVFS_CLT2MDS_NOCACHE)) {
+            /* FIXME: how to origanize reqin_site? */
+            if (unlikely(mds_get_recent_reqno(msg->tx.ssite_id) > msg->tx.reqno)) {
+                /* resend request */
+                tx = mds_txc_search(&hmo.txc, msg->tx.ssite_id, msg->tx.reqno);
+                if (!tx) {
+                    /* already evicted, respond w/ err */
+                    hvfs_err(mds, "request from %lx w/ seqno %u has been evicted.\n",
+                             msg->tx.ssite_id, msg->tx.reqno);
+                    err = -ETXCED;
+                    goto out;
+                }
+                if (tx->state != HVFS_TX_PROCESSING) {
+                    /* need resend */
+                    xnet_wait_group_add(mds_gwg, tx->rpy);
+                    xnet_isend(hmo.xc, tx->rpy);
+                }
+                hvfs_err(mds, "You should not goto this cache respond!\n");
+                mds_put_tx(tx);
+                return 0;
             }
-            if (tx->state != HVFS_TX_PROCESSING) {
-                /* need resend */
-                xnet_wait_group_add(mds_gwg, tx->rpy);
-                xnet_isend(hmo.xc, tx->rpy);
-            }
-            hvfs_err(mds, "You should not goto this cache respond!\n");
-            mds_put_tx(tx);
-            return 0;
         }
 
         /* modify controller */
         if (unlikely(mds_modify_control(msg))) {
             return 0;
         }
-    dh_lookup:
+
         /* search in the DH */
         /* FIXME: DH load blocking may happen */
 #ifdef HVFS_DEBUG_LATENCY

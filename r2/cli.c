@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-19 22:23:38 macan>
+ * Time-stamp: <2011-06-20 09:15:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -260,7 +260,7 @@ void *__cli_send_rings(void *args)
     u32 gid;
     int err = 0;
 
-    hvfs_info(root, "Send rings to %lx gid %u\n", ra->site_id, ra->gid_ns);
+    hvfs_warning(root, "Send rings to %lx gid %u\n", ra->site_id, ra->gid_ns);
     
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!msg) {

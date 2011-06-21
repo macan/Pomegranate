@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-15 02:45:07 macan>
+ * Time-stamp: <2011-06-21 10:20:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +26,8 @@
 #include "branch.h"
 #include <fuse.h>
 #include "store.h"
+
+#include "stat.c"
 
 /* we only accept this format: "/path/to/name" */
 #define SPLIT_PATHNAME(pathname, path, name) do {                       \
@@ -1262,6 +1264,7 @@ static int hvfs_config_read(struct pfs_config_mgr *pcm, char *buf,
  */
 static int hvfs_getattr(const char *pathname, struct stat *stbuf)
 {
+    FC_TIMER_DEF();
     struct hstat hs = {0,};
     char *dup = strdup(pathname), *path, *name, *spath = NULL;
     char *p = NULL, *n, *s = NULL;
@@ -1269,6 +1272,7 @@ static int hvfs_getattr(const char *pathname, struct stat *stbuf)
     u32 mdu_flags = 0;
     int err = 0;
 
+    FC_TIMER_B();
     {
         struct soc_entry *se = __soc_lookup(pathname);
 
@@ -1418,6 +1422,8 @@ out:
     xfree(dup);
     xfree(spath);
 
+    FC_TIMER_EaU(FC_STAT_GETATTR);
+    
     return err;
 }
 
@@ -1723,6 +1729,7 @@ void __hvfs_large_unlink(struct hstat *hs)
 
 static int hvfs_unlink(const char *pathname)
 {
+    FC_TIMER_DEF();
     struct hstat hs = {0,};
     char *dup = strdup(pathname), *path, *name, *spath = NULL;
     char *p = NULL, *n, *s = NULL;
@@ -1732,6 +1739,7 @@ static int hvfs_unlink(const char *pathname)
     u32 mdu_flags = 0;
     int err = 0;
 
+    FC_TIMER_B();
     SPLIT_PATHNAME(dup, path, name);
     n = path;
 
@@ -1797,6 +1805,8 @@ hit:
 out:
     xfree(dup);
     xfree(spath);
+
+    FC_TIMER_EaU(FC_STAT_UNLINK);
     
     return err;
 }
@@ -6500,6 +6510,8 @@ realloc:
         HVFS_BUGON("SOC init failed!");
     }
 
+    fc_stat_init();
+
     return NULL;
 }
 
@@ -6509,6 +6521,7 @@ realloc:
 static int hvfs_create_plus(const char *pathname, mode_t mode, 
                             struct fuse_file_info *fi)
 {
+    FC_TIMER_DEF();
     struct hstat hs = {.mc.c.len = 0,};
     struct mdu_update *mu;
     char *dup = strdup(pathname), *path, *name, *spath = NULL;
@@ -6517,6 +6530,7 @@ static int hvfs_create_plus(const char *pathname, mode_t mode,
     u32 mdu_flags = 0;
     int err = 0;
 
+    FC_TIMER_B();
     SPLIT_PATHNAME(dup, path, name);
     n = path;
 
@@ -6612,6 +6626,8 @@ hit:
 out:
     xfree(dup);
     xfree(spath);
+    
+    FC_TIMER_EaU(FC_STAT_CREATE);
     
     return err;
 }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-15 03:43:50 macan>
+ * Time-stamp: <2011-06-20 20:40:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -192,6 +192,7 @@ int main(int argc, char *argv[])
 
     hmo.branch_dispatch = branch_dispatch_split;
     hmo.cb_branch_destroy = pfs_cb_branch_destroy;
+    hmo.cb_latency = pfs_cb_latency;
     
 #if FUSE_USE_VERSION >= 26
     err = fuse_main(argc, argv, &pfs_ops, NULL);
