@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-21 10:38:01 macan>
+ * Time-stamp: <2011-06-24 01:35:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -83,7 +83,7 @@ static void __dconf_cmd_action(struct dconf_req *dcr, int fd)
         }
         
         /* reply the configuration */
-        snprintf(str, 1023, "MDS Server %lx Uptime %lds State %s, "
+        snprintf(str, 1023, "%s %lx Uptime %lds State %s, "
                  "register w/ R2 server %lx fsid %ld.\n"
                  "Total OP [lookup %ld, modify %ld]\n"
                  "Resource Usage: \n"
@@ -93,6 +93,8 @@ static void __dconf_cmd_action(struct dconf_req *dcr, int fd)
                  "\tSwaps %ld InBlock %ld OutBlock %ld\n"
                  "\tMsgSnd %ld MsgRcv %ld\n"
                  "\tSignals %ld Voluntary CS %ld Involuntary CS %ld\n",
+                 (HVFS_IS_MDS(hmo.site_id) ? "MDS Server" : 
+                  (HVFS_IS_CLIENT(hmo.site_id) ? "Client" : "BP")),
                  hmo.site_id,
                  (u64)(time(NULL) - hmo.uptime),
                  (hmo.state == HMO_STATE_INIT ? "INIT" :
@@ -100,7 +102,8 @@ static void __dconf_cmd_action(struct dconf_req *dcr, int fd)
                    (hmo.state == HMO_STATE_RUNNING ? "RUNNING" :
                     (hmo.state == HMO_STATE_PAUSE ? "PAUSE" :
                      (hmo.state == HMO_STATE_RDONLY ? "RDONLY" :
-                      "unknown"))))),
+                      (hmo.state == HMO_STATE_OFFLINE ? "OFFLINE" :
+                       "unknown")))))),
                  (hmo.ring_site == 0 ? HVFS_ROOT(0) : hmo.ring_site), 
                  hmo.fsid,
                  atomic64_read(&hmo.prof.cbht.lookup), 
@@ -194,14 +197,23 @@ static void __dconf_read_and_reply(int fd)
     int bi, bl = 0;
     char data[256] = {0,};
     struct dconf_req *dcr = (struct dconf_req *)data;
+    struct timespec ts, ts2;
     
+    clock_gettime(CLOCK_REALTIME, &ts);
     do {
+        clock_gettime(CLOCK_REALTIME, &ts2);
+        if (ts2.tv_sec - ts.tv_sec >= 5) {
+            /* close this connection please */
+            close(fd);
+            return;
+        }
         bi = recv(fd, data + bl, 256 - bl, 0);
         if (bi == -1 && errno != EAGAIN) {
             hvfs_err(mds, "cmd channel recv failed %d\n", errno);
             return;
         }
-        bl += bi;
+        if (bi > 0)
+            bl += bi;
     } while (bl < 256);
     
     /* ok, we get the request now */

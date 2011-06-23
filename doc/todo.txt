@@ -431,3 +431,8 @@ Pomegranate TODOs:
     2. Add latency stat in FUSE client for every metadata operation.
 
     3. Detect and optimize latency (especially on multiple MDSs)!
+
+35. R2 TODOs
+
+    1. Support get info from R2 server, e.g. active/error sites,
+       create/lookup/unlink entries etc.

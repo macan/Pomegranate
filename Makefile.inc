@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-06-20 23:11:36 macan>
+# Time-stamp: <2011-06-23 22:01:35 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -155,7 +155,8 @@ FUSE_H_SOURCE = pfs.h store.h
 
 inc_h_depend_files = $(patsubst %.h, $(INC_PATH)/%.h, $(INC_H_SOURCE)) \
 						$(LIB_PATH)/hash.c
-mds_h_depend_files = $(patsubst %.h, $(MDS)/%.h, $(MDS_H_SOURCE))
+mds_h_depend_files = $(patsubst %.h, $(MDS)/%.h, $(MDS_H_SOURCE)) \
+                        $(MDS)/latency.c
 mdsl_h_depend_fils = $(patsubst %.h, $(MDSL)/%.h, $(MDSL_H_SOURCE))
 lib_h_depend_files = $(patsubst %.h, $(LIB_PATH)/%.h, $(LIB_H_SOURCE))
 r2_h_depend_files = $(patsubst %.h, $(R2)/%.h, $(R2_H_SOURCE))

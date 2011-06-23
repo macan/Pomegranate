@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-20 09:15:14 macan>
+ * Time-stamp: <2011-06-23 09:56:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -231,9 +231,11 @@ rescan:
  */
 struct ring_args
 {
-    u64 site_id;
+    u64 site_id;                /* site id filled by traverse function */
+    u32 state;                  /* state filled by traverse function */
     u32 gid_ns;
 };
+
 static inline
 int __pack_msg(struct xnet_msg *msg, void *data, int len)
 {
@@ -259,6 +261,11 @@ void *__cli_send_rings(void *args)
     int ring_len, ring_len2;
     u32 gid;
     int err = 0;
+
+    if (ra->state == SE_STATE_INIT ||
+        ra->state == SE_STATE_SHUTDOWN) {
+        return NULL;
+    }
 
     hvfs_warning(root, "Send rings to %lx gid %u\n", ra->site_id, ra->gid_ns);
     
@@ -432,9 +439,11 @@ out:
 
 struct addr_args
 {
-    u64 site_id;
-    void *data;
+    u64 site_id;                /* site id filled by traverse function */
+    u32 state;                  /* site state filled by traverse function */
+
     int len;
+    void *data;
 };
 
 void *__cli_send_addr_table(void *args)
@@ -443,6 +452,11 @@ void *__cli_send_addr_table(void *args)
     struct addr_args *aa = (struct addr_args *)args;
     int err = 0;
 
+    if (aa->state == SE_STATE_INIT ||
+        aa->state == SE_STATE_SHUTDOWN) {
+        return NULL;
+    }
+    
     hvfs_info(root, "Send addr table to %lx len %d\n", aa->site_id, aa->len);
 
     msg = xnet_alloc_msg(XNET_MSG_NORMAL);
@@ -779,6 +793,132 @@ int cli_do_rmvsite(struct sockaddr_in *sin, u64 fsid, u64 site_id)
         xfree(data);
     }
     
+out:
+    return err;
+}
+
+struct site_info_args
+{
+    u64 site_id;
+    u32 state;
+
+    u32 flag;
+    u32 init, normal, transient, error, shutdown;
+};
+
+static inline
+void __sia_analyze_state(struct site_info_args *sia)
+{
+    switch (sia->state) {
+    case SE_STATE_INIT:
+        sia->init++;
+        break;
+    case SE_STATE_NORMAL:
+        sia->normal++;
+        break;
+    case SE_STATE_TRANSIENT:
+        sia->transient++;
+        break;
+    case SE_STATE_ERROR:
+        sia->error++;
+        break;
+    case SE_STATE_SHUTDOWN:
+        sia->shutdown++;
+        break;
+    default:;
+    }
+}
+
+void *__cli_get_site_info(void *args)
+{
+    struct site_info_args *sia = args;
+
+    switch (sia->flag & HVFS_SYSINFO_SITE_MASK) {
+    case HVFS_SYSINFO_SITE_ALL:
+        __sia_analyze_state(sia);
+        break;
+    case HVFS_SYSINFO_SITE_MDS:
+        if (HVFS_IS_MDS(sia->site_id))
+            __sia_analyze_state(sia);
+        break;
+    case HVFS_SYSINFO_SITE_MDSL:
+        if (HVFS_IS_MDSL(sia->site_id))
+            __sia_analyze_state(sia);
+        break;
+    case HVFS_SYSINFO_SITE_CLIENT:
+        if (HVFS_IS_CLIENT(sia->site_id))
+            __sia_analyze_state(sia);
+        break;
+    case HVFS_SYSINFO_SITE_BP:
+        if (HVFS_IS_BP(sia->site_id))
+            __sia_analyze_state(sia);
+        break;
+    case HVFS_SYSINFO_SITE_R2:
+        if (HVFS_IS_ROOT(sia->site_id))
+            __sia_analyze_state(sia);
+        break;
+    default:;
+    }
+    
+    return NULL;
+}
+
+static inline
+char *__sysinfo_type(u64 arg)
+{
+    switch (arg & HVFS_SYSINFO_SITE_MASK) {
+    case HVFS_SYSINFO_SITE_ALL:
+        return "All sites";
+    case HVFS_SYSINFO_SITE_MDS:
+        return "MDS sites";
+    case HVFS_SYSINFO_SITE_MDSL:
+        return "MDSL sites";
+    case HVFS_SYSINFO_SITE_CLIENT:
+        return "Client sites";
+    case HVFS_SYSINFO_SITE_BP:
+        return "BP sites";
+    case HVFS_SYSINFO_SITE_R2:
+        return "R2 sites";
+    default:
+        return "Unknown sites";
+    }
+    return "Unkonw sites";
+}
+
+int root_info_site(u64 arg, void **buf)
+{
+    struct site_info_args sia;
+    char *p;
+    int err = 0;
+
+    memset(&sia, 0, sizeof(sia));
+    sia.flag = arg;
+    
+    err = site_mgr_traverse(&hro.site, __cli_get_site_info, &sia);
+    if (err) {
+        hvfs_err(root, "Traverse site table failed w/ %d\n", err);
+        goto out;
+    }
+
+    p = xzalloc(512);
+    if (!p) {
+        err = -ENOMEM;
+        goto out;
+    }
+    *buf = (void *)p;
+
+    p += sprintf(p, "%s total %d active %d inactive %d indoubt %d\n",
+                 __sysinfo_type(arg),
+                 sia.init + sia.normal + sia.transient + sia.error + 
+                 sia.shutdown,
+                 sia.normal,
+                 sia.init + sia.shutdown,
+                 sia.transient + sia.error);
+    p += sprintf(p, " -> [INIT] %d [NORM] %d [TRAN] %d [ERROR] %d "
+                 "[SHUTDOWN] %d\n",
+                 sia.init, sia.normal, sia.transient,
+                 sia.error, sia.shutdown);
+
 out:
     return err;
 }

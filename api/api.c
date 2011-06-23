@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-17 09:41:57 macan>
+ * Time-stamp: <2011-06-23 10:21:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -692,6 +692,49 @@ out_nofree:
     return err;
 }
 
+/* r2cli_do_hb()
+ *
+ * @gid: already right shift 2 bits
+ */
+static
+int r2cli_do_hb(u64 request_site, u64 root_site, u64 fsid, u32 gid)
+{
+    struct xnet_msg *msg;
+    union hvfs_x_info *hxi;
+    int err = 0;
+
+    hxi = (union hvfs_x_info *)&hmi;
+    
+    /* alloc one msg and send it to the peer site */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out_nofree;
+    }
+
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0,
+                     hmo.xc->site_id, root_site);
+    xnet_msg_fill_cmd(msg, HVFS_R2_HB, request_site, fsid);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, hxi, sizeof(*hxi));
+
+    msg->tx.reserved = gid;
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out;
+    }
+out:
+    xnet_free_msg(msg);
+out_nofree:
+    
+    return err;
+}
+
 void amc_cb_exit(void *arg)
 {
     int err = 0;
@@ -702,6 +745,19 @@ void amc_cb_exit(void *arg)
                  hmo.xc->site_id, HVFS_RING(0), err);
         return;
     }
+}
+
+void amc_cb_hb(void *arg)
+{
+    u64 ring_site;
+    int err = 0;
+
+    ring_site = mds_select_ring(&hmo);
+    err = r2cli_do_hb(hmo.xc->site_id, ring_site, hmo.fsid, 0);
+    if (err) {
+        hvfs_err(xnet, "hb %lx w/ r2 %x failed w/ %d\n",
+                 hmo.xc->site_id, HVFS_RING(0), err);
+    }    
 }
 
 void amc_cb_ring_update(void *arg)
@@ -1107,6 +1163,7 @@ int __core_main(int argc, char *argv[])
     hmo.fsid = fsid;
     
     hmo.cb_exit = amc_cb_exit;
+    hmo.cb_hb = amc_cb_hb;
     hmo.cb_ring_update = amc_cb_ring_update;
     hmo.cb_addr_table_update = amc_cb_addr_table_update;
 reg_loop_forever:
@@ -3830,6 +3887,56 @@ int hvfs_shutdown(u64 site_id)
     ASSERT(msg->pair, xnet);
     err = msg->pair->tx.err;
     xnet_set_auto_free(msg->pair);
+
+out_msg:
+    xnet_free_msg(msg);
+out:
+    return err;
+}
+
+/* hvfs_get_info() get system info from R2 server
+ *
+ * ABI: pad a hvfs_sys_info structure to msg
+ */
+int hvfs_get_info(u64 cmd, u64 arg, char **outstr)
+{
+    struct xnet_msg *msg;
+    struct hvfs_sys_info hsi = {.cmd = cmd, .arg0 = arg,};
+    int err = 0;
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, HVFS_ROOT(0));
+    xnet_msg_fill_cmd(msg, HVFS_R2_INFO, 0, 0);
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &hsi, sizeof(hsi));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+    ASSERT(msg->pair, xnet);
+    err = msg->pair->tx.err;
+    if (!msg->pair->tx.len)
+        goto out_msg;
+
+    /* try to alloc buffer */
+    *outstr = xzalloc(msg->pair->tx.len + 1);
+    if (!*outstr) {
+        xnet_clear_auto_free(msg->pair);
+        *outstr = msg->pair->xm_data;
+    } else {
+        memcpy(*outstr, msg->pair->xm_data, msg->pair->tx.len);
+    }
 
 out_msg:
     xnet_free_msg(msg);

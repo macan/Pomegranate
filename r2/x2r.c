@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-17 09:39:47 macan>
+ * Time-stamp: <2011-06-23 11:03:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1318,3 +1318,67 @@ out:
     return err;
 }
 
+/* do_info() recv the cmd from a site and response with the corresponding info.
+ *
+ * ABI: xmdata saves hsi structure
+ *
+ * Return format: <string buffer>
+ */
+int root_do_info(struct xnet_msg *msg)
+{
+    struct hvfs_sys_info *hsi;
+    struct xnet_msg *rpy = NULL;
+    void *buf = NULL, *buf1 = NULL, *buf2 = NULL;
+    int err = 0;
+
+    if (msg->tx.len < sizeof(*hsi) ||
+        !msg->xm_datacheck) {
+        hvfs_err(root, "Invalid info request from site %lx\n",
+                 msg->tx.ssite_id);
+        err = -EINVAL;
+        goto out;
+    }
+
+    err = __prepare_xnet_msg(msg, &rpy);
+    if (err) {
+        goto out;
+    }
+
+    hsi = msg->xm_data;
+
+    switch (hsi->cmd) {
+    default:
+    case HVFS_SYSINFO_NOOP:
+        __simply_send_reply(msg, 0);
+        break;
+    case HVFS_SYSINFO_ALL:
+        /* fall through */
+    case HVFS_SYSINFO_SITE:
+        err = root_info_site(hsi->arg0, &buf);
+        if (!err && buf) {
+            xnet_msg_add_sdata(rpy, buf, strlen(buf));
+        }
+        if (hsi->cmd != HVFS_SYSINFO_SITE)
+            break;
+    case HVFS_SYSINFO_MDS:
+        err = root_info_mds(hsi->arg0, &buf1);
+        if (!err && buf1) {
+            xnet_msg_add_sdata(rpy, buf1, strlen(buf1));
+        }
+        if (hsi->cmd != HVFS_SYSINFO_SITE)
+            break;
+    case HVFS_SYSINFO_MDSL:
+        if (hsi->cmd != HVFS_SYSINFO_SITE)
+            break;
+    }
+
+    __root_send_rpy(rpy, err);
+    xfree(buf);
+    xfree(buf1);
+    xfree(buf2);
+    
+out:
+    xnet_free_msg(msg);
+
+    return err;
+}

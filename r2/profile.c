@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-16 05:02:54 macan>
+ * Time-stamp: <2011-06-23 11:09:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,8 @@
  */
 
 #include "root.h"
+
+static struct hvfs_profile_mds_rate g_hpmr = {0, 0.0, 0.0, 0, 0,};
 
 /* This profile unit recv requests from other sites and write to corresponding
  * log file
@@ -195,6 +197,26 @@ int root_setup_profile(void)
     return 0;
 }
 
+/* try to update metadata rate on each mds profile update */
+static inline
+void __root_profile_update_mds_rate(struct hvfs_profile_ex *hp)
+{
+    time_t cur = time(NULL);
+
+    if (cur == g_hpmr.last_update)
+        return;
+    
+    /* 3th entry is modify counter */
+    g_hpmr.modify = (double)(hp->hpe[3].value - g_hpmr.last_modify) /
+        (cur - g_hpmr.last_update);
+    g_hpmr.nonmodify = (double)(hp->hpe[2].value - g_hpmr.last_nonmodify) /
+        (cur - g_hpmr.last_update);
+
+    g_hpmr.last_update = cur;
+    g_hpmr.last_modify = hp->hpe[3].value;
+    g_hpmr.last_nonmodify = hp->hpe[2].value;
+}
+
 int root_profile_update_mds(struct hvfs_profile *hp, 
                             struct xnet_msg *msg)
 {
@@ -210,6 +232,8 @@ int root_profile_update_mds(struct hvfs_profile *hp,
     for (i = 0; i < hp->nr; i++) {
         HVFS_PROFILE_VALUE_UPDATE(&hro.hp_mds, hp, i);
     }
+
+    __root_profile_update_mds_rate(&hro.hp_mds);
     
 out:
     return err;
@@ -290,4 +314,36 @@ void root_profile_flush(time_t cur)
     
     /* FIXME: flush bp profile */
     /* FIXME: flush client profile */
+}
+
+int root_info_mds(u64 arg, void **buf)
+{
+    char *p;
+    int err = 0, i;
+
+    p = xzalloc(4096 << 2);
+    if (!p) {
+        hvfs_err(root, "xzalloc() info mds buffer failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    *buf = (void *)p;
+    
+    switch (arg) {
+    case HVFS_SYSINFO_MDS_RAW:
+        p += sprintf(p, "MDS RAW:\n");
+        for (i = 0; i < hro.hp_mds.nr; i++) {
+            p += sprintf(p, " -> %20s\t\t%ld\n", hro.hp_mds.hpe[i].name,
+                         hro.hp_mds.hpe[i].value);
+        }
+        break;
+    default:
+    case HVFS_SYSINFO_MDS_RATE:
+        p += sprintf(p, "MDS Rate:\n -> [Modify] %10.4f/s "
+                     "[NonModify] %10.4f/s\n",
+                     g_hpmr.modify, g_hpmr.nonmodify);
+    }
+
+out:
+    return err;
 }

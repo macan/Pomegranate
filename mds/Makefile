@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2010-07-20 14:10:59 macan>
+# Time-stamp: <2011-06-23 22:09:25 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -12,7 +12,7 @@ include ../Makefile.inc
 
 all : mds_lib
 
-%.o : %.c
+%.o : %.c $(mds_h_depend_files)
 	@echo -e " " CC"\t" $@
 	@$(CC) $(CFLAGS) -c $(patsubst %.c, $(MDS)/%.c, $<)
 

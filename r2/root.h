@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-17 09:39:11 macan>
+ * Time-stamp: <2011-06-23 10:58:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -149,6 +149,29 @@ extern struct hvfs_root_object hro;
 extern u32 hvfs_root_tracing_flags;
 #endif
 
+struct hvfs_sys_info
+{
+#define HVFS_SYSINFO_NOOP               0
+#define HVFS_SYSINFO_SITE               1
+#define HVFS_SYSINFO_MDS                2
+#define HVFS_SYSINFO_MDSL               3
+
+#define HVFS_SYSINFO_ALL                100
+    u32 cmd;
+    u32 arg0;
+#define HVFS_SYSINFO_SITE_ALL           0
+#define HVFS_SYSINFO_SITE_MDS           1
+#define HVFS_SYSINFO_SITE_MDSL          2
+#define HVFS_SYSINFO_SITE_CLIENT        3
+#define HVFS_SYSINFO_SITE_BP            4
+#define HVFS_SYSINFO_SITE_R2            5
+
+#define HVFS_SYSINFO_SITE_MASK          0x0f
+
+#define HVFS_SYSINFO_MDS_RATE           0
+#define HVFS_SYSINFO_MDS_RAW            1
+};
+
 /* API Region */
 void root_pre_init(void);
 int root_verify(void);
@@ -177,6 +200,7 @@ int root_do_addsite(struct xnet_msg *);
 int root_do_rmvsite(struct xnet_msg *);
 int root_do_shutdown(struct xnet_msg *);
 int root_do_profile(struct xnet_msg *);
+int root_do_info(struct xnet_msg *);
 
 int bparse_hxi(void *, union hvfs_x_info **);
 int bparse_ring(void *, struct chring_tx **);
@@ -193,6 +217,7 @@ int cli_dynamic_del_site(struct ring_entry *, u64, int);
 int cli_do_addsite(struct sockaddr_in *, u64, u64);
 int cli_do_rmvsite(struct sockaddr_in *, u64, u64);
 struct xnet_group *cli_get_active_site(struct chring *);
+int root_info_site(u64 arg, void **buf);
 
 /* profile.c */
 int root_profile_update_mds(struct hvfs_profile *,
@@ -205,5 +230,6 @@ int root_profile_update_client(struct hvfs_profile *,
                                struct xnet_msg *);
 int root_setup_profile(void);
 void root_profile_flush(time_t);
+int root_info_mds(u64, void **);
 
 #endif

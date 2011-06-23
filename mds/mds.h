@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-20 22:38:28 macan>
+ * Time-stamp: <2011-06-23 22:10:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -669,5 +669,8 @@ void mds_dt_destroy(struct dir_trigger_mgr *);
         }                                                               \
     } while (0)
 #define FINA_DIR_TRIGGER(dhe) ({mds_fina_dir_trigger(dhe);})
+
+/* latency.c */
+void mds_cb_latency(void *);
 
 #endif

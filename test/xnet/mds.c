@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-16 10:29:35 macan>
+ * Time-stamp: <2011-06-23 21:59:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1253,6 +1253,8 @@ int main(int argc, char *argv[])
                   hmi.gdt_uuid, hmi.gdt_salt,
                   atomic64_read(&hmi.mi_txg));
     }
+    /* setup latency dconf generator */
+    hmo.cb_latency = mds_cb_latency;
     
     err = mds_verify();
     if (err) {

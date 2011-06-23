@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-06-17 11:02:45 macan>
+# Time-stamp: <2011-06-23 11:08:26 macan>
 #
 # Armed with EMACS.
 #
@@ -191,7 +191,7 @@ class pamc_shell(cmd.Cmd):
                 "regdtrigger", "catdtrigger", "statfs", "setattr",
                 "getactivesite", "addsite", "rmvsite", "shutdown",
                 "cbranch", "bc", "bp", "getbor", "search", 
-                "pst", "clrdtrigger"]
+                "pst", "clrdtrigger", "getinfo"]
 
     def __init__(self, ub = False):
         cmd.Cmd.__init__(self)
@@ -1234,6 +1234,57 @@ class pamc_shell(cmd.Cmd):
         except ValueError, ve:
             print "ValueError %s" % ve
         print "+OK"
+
+    def do_getinfo(self, line):
+        '''Get system info from R2.
+        Usage: getinfo [all|site|mds|mdsl] [all|mds|mdsl|client|bp|r2||raw|rate]
+                       site [all|mds|mdsl|client|bp|r2]
+                       mds  [rate|raw]
+        '''
+        l = shlex.split(line)
+        cmd = 0
+        arg = 0
+
+        if len(l) == 0:
+            cmd = 100
+        elif len(l) >= 1:
+            if l[0] == "all":
+                cmd = 100
+            elif l[0] == "site":
+                cmd = 1
+            elif l[0] == "mds":
+                cmd = 2
+            elif l[0] == "mdsl":
+                cmd = 3
+            else:
+                cmd = 0
+        if len(l) >= 2:
+            if l[1] == "all":
+                arg = 0
+            elif l[1] == "mds":
+                arg = 1
+            elif l[1] == "mdsl":
+                arg = 2
+            elif l[1] == "client":
+                arg = 3
+            elif l[1] == "bp":
+                arg = 4
+            elif l[1] == "r2":
+                arg = 5
+            elif l[1] == "rate":
+                arg = 0
+            elif l[1] == "raw":
+                arg = 1
+
+        c_str = c_char_p(None)
+        err = api.hvfs_get_info(cmd, arg, byref(c_str));
+        if err != 0:
+            print "api.hvfs_get_info() failed w/ %d" % err
+            return
+        print c_str.value
+        api.hvfs_free(c_str)
+        print "+OK"
+
 
     def do_quit(self, line):
         print "Quiting ..."

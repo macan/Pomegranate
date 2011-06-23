@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-20 09:15:00 macan>
+ * Time-stamp: <2011-06-23 22:31:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -123,12 +123,19 @@ struct site_entry *site_mgr_lookup(struct site_mgr *sm, u64 site_id)
     }
 }
 
+struct site_args
+{
+    u64 site_id;
+    u32 state;
+};
+
 int site_mgr_traverse(struct site_mgr *sm, site_mgr_trav_callback_t callback, 
                       void *args)
 {
     struct site_entry *pos;
     struct hlist_node *n;
     struct regular_hash *rh;
+    struct site_args sa;
     int err = 0, i;
 
     for (i = 0; i < hro.conf.site_mgr_htsize; i++) {
@@ -136,14 +143,16 @@ int site_mgr_traverse(struct site_mgr *sm, site_mgr_trav_callback_t callback,
         xlock_lock(&rh->lock);
         hlist_for_each_entry(pos, n, &rh->h, hlist) {
             hvfs_warning(root, "Hit site %lx\n", pos->site_id);
-            if (pos->state == SE_STATE_INIT ||
-                pos->state == SE_STATE_SHUTDOWN)
-                continue;
             if (callback) {
-                if (!args)
-                    callback((void *)pos->site_id);
-                else {
-                    *(u64 *)args = pos->site_id;
+                if (!args) {
+                    sa.site_id = pos->site_id;
+                    sa.state = pos->state;
+                    /* we pass a site_args structure to user function */
+                    callback((void *)&sa);
+                } else {
+                    ((struct site_args *)args)->site_id = pos->site_id;
+                    ((struct site_args *)args)->state = pos->state;
+                    
                     callback(args);
                 }
             }

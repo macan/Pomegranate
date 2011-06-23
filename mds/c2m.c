@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-20 09:04:22 macan>
+ * Time-stamp: <2011-06-23 21:51:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,15 +26,12 @@
 #include "xtable.h"
 #include "tx.h"
 #include "xnet.h"
+#include "latency.c"
 
 static inline 
 void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr, 
                     int err)
 {
-#ifdef HVFS_DEBUG_LATENCY
-    lib_timer_def();
-    lib_timer_B();
-#endif    
     tx->rpy = xnet_alloc_msg(XNET_MSG_CACHE);
     if (!tx->rpy) {
         hvfs_err(mds, "xnet_alloc_msg() failed\n");
@@ -83,10 +80,6 @@ void mds_send_reply(struct hvfs_tx *tx, struct hvfs_md_reply *hmr,
     mds_tx_done(tx);
     if (!err)
         mds_tx_reply(tx);
-#ifdef HVFS_DEBUG_LATENCY
-    lib_timer_E();
-    lib_timer_O(1, "REPLY");
-#endif
 }
 
 static inline
@@ -201,8 +194,10 @@ void mds_lookup(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct hvfs_md_reply *hmr;
+    TIMER_DEF();
     int err;
 
+    TIMER_B();
     /* ABI:
      * tx.arg1: lease timestamp
      */
@@ -238,6 +233,7 @@ void mds_lookup(struct hvfs_tx *tx)
     err = mds_cbht_search(hi, hmr, tx->txg, &tx->txg);
 
 actually_send:
+    TIMER_EaU(LAT_STAT_LOOKUP);
     return mds_send_reply(tx, hmr, err);
 send_rpy:
     hmr = get_hmr();
@@ -255,12 +251,10 @@ void mds_create(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct hvfs_md_reply *hmr;
+    TIMER_DEF();
     int err;
 
-#ifdef HVFS_DEBUG_LATENCY
-    lib_timer_def();
-    lib_timer_B();
-#endif
+    TIMER_B();
     /* sanity checking */
     if (unlikely(tx->req->tx.len < sizeof(*hi))) {
         hvfs_err(mds, "Invalid CREATE request %d received\n", 
@@ -292,11 +286,8 @@ void mds_create(struct hvfs_tx *tx)
 
     err = mds_cbht_search(hi, hmr, tx->txg, &tx->txg);
 
-#ifdef HVFS_DEBUG_LATENCY
-    lib_timer_E();
-    lib_timer_O(1, "CREATE");
-#endif
 actually_send:
+    TIMER_EaU(LAT_STAT_CREATE);
     return mds_send_reply(tx, hmr, err);
 send_rpy:
     hmr = get_hmr();
@@ -509,8 +500,10 @@ void mds_unlink(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct hvfs_md_reply *hmr;
+    TIMER_DEF();
     int err;
 
+    TIMER_B();
     /* sanity checking */
     if (unlikely(tx->req->tx.len < sizeof(*hi))) {
         hvfs_err(mds, "Invalid UNLINK request %d received\n", 
@@ -536,6 +529,7 @@ void mds_unlink(struct hvfs_tx *tx)
     err = mds_cbht_search(hi, hmr, tx->txg, &tx->txg);
 
 actually_send:
+    TIMER_EaU(LAT_STAT_UNLINK);
     return mds_send_reply(tx, hmr, err);
 send_rpy:
     hmr = get_hmr();
