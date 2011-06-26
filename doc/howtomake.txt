@@ -1,5 +1,5 @@
 Writter: Ma Can <macan@ncic.ac.cn> or <ml.macana@gmail.com> (gmail is preferred)
-Time-stamp: <2011-06-21 11:19:21 macan>
+Time-stamp: <2011-06-26 18:29:53 macan>
 
 Making Pomegranate is very easy :) You just should following the next steps:
 
@@ -68,3 +68,14 @@ Making Pomegranate is very easy :) You just should following the next steps:
                         MDSL lib:       libmdsl.so.1.0
                         XNET lib:       libxnet.so.1.0
                         R2 lib:         libr2.so.1.0
+
+5. How to start the servers?
+
+   $ cd $POMEGRANATE_HOME
+   $ vim conf/hvfs.conf # modify your cluster configuration
+   $ bin/hvfs.sh stat   # check if there is already an instance running
+   $ bin/hvfs.sh start  # start the servers: mds, mdsl, and r2
+   $ bin/hvfs.sh mkfs   # make the file system
+
+   $ # init fuse client, mount on /mnt/hvfs
+   $ noxattr=0 dstore=conf/dstore.conf root=R2_IP id=CLIENT_ID test/xnet/pfs.ut /mnt/hvfs -o allow_other -o use_ino -o entry_timeout=1 -o attr_timeout=1

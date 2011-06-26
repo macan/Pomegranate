@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-23 11:03:27 macan>
+ * Time-stamp: <2011-06-26 18:41:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1358,17 +1358,17 @@ int root_do_info(struct xnet_msg *msg)
         if (!err && buf) {
             xnet_msg_add_sdata(rpy, buf, strlen(buf));
         }
-        if (hsi->cmd != HVFS_SYSINFO_SITE)
+        if (hsi->cmd == HVFS_SYSINFO_SITE)
             break;
     case HVFS_SYSINFO_MDS:
         err = root_info_mds(hsi->arg0, &buf1);
         if (!err && buf1) {
             xnet_msg_add_sdata(rpy, buf1, strlen(buf1));
         }
-        if (hsi->cmd != HVFS_SYSINFO_SITE)
+        if (hsi->cmd == HVFS_SYSINFO_MDS)
             break;
     case HVFS_SYSINFO_MDSL:
-        if (hsi->cmd != HVFS_SYSINFO_SITE)
+        if (hsi->cmd == HVFS_SYSINFO_MDSL)
             break;
     }
 

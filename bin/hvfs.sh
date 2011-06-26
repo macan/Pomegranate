@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-04-28 14:44:42 macan>
+# Time-stamp: <2011-06-26 19:46:30 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -216,6 +216,16 @@ function start_root() {
         done
     fi
     sleep 5
+}
+
+function start_r2cli() {
+    if [ "x$1" == "x" ]; then
+        ipnr=`cat $CONFIG_FILE | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
+        ip=`echo $ipnr | awk -F: '{print $1}'`
+        id=`echo $ipnr | awk -F: '{print $2}'`
+        port=`echo $ipnr | awk -F: '{print $3}'`
+        $SSH $UN$ip "type=1 fsid=0 op=1 $HVFS_HOME/test/xnet/r2cli.ut $id $R2IP $port"
+    fi
 }
 
 function check_mdsl() {
@@ -793,6 +803,8 @@ elif [ "x$1" == "xumount" ]; then
     do_umount_pfs
 elif [ "x$1" == "xml" ]; then
     do_list_pfs
+elif [ "x$1" == "xmkfs" ]; then
+    start_r2cli
 elif [ "x$1" == "xhelp" ]; then
     do_help
 else

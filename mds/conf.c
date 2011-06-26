@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-24 01:35:17 macan>
+ * Time-stamp: <2011-06-24 02:41:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -103,7 +103,7 @@ static void __dconf_cmd_action(struct dconf_req *dcr, int fd)
                     (hmo.state == HMO_STATE_PAUSE ? "PAUSE" :
                      (hmo.state == HMO_STATE_RDONLY ? "RDONLY" :
                       (hmo.state == HMO_STATE_OFFLINE ? "OFFLINE" :
-                       "unknown")))))),
+                       "Unknown")))))),
                  (hmo.ring_site == 0 ? HVFS_ROOT(0) : hmo.ring_site), 
                  hmo.fsid,
                  atomic64_read(&hmo.prof.cbht.lookup), 

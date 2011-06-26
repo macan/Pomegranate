@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 14:27:55 macan>
+ * Time-stamp: <2011-06-26 19:49:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -210,7 +210,7 @@ int r2cli_do_reg(u64 request_site, u64 root_site, u64 fsid, u32 gid)
     }
 
     /* parse the register reply message */
-    hvfs_err(xnet, "Begin parse the reg reply message\n");
+    hvfs_info(xnet, "Begin parse the reg reply message\n");
     if (msg->pair->xm_datacheck) {
         void *data = msg->pair->xm_data;
         void *bitmap;
@@ -459,15 +459,16 @@ int main(int argc, char *argv[])
         .buf_free = NULL,
         .recv_handler = NULL,
     };
-    char *value;
+    char *value, *ring_ip;
     int type = 0;
     int err = 0;
-    int self, sport, op, fsid;
+    int self, sport = -1, op, fsid;
 
     hvfs_info(xnet, "R2 Unit Test Client running...\n");
     hvfs_info(xnet, "type 0/1/2/3 => MDS/CLIENT/MDSL/RING\n");
     hvfs_info(xnet, "fsid => 0-$\n");
     hvfs_info(xnet, "op 0/1/2 => hb/mkfs/watch\n");
+    hvfs_info(root, "... r2cli.ut ID RING_IP SELF_PORT\n");
 
     value = getenv("type");
     if (value) {
@@ -502,6 +503,12 @@ int main(int argc, char *argv[])
                    (type == TYPE_CLIENT ? "client" :
                     (type == TYPE_MDSL ? "mdsl" : "ring"))),
                   self);
+        if (argc == 3) {
+            ring_ip = argv[2];
+        } else if (argc == 4) {
+            ring_ip = argv[2];
+            sport = atoi(argv[3]);
+        }
     }
     
     st_init();
@@ -516,7 +523,8 @@ int main(int argc, char *argv[])
     /* init misc configurations */
     hro.prof.xnet = &g_xnet_prof;
 
-    sport = port[type][self];
+    if (sport == -1)
+        sport = port[type][self];
     self = HVFS_TYPE_SEL(type, self);
 
     hro.xc = xnet_register_type(0, sport, self, &ops);
@@ -529,8 +537,12 @@ int main(int argc, char *argv[])
     root_verify();
 
     /* prepare the init site table now */
-    xnet_update_ipaddr(HVFS_TYPE(TYPE_RING, 0), 1, &ipaddr[3],
-                       (short *)(&port[3][0]));
+    if (!ring_ip)
+        xnet_update_ipaddr(HVFS_RING(0), 1, &ipaddr[3], 
+                           (short *)(&port[3][0]));
+    else
+        xnet_update_ipaddr(HVFS_RING(0), 1, &ring_ip,
+                           (short *)(&port[3][0]));
 
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
     /* do sent here */
