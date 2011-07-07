@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-05 10:57:24 macan>
+ * Time-stamp: <2011-06-29 10:02:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -833,6 +833,7 @@ void mds_audirdelta(struct xnet_msg *msg)
     }
 
     /* add to the txg->rddb list */
+    /* FIXME: here is a txg hole between cbht update and rddb update! */
     txg = mds_get_open_txg(&hmo);
     err = txg_rddb_add(txg, dda, DIR_DELTA_REMOTE_UPDATE);
     txg_put(txg);
@@ -918,6 +919,13 @@ void mds_gossip_bitmap(struct xnet_msg *msg)
      */
 
     /* sanity checking */
+    if (hmo.state < HMO_STATE_RUNNING) {
+        hvfs_warning(mds, "Site %lx is not ready to handle this "
+                     "gossip message.\n",
+                     hmo.site_id);
+        goto out;
+    }
+
     if (msg->tx.len < sizeof(*b)) {
         hvfs_err(mds, "Invalid bitmap gossip message from %lx\n",
                  msg->tx.ssite_id);
@@ -925,7 +933,11 @@ void mds_gossip_bitmap(struct xnet_msg *msg)
     }
 
     b = msg->xm_data;
-    ASSERT(msg->tx.arg1 == b->offset, mds);
+    if (msg->tx.arg1 != b->offset) {
+        hvfs_err(mds, "Corrupted bitmap gossip message from %lx\n",
+                 msg->tx.ssite_id);
+        goto out;
+    }
 
     atomic64_inc(&hmo.prof.mds.gossip_bitmap);
     /* find the dh firstly */
