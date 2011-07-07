@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-25 19:28:51 macan>
+ * Time-stamp: <2011-06-29 06:08:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,57 +22,11 @@
  */
 
 #include "lib.h"
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-#include <dlfcn.h>
-
-#define BT_SIZE 50
-#define BT_FLEN 512
-
-struct backtrace_info
-{
-    void *bt[BT_SIZE];
-    int size;
-};
-
-static struct backtrace_info bi;
 
 void lib_segv(int signum, siginfo_t *info, void *ptr)
 {
-    char **bts;
-    char cmd[BT_FLEN] = "addr2line -e ";
-    char *prog = cmd + strlen(cmd);
-    char str[BT_FLEN];
-    FILE *fp;
-    int i;
-
-    int r = readlink("/proc/self/exe", prog, sizeof(cmd) -
-                     (prog - cmd) - 1);
-
-    memset(&bi, 0, sizeof(bi));
-    bi.size = backtrace(bi.bt, BT_SIZE);
-    if (bi.size > 0) {
-        bts = backtrace_symbols(bi.bt, bi.size);
-        if (bts) {
-            for (i = 1; i < bi.size; i++) {
-                if (!r) {
-                    sprintf(str, "%s %p", cmd, bi.bt[i]);
-                    fp = popen(str, "r");
-                    if (!fp) {
-                        hvfs_info(lib, "%s\n", bts[i]);
-                        continue;
-                    } else {
-                        fscanf(fp, "%s", str);
-                        hvfs_info(lib, "%s %s\n", bts[i], str);
-                    }
-                    pclose(fp);
-                } else {
-                    hvfs_info(lib, "%s\n", bts[i]);
-                }
-            }
-            free(bts);
-        }
-    }
+    lib_backtrace();
+    hvfs_info(lib, "SIGSEGV info: signo %d errno %d code %d\n",
+              info->si_signo, info->si_errno, info->si_code);
     exit(EFAULT);
 }

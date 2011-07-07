@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-10 12:04:42 macan>
+ * Time-stamp: <2011-06-29 02:43:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -53,6 +53,8 @@ void lib_timer_echo_plus(struct timeval *, struct timeval *, int, char *);
 #define lib_timer_E() lib_timer_stop(&end)
 #define lib_timer_O(loop, str) lib_timer_echo_plus(&begin, &end, loop, str)
 #define lib_timer_A(ACC) lib_timer_acc(&begin, &end, (ACC))
+
+void lib_backtrace(void);
 
 long find_first_zero_bit(const unsigned long *, unsigned long);
 long find_next_zero_bit(const unsigned long *, long, long);
