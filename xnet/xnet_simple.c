@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-17 08:40:00 macan>
+ * Time-stamp: <2011-06-29 03:32:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1393,6 +1393,11 @@ int xnet_resend(struct xnet_context *xc, struct xnet_msg *msg)
     int lock_idx = 0;
     int __attribute__((unused))bw, bt, msg_found = 0;
 
+    if (unlikely(!xc)) {
+        hvfs_err(xnet, "XNET has not been inited yet.\n");
+        return -EINVAL;
+    }
+
     xlock_lock(&xc->resend_lock);
     list_for_each_entry_safe(pos, n, &xc->resend_q, list) {
         if (msg == pos) {
@@ -1747,6 +1752,11 @@ int xnet_send(struct xnet_context *xc, struct xnet_msg *msg)
     u32 bw;
     int bt;
 
+    if (unlikely(!xc)) {
+        hvfs_err(xnet, "XNET has not been inited yet.\n");
+        return -EINVAL;
+    }
+    
     if (unlikely(msg->tx.ssite_id == msg->tx.dsite_id)) {
         hvfs_err(xnet, "Warning: target site is the original site, BYPASS?\n");
     }

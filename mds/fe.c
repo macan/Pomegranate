@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-20 06:18:16 macan>
+ * Time-stamp: <2011-06-30 03:02:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -343,17 +343,26 @@ int mds_fe_dispatch(struct xnet_msg *msg)
 #endif
 
     /* Level 0 state checking */
+l0_recheck:
     switch (hmo.state) {
     case HMO_STATE_INIT:
         /* wait */
         while (hmo.state == HMO_STATE_INIT) {
             sched_yield();
         }
-        break;
+        /* recheck it */
+        goto l0_recheck;
     case HMO_STATE_LAUNCH:
-        /* reinsert back to reqin list */
-        mds_spool_redispatch(msg, 0);
-        break;
+        /* reinsert back to reqin list unless it is a RECOVERY request */
+        /* 1. for mds memory lookup and analyse, just fail it (because we are
+         * fresh). */
+        /* 2. for mdsl analyse, just do it from mdsl */
+        if (msg->tx.cmd == HVFS_MDS_RECOVERY &&
+            HVFS_IS_MDS(msg->tx.ssite_id)) {
+            return mds_mds_dispatch(msg);
+        } else 
+            mds_spool_redispatch(msg, 0);
+        return -EAGAIN;
     case HMO_STATE_RUNNING:
         /* accept all requests */
         break;

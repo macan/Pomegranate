@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 16:17:00 macan>
+ * Time-stamp: <2011-06-29 19:41:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -162,6 +162,10 @@ int mds_mds_dispatch(struct xnet_msg *msg)
                      "reject the caller.\n");
             mds_do_reject(msg);
         }
+        break;
+    case HVFS_MDS_HA:
+        break;
+    case HVFS_MDS_RECOVERY:
         break;
     default:
         hvfs_err(mds, "Invalid MDS2MDS request %ld from %lx\n",

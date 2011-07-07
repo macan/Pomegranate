@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-23 22:31:02 macan>
+ * Time-stamp: <2011-06-29 06:16:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2177,6 +2177,8 @@ int root_write_hxi(struct site_entry *se)
     u64 offset;
     int err = 0, bl, bw;
 
+    hvfs_warning(root, "Write site %lx fsid %ld hxi: txg %ld\n",
+                 se->site_id, se->fsid, atomic64_read(&se->hxi.hmi.mi_txg));
     sd.state = SITE_DISK_VALID;
     sd.gid = se->gid;
     sd.fsid = se->fsid;

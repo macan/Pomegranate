@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-22 14:20:58 macan>
+ * Time-stamp: <2011-06-27 22:29:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -348,7 +348,7 @@ void mdsl_statfs(struct xnet_msg *msg)
     }
 
     /* digg into the storage directory */
-    err = statfs(HVFS_MDSL_HOME, s);
+    err = statfs(hmo.conf.mdsl_home, s);
     if (err) {
         hvfs_err(xnet, "digg into storage layer failed w/ %s(%d)\n",
                  strerror(err), err);

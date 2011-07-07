@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-17 09:09:07 macan>
+ * Time-stamp: <2011-07-07 19:53:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -330,8 +330,22 @@ int mdsl_verify(void)
         hvfs_err(mdsl, "dir %s do not exist.\n", path);
     }
 
+    /* check if we need a recovery */
+    if (hmo.aux_state) {
+        err = mdsl_do_recovery();
+        if (err) {
+            hvfs_err(mdsl, "MDSL do recovery failed w/ %d\n",
+                     err);
+        }
+        hmo.aux_state = 0;
+    }
+
     /* setup running state */
     hmo.state = HMO_STATE_RUNNING;
+
+    /* write down a TXG pair to indicate a new instance */
+    hmo.session = lib_random(0xfffffff);
+    mdsl_startup_normal();
 
 out:
     return err;
@@ -346,7 +360,7 @@ int mdsl_config(void)
     char *value;
 
     if (hmo.state != HMO_STATE_INIT) {
-        hvfs_err(mdsl, "MDSL state is no in launching, please call "
+        hvfs_err(mdsl, "MDSL state is not in launching, please call "
                  "mdsl_pre_init() firstly\n");
         return -EINVAL;
     }
@@ -557,7 +571,9 @@ void mdsl_destroy(void)
 
     /* you should wait for the storage destroied and exit the AIO threads */
     mdsl_aio_destroy();
-    
+
+    /* finally, we write our finish flag to txg file */
+    mdsl_exit_normal();
 }
 
 u64 mdsl_select_ring(struct hvfs_mdsl_object *hmo)

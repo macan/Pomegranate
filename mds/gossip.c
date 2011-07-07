@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 20:03:20 macan>
+ * Time-stamp: <2011-06-29 03:04:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -122,6 +122,9 @@ void *gossip_thread_main(void *arg)
             if (hmo.gossip_thread_stop)
                 goto out;
         }
+        /* sanity check */
+        if (hmo.state < HMO_STATE_RUNNING)
+            continue;
         /* send the gossip message now */
         mds_rdir_gossip(&hmo.rm);
         mds_dh_gossip(&hmo.dh);

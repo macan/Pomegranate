@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-16 05:36:29 macan>
+ * Time-stamp: <2011-07-06 23:37:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,6 +54,9 @@ int mdsl_mds_dispatch(struct xnet_msg *msg)
     case HVFS_CLT2MDSL_WRITE:
         mdsl_write(msg);
         break;
+    case HVFS_MDS2MDSL_ANALYSE:
+        mdsl_analyse(msg);
+        break;
     default:
         hvfs_err(mdsl, "Invalid mds2mdsl command: 0x%lx\n", msg->tx.cmd);
     }
@@ -76,6 +79,9 @@ int mdsl_client_dispatch(struct xnet_msg *msg)
         break;
     case HVFS_CLT2MDSL_STATFS:
         mdsl_statfs(msg);
+        break;
+    case HVFS_MDS2MDSL_ANALYSE: /* shadow of mds dispatch */
+        mdsl_analyse(msg);
         break;
     default:
         hvfs_err(mdsl, "Invalid clt2mdsl command: 0x%lx\n", msg->tx.cmd);
@@ -132,6 +138,36 @@ void mdsl_handle_err(struct xnet_msg *msg, int err)
 int mdsl_dispatch(struct xnet_msg *msg)
 {
     int err = 0;
+
+    /* check the state here */
+l0_recheck:
+    switch (hmo.state) {
+    case HMO_STATE_INIT:
+        /* wait */
+        while (hmo.state == HMO_STATE_INIT) {
+            sched_yield();
+        }
+        /* recheck it  */
+        goto l0_recheck;
+    case HMO_STATE_LAUNCH:
+        /* reinsert back to reqin list unless it is a RECOVERY request
+         * (among MDSLs) */
+        if (HVFS_IS_MDSL(msg->tx.ssite_id)) {
+            return mdsl_mdsl_dispatch(msg);
+        } else
+            mdsl_spool_redispatch(msg, 0);
+        return -EAGAIN;
+    case HMO_STATE_RUNNING:
+        break;
+    case HMO_STATE_PAUSE:
+        break;
+    case HMO_STATE_RDONLY:
+        break;
+    case HMO_STATE_OFFLINE:
+        break;
+    default:
+        HVFS_BUGON("Unknown MDSL state");
+    }
     
     if (HVFS_IS_MDS(msg->tx.ssite_id)) {
         return mdsl_mds_dispatch(msg);
@@ -151,6 +187,7 @@ int mdsl_dispatch(struct xnet_msg *msg)
     hvfs_err(mdsl, "MDSL core dispatcher handle INVALID request <0x%lx %d>\n",
              msg->tx.ssite_id, msg->tx.reqno);
     mdsl_handle_err(msg, err);
+
     return err;
 }
 

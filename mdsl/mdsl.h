@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-17 09:11:35 macan>
+ * Time-stamp: <2011-07-07 21:55:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -331,9 +331,17 @@ struct hvfs_mdsl_object
 #define HMO_STATE_RUNNING       0x02
 #define HMO_STATE_PAUSE         0x03
 #define HMO_STATE_RDONLY        0x04
+#define HMO_STATE_OFFLINE       0x05
     u32 state;
 
+#define HMO_AUX_STATE_RECOVERY  0x01
+    u32 aux_state;
+
     u64 ring_site;
+#define HMO_SESSION_BEGIN       0xff00000000000000
+#define HMO_SESSION_END         0x00ff000000000000
+#define HMO_SESSION_MASK        0xffff000000000000
+    u64 session;                /* current session id */
     time_t tick;                /* tick of this MDSL */
 
     /* the following region is used for threads */
@@ -376,6 +384,7 @@ int mdsl_addr_table_update(struct xnet_msg *);
 int mdsl_spool_create(void);
 void mdsl_spool_destroy(void);
 int mdsl_spool_dispatch(struct xnet_msg *);
+void mdsl_spool_redispatch(struct xnet_msg *, int);
 
 int mdsl_tcc_init(void);
 void mdsl_tcc_destroy(void);
@@ -406,6 +415,7 @@ void mdsl_wbtxg(struct xnet_msg *);
 void mdsl_wdata(struct xnet_msg *);
 void mdsl_bitmap_commit(struct xnet_msg *);
 void mdsl_bitmap_commit_v2(struct xnet_msg *);
+void mdsl_analyse(struct xnet_msg *);
 
 /* c2ml.c */
 void mdsl_read(struct xnet_msg *);
@@ -484,6 +494,10 @@ int mdsl_storage_fd_lockup(struct fdhash_entry *);
 int mdsl_storage_fd_unlock(struct fdhash_entry *);
 u64 mdsl_storage_fd_max_offset(struct fdhash_entry *);
 void mdsl_storage_fd_remove(struct fdhash_entry *);
+int mdsl_storage_find_max_txg(u64, u64 *, int);
+void mdsl_startup_normal(void);
+void mdsl_exit_normal(void);
+int mdsl_txg_integrated(void);
 
 /* internal API of storage layer */
 int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path);
@@ -521,5 +535,8 @@ void mdsl_aio_start(void);
 
 /* gc.c */
 int mdsl_gc_md(u64);
+
+/* ml2ml.c */
+int mdsl_do_recovery(void);
 
 #endif

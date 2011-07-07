@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-28 10:13:50 macan>
+ * Time-stamp: <2011-07-07 21:14:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,12 +32,26 @@ int main(int argc, char *argv[])
     struct txg_end te;
     struct itb_info *ii;
     void *other;
+    char *which = NULL;
+    off_t offset = 0;
     int osize;
     int bl, br, i;
     int fd, err = 0;
     
+    if (argc > 1) {
+        if (strcmp(argv[1], "current") == 0) {
+            which = "txg";
+        } else if (strcmp(argv[1], "last") == 0) {
+            which = "last-txg";
+        } else {
+            which = "txg";
+        }
+    } else {
+        which = "txg";
+    }
+    
     /* open the txg file */
-    sprintf(path, "%s/txg", HVFS_MDSL_HOME);
+    sprintf(path, "%s/%s", HVFS_MDSL_HOME, which);
     fd = open(path, O_RDONLY);
     if (fd < 0) {
         hvfs_err(mdsl, "open file %s failed w/ %s\n",
@@ -77,7 +91,7 @@ int main(int argc, char *argv[])
                     hvfs_err(mdsl, "read file failed w/ %d\n", errno);
                     goto out;
                 } else if (br == 0) {
-                    hvfs_warning(mdsl, "EOF, break now!\n");
+                    hvfs_warning(mdsl, "EOF, corrupted, break now!\n");
                     goto out;
                 }
                 bl += br;
@@ -106,7 +120,7 @@ int main(int argc, char *argv[])
                     hvfs_err(mdsl, "read file failed w/ %d\n", errno);
                     goto out;
                 } else if (br == 0) {
-                    hvfs_warning(mdsl, "EOF, break now!\n");
+                    hvfs_warning(mdsl, "EOF, corrupted, break now!\n");
                     goto out;
                 }
                 bl += br;
@@ -122,14 +136,17 @@ int main(int argc, char *argv[])
                 hvfs_err(mdsl, "read file failed w/ %d\n", errno);
                 goto out;
             } else if (br == 0) {
-                hvfs_warning(mdsl, "EOF, break now!\n");
+                hvfs_warning(mdsl, "EOF, corrupted, break now!\n");
                 goto out;
             }
             bl += br;
         } while (bl < sizeof(te));
+
         /* free resources */
-        hvfs_info(mdsl, "Got site %lx TXG %ld w/ %d itbs osize %d\n", 
-                  tb.site_id, tb.txg, tb.itb_nr, osize);
+        hvfs_info(mdsl, "Got site %lx TXG %ld w/ %d itbs osize %d offset %ld\n", 
+                  tb.site_id, tb.txg, tb.itb_nr, osize, offset);
+        offset += sizeof(tb) + tb.itb_nr * ITB_INFO_DISK_SIZE +
+            osize + sizeof(te);
         xfree(ii);
         xfree(other);
     } while (1);

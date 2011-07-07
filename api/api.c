@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-23 10:21:33 macan>
+ * Time-stamp: <2011-07-06 23:55:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3939,6 +3939,76 @@ int hvfs_get_info(u64 cmd, u64 arg, char **outstr)
     }
 
 out_msg:
+    xnet_free_msg(msg);
+out:
+    return err;
+}
+
+/* analyse the mdsl stroage
+ */
+int hvfs_analyse_storage(u64 site, int cmd)
+{
+    struct xnet_msg *msg;
+    struct xnet_group *xg = NULL;
+    int err = 0, i;
+
+    xg = cli_get_active_site(hmo.chring[CH_RING_MDSL]);
+    if (!xg) {
+        hvfs_err(xnet, "cli_get_active_site() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    switch (cmd) {
+    case HVFS_ANA_MAX_TXG:
+        break;
+    case HVFS_ANA_UPDATE_LIST:
+        break;
+    default:
+        hvfs_err(xnet, "Invalid analyse command %d\n", cmd);
+        goto out_free;
+    }
+    
+    xnet_msg_fill_cmd(msg, HVFS_MDS2MDSL_ANALYSE, cmd, site);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    for (i = 0; i < xg->asize; i++) {
+        xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                         hmo.xc->site_id, xg->sites[i].site_id);
+        err = xnet_send(hmo.xc, msg);
+        if (err) {
+            hvfs_err(xnet, "xnet_send() failed w/ %d\n", err);
+            goto out_free;
+        }
+        ASSERT(msg->pair, xnet);
+        err = msg->pair->tx.err;
+        if (err) {
+            hvfs_err(xnet, "Analyse storage site %lx from site %lx "
+                     "failed w/ %d\n",
+                     site, xg->sites[i].site_id, err);
+        } else {
+            switch (cmd) {
+            case HVFS_ANA_MAX_TXG:
+                hvfs_info(xnet, "Storage %lx => TXG %ld\n",
+                          xg->sites[i].site_id, msg->pair->tx.arg0);
+                break;
+            case HVFS_ANA_UPDATE_LIST:
+                break;
+            default:;
+            }
+        }
+        xnet_free_msg(msg->pair);
+        msg->pair = NULL;
+    }
+
+out_free:
     xnet_free_msg(msg);
 out:
     return err;

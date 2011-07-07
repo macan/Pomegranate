@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-23 21:59:06 macan>
+ * Time-stamp: <2011-06-29 05:18:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -768,6 +768,7 @@ resend:
     if (msg->pair->tx.err == -ERECOVER) {
         hvfs_err(xnet, "R2 notify a client recover process on site "
                  "%lx, do it.\n", request_site);
+        hmo.aux_state |= HMO_AUX_STATE_RECOVER;
     } else if (msg->pair->tx.err == -EHWAIT) {
         hvfs_err(xnet, "R2 reply that another instance is still alive, "
                  "wait a moment and retry.\n");
@@ -1276,7 +1277,6 @@ int main(int argc, char *argv[])
 
     return 0;
 out:
-    st_destroy();
     mds_destroy();
 
     return err;

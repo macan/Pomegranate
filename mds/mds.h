@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-23 22:10:52 macan>
+ * Time-stamp: <2011-06-29 06:11:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -87,6 +87,8 @@ struct mds_rpc_table
     struct mds_rpc_entry mre[0];
 };
 
+#define HVFS_MDS_HOME "/tmp/hvfs"
+
 struct mds_conf 
 {
     /* section for dynamic configuration */
@@ -95,6 +97,7 @@ struct mds_conf
     pthread_t dcpt;
 
     /* section for file name */
+    char *mds_home;
     char *profiling_file;
     char *conf_file;
     char *log_file;
@@ -204,7 +207,12 @@ struct hvfs_mds_object
 #define HMO_STATE_RDONLY        0x04 /* err reply modify requests */
 #define HMO_STATE_OFFLINE       0x05 /* accept all requests, but return
                                       * EOFFLINE (exclude R2) */
-    u64 state;
+    u32 state;
+#define HMO_AUX_STATE_NORMAL    0x00 /* normal aux state, no logger */
+#define HMO_AUX_STATE_LOGGER    0x01 /* only local logger */
+#define HMO_AUX_STATE_HA        0x02 /* enter in HA state */
+#define HMO_AUX_STATE_RECOVER   0x04 /* recovery state after launch */
+    u32 aux_state;
 
     u64 ring_site;
 
@@ -325,6 +333,7 @@ void mds_gossip_slower(void)
     if (hmo.conf.gto < 15)
         hmo.conf.gto++;
 }
+int mds_dir_make_exist(char *);
 
 /* for fe.c */
 #define MAX_RELAY_FWD    (0x1000)

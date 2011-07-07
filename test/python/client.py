@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-06-23 11:08:26 macan>
+# Time-stamp: <2011-07-07 00:25:58 macan>
 #
 # Armed with EMACS.
 #
@@ -15,6 +15,21 @@ import signal
 import cmd
 import shlex
 from ctypes import *
+
+# definations for site
+HVFS_SITE_TYPE_CLIENT = 0x01
+HVFS_SITE_TYPE_MDS = 0x02
+HVFS_SITE_TYPE_MDSL = 0x03
+HVFS_SITE_TYPE_R2 = 0x04
+HVFS_SITE_TYPE_AMC = 0x05
+HVFS_SITE_TYPE_BP = 0x06
+
+HVFS_SITE_TYPE_MASK = (0x7 << 17)
+HVFS_SITE_MAX = (1 << 20)
+HVFS_SITE_N_MASK = ((1 << 17) - 1)
+
+def HVFS_MDS(n):
+    return (HVFS_SITE_TYPE_MDS << 17) | (int(n) & HVFS_SITE_N_MASK)
 
 try:
     libc = CDLL("libc.so.6")
@@ -75,7 +90,7 @@ class bcolors:
 class struct_hmo(Structure):
     '''struct_hmo is a shadow structure of hvfs_mds_object.
     thus, if you change hvfs_mds_object, you must change 'others' offset'''
-    _fields_ = [("others", c_char * 1968),
+    _fields_ = [("others", c_char * 1984),
                 ("branch_dispatch", c_void_p),
                 ("cb_exit", c_void_p),
                 ("cb_hb", c_void_p),
@@ -191,7 +206,7 @@ class pamc_shell(cmd.Cmd):
                 "regdtrigger", "catdtrigger", "statfs", "setattr",
                 "getactivesite", "addsite", "rmvsite", "shutdown",
                 "cbranch", "bc", "bp", "getbor", "search", 
-                "pst", "clrdtrigger", "getinfo"]
+                "pst", "clrdtrigger", "getinfo", "analysestorage"]
 
     def __init__(self, ub = False):
         cmd.Cmd.__init__(self)
@@ -1285,6 +1300,42 @@ class pamc_shell(cmd.Cmd):
         api.hvfs_free(c_str)
         print "+OK"
 
+    def do_analysestorage(self, line):
+        '''Analyse the storage txg log file for some mds sites
+        Usage: analysestorage site_id [txg|list]
+        '''
+        site = 0
+        type = 1
+        l = shlex.split(line)
+
+        try:
+            if len(l) < 1:
+                print "Usage: analysestorage site_id type."
+                return
+            elif len(l) == 1:
+                site = int(l[0])
+                type = 1
+            elif len(l) >= 2:
+                site = int(l[0])
+                if l[1] == 'txg':
+                    type = 1
+                elif l[1] == 'list':
+                    type = 2
+                else:
+                    print "Usage: analysestroage site_id [txg|list]."
+                    return
+        except ValueError, ve:
+            print "Invalid argument: %s" % ve
+            return
+
+        site = HVFS_MDS(site)
+        print "Analyse TXG log file for site: %x" % site
+
+        err = api.hvfs_analyse_storage(c_long(site), c_int(type))
+        if err != 0:
+            print "api.hvfs_analyse_storage() failed w/ %d" % err
+            return
+        print "+OK"
 
     def do_quit(self, line):
         print "Quiting ..."

@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-06-21 10:03:47 macan>
+# Time-stamp: <2011-06-29 05:20:37 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -21,7 +21,7 @@ endif
 
 all : $(TEST_XNET_SOURCE:.c=.ut)
 
-%.o : %.c
+%.o : %.c $(mds_h_depend_files)
 	@echo -e " " CC"\t" $@
 	@$(CC) $(CFLAGS) $< -DUSE_XNET_SIMPLE -DUNIT_TEST -c
 

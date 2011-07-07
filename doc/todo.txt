@@ -428,11 +428,26 @@ Pomegranate TODOs:
 
     1. Dynamic txg interval: latency oriented and data safety oriented.
 
-    2. Add latency stat in FUSE client for every metadata operation.
+    2. Add latency stat in FUSE client for every metadata operation. Done!
 
     3. Detect and optimize latency (especially on multiple MDSs)!
+
+       1. Detection has been done!
 
 35. R2 TODOs
 
     1. Support get info from R2 server, e.g. active/error sites,
-       create/lookup/unlink entries etc.
+       create/lookup/unlink entries etc. Done!
+
+36. Create a HA branch
+
+    1. MDS redo log for an open TXG, clean after TXG commit.
+
+       Create a redo loggerr to save the redo log to local disk and remote 
+       MDSs.
+
+    2. MDSL splitter replication.
+
+       1. Scan txg log to detect abnormal shutdown;
+
+       2. Replicate TXG commit group to remote MDSLs.

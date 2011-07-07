@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-02 13:12:00 macan>
+ * Time-stamp: <2011-06-27 22:28:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -130,9 +130,9 @@ int mdsl_gc_tx_itb(u64 duuid, int gen, struct fdhash_entry *omd)
             char opath[256], npath[256];
 
             abort_flag = 0;
-            sprintf(opath, "%s/%lx/%lx/range-%ld", HVFS_MDSL_HOME, 
+            sprintf(opath, "%s/%lx/%lx/range-%ld", hmo.conf.mdsl_home, 
                     hmo.site_id, duuid, (fde->mdisk.ranges + i)->range_id);
-            sprintf(npath, "%s/%lx/%lx/Brange-%ld", HVFS_MDSL_HOME,
+            sprintf(npath, "%s/%lx/%lx/Brange-%ld", hmo.conf.mdsl_home,
                     hmo.site_id, duuid, (fde->mdisk.ranges + i)->range_id);
             err = rename(opath, npath);
             if (err) {
@@ -150,9 +150,9 @@ int mdsl_gc_tx_itb(u64 duuid, int gen, struct fdhash_entry *omd)
             }
             abort_flag = 1;
             
-            sprintf(opath, "%s/%lx/%lx/Grange-%ld", HVFS_MDSL_HOME, 
+            sprintf(opath, "%s/%lx/%lx/Grange-%ld", hmo.conf.mdsl_home, 
                     hmo.site_id, duuid, (fde->mdisk.ranges + i)->range_id);
-            sprintf(npath, "%s/%lx/%lx/range-%ld", HVFS_MDSL_HOME,
+            sprintf(npath, "%s/%lx/%lx/range-%ld", hmo.conf.mdsl_home,
                     hmo.site_id, duuid, (fde->mdisk.ranges + i)->range_id);
             err = rename(opath, npath);
             if (err) {
@@ -168,9 +168,9 @@ int mdsl_gc_tx_itb(u64 duuid, int gen, struct fdhash_entry *omd)
             char opath[256], npath[256];
 
             abort_flag = 0;
-            sprintf(opath, "%s/%lx/%lx/range-%ld", HVFS_MDSL_HOME, 
+            sprintf(opath, "%s/%lx/%lx/range-%ld", hmo.conf.mdsl_home, 
                     hmo.site_id, duuid, (fde->mdisk.new_range + i)->range_id);
-            sprintf(npath, "%s/%lx/%lx/Brange-%ld", HVFS_MDSL_HOME,
+            sprintf(npath, "%s/%lx/%lx/Brange-%ld", hmo.conf.mdsl_home,
                     hmo.site_id, duuid, (fde->mdisk.new_range + i)->range_id);
             err = rename(opath, npath);
             if (err) {
@@ -181,9 +181,9 @@ int mdsl_gc_tx_itb(u64 duuid, int gen, struct fdhash_entry *omd)
             }
             abort_flag = 1;
             
-            sprintf(opath, "%s/%lx/%lx/Grange-%ld", HVFS_MDSL_HOME, 
+            sprintf(opath, "%s/%lx/%lx/Grange-%ld", hmo.conf.mdsl_home, 
                     hmo.site_id, duuid, (fde->mdisk.new_range + i)->range_id);
-            sprintf(npath, "%s/%lx/%lx/range-%ld", HVFS_MDSL_HOME,
+            sprintf(npath, "%s/%lx/%lx/range-%ld", hmo.conf.mdsl_home,
                     hmo.site_id, duuid, (fde->mdisk.new_range + i)->range_id);
             err = rename(opath, npath);
             if (err) {
@@ -211,7 +211,7 @@ int mdsl_gc_tx_itb(u64 duuid, int gen, struct fdhash_entry *omd)
     {
         char path[256];
 
-        sprintf(path, "%s/%lx/%lx/md-%d", HVFS_MDSL_HOME,
+        sprintf(path, "%s/%lx/%lx/md-%d", hmo.conf.mdsl_home,
                 hmo.site_id, duuid, gen);
         err = unlink(path);
         if (err) {
@@ -223,7 +223,7 @@ int mdsl_gc_tx_itb(u64 duuid, int gen, struct fdhash_entry *omd)
     {
         char path[256];
 
-        sprintf(path, "%s/%lx/%lx/itb-%d", HVFS_MDSL_HOME,
+        sprintf(path, "%s/%lx/%lx/itb-%d", hmo.conf.mdsl_home,
                 hmo.site_id, duuid, gen - 1);
         err = unlink(path);
         if (err) {
@@ -236,7 +236,7 @@ int mdsl_gc_tx_itb(u64 duuid, int gen, struct fdhash_entry *omd)
             for (i = 0; i < omd->mdisk.size; i++) {
                 char path[256];
 
-                sprintf(path, "%s/%lx/%lx/Brange-%ld", HVFS_MDSL_HOME,
+                sprintf(path, "%s/%lx/%lx/Brange-%ld", hmo.conf.mdsl_home,
                         hmo.site_id, duuid, (omd->mdisk.ranges + i)->range_id);
                 err = unlink(path);
                 if (err) {
@@ -250,7 +250,7 @@ int mdsl_gc_tx_itb(u64 duuid, int gen, struct fdhash_entry *omd)
             for (i = 0; i < omd->mdisk.new_size; i++) {
                 char path[256];
 
-                sprintf(path, "%s/%lx/%lx/Brange-%ld", HVFS_MDSL_HOME,
+                sprintf(path, "%s/%lx/%lx/Brange-%ld", hmo.conf.mdsl_home,
                         hmo.site_id, duuid, 
                         (omd->mdisk.new_range + i)->range_id);
                 err = unlink(path);
@@ -275,9 +275,9 @@ rollback_new_range:
     for (j = 0; j < i; j++) {
         char opath[256], npath[256];
         
-        sprintf(opath, "%s/%lx/%lx/range-%ld", HVFS_MDSL_HOME, 
+        sprintf(opath, "%s/%lx/%lx/range-%ld", hmo.conf.mdsl_home, 
                 hmo.site_id, duuid, (fde->mdisk.new_range + j)->range_id);
-        sprintf(npath, "%s/%lx/%lx/Grange-%ld", HVFS_MDSL_HOME,
+        sprintf(npath, "%s/%lx/%lx/Grange-%ld", hmo.conf.mdsl_home,
                 hmo.site_id, duuid, (fde->mdisk.new_range + j)->range_id);
         err = rename(opath, npath);
         if (err) {
@@ -286,9 +286,9 @@ rollback_new_range:
                      opath, npath, errno);
         }
 
-        sprintf(opath, "%s/%lx/%lx/Brange-%ld", HVFS_MDSL_HOME, 
+        sprintf(opath, "%s/%lx/%lx/Brange-%ld", hmo.conf.mdsl_home, 
                 hmo.site_id, duuid, (fde->mdisk.new_range + j)->range_id);
-        sprintf(npath, "%s/%lx/%lx/range-%ld", HVFS_MDSL_HOME,
+        sprintf(npath, "%s/%lx/%lx/range-%ld", hmo.conf.mdsl_home,
                 hmo.site_id, duuid, (fde->mdisk.new_range + j)->range_id);
         err = rename(opath, npath);
         if (err) {
@@ -300,9 +300,9 @@ rollback_new_range:
     if (abort_flag) {
         char opath[256], npath[256];
         
-        sprintf(opath, "%s/%lx/%lx/Brange-%ld", HVFS_MDSL_HOME, 
+        sprintf(opath, "%s/%lx/%lx/Brange-%ld", hmo.conf.mdsl_home, 
                 hmo.site_id, duuid, (fde->mdisk.new_range + i)->range_id);
-        sprintf(npath, "%s/%lx/%lx/range-%ld", HVFS_MDSL_HOME,
+        sprintf(npath, "%s/%lx/%lx/range-%ld", hmo.conf.mdsl_home,
                 hmo.site_id, duuid, (fde->mdisk.new_range + i)->range_id);
         err = rename(opath, npath);
         if (err) {
@@ -318,9 +318,9 @@ rollback_ranges:
     for (j = 0; j < i; j++) {
         char opath[256], npath[256];
         
-        sprintf(opath, "%s/%lx/%lx/range-%ld", HVFS_MDSL_HOME, 
+        sprintf(opath, "%s/%lx/%lx/range-%ld", hmo.conf.mdsl_home, 
                 hmo.site_id, duuid, (fde->mdisk.ranges + j)->range_id);
-        sprintf(npath, "%s/%lx/%lx/Grange-%ld", HVFS_MDSL_HOME,
+        sprintf(npath, "%s/%lx/%lx/Grange-%ld", hmo.conf.mdsl_home,
                 hmo.site_id, duuid, (fde->mdisk.ranges + j)->range_id);
         err = rename(opath, npath);
         if (err) {
@@ -329,9 +329,9 @@ rollback_ranges:
                      opath, npath, errno);
         }
 
-        sprintf(opath, "%s/%lx/%lx/Brange-%ld", HVFS_MDSL_HOME, 
+        sprintf(opath, "%s/%lx/%lx/Brange-%ld", hmo.conf.mdsl_home, 
                 hmo.site_id, duuid, (fde->mdisk.ranges + j)->range_id);
-        sprintf(npath, "%s/%lx/%lx/range-%ld", HVFS_MDSL_HOME,
+        sprintf(npath, "%s/%lx/%lx/range-%ld", hmo.conf.mdsl_home,
                 hmo.site_id, duuid, (fde->mdisk.ranges + j)->range_id);
         err = rename(opath, npath);
         if (err) {
@@ -343,9 +343,9 @@ rollback_ranges:
     if (abort_flag) {
         char opath[256], npath[256];
         
-        sprintf(opath, "%s/%lx/%lx/Brange-%ld", HVFS_MDSL_HOME, 
+        sprintf(opath, "%s/%lx/%lx/Brange-%ld", hmo.conf.mdsl_home, 
                 hmo.site_id, duuid, (fde->mdisk.ranges + i)->range_id);
-        sprintf(npath, "%s/%lx/%lx/range-%ld", HVFS_MDSL_HOME,
+        sprintf(npath, "%s/%lx/%lx/range-%ld", hmo.conf.mdsl_home,
                 hmo.site_id, duuid, (fde->mdisk.ranges + i)->range_id);
         err = rename(opath, npath);
         if (err) {

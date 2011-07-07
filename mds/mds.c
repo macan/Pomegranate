@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-17 09:10:34 macan>
+ * Time-stamp: <2011-06-29 06:11:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -238,11 +238,13 @@ void mds_hb_wrapper(time_t t)
     if (!hmo.cb_hb)
         return;
     
-    if (t < prev + hmo.conf.hb_interval) {
-        return;
+    if (hmo.state >= HMO_STATE_RUNNING) {
+        if (t < prev + hmo.conf.hb_interval) {
+            return;
+        }
+        prev = t;
+        hmo.cb_hb(&hmo);
     }
-    prev = t;
-    hmo.cb_hb(&hmo);
 }
 
 /* scrub the CBHT
@@ -937,10 +939,42 @@ void mds_pre_init()
     hmo.state = HMO_STATE_INIT;
 }
 
+/* make sure the dir exist
+ */
+int mds_dir_make_exist(char *path)
+{
+    int err;
+    
+    err = mkdir(path, 0755);
+    if (err) {
+        err = -errno;
+        if (errno == EEXIST) {
+            err = 0;
+        } else if (errno == EACCES) {
+            hvfs_err(mds, "Failed to create the dir %s, no permission.\n",
+                     path);
+        } else {
+            hvfs_err(mds, "mkdir %s failed w/ %d\n", path, errno);
+        }
+    }
+    
+    return err;
+}
+
 /* mds_verify()
  */
 int mds_verify(void)
 {
+    int err = 0;
+    
+    /* check the MDS_HOME */
+    err = mds_dir_make_exist(hmo.conf.mds_home);
+    if (err) {
+        hvfs_err(mds, "dir %s does not exist %d.\n", 
+                 hmo.conf.mds_home, err);
+        return -EINVAL;
+    }
+    
     /* check modify pause and spool usage */
     if (hmo.conf.option & HVFS_MDS_MEMLIMIT) {
         if (!hmo.xc || (hmo.xc->ops.recv_handler != mds_spool_dispatch)) {
@@ -958,6 +992,12 @@ int mds_verify(void)
         atomic64_set(&hmo.ctxg, atomic64_read(&hmi.mi_txg) - 1);
         t->txg = atomic64_read(&hmi.mi_txg);
         txg_put(t);
+    }
+
+    /* we are almost done, but we have to check if we need a recovery */
+    if (hmo.aux_state & HMO_AUX_STATE_RECOVER) {
+        /* Step 1: compare mi_txg with max/min txg in redo log */
+        /* Step 2: check the latest committed txg in mdsl's txg log */
     }
 
     /* enter into running mode */
@@ -986,6 +1026,7 @@ int mds_config(void)
 
     HVFS_MDS_GET_ENV_strncpy(dcaddr, value, MDS_DCONF_MAX_NAME_LEN);
 
+    HVFS_MDS_GET_ENV_cpy(mds_home, value);
     HVFS_MDS_GET_ENV_cpy(profiling_file, value);
     HVFS_MDS_GET_ENV_cpy(conf_file, value);
     HVFS_MDS_GET_ENV_cpy(log_file, value);
@@ -1040,6 +1081,10 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_option(opt_mdzip, MDZIP, value);
 
     /* default configurations */
+    if (!hmo.conf.mds_home) {
+        hmo.conf.mds_home = HVFS_MDS_HOME;
+    }
+    
     if (!hmo.conf.txg_buf_len) {
         hmo.conf.txg_buf_len = HVFS_MDSL_TXG_BUF_LEN;
     }
@@ -1248,7 +1293,7 @@ void mds_destroy(void)
     }
     
     /* unreg w/ the r2 server */
-    if (hmo.cb_exit) {
+    if (hmo.state >= HMO_STATE_RUNNING && hmo.cb_exit) {
         hmo.cb_exit(&hmo);
     }
 

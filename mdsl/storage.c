@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-15 03:29:59 macan>
+ * Time-stamp: <2011-07-07 21:55:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -314,7 +314,7 @@ int append_buf_destroy_drop(struct fdhash_entry *fde)
         }
         /* unlink the file to drop the page cache! ignore errors */
         if (fde->type == MDSL_STORAGE_DATA) {
-            sprintf(path, "%s/%lx/%lx/data-%ld", HVFS_MDSL_HOME,
+            sprintf(path, "%s/%lx/%lx/data-%ld", hmo.conf.mdsl_home,
                     hmo.site_id, fde->uuid, fde->arg);
             if (unlink(path) < 0) {
                 /* calculate the written length */
@@ -729,17 +729,27 @@ int mdsl_storage_init(void)
     xlock_init(&hmo.storage.tmp_fd_lock);
 
     /* init the global fds */
-    err = mdsl_storage_dir_make_exist(HVFS_MDSL_HOME);
+    err = mdsl_storage_dir_make_exist(hmo.conf.mdsl_home);
     if (err) {
         hvfs_err(mdsl, "dir %s do not exist %d.\n", path, err);
         return -ENOTEXIST;
     }
-    sprintf(path, "%s/txg", HVFS_MDSL_HOME);
+    sprintf(path, "%s/txg", hmo.conf.mdsl_home);
     hmo.storage.txg_fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
     if (hmo.storage.txg_fd < 0) {
         hvfs_err(mdsl, "open file '%s' faield w/ %d\n", path, errno);
         return -errno;
     }
+
+    /* check if we should set recovery flag */
+    err = mdsl_txg_integrated();
+    if (err) {
+        hmo.aux_state = HMO_AUX_STATE_RECOVERY;
+        hvfs_err(mdsl, "mdsl_txg_integrated() failed w/ %d, "
+                 "change state to RECOVERY\n",
+                 err);
+    }
+    
     return 0;
 }
 
@@ -2179,7 +2189,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
      */
 
     /* make sure the duuid dir exist */
-    sprintf(path, "%s/%lx/%lx", HVFS_MDSL_HOME, hmo.site_id, fde->uuid);
+    sprintf(path, "%s/%lx/%lx", hmo.conf.mdsl_home, hmo.site_id, fde->uuid);
     err = mdsl_storage_dir_make_exist(path);
     if (err) {
         hvfs_err(mdsl, "duuid dir %s do not exist %d.\n", path, err);
@@ -2190,7 +2200,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
 
     switch (fde->type) {
     case MDSL_STORAGE_MD:
-        sprintf(path, "%s/%lx/%lx/md-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+        sprintf(path, "%s/%lx/%lx/md-%ld", hmo.conf.mdsl_home, hmo.site_id, 
                 fde->uuid, fde->arg);
         err = mdsl_storage_fd_mdisk(fde, path);
         if (err) {
@@ -2199,7 +2209,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         }
         break;
     case MDSL_STORAGE_ITB:
-        sprintf(path, "%s/%lx/%lx/itb-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+        sprintf(path, "%s/%lx/%lx/itb-%ld", hmo.conf.mdsl_home, hmo.site_id, 
                 fde->uuid, fde->arg);
         err = append_buf_create(fde, path, FDE_ABUF);
         if (err) {
@@ -2208,7 +2218,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         }
         break;
     case MDSL_STORAGE_ITB_ODIRECT:
-        sprintf(path, "%s/%lx/%lx/itb-%ld", HVFS_MDSL_HOME, hmo.site_id,
+        sprintf(path, "%s/%lx/%lx/itb-%ld", hmo.conf.mdsl_home, hmo.site_id,
                 fde->uuid, fde->arg);
         err = odirect_create(fde, path, FDE_ODIRECT);
         if (err) {
@@ -2220,7 +2230,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
     {
         struct mmap_args *ma = (struct mmap_args *)fde->arg;
         
-        sprintf(path, "%s/%lx/%lx/%srange-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+        sprintf(path, "%s/%lx/%lx/%srange-%ld", hmo.conf.mdsl_home, hmo.site_id, 
                 fde->uuid, ((ma->flag & MA_GC) ? "G" : ""), ma->range_id);
         err = mdsl_storage_fd_mmap(fde, path, ma);
         if (err) {
@@ -2230,7 +2240,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         break;
     }
     case MDSL_STORAGE_DATA:
-        sprintf(path, "%s/%lx/%lx/data-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+        sprintf(path, "%s/%lx/%lx/data-%ld", hmo.conf.mdsl_home, hmo.site_id, 
                 fde->uuid, fde->arg);
         err = append_buf_create(fde, path, FDE_ABUF);
         if (err) {
@@ -2241,7 +2251,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         posix_fadvise(fde->fd, 0, 0, POSIX_FADV_RANDOM);
         break;
     case MDSL_STORAGE_BITMAP:
-        sprintf(path, "%s/%lx/%lx/data-%ld", HVFS_MDSL_HOME, hmo.site_id, 
+        sprintf(path, "%s/%lx/%lx/data-%ld", hmo.conf.mdsl_home, hmo.site_id, 
                 fde->uuid, fde->arg);
         err = mdsl_storage_fd_bitmap(fde, path);
         if (err) {
@@ -2257,7 +2267,7 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
          */
         struct proxy_args *pa = (struct proxy_args *)fde->arg;
         
-        sprintf(path, "%s/%lx/%lx/.proxy.%lx.%lx", HVFS_MDSL_HOME,
+        sprintf(path, "%s/%lx/%lx/.proxy.%lx.%lx", hmo.conf.mdsl_home,
                 hmo.site_id, fde->uuid, pa->uuid, pa->cno);
         err = __normal_open(fde, path);
         if (err) {
@@ -2267,20 +2277,20 @@ int mdsl_storage_fd_init(struct fdhash_entry *fde)
         break;
     }
     case MDSL_STORAGE_DIRECTW:
-        sprintf(path, "%s/%lx/%lx/directw", HVFS_MDSL_HOME, hmo.site_id, 
+        sprintf(path, "%s/%lx/%lx/directw", hmo.conf.mdsl_home, hmo.site_id, 
                 fde->uuid);
         break;
     case MDSL_STORAGE_LOG:
-        sprintf(path, "%s/%lx/log", HVFS_MDSL_HOME, hmo.site_id);
+        sprintf(path, "%s/%lx/log", hmo.conf.mdsl_home, hmo.site_id);
         break;
     case MDSL_STORAGE_SPLIT_LOG:
-        sprintf(path, "%s/%lx/split_log", HVFS_MDSL_HOME, hmo.site_id);
+        sprintf(path, "%s/%lx/split_log", hmo.conf.mdsl_home, hmo.site_id);
         break;
     case MDSL_STORAGE_TXG:
-        sprintf(path, "%s/%lx/txg", HVFS_MDSL_HOME, hmo.site_id);
+        sprintf(path, "%s/%lx/txg", hmo.conf.mdsl_home, hmo.site_id);
         break;
     case MDSL_STORAGE_TMP_TXG:
-        sprintf(path, "%s/%lx/tmp_txg", HVFS_MDSL_HOME, hmo.site_id);
+        sprintf(path, "%s/%lx/tmp_txg", hmo.conf.mdsl_home, hmo.site_id);
         break;
     default:
         hvfs_err(mdsl, "Invalid file type provided, check your codes.\n");
@@ -2577,6 +2587,7 @@ int mdsl_storage_toe_commit(struct txg_open_entry *toe, struct txg_end *te)
     if (offset < 0) {
         hvfs_err(mdsl, "lseek to end of fd %d failed w/ %d\n",
                  hmo.storage.txg_fd, errno);
+        err = -errno;
         goto out_unlock;
     }
     /* write the TXG_BEGIN */
@@ -2749,3 +2760,263 @@ u64 mdsl_storage_fd_max_offset(struct fdhash_entry *fde)
 
     return offset;
 }
+
+/* Get the max txg from txg log file
+ */
+int mdsl_storage_find_max_txg(u64 site, u64 *txg, int fd)
+{
+    struct txg_begin tb;
+    off_t offset = 0;
+    int err = 0, bl, br;
+
+    /* read in the content from last checkpoint position */
+    do {
+        /* get the txg_begin entry */
+        bl = 0;
+        do {
+            br = pread(fd, (void *)&tb + bl,
+                       sizeof(tb) - bl, offset + bl);
+            if (br < 0) {
+                hvfs_err(mdsl, "read txg log file failed w/ %d\n", errno);
+                err = -errno;
+                goto out;
+            } else if (br == 0) {
+                /* it is ok to break here */
+                goto out;
+            }
+            bl += br;
+        } while (bl < sizeof(tb));
+
+        hvfs_debug(mdsl, "Find site %lx, got %lx offset %ld, TB(%d,%ld)\n", 
+                   site, tb.site_id, offset, tb.itb_nr, tb.txg);
+    
+        if (tb.magic == TXG_BEGIN_MAGIC &&
+            tb.site_id == site) {
+            if (*txg < tb.txg)
+                *txg = tb.txg;
+            else {
+                /* this means we lost some txg in execution, fallback to last
+                 * txg number */
+                hvfs_warning(mdsl, "TXG from site %lx is decreasing from "
+                             "%ld to %ld\n",
+                             site, *txg, tb.txg);
+                *txg = tb.txg;
+            }
+        }
+        offset += sizeof(tb);
+        
+        /* skip itb info region */
+        offset += ITB_INFO_DISK_SIZE * tb.itb_nr;
+        /* skip other region */
+        offset += tb.dir_delta_nr * 
+            sizeof(struct hvfs_dir_delta) +
+            tb.rdd_nr *
+            sizeof(struct hvfs_dir_delta) +
+            tb.bitmap_delta_nr * 
+            sizeof(struct bitmap_delta) +
+            tb.ckpt_nr * 
+            sizeof(struct checkpoint) +
+            tb.rd_nr * sizeof(u64);
+        /* skip txg_end */
+        offset += sizeof(struct txg_end);
+    } while (1);
+
+out:
+    if (err) {
+        hvfs_warning(mdsl, "Read from txg log file failed w/ %d, corrupted?\n",
+                     err);
+    }
+    /* ignore any error */
+
+    return 0;
+}
+
+void __mdsl_txg_pair_write(struct txg_begin *tb, struct txg_end *te)
+{
+    loff_t offset;
+    long bw, bl;
+    
+    xlock_lock(&hmo.storage.txg_fd_lock);
+    offset = lseek(hmo.storage.txg_fd, 0, SEEK_END);
+    if (offset < 0) {
+        hvfs_err(mdsl, "lseek to end of fd %d failed w/ %d\n",
+                 hmo.storage.txg_fd, errno);
+        goto out_unlock;
+    }
+    /* write the TXG_BEGIN */
+    bl = 0;
+    do {
+        bw = pwrite(hmo.storage.txg_fd, (void *)tb + bl,
+                    sizeof(*tb) - bl, offset + bl);
+        if (bw <= 0) {
+            hvfs_err(mdsl, "pwrite to fd %d failed w/ %d\n",
+                     hmo.storage.txg_fd, errno);
+            goto out_unlock;
+        }
+        bl += bw;
+    } while (bl < sizeof(*tb));
+    offset += sizeof(*tb);
+
+    /* write the TXG_END */
+    bl = 0;
+    do {
+        bw = pwrite(hmo.storage.txg_fd, (void *)te + bl,
+                    sizeof(*te) - bl, offset + bl);
+        if (bw <= 0) {
+            hvfs_err(mdsl, "pwrite to fd %d failed w/ %d\n",
+                     hmo.storage.txg_fd, errno);
+            goto out_unlock;
+        }
+        bl += bw;
+    } while (bl < sizeof(*te));
+
+out_unlock:    
+    xlock_unlock(&hmo.storage.txg_fd_lock);
+}
+
+void __mdsl_txg_rename(void)
+{
+    char opath[256], npath[256];
+    int err = 0;
+
+    sprintf(opath, "%s/txg", hmo.conf.mdsl_home);
+    sprintf(npath, "%s/last-txg", hmo.conf.mdsl_home);
+
+    err = rename(opath, npath);
+    if (err) {
+        hvfs_err(mdsl, "rename txg to last-txg failed w/ %d\n",
+                 errno);
+        goto out;
+    }
+
+    /* close old file and open new file */
+    err = open(opath, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+    if (err < 0) {
+        hvfs_err(mdsl, "open file '%s' failed w/ %d\n", opath, errno);
+    }
+    close(hmo.storage.txg_fd);
+    hmo.storage.txg_fd = err;
+    
+out:
+    return;
+}
+
+/* mdsl_startup_normal() write a TXG_BEGIN/TXG_END pair to txg file
+ */
+void mdsl_startup_normal(void)
+{
+    struct txg_begin tb;
+    struct txg_end te;
+
+    memset(&tb, 0, sizeof(tb));
+    tb.magic = TXG_BEGIN_MAGIC;
+    memset(&te, 0, sizeof(te));
+    te.magic = TXG_END_MAGIC;
+
+    /* set up specific info */
+    tb.site_id = hmo.site_id;
+    tb.session_id = hmo.session | HMO_SESSION_BEGIN;
+    te.site_id = hmo.site_id;
+    te.session_id = hmo.session | HMO_SESSION_BEGIN;
+
+    /* change to a new txg file */
+    __mdsl_txg_rename();
+    
+    /* do write */
+    __mdsl_txg_pair_write(&tb, &te);
+}
+
+/* mdsl_exit_normal() write a TXG_BEGIN/TXG_END pair to txg file
+ */
+void mdsl_exit_normal(void)
+{
+    struct txg_begin tb;
+    struct txg_end te;
+
+    memset(&tb, 0, sizeof(tb));
+    tb.magic = TXG_BEGIN_MAGIC;
+    memset(&te, 0, sizeof(te));
+    te.magic = TXG_END_MAGIC;
+
+    /* set up specific info */
+    tb.site_id = hmo.site_id;
+    tb.session_id = hmo.session | HMO_SESSION_END;
+    te.site_id = hmo.site_id;
+    te.session_id = hmo.session | HMO_SESSION_END;
+
+    __mdsl_txg_pair_write(&tb, &te);
+}
+
+/* Return value: 0 => ok; <0 => error;
+ */
+int mdsl_txg_integrated(void)
+{
+    struct txg_begin tb;
+    loff_t offset = 0;
+    u64 begin_session = 0, end_session = 0;
+    int err = -ENOENT, bl, br;
+
+    /* read in the content from last checkpoint position */
+    do {
+        /* get the txg_begin entry */
+        bl = 0;
+        do {
+            br = pread(hmo.storage.txg_fd, (void *)&tb + bl,
+                       sizeof(tb) - bl, offset + bl);
+            if (br < 0) {
+                hvfs_err(mdsl, "read txg log file failed w/ %d\n", errno);
+                err = -errno;
+                goto out;
+            } else if (br == 0) {
+                /* it is ok to break here */
+                goto out_check;
+            }
+            bl += br;
+        } while (bl < sizeof(tb));
+
+        if (tb.magic == TXG_BEGIN_MAGIC &&
+            tb.site_id == hmo.site_id) {
+            if (tb.session_id & HMO_SESSION_BEGIN)
+                begin_session = tb.session_id;
+            else if (tb.session_id & HMO_SESSION_END)
+                end_session = tb.session_id;
+        }
+        offset += sizeof(tb);
+
+        /* skip itb info region */
+        offset += ITB_INFO_DISK_SIZE * tb.itb_nr;
+        /* skip other region */
+        offset += tb.dir_delta_nr *
+            sizeof(struct hvfs_dir_delta) +
+            tb.rdd_nr *
+            sizeof(struct hvfs_dir_delta) +
+            tb.bitmap_delta_nr * 
+            sizeof(struct bitmap_delta) +
+            tb.ckpt_nr * 
+            sizeof(struct checkpoint) +
+            tb.rd_nr * sizeof(u64);
+        /* skip txg_end */
+        offset += sizeof(struct txg_end);
+    } while (1);
+
+out_check:
+    if ((begin_session & (~HMO_SESSION_MASK)) ==
+        (end_session & (~HMO_SESSION_MASK))) {
+        if (end_session) 
+            err = 0;
+        else if (!begin_session) {
+            /* there is no session pair */
+            err = 0;
+        } else {
+            err = -ENOENT;
+        }
+    }
+out:
+    if (err) {
+        hvfs_warning(mdsl, "MDSL txg integrated check failed w/ %d\n",
+                     err);
+    }
+
+    return err;
+}
+

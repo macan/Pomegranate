@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-15 03:46:45 macan>
+ * Time-stamp: <2011-07-07 22:15:42 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -53,7 +53,7 @@ void __mdsl_send_err_rpy(struct xnet_msg *msg, int err)
 }
 
 static inline
-void __mdsl_send_rpy(struct xnet_msg *msg)
+void __mdsl_send_rpy_warg(struct xnet_msg *msg, u64 arg0, u64 arg1)
 {
     struct xnet_msg *rpy;
 
@@ -68,7 +68,7 @@ void __mdsl_send_rpy(struct xnet_msg *msg)
 #endif
     xnet_msg_fill_tx(rpy, XNET_MSG_RPY, 0, hmo.site_id, msg->tx.ssite_id);
     xnet_msg_fill_reqno(rpy, msg->tx.reqno);
-    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, 0, 0);
+    xnet_msg_fill_cmd(rpy, XNET_RPY_ACK, arg0, arg1);
     /* match the original request at the source site */
     rpy->tx.handle = msg->tx.handle;
 
@@ -76,6 +76,12 @@ void __mdsl_send_rpy(struct xnet_msg *msg)
         hvfs_err(mdsl, "xnet_send() failed.\n");
     }
     xnet_free_msg(rpy);
+}
+
+static inline
+void __mdsl_send_rpy(struct xnet_msg *msg)
+{
+    return __mdsl_send_rpy_warg(msg, 0, 0);
 }
 
 /* @flag: 1 means we are sending ITB; 0 means we are sending other data
@@ -126,7 +132,7 @@ void mdsl_itb(struct xnet_msg *msg)
     struct fdhash_entry *fde;
     struct txg_open_entry *toe;
     range_t *range;
-    struct itb *itb;
+    struct itb *itb = NULL;
     void *data = NULL;
     u64 location;
     int master;
@@ -498,6 +504,8 @@ out_reply:
 out_put:    
     mdsl_storage_fd_put(fde);
 out:
+    xnet_free_msg(msg);
+    
     return;
 }
 
@@ -1147,5 +1155,70 @@ out:
 
 void mdsl_wdata(struct xnet_msg *msg)
 {
+    xnet_free_msg(msg);
 }
 
+void mdsl_analyse(struct xnet_msg *msg)
+{
+    u64 site;
+    int err = 0;
+    
+    switch (msg->tx.arg0) {
+    case HVFS_ANA_MAX_TXG:
+    {
+        u64 txg = 0;
+
+        if (HVFS_IS_MDS(msg->tx.ssite_id))
+            site = msg->tx.ssite_id;
+        else
+            site = msg->tx.arg1;
+
+        err = mdsl_storage_find_max_txg(site, &txg, hmo.storage.txg_fd);
+        if (err) {
+            hvfs_err(mdsl, "find max txg for site %lx failed w/ %d\n",
+                     msg->tx.ssite_id, err);
+            goto out;
+        }
+
+        /* open last-txg file and do search */
+        {
+            char path[256];
+            u64 __txg = 0;
+            int fd = 0;
+
+            sprintf(path, "%s/last-txg", hmo.conf.mdsl_home);
+            fd = err = open(path, O_RDONLY);
+            if (err < 0) {
+                hvfs_warning(mdsl, "open file '%s' failed w/ %d\n",
+                             path, errno);
+                goto bypass_last_txg;
+            }
+            err = mdsl_storage_find_max_txg(site, &__txg, err);
+            if (err) {
+                hvfs_err(mdsl, "find max txg for site %lx failed w/ %d\n",
+                         msg->tx.ssite_id, err);
+            }
+            close(fd);
+            if (__txg > txg)
+                txg = __txg;
+        bypass_last_txg:
+            /* reset any errors */
+            err = 0;
+        }
+            
+        __mdsl_send_rpy_warg(msg, txg, 0);
+        break;
+    }
+    case HVFS_ANA_UPDATE_LIST:
+        break;
+    default:;
+    }
+
+out:
+    if (err) {
+        __mdsl_send_err_rpy(msg, err);
+    }
+    
+    xnet_free_msg(msg);
+    return;
+}

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-20 06:00:32 macan>
+ * Time-stamp: <2011-06-29 06:03:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -295,6 +295,7 @@ void *spool_main(void *arg)
             else if (err) {
                 hvfs_err(mds, "Service thread handle request w/ error %d\n",
                          err);
+                break;
             }
         }
     }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-22 11:19:33 macan>
+ * Time-stamp: <2011-06-29 10:41:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,6 +95,12 @@
 #define HVFS_MDS2MDS_GF         0x000000008000000b /* gossip ft info */
 #define HVFS_MDS2MDS_GR         0x000000008000000c /* gossip rdir */
 #define HVFS_MDS2MDS_BRANCH     0x000000008000000f /* branch commands */
+#define HVFS_MDS_HA             0x0000000080000010 /* ha request */
+#define HVFS_MDS_RECOVERY       0x0000000080000020 /* recovery analyse
+                                                    * request */
+/* begin recovery subregion: arg0 */
+#define HVFS_RECOVERY_
+/* end recovery subregion */
 
 /* MDSL to MDS */
 /* RING/ROOT to MDS */
@@ -125,6 +131,12 @@
 /* end subregion for arg0 */
 #define HVFS_MDS2MDSL_WDATA     0x0000000080040000
 #define HVFS_MDS2MDSL_BTCOMMIT  0x0000000080100000
+#define HVFS_MDS2MDSL_ANALYSE   0x0000000080200000
+/* subregion for arg0 */
+#define HVFS_ANA_MAX_TXG        0x0001 /* find the max txg */
+#define HVFS_ANA_UPDATE_LIST    0x0002 /* find the ddb and bdb (not) need
+                                        * update */
+/* end subregion for arg0 */
 
 /* Client to MDSL */
 #define HVFS_CLT2MDSL_READ      0x0000000080050000

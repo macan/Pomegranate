@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-05 10:01:49 macan>
+ * Time-stamp: <2011-07-06 23:38:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,6 +50,15 @@ int mdsl_spool_dispatch(struct xnet_msg *msg)
     sem_post(&spool_mgr.rin_sem);
 
     return 0;
+}
+
+void mdsl_spool_redispatch(struct xnet_msg *msg, int sempost)
+{
+    xlock_lock(&spool_mgr.rin_lock);
+    list_add_tail(&msg->list, &spool_mgr.reqin);
+    xlock_unlock(&spool_mgr.rin_lock);
+    if (sempost)
+        sem_post(&spool_mgr.rin_sem);
 }
 
 static inline
@@ -113,6 +122,7 @@ void *spool_main(void *arg)
             else if (err) {
                 hvfs_err(mdsl, "Service thread handle request w/ error %d\n",
                          err);
+                break;
             }
         }
     }
