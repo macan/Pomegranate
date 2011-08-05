@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-02 04:16:20 macan>
+ * Time-stamp: <2011-08-05 07:12:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -576,10 +576,11 @@ resend:
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
         err = msg->pair->tx.err;
         lookup_failed++;
-#if 0
-        __send_msg_dump(msg);
-#endif
         hvfs_err(mds, "DUMP criminal hash 0x%lx\n", hi->hash);
+#if 1
+        __send_msg_dump(msg);
+        exit(0);
+#endif
         goto out;
     }
     if (msg->pair->xm_datacheck)

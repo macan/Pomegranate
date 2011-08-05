@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-07 19:53:51 macan>
+ * Time-stamp: <2011-07-22 10:29:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -309,11 +309,11 @@ void mdsl_pre_init(void)
     hmo.state = HMO_STATE_INIT;
 }
 
-/* mdsl_verify()
+/* mdsl_verify() hmo.site_id is ready now
  */
 int mdsl_verify(void)
 {
-    char path[128] = {0, };
+    char path[256] = {0, };
     int err = 0;
 
     /* check the MDSL_HOME */
@@ -328,6 +328,15 @@ int mdsl_verify(void)
     err = mdsl_storage_dir_make_exist(path);
     if (err) {
         hvfs_err(mdsl, "dir %s do not exist.\n", path);
+        goto out;
+    }
+
+    /* open the txg file */
+    sprintf(path, "%s/%lx/txg", hmo.conf.mdsl_home, hmo.site_id);
+    hmo.storage.txg_fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+    if (hmo.storage.txg_fd < 0) {
+        hvfs_err(mdsl, "open file '%s' faield w/ %d\n", path, errno);
+        return -errno;
     }
 
     /* check if we need a recovery */

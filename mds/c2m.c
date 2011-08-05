@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-23 21:51:33 macan>
+ * Time-stamp: <2011-07-28 06:05:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -146,7 +146,7 @@ void __customized_send_reply(struct xnet_msg *msg, struct iovec iov[], int nr)
 }
 
 /* STATFS */
-void mds_statfs(struct hvfs_tx *tx)
+void __mdsdisp mds_statfs(struct hvfs_tx *tx)
 {
     struct statfs *s = (struct statfs *)xzalloc(sizeof(struct statfs));
 
@@ -190,7 +190,7 @@ void mds_statfs(struct hvfs_tx *tx)
 }
 
 /* LOOKUP */
-void mds_lookup(struct hvfs_tx *tx)
+void __mdsdisp mds_lookup(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct hvfs_md_reply *hmr;
@@ -247,10 +247,11 @@ send_rpy:
 }
 
 /* CREATE */
-void mds_create(struct hvfs_tx *tx)
+void __mdsdisp mds_create(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct hvfs_md_reply *hmr;
+    u64 txgid = tx->txg->txg, dlen;
     TIMER_DEF();
     int err;
 
@@ -277,6 +278,7 @@ void mds_create(struct hvfs_tx *tx)
 
     /* create in the CBHT */
     hi->flag |= INDEX_CREATE;
+    dlen = hi->dlen;
     if (hi->dlen) {
         hi->data = tx->req->xm_data + sizeof(*hi) + hi->namelen;
     } else {
@@ -285,6 +287,10 @@ void mds_create(struct hvfs_tx *tx)
     }
 
     err = mds_cbht_search(hi, hmr, tx->txg, &tx->txg);
+    if (!err)
+        add_cli_log_entry(txgid, 0, LOG_CLI_CREATE, dlen + hi->namelen, 
+                          hi, (dlen > 0 ? hi->data - hi->namelen : 
+                               (tx->req->xm_data + sizeof(*hi))));
 
 actually_send:
     TIMER_EaU(LAT_STAT_CREATE);
@@ -304,7 +310,7 @@ send_rpy:
  *
  * use ACQUIRE to issue a search
  */
-void mds_acquire(struct hvfs_tx *tx)
+void __mdsdisp mds_acquire(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct hvfs_md_reply *hmr;
@@ -349,7 +355,7 @@ send_rpy:
  *
  * use RELEASE to release a lease.
  */
-void mds_release(struct hvfs_tx *tx)
+void __mdsdisp mds_release(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct hvfs_md_reply *hmr;
@@ -390,7 +396,7 @@ send_rpy:
 }
 
 /* UPDATE */
-void mds_update(struct hvfs_tx *tx)
+void __mdsdisp mds_update(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct hvfs_md_reply *hmr;
@@ -441,7 +447,7 @@ send_rpy:
 }
 
 /* LINKADD */
-void mds_linkadd(struct hvfs_tx *tx)
+void __mdsdisp mds_linkadd(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct hvfs_md_reply *hmr;
@@ -496,7 +502,7 @@ send_rpy:
 }
 
 /* UNLINK */
-void mds_unlink(struct hvfs_tx *tx)
+void __mdsdisp mds_unlink(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct hvfs_md_reply *hmr;
@@ -543,7 +549,7 @@ send_rpy:
 }
 
 /* SYMLINK */
-void mds_symlink(struct hvfs_tx *tx)
+void __mdsdisp mds_symlink(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct hvfs_md_reply *hmr;
@@ -594,7 +600,7 @@ send_rpy:
 }
 
 /* LOAD BITMAP */
-void mds_lb(struct hvfs_tx *tx)
+void __mdsdisp mds_lb(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct ibmap ibmap;
@@ -763,7 +769,7 @@ out:
     return;
 }
 
-void mds_c2m_ldh(struct hvfs_tx *tx)
+void __mdsdisp mds_c2m_ldh(struct hvfs_tx *tx)
 {
     struct xnet_msg *msg = tx->req;
 
@@ -774,7 +780,7 @@ void mds_c2m_ldh(struct hvfs_tx *tx)
 }
 
 /* LIST/Readdir */
-void mds_list(struct hvfs_tx *tx)
+void __mdsdisp mds_list(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
     struct hvfs_md_reply *hmr;
@@ -866,7 +872,7 @@ out:
     mds_tx_done(tx);
 }
 
-void mds_snapshot(struct hvfs_tx *tx)
+void __mdsdisp mds_snapshot(struct hvfs_tx *tx)
 {
     struct hvfs_md_reply *hmr;
     
@@ -888,4 +894,35 @@ void mds_snapshot(struct hvfs_tx *tx)
     }
 
     return mds_send_reply(tx, hmr, 0);
+}
+
+/* REDO region for basic operations */
+void mds_create_redo(struct hvfs_index *hi)
+{
+    struct hvfs_md_reply *hmr;
+    struct hvfs_txg *txg;
+    int err = 0;
+
+    /* alloc hmr */
+    hmr = get_hmr();
+    if (!hmr) {
+        hvfs_err(mds, "get_hmr() failed\n");
+        /* just return */
+        return;
+    }
+
+    /* create in the CBHT */
+    hi->flag |= INDEX_CREATE;
+    /* hi->data has been already installed */
+
+    txg = mds_get_open_txg(&hmo);
+    err = mds_cbht_search(hi, hmr, txg, &txg);
+    txg_put(txg);
+
+    /* free resources */
+    if (hmr->data)
+        xfree(hmr->data);
+    xfree(hmr);
+    
+    return;
 }

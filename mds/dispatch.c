@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-29 19:41:34 macan>
+ * Time-stamp: <2011-07-25 10:50:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,7 +27,7 @@
 #include "xnet.h"
 #include "mds.h"
 
-int mds_client_dispatch(struct xnet_msg *msg)
+int __mdsdisp mds_client_dispatch(struct xnet_msg *msg)
 {
     struct hvfs_tx *tx;
     u16 op;
@@ -106,7 +106,7 @@ int mds_client_dispatch(struct xnet_msg *msg)
     return 0;
 }
 
-int mds_mds_dispatch(struct xnet_msg *msg)
+int __mdsdisp mds_mds_dispatch(struct xnet_msg *msg)
 {
     switch (msg->tx.cmd) {
     case HVFS_MDS2MDS_FWREQ:
@@ -164,8 +164,10 @@ int mds_mds_dispatch(struct xnet_msg *msg)
         }
         break;
     case HVFS_MDS_HA:
+        redo_dispatch(msg);
         break;
     case HVFS_MDS_RECOVERY:
+        redo_dispatch(msg);
         break;
     default:
         hvfs_err(mds, "Invalid MDS2MDS request %ld from %lx\n",
@@ -176,7 +178,7 @@ int mds_mds_dispatch(struct xnet_msg *msg)
     return 0;
 }
 
-int mds_mdsl_dispatch(struct xnet_msg *msg)
+int __mdsdisp mds_mdsl_dispatch(struct xnet_msg *msg)
 {
     switch (msg->tx.cmd) {
     case HVFS_MDS2MDS_BRANCH:
@@ -197,7 +199,7 @@ int mds_mdsl_dispatch(struct xnet_msg *msg)
     return 0;
 }
 
-int mds_ring_dispatch(struct xnet_msg *msg)
+int __mdsdisp mds_ring_dispatch(struct xnet_msg *msg)
 {
     switch (msg->tx.cmd) {
     case HVFS_MDS2MDS_AUBITMAP_R:
@@ -227,12 +229,12 @@ int mds_ring_dispatch(struct xnet_msg *msg)
     return 0;
 }
 
-int mds_root_dispatch(struct xnet_msg *msg)
+int __mdsdisp mds_root_dispatch(struct xnet_msg *msg)
 {
     return mds_ring_dispatch(msg);
 }
 
-int mds_amc_dispatch(struct xnet_msg *msg)
+int __mdsdisp mds_amc_dispatch(struct xnet_msg *msg)
 {
     switch (msg->tx.cmd) {
     case HVFS_AMC2MDS_REQ:

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-07 22:15:42 macan>
+ * Time-stamp: <2011-07-22 10:25:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1186,7 +1186,7 @@ void mdsl_analyse(struct xnet_msg *msg)
             u64 __txg = 0;
             int fd = 0;
 
-            sprintf(path, "%s/last-txg", hmo.conf.mdsl_home);
+            sprintf(path, "%s/%lx/last-txg", hmo.conf.mdsl_home, hmo.site_id);
             fd = err = open(path, O_RDONLY);
             if (err < 0) {
                 hvfs_warning(mdsl, "open file '%s' failed w/ %d\n",

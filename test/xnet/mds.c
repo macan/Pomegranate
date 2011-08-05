@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-29 05:18:13 macan>
+ * Time-stamp: <2011-07-21 15:55:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1163,7 +1163,10 @@ int main(int argc, char *argv[])
     hmo.cb_branch_init = mds_cb_branch_init;
     hmo.cb_branch_destroy = mds_cb_branch_destroy;
 
-    mds_init(11);
+    err = mds_init(11);
+    if (err) {
+        return err;
+    }
 
     /* set the uuid base! */
     hmi.uuid_base = (u64)self << 45;

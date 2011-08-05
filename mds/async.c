@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-05 16:39:48 macan>
+ * Time-stamp: <2011-08-05 08:22:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -148,6 +148,8 @@ int __aur_itb_split(struct async_update_request *aur)
         if (msg->pair->tx.err) {
             hvfs_err(mds, "Site %lx handle AUSplit failed w/ %d\n",
                      p->site_id, msg->pair->tx.err);
+            err = msg->pair->tx.err;
+            goto msg_free;
         }
         /* Step 3.inf we should free the ITB */
         itb_put((struct itb *)i->h.twin);
@@ -158,8 +160,20 @@ int __aur_itb_split(struct async_update_request *aur)
     msg_free:
         xnet_free_msg(msg);
         if (err) {
-            /* FIXME: we re-submit the request! */
-            au_submit(aur);
+            if (hmo.state >= HMO_STATE_RUNNING) {
+                /* FIXME: we re-submit the request! */
+                au_submit(aur);
+                err = 0;
+                goto out;
+            } else {
+                /* free this entry */
+                itb_put((struct itb *)i->h.twin);
+                hvfs_warning(mds, "Receive the AU split %ld reply "
+                             "from %lx.\n", 
+                             i->h.itbid, msg->pair->tx.ssite_id);
+                itb_put(i);
+                atomic64_inc(&hmo.prof.mds.split);
+            }
         }
     } else {
         struct bucket *nb;
@@ -181,14 +195,38 @@ int __aur_itb_split(struct async_update_request *aur)
         }
         xrwlock_wunlock(&i->h.lock);
 
+        /* REDO: add this entry to redo log (we are not in critical path) */
+        add_ausplit_log_entry(i->h.txg, hmo.site_id, 
+                              atomic_read(&i->h.len), i);
+
         /* insert into the CBHT */
         err = mds_cbht_insert_bbrlocked(&hmo.cbht, i, &nb, &nbe, &ti);
         if (err == -EEXIST) {
-            /* someone create the new ITB, we have data losing */
-            hvfs_err(mds, "Someone create ITB %ld(%ld), data losing ... "
-                     "[failed fatal error]\n{self %p, other %p}\n",
-                     i->h.itbid, saved_oi->h.itbid,
-                     i, ti);
+            /* Note: In recovery mode, it is possible to re-create this
+             * ITB. Thus, we should copy the new entries in this ITB to the
+             * existed ITB :) */
+            if (hmo.state < HMO_STATE_RUNNING &&
+                hmo.aux_state & HMO_AUX_STATE_RECOVER) {
+                /* we have already got the target ITB pointer(and got bucket
+                 * and be rlock, no scruber can free it), wlock it and call
+                 * itb_move(). */
+                xrwlock_wlock(&ti->h.lock);
+                err = itb_move(i, ti);
+                if (err) {
+                    hvfs_err(mds, "Move entries from ITB %ld (%p to %p) "
+                             "failed w/ %d\n",
+                             i->h.itbid, i, ti, err);
+                }
+                xrwlock_wunlock(&ti->h.lock);
+            } else {
+                /* someone create the new ITB, we have data losing */
+                hvfs_err(mds, "Someone create ITB %ld(%ld), data losing ... "
+                         "[failed fatal error]\n{self %p, other %p}\n",
+                         i->h.itbid, saved_oi->h.itbid,
+                         i, ti);
+            }
+            itb_put(i);
+            i = ti;
         } else if (err) {
             hvfs_err(mds, "Internal error %d, data losing. "
                      "[failed fatal error]\n", err);
@@ -207,7 +245,8 @@ int __aur_itb_split(struct async_update_request *aur)
         mds_dh_bitmap_update(&hmo.dh, i->h.puuid, i->h.itbid, 
                              MDS_BITMAP_SET);
         atomic64_inc(&hmo.prof.itb.split_local);
-        atomic64_add(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
+        if (!err)
+            atomic64_add(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
 
         hvfs_warning(mds, "We update the bit of ITB %ld locally\n", i->h.itbid);
 /*         mds_dh_bitmap_dump(&hmo.dh, i->h.puuid); */
@@ -673,18 +712,19 @@ out:
 int __au_req_handle(void)
 {
     struct async_update_request *aur = NULL, *n;
-    int err = 0;
+    int err = 0, found = 0;
 
     xlock_lock(&g_aum.lock);
     if (!list_empty(&g_aum.aurlist)) {
         list_for_each_entry_safe(aur, n, &g_aum.aurlist, list) {
             list_del(&aur->list);
+            found = 1;
             break;
         }
     }
     xlock_unlock(&g_aum.lock);
 
-    if (!aur)
+    if (!found)
         return -EHSTOP;
     
     /* ok, deal with it */
@@ -714,6 +754,8 @@ int __au_req_handle(void)
                      aur->op, aur->arg);
     }
     atomic64_inc(&hmo.prof.misc.au_handle);
+    xfree(aur);
+
     return err;
 }
 
@@ -722,7 +764,7 @@ int __au_req_handle(void)
 void au_handle_split_sync(void)
 {
     struct async_update_request *aur = NULL, *n;
-    int err = 0;
+    int err = 0, found = 0;
 
     /* test only */
     if (list_empty(&g_aum.aurlist))
@@ -734,13 +776,14 @@ void au_handle_split_sync(void)
             if (aur->op == AU_ITB_SPLIT ||
                 aur->op == AU_ITB_BITMAP) {
                 list_del(&aur->list);
+                found = 1;
                 break;
             }
         }
     }
     xlock_unlock(&g_aum.lock);
 
-    if (!aur)
+    if (!found)
         return;
 
     switch (aur->op) {
@@ -755,8 +798,10 @@ void au_handle_split_sync(void)
     }
 
     if (err) {
-        hvfs_err(mds, "AU (split) handle error %d\n", err);
+        hvfs_err(mds, "AU (split/bitmap[%ld]) handle error %d\n", 
+                 aur->op, err);
     }
+    xfree(aur);
 
     return;
 }
@@ -818,7 +863,7 @@ void *async_update(void *arg)
             if (err == -EHSTOP)
                 break;
             else if (err) {
-                hvfs_err(mds, "AU handle error %d\n", err);
+                hvfs_err(mds, "AU(async) handle error %d\n", err);
             }
         }
     }

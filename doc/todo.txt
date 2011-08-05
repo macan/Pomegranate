@@ -262,6 +262,8 @@ Pomegranate TODOs:
     details in my PPT 'GC in Pomegrenate' at 
     [[http://macan.posterous.com]].
 
+    Have a bug in large scale running (gc.ut) @ 7/20/2011.
+
     Part Two: GC DATA files
 
     API Change! at mdsl_api.h => si_core.arg0 for mdsl_read/mdsl_write 
@@ -451,3 +453,7 @@ Pomegranate TODOs:
        1. Scan txg log to detect abnormal shutdown;
 
        2. Replicate TXG commit group to remote MDSLs.
+
+    3. Progress
+
+       1. Redo is almost working. However, there is a bug in fquery_log_entry!

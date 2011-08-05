@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-06-26 19:46:30 macan>
+# Time-stamp: <2011-07-22 10:59:44 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -221,10 +221,13 @@ function start_root() {
 function start_r2cli() {
     if [ "x$1" == "x" ]; then
         ipnr=`cat $CONFIG_FILE | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
-        ip=`echo $ipnr | awk -F: '{print $1}'`
-        id=`echo $ipnr | awk -F: '{print $2}'`
-        port=`echo $ipnr | awk -F: '{print $3}'`
-        $SSH $UN$ip "type=1 fsid=0 op=1 $HVFS_HOME/test/xnet/r2cli.ut $id $R2IP $port"
+        for X in $ipnr; do
+            ip=`echo $X | awk -F: '{print $1}'`
+            id=`echo $X | awk -F: '{print $2}'`
+            port=`echo $X | awk -F: '{print $3}'`
+            $SSH $UN$ip "type=1 fsid=0 op=1 $HVFS_HOME/test/xnet/r2cli.ut $id $R2IP $port"
+            return
+        done
     fi
 }
 
@@ -389,10 +392,10 @@ function do_clean() {
     for x in $ipnr; do
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
+        $SSH $UN$ip "rm -rf /tmp/hvfs/4*" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/hvfs/6*" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/hvfs/bp" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/hvfs/*_store" > /dev/null
-        $SSH $UN$ip "rm -rf /tmp/hvfs/txg" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/.MDS.DCONF.*" > /dev/null
     done
 }
