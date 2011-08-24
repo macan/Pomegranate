@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-22 01:14:14 macan>
+ * Time-stamp: <2011-08-25 05:58:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -712,5 +712,6 @@ struct redo_log_site *add_ausplit_log_entry(u64 txg, u64 ssite, u32 dlen,
 u64 get_redo_prof(int type);
 int redo_dispatch(struct xnet_msg *msg);
 int redo_log_apply_one(struct redo_log_site_disk *r);
+int do_move_ite(struct ite *e, struct itb *i);
 
 #endif
