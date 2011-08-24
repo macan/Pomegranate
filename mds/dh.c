@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-25 04:49:41 macan>
+ * Time-stamp: <2011-08-18 07:37:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -555,7 +555,8 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
     if (p->site_id == hmo.site_id) {
         struct hvfs_txg *txg;
         
-        hvfs_warning(mds, "Load DH (self): uuid %lx itbid %ld, site %lx\n", 
+        hvfs_warning(mds, "Load DH (self): uuid %lx itbid %ld, site %lx "
+                     "=> \n", 
                      thi.uuid, thi.itbid, p->site_id);
         /* the GDT service MDS server is myself, so we just lookup the entry
          * in my CBHT. */
@@ -651,11 +652,14 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
             /* install the trigger now */
             e->data = dtm;
         }
+        hvfs_warning(mds, "=> uuid %lx salt %lx mdu_flags %x\n", 
+                     thi.uuid, thi.ssalt, mdu_flags);
     out_free_hmr:
         xfree(hmr);
     } else {
         /* ok, we should send the request to the remote site now */
-        hvfs_warning(mds, "Load DH (remote): uuid %lx itbid %ld, site %lx\n", 
+        hvfs_warning(mds, "Load DH (remote): uuid %lx itbid %ld, site %lx "
+                     "=> \n", 
                      thi.uuid, thi.itbid, p->site_id);
 
         /* prepare the msg */
@@ -767,6 +771,8 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                 /* install the trigger now */
                 e->data = dtm;
             }
+            hvfs_warning(mds, "=> uuid %lx salt %lx mdu_flags %x\n", 
+                         rhi->uuid, rhi->ssalt, mdu_flags);
         }
     }
     

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-05 08:22:16 macan>
+ * Time-stamp: <2011-08-23 12:07:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -160,17 +160,18 @@ int __aur_itb_split(struct async_update_request *aur)
     msg_free:
         xnet_free_msg(msg);
         if (err) {
-            if (hmo.state >= HMO_STATE_RUNNING) {
+            if (hmo.state >= HMO_STATE_RUNNING &&
+                err != -EEXIST) {
                 /* FIXME: we re-submit the request! */
                 au_submit(aur);
-                err = 0;
+                err = -ERETRY;
                 goto out;
             } else {
                 /* free this entry */
                 itb_put((struct itb *)i->h.twin);
                 hvfs_warning(mds, "Receive the AU split %ld reply "
                              "from %lx.\n", 
-                             i->h.itbid, msg->pair->tx.ssite_id);
+                             i->h.itbid, p->site_id);
                 itb_put(i);
                 atomic64_inc(&hmo.prof.mds.split);
             }
@@ -210,14 +211,12 @@ int __aur_itb_split(struct async_update_request *aur)
                 /* we have already got the target ITB pointer(and got bucket
                  * and be rlock, no scruber can free it), wlock it and call
                  * itb_move(). */
-                xrwlock_wlock(&ti->h.lock);
-                err = itb_move(i, ti);
+                err = itb_move(i);
                 if (err) {
                     hvfs_err(mds, "Move entries from ITB %ld (%p to %p) "
                              "failed w/ %d\n",
                              i->h.itbid, i, ti, err);
                 }
-                xrwlock_wunlock(&ti->h.lock);
             } else {
                 /* someone create the new ITB, we have data losing */
                 hvfs_err(mds, "Someone create ITB %ld(%ld), data losing ... "
@@ -717,7 +716,7 @@ int __au_req_handle(void)
     xlock_lock(&g_aum.lock);
     if (!list_empty(&g_aum.aurlist)) {
         list_for_each_entry_safe(aur, n, &g_aum.aurlist, list) {
-            list_del(&aur->list);
+            list_del_init(&aur->list);
             found = 1;
             break;
         }
@@ -775,7 +774,7 @@ void au_handle_split_sync(void)
         list_for_each_entry_safe(aur, n, &g_aum.aurlist, list) {
             if (aur->op == AU_ITB_SPLIT ||
                 aur->op == AU_ITB_BITMAP) {
-                list_del(&aur->list);
+                list_del_init(&aur->list);
                 found = 1;
                 break;
             }

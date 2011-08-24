@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-05 06:53:43 macan>
+ * Time-stamp: <2011-08-23 11:22:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,7 +65,10 @@ struct redo_logger
     int replicated_nr;
     atomic64_t g_id;            /* global redo log entry id */
 
-    atomic64_t client_redo_nr;  /* client redo log entry NR */
+    /* profilings */
+    atomic64_t client_redo_nr;   /* client redo log entry NR */
+    atomic64_t in_rep_redo_nr;   /* incoming replicated redo log entry NR */
+    atomic64_t reap_rep_redo_nr; /* reaped replicated redo log entry NR */
 
     pthread_t thread;
     int thread_stop:1;
@@ -233,12 +236,16 @@ void __do_reap_log_entry(u64 site, u64 txg)
     
     for (i = 0; i < g_rl.replicated_nr; i++) {
         if (g_rl.replicated_sites[i] == site) {
+            xlock_lock(&g_rl.rlq[i].lock);
             list_for_each_entry_safe(pos, n, &g_rl.rlq[i].head, list) {
                 if (pos->rlsd.rle.txg <= txg) {
                     list_del(&pos->list);
                     xfree(pos);
+                    atomic64_inc(&g_rl.reap_rep_redo_nr);
                 }
             }
+            xlock_unlock(&g_rl.rlq[i].lock);
+            break;
         }
     }
 }
@@ -436,8 +443,8 @@ void *redo_logger_main(void *arg)
             g_rl.rllq.__wb ^= g_rl.rllq.__open;
             g_rl.rllq.__open ^= g_rl.rllq.__wb;
             g_rl.rllq.__wb ^= g_rl.rllq.__open;
-            /* after xchg the pointer, maybe somebody still access the old
-             * open queue, we have to wait for them */
+            /* after xchg the pointer, nobody can still access the old
+             * open queue. */
             xlock_unlock(&g_rl.rllq.lock);
         }
     }
@@ -483,6 +490,8 @@ int redo_log_init(struct chring *r, int replica_nr)
     memset(&g_rl, 0, sizeof(g_rl));
     atomic64_set(&g_rl.g_id, 1); /* always count from 1 */
     atomic64_set(&g_rl.client_redo_nr, 0);
+    atomic64_set(&g_rl.in_rep_redo_nr, 0);
+    atomic64_set(&g_rl.reap_rep_redo_nr, 0);
 
     /* get the reap interval from EV */
     {
@@ -693,6 +702,37 @@ struct redo_log_site *add_cli_log_entry(u64 txg, u32 id, u16 op,
         return NULL;
     
     rls = __add_cli_log_entry(NULL, txg, id, op, dlen, hi, data);
+
+    __DO_SEMPOST();
+    atomic64_inc(&g_rl.client_redo_nr);
+    
+    return rls;
+}
+
+/* Called by source site (for create)
+ */
+struct redo_log_site *add_create_log_entry(u64 txg, u32 dlen,
+                                           struct hvfs_index *hi,
+                                           void *data,
+                                           struct hvfs_md_reply *hmr)
+{
+    struct redo_log_site *rls;
+    struct gdt_md *go = data, *gi;
+
+    if (hmo.state < HMO_STATE_RUNNING)
+        return NULL;
+    
+    if (hi->flag & INDEX_CREATE_GDT) {
+        /* save hmr info to data region */
+        if (go && hmr && hmr->data) {
+            gi = hmr->data + sizeof(*hi);
+            go->puuid = gi->puuid;
+            go->salt = gi->salt;
+            go->psalt = gi->psalt;
+        }
+    }
+    rls = __add_cli_log_entry(NULL, txg, 0, LOG_CLI_CREATE, dlen, 
+                              hi, data);
 
     __DO_SEMPOST();
     atomic64_inc(&g_rl.client_redo_nr);
@@ -929,6 +969,7 @@ int do_replicate_log_entry(struct xnet_msg *msg)
                         (void *)rlsd + sizeof(*rlsd));
         rlsd = (void *)rlsd + sizeof(*rlsd) + rlsd->rle.len;
     }
+    atomic64_add(msg->tx.arg1, &g_rl.in_rep_redo_nr);
 
     /* send reply */
     __send_reply(msg, 0, NULL, 0);
@@ -1118,6 +1159,7 @@ void __do_query_log_entry(u64 site, u64 txg, u64 *otxg, u32 *oid)
 
     for (i = 0; i < g_rl.replicated_nr; i++) {
         if (g_rl.replicated_sites[i] == site) {
+            xlock_lock(&g_rl.rlq[i].lock);
             list_for_each_entry(pos, &g_rl.rlq[i].head, list) {
                 if (pos->rlsd.rle.txg > txg) {
                     if (pos->rlsd.rle.txg > __txg) {
@@ -1129,6 +1171,7 @@ void __do_query_log_entry(u64 site, u64 txg, u64 *otxg, u32 *oid)
                     }
                 }
             }
+            xlock_unlock(&g_rl.rlq[i].lock);
             break;
         }
     }
@@ -1584,12 +1627,14 @@ int __do_get_log_entry(u64 site, u64 txg, void **rlsd,
 
     for (i = 0; i < g_rl.replicated_nr; i++) {
         if (g_rl.replicated_sites[i] == site) {
+            xlock_lock(&g_rl.rlq[i].lock);
             list_for_each_entry(pos, &g_rl.rlq[i].head, list) {
                 if (pos->rlsd.rle.txg > txg) {
                     len += sizeof(pos->rlsd) + pos->rlsd.rle.len;
                     __nr++;
                 }
             }
+            xlock_unlock(&g_rl.rlq[i].lock);
             break;
         }
     }
@@ -1604,6 +1649,7 @@ int __do_get_log_entry(u64 site, u64 txg, void **rlsd,
         tmp = __rlsd;
         for (i = 0; i < g_rl.replicated_nr; i++) {
             if (g_rl.replicated_sites[i] == site) {
+                xlock_lock(&g_rl.rlq[i].lock);
                 list_for_each_entry(pos, &g_rl.rlq[i].head, list) {
                     if (pos->rlsd.rle.txg > txg) {
                         /* save rlsd */
@@ -1616,6 +1662,7 @@ int __do_get_log_entry(u64 site, u64 txg, void **rlsd,
                         tmp = (void *)__rlsd + offset;
                     }
                 }
+                xlock_unlock(&g_rl.rlq[i].lock);
                 break;
             }
         }
@@ -1706,6 +1753,339 @@ void redo_log_reap(time_t cur)
     last_reap = cur;
 }
 
+/* do NOT check if we should redirect this log entry */
+int __redo_log_apply_one(struct redo_log_site_disk *r)
+{
+    struct mdu *m;
+    int err = 0;
+    
+    switch (r->rle.op) {
+    case LOG_CLI_NOOP:
+        break;
+    case LOG_CLI_CREATE:
+        m = r->u.rlc.hi.data;
+        hvfs_err(mds, "Got REDO log entry: [create] txg %ld id %d "
+                 "MDU flags %x\n",
+                 r->rle.txg, r->rle.id,
+                 (r->u.rlc.hi.flag & INDEX_CREATE_COPY ? m->flags : 0));
+        /* Note that hi.data has been set */
+        r->u.rlc.hi.auxflag |= AUX_RECOVERY;
+        err = mds_create_redo(&r->u.rlc.hi);
+        break;
+    case LOG_CLI_UPDATE:
+        break;
+    case LOG_CLI_UNLINK:
+        break;
+    case LOG_CLI_SYMLINK:
+        break;
+    case LOG_CLI_AUSPLIT:
+        hvfs_err(mds, "Got REDO log entry: [ausplt] txg %ld id %d\n",
+                 r->rle.txg, r->rle.id);
+        if (r->rle.len)
+            mds_ausplit_redo((void *)r + sizeof(*r), r->rle.len);
+        break;
+    default:
+        hvfs_err(mds, "Invalid REDO log entry: txg %ld id %d, op %d\n",
+                 r->rle.txg, r->rle.id, r->rle.op);
+        err = -EINVAL;
+    }
+
+    return err;
+}
+
+int do_apply_log_entry(struct xnet_msg *msg)
+{
+    int err = 0;
+    
+    /* ABI:
+     * @tx.arg1: data length
+     */
+    if (msg->tx.len < sizeof(struct redo_log_site_disk) ||
+        !msg->xm_datacheck) {
+        hvfs_err(mds, "Invalid redo log entry to apply from site %lx\n",
+                 msg->tx.ssite_id);
+        return -EINVAL;
+    }
+
+    /* Apply this log entry to ourself */
+    err = redo_log_apply_one(msg->xm_data);
+    if (err) {
+        hvfs_err(mds, "Apply log entry(from %lx) failed w/ %d\n",
+                 msg->tx.ssite_id, err);
+    }
+
+    __send_reply(msg, err, NULL, 0);
+    xnet_free_msg(msg);
+
+    return err;
+}
+
+int redo_log_apply_one(struct redo_log_site_disk *r)
+{
+    u64 dsite;
+    int check, err = 0;
+    
+retry:
+    check = 0;
+    /* do we need redirect? */
+    switch (r->rle.op) {
+    case LOG_CLI_CREATE:
+    case LOG_CLI_UPDATE:
+    case LOG_CLI_UNLINK:
+    case LOG_CLI_SYMLINK:
+        if (r->rle.len) {
+            if (r->u.rlc.hi.flag & INDEX_BY_NAME) {
+                if (r->rle.len > r->u.rlc.hi.namelen) {
+                    r->u.rlc.hi.data = (void *)r + sizeof(*r) + 
+                        r->u.rlc.hi.namelen;
+                } else
+                    r->u.rlc.hi.data = NULL;
+            } else 
+                r->u.rlc.hi.data = (void *)r + sizeof(*r);
+            check = 1;
+        }
+        break;
+    default:
+        /* ignore any redirect checking */
+        ;
+    }
+    if (check) {
+        check = mds_redo_redirect(&r->u.rlc.hi, &dsite);
+        if (check > 0) {
+            /* ignore and print error */
+            if (check == EFWD) {
+                struct xnet_msg *msg;
+
+                msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+                if (!msg) {
+                    hvfs_warning(mds, "xnet_alloc_msg() failed, abort!\n");
+                    HVFS_BUGON("No memory!");
+                }
+                xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                                 hmo.site_id, dsite);
+                xnet_msg_fill_cmd(msg, HVFS_MDS_RECOVERY, HA_APPLY, 
+                                  r->rle.len);
+#ifdef XNET_EAGER_WRITEV
+                xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+                xnet_msg_add_sdata(msg, r, sizeof(*r));
+                if (r->rle.len)
+                    xnet_msg_add_sdata(msg, (void *)r + sizeof(*r), 
+                                       r->rle.len);
+                err = xnet_send(hmo.xc, msg);
+                if (err) {
+                    hvfs_err(mds, "redirect request in redo apply "
+                             "failed w/ %d\n", err);
+                    goto msg_free;
+                }
+                ASSERT(msg->pair, mds);
+                if (msg->pair->tx.err) {
+                    hvfs_err(mds, "Site %lx handle redo apply failed w/ %d\n",
+                             dsite, msg->pair->tx.err);
+                    /* ignore any errors */
+                }
+            msg_free:
+                xnet_free_msg(msg);
+            } else if (check != EIGNORE) {
+                hvfs_warning(mds, "In mds_redo_redirect, ignore this entry "
+                             "and continue.\n");
+            }
+            return 0;
+        } else if (check < 0) {
+            /* abort recovery */
+            hvfs_err(mds, "In mds_redo_redirect, abort recovery on w/ %d\n", 
+                     check);
+            HVFS_BUGON("Invalid Internal State!");
+        }
+    }
+
+    err = __redo_log_apply_one(r);
+    if (err == -EAGAIN) {
+        goto retry;
+    } else if (err) {
+        hvfs_err(mds, "__redo_log_apply_one() failed w/ %d\n", err);
+    }
+
+    return err;
+}
+
+/* redo log apply (a bunch of log entries) in recover site */
+int redo_log_apply(u64 txg, int wantN)
+{
+    struct redo_log_site_disk *rlsd = NULL, *r;
+    long nr = 0, i;
+    int err;
+
+    if (wantN <= 0)
+        wantN = 1;
+    
+    err = redo_log_get_replica(txg, &rlsd, &nr, wantN);
+    if (err) {
+        hvfs_err(mds, "redo log get replica failed w/ %d\n",
+                 err);
+        return err;
+    }
+
+    r = rlsd;
+    for (i = 0; i < nr; i++) {
+        redo_log_apply_one(r);
+        r = (void *)r + sizeof(*r) + r->rle.len;
+    }
+
+    xfree(rlsd);
+    
+    return 0;
+}
+
+/* do_move_ite() move a ite E from itb I.
+ */
+int do_move_ite(struct ite *e, struct itb *i)
+{
+    struct redo_log_site_disk *r;
+    struct hvfs_index *hi;
+    struct dhe *de;
+    u64 psalt;
+    int err = 0, isgdt = 0, needupdate = 0, j, k;
+
+    /* lookup and find the parent salt */
+    de = mds_dh_search(&hmo.dh, i->h.puuid);
+    if (IS_ERR(de)) {
+        err = PTR_ERR(de);
+        goto out;
+    }
+    psalt = de->salt;
+    mds_dh_put(de);
+
+    if (!(e->flag & ITE_FLAG_GDT)) {
+        isgdt = e->namelen;
+    }
+    
+    r = xzalloc(sizeof(*r) + isgdt + HVFS_MDU_SIZE);
+    if (!r) {
+        hvfs_err(mds, "xmalloc() create RLSD failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+
+    /* setup rlsd info */
+    r->rle.op = LOG_CLI_CREATE;
+    r->rle.len = isgdt + HVFS_MDU_SIZE;
+    
+    /* only copy mdu info, FIXME: need to fix GDT entry copy */
+    hi = &r->u.rlc.hi;
+    hi->namelen = isgdt;
+    hi->column = 0;
+    hi->flag = INDEX_CREATE | INDEX_CREATE_COPY | 
+        (isgdt ? INDEX_BY_NAME : INDEX_BY_UUID);
+    hi->uuid = e->uuid;
+    hi->hash = e->hash;
+    hi->itbid = i->h.itbid;
+    hi->puuid = i->h.puuid;
+    hi->psalt = psalt;
+
+    if (isgdt)
+        memcpy((void *)r + sizeof(*r), e->s.name, isgdt);
+    memcpy((void *)r + sizeof(*r) + isgdt,
+           &e->g, HVFS_MDU_SIZE);
+    hvfs_err(mds, "Move ite <%lx,%lx> mdu flags %x off %ld\n",
+             hi->uuid, hi->hash, e->g.mdu.flags, sizeof(*r) + isgdt);
+
+    /* recreate it now */
+    err = redo_log_apply_one(r);
+    if (err) {
+        hvfs_err(mds, "Try to recreate ITE <%lx,%lx> failed w/ %d\n",
+                 hi->uuid, hi->hash, err);
+        goto out_free;
+    }
+    xfree(r);
+    
+    /* update column info */
+    for (j = 0; j < 6; j++) {
+        if (e->column[j].len > 0)
+            needupdate++;
+    }
+    
+    if (needupdate) {
+        struct mdu_update *mu;
+        struct llfs_ref *lr;
+        struct mu_column *mc;
+        int len = isgdt + sizeof(struct mdu_update) +
+            sizeof(struct llfs_ref) + 
+            needupdate * sizeof(struct mu_column);
+        
+        r = xzalloc(sizeof(*r) + len);
+        if (!r) {
+            hvfs_err(mds, "xzalloc() update RLSD failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+        
+        /* setup rlsd info */
+        r->rle.op = LOG_CLI_UPDATE;
+        r->rle.len = len;
+
+        /* setup hi */
+        hi = &r->u.rlc.hi;
+        hi->namelen = isgdt;
+        hi->column = 0;
+        hi->flag = INDEX_MDU_UPDATE | 
+            (isgdt ? INDEX_BY_NAME : INDEX_BY_UUID);
+        hi->uuid = e->uuid;
+        hi->hash = e->hash;
+        hi->itbid = i->h.itbid;
+        hi->puuid = i->h.puuid;
+        hi->psalt = psalt;
+        hi->data = (void *)hi + sizeof(*hi) + isgdt;
+        if (isgdt)
+            memcpy((void *)hi + sizeof(*hi), e->s.name, isgdt);
+
+        /* setup mdu_update */
+        mu = (void *)hi + sizeof(*hi) + isgdt;
+        mu->valid = MU_MODE | MU_UID | MU_GID | MU_FLAG_ADD |
+            MU_ATIME | MU_MTIME | MU_CTIME | MU_VERSION |
+            MU_SIZE | MU_LLFS | MU_NLINK | MU_DEV;
+        mu->atime = e->s.mdu.atime;
+        mu->mtime = e->s.mdu.mtime;
+        mu->ctime = e->s.mdu.ctime;
+        mu->size = e->s.mdu.size;
+        mu->uid = e->s.mdu.uid;
+        mu->gid = e->s.mdu.gid;
+        mu->flags = e->s.mdu.flags;
+        mu->version = e->s.mdu.version;
+        mu->nlink = e->s.mdu.nlink;
+        mu->mode = e->s.mdu.mode;
+        mu->column_no = needupdate;
+        /* setup llfs_ref */
+        lr = (void *)hi + sizeof(*hi) + isgdt + sizeof(*mu);
+        *lr = e->s.mdu.lr;
+        /* setup mu_column */
+        mc = (void *)hi + sizeof(*hi) + isgdt + sizeof(*mu) + sizeof(*lr);
+        for (j = 0, k = 0; j < 6; j++) {
+            if (e->column[j].len > 0) {
+                (mc + k)->cno = j;
+                (mc + k)->c = e->column[j];
+                k++;
+            }
+        }
+
+        /* update it now */
+        err = redo_log_apply_one(r);
+        if (err) {
+            hvfs_err(mds, "Try to update ITE <!%lx,%lx> failed w/ %d\n",
+                     hi->uuid, hi->hash, err);
+            goto out_free;
+        }
+        xfree(r);
+    } else
+        goto out;
+
+out_free:
+    xfree(r);
+out:
+    
+    return err;
+}
+
 /* redo operations' dispatcher
  */
 int redo_dispatch(struct xnet_msg *msg)
@@ -1729,62 +2109,15 @@ int redo_dispatch(struct xnet_msg *msg)
     case HA_GET:
         err = do_get_log_entry(msg);
         break;
+    case HA_APPLY:
+        err = do_apply_log_entry(msg);
+        break;
     default:
         hvfs_err(mds, "Invalid HA/RECOVERY reqeust <%ld> from site %lx\n",
                  msg->tx.arg1, msg->tx.ssite_id);
         __send_reply(msg, -EINVAL, NULL, 0);
+        xnet_free_msg(msg);
     }
 
     return err;
-}
-
-int redo_log_apply(u64 txg, int wantN)
-{
-    struct redo_log_site_disk *rlsd = NULL, *r;
-    long nr = 0, i;
-    int err;
-
-    if (wantN <= 0)
-        wantN = 1;
-    
-    err = redo_log_get_replica(txg, &rlsd, &nr, wantN);
-    if (err) {
-        hvfs_err(mds, "redo log get replica failed w/ %d\n",
-                 err);
-        return err;
-    }
-
-    r = rlsd;
-    for (i = 0; i < nr; i++) {
-        switch (r->rle.op) {
-        case LOG_CLI_NOOP:
-            break;
-        case LOG_CLI_CREATE:
-            hvfs_debug(mds, "Got REDO log entry: [create] txg %ld id %d\n",
-                       r->rle.txg, r->rle.id);
-            if (r->rle.len)
-                r->u.rlc.hi.data = (void *)r + sizeof(*r);
-            mds_create_redo(&r->u.rlc.hi);
-            break;
-        case LOG_CLI_UPDATE:
-            break;
-        case LOG_CLI_UNLINK:
-            break;
-        case LOG_CLI_SYMLINK:
-            break;
-        case LOG_CLI_AUSPLIT:
-            hvfs_err(mds, "Got REDO log entry: [ausplt] txg %ld id %d\n",
-                     r->rle.txg, r->rle.id);
-            if (r->rle.len)
-                mds_ausplit_redo((void *)r + sizeof(*r), r->rle.len);
-            break;
-        default:
-            hvfs_err(mds, "Invalid REDO log entry: txg %ld id %d, op %d\n",
-                     r->rle.txg, r->rle.id, r->rle.op);
-        }
-        r = (void *)r + sizeof(*r) + r->rle.len;
-    }
-
-    xfree(rlsd);
-    return 0;
 }

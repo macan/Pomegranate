@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-25 10:49:50 macan>
+ * Time-stamp: <2011-08-17 07:38:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -357,11 +357,14 @@ l0_recheck:
         /* 1. for mds memory lookup and analyse, just fail it (because we are
          * fresh). */
         /* 2. for mdsl analyse, just do it from mdsl */
-        if (msg->tx.cmd == HVFS_MDS_RECOVERY &&
-            HVFS_IS_MDS(msg->tx.ssite_id)) {
-            return mds_mds_dispatch(msg);
-        } else 
-            mds_spool_redispatch(msg, 0);
+        if (HVFS_IS_MDS(msg->tx.ssite_id)) {
+            if (msg->tx.cmd == HVFS_MDS_RECOVERY ||
+                msg->tx.cmd == HVFS_MDS2MDS_GB)
+                return mds_mds_dispatch(msg);
+        }
+        
+        mds_spool_redispatch(msg, 0);
+
         return -EAGAIN;
     case HMO_STATE_RUNNING:
         /* accept all requests */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-27 00:00:08 macan>
+ * Time-stamp: <2011-08-19 07:33:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,6 +95,8 @@ void dump_profiling_r2(time_t t, struct hvfs_profile *hp)
     HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.itb.wsearch_depth));
     HVFS_PROFILE_VALUE_ADDIN(hp, i, atomic64_read(&hmo.prof.misc.reqin_qd));
     HVFS_PROFILE_VALUE_ADDIN(hp, i, get_redo_prof(REDO_PROF_CLIENT));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, get_redo_prof(REDO_PROF_IN_REP));
+    HVFS_PROFILE_VALUE_ADDIN(hp, i, get_redo_prof(REDO_PROF_REAP_REP));
     hp->nr = i;
 
     /* submit a async send request */
@@ -137,16 +139,16 @@ void dump_profiling_plot(time_t t)
      *  mds.bitmap_in mds.bitmap_out mdsl.itb_load, mdsl.itb_wb, mdsl.bitmap
      *  mds.gossip_bitmap misc.reqin_total misc.reqin_handle misc.reqin_drop
      *  mds.gossip_ft itb.rsearch_depth itb.wsearch_depth misc.reqin_qd
-     *  redo.client_redo_nr"
+     *  redo.client_redo_nr redo.in_rep_redo_nr redo.reap_rep_redo_nr"
      *
      * Note that, we send the header to R2 server for aggregation. If you
      * change the header, make sure change the header define in
-     * dump_profiling_r2() and r2/x2r.c -> hvfs_mds_profile_setup()!
+     * dump_profiling_r2() and r2/profile.c -> hvfs_mds_profile_setup()!
      */
     hvfs_pf("PLOT %ld %d %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
             "%ld %ld %d %d %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
             "%ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld "
-            "%ld %ld %ld %ld\n",
+            "%ld %ld %ld %ld %ld %ld\n",
             t, 
             atomic_read(&hmo.ic.csize),
             atomic64_read(&hmo.prof.cbht.lookup),
@@ -195,7 +197,9 @@ void dump_profiling_plot(time_t t)
             atomic64_read(&hmo.prof.itb.rsearch_depth),
             atomic64_read(&hmo.prof.itb.wsearch_depth),
             atomic64_read(&hmo.prof.misc.reqin_qd),
-            get_redo_prof(REDO_PROF_CLIENT)
+            get_redo_prof(REDO_PROF_CLIENT),
+            get_redo_prof(REDO_PROF_IN_REP),
+            get_redo_prof(REDO_PROF_REAP_REP)
         );
 }
 

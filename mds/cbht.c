@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-28 06:02:23 macan>
+ * Time-stamp: <2011-08-17 07:44:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1077,10 +1077,9 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
                     /* this means that we can safely ignore this error and
                      * create this new itb */
                     hvfs_err(mds, "Recovery mode: itb <%lx,%ld> "
-                             "depth %d ausplit is reordered, please use "
-                             "SPLITFIRST recovery mode!\n",
+                             "depth %d ausplit is reordered! "
+                             "Insert a new one.\n",
                              hi->puuid, hi->itbid, i->h.depth);
-                    HVFS_BUGON("Ausplits are reordered in redo log.");
                 } else if (unlikely(!(hmo.conf.option & HVFS_MDS_LIMITED))) {
                     hvfs_err(mds, "want to create itbid %ld depth %d, "
                              "hi psalt %lx\n", 

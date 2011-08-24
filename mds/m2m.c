@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-05 10:25:48 macan>
+ * Time-stamp: <2011-08-24 11:16:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -308,6 +308,7 @@ void mds_ausplit(struct xnet_msg *msg)
     i->h.state = ITB_STATE_DIRTY;
     /* re-init */
     itb_reinit(i);
+    xnet_clear_auto_free(msg);
 
     /* sanity check:
      *
@@ -315,32 +316,12 @@ void mds_ausplit(struct xnet_msg *msg)
      * check the redo log and redo some lost splits. For the target site, a
      * lost split means a re-split message. How do we detect it?
      *
-     * Step 1: check the in-memory cbht
-     * Step 2: see if the bitmap has been set (if it is set, it maybe set by
-     *         gossip thread)
+     * We do not check it. Use itb_move() to redirect ITEs to target MDS and
+     * use mds_create_redo() to record any sucessfully creations.
      */
-    err = mds_cbht_exist_check(&hmo.cbht, i->h.puuid, i->h.itbid);
-    if (err == -EEXIST) {
-        /* drop ourself, auto free the itb */
-        err = -EEXIST;
-        txg_put(t);
-        goto send_rpy;
-    } else if (err < 0) {
-        /* ignore error */
-        hvfs_warning(mds, "do cbht exist check failed on itb <%lx,%ld> "
-                     "w/ %d\n",
-                     i->h.puuid, i->h.itbid, err);
-    }
-    err = mds_dh_bitmap_test(&hmo.dh, i->h.puuid, i->h.itbid);
-    if (err < 0) {
-        hvfs_err(mds, "dh bitmap test on itb <%lx,%ld> failed w/ %d\n",
-                 i->h.puuid, i->h.itbid, err);
-    } else if (err > 0) {
-        /* drop ourself? maybe!(auto free the itb) */
-        hvfs_warning(mds, "Someone sets the bit %ld\n", i->h.itbid);
-    }
-
-    /* REDO: add this entry to redo log (we are IN critical path now) */
+    
+    /* FIXME: Remove this ENTRY!!! if and only if are we using mds_create().
+     * REDO: add this entry to redo log (we are IN critical path now) */
     add_ausplit_log_entry(i->h.txg, msg->tx.ssite_id, msg->tx.len, i);
 
     /* insert the ITB to CBHT */
@@ -349,15 +330,21 @@ void mds_ausplit(struct xnet_msg *msg)
         /* someone has already create the new ITB, we just ignore ourself? */
         hvfs_err(mds, "Someone create ITB %ld, fatal failed w/ "
                  "data loss @ txg %ld\n", i->h.itbid, i->h.txg);
+        /* FIXME:!!! temp code, move ITEs */
+        itb_move(i);
         /* it is ok, we need to free the locks */
         xrwlock_runlock(&nbe->lock);
         xrwlock_runlock(&nb->lock);
         /* this maybe a resend message, we just send the reply now */
         txg_put(t);
+        itb_free(i);
+        
         goto send_rpy;
     } else if (err) {
         hvfs_err(mds, "Internal error %d, data lossing.\n", err);
         txg_put(t);
+        itb_free(i);
+        
         goto send_rpy;
     }
     /* it is ok, we need to free the locks */
@@ -378,7 +365,6 @@ void mds_ausplit(struct xnet_msg *msg)
 
     hvfs_warning(mds, "We update the bit of ITB %ld txg %ld\n", 
                  i->h.itbid, i->h.txg);
-    xnet_clear_auto_free(msg);
 
 send_rpy:
     {
@@ -411,12 +397,12 @@ send_rpy:
     xnet_free_msg(msg);         /* do not free the allocated ITB */
 }
 
+/* Note that, it might be WRONG to insert/copy the ITEs directly from this ITB
+ * to target ITB. Thus, we copy one by one through itb_move().
+ */
 void mds_ausplit_redo(void *data, int len)
 {
-    struct itb *i, *ti;
-    struct bucket *nb;
-    struct bucket_entry *nbe;
-    struct hvfs_txg *t;
+    struct itb *i = data;
     int err = 0;
     
     /* sanity check */
@@ -425,14 +411,6 @@ void mds_ausplit_redo(void *data, int len)
         return;
     }
 
-    /* copy this itb */
-    i = get_free_itb_fast();
-    if (!i) {
-        hvfs_err(mds, "Get free itb fast failed\n");
-        return;
-    }
-    memcpy(i, data, len);
-
     /* checking the ITB */
     if (len != atomic_read(&i->h.len)) {
         hvfs_err(mds, "redo log length %d vs itb %d\n",
@@ -440,66 +418,14 @@ void mds_ausplit_redo(void *data, int len)
     }
     ASSERT(len == atomic_read(&i->h.len), mds);
 
-    /* pre-dirty the itb */
-    t = mds_get_open_txg(&hmo);
-    i->h.txg = t->txg;
-    i->h.flag = ITB_ACTIVE;
-    i->h.state = ITB_STATE_DIRTY;
-    /* re-init */
-    itb_reinit(i);
-
-    /* insert the ITB to CBHT */
-    err = mds_cbht_insert_bbrlocked(&hmo.cbht, i, &nb, &nbe, &ti);
-    if (err == -EEXIST) {
-        /* Note: In recovery mode, it is possible to re-create this ITB. Thus,
-         * we should copy the new entries in this ITB to the existed ITB :) */
-        if (hmo.state < HMO_STATE_RUNNING &&
-            hmo.aux_state & HMO_AUX_STATE_RECOVER) {
-            /* we have already got the target ITB pointer(and got bucket
-             * and be rlock, no scruber can free it), wlock it and call
-             * itb_move(). */
-            err = itb_move(i, ti);
-            if (err) {
-                hvfs_err(mds, "Move entries from ITB %ld (%p to %p) "
-                         "failed w/ %d\n",
-                         i->h.itbid, i, ti, err);
-            }
-            itb_free(i);
-            i = ti;
-        } else {
-            /* someone has already create the new ITB, we just ignore ourself? */
-            hvfs_err(mds, "Someone create ITB %ld, fatal failed w/ "
-                     "data loss @ txg %ld\n", i->h.itbid, i->h.txg);
-            /* it is ok, we need to free the locks */
-            xrwlock_runlock(&nbe->lock);
-            xrwlock_runlock(&nb->lock);
-            /* this maybe a resend message, we just send the reply now */
-            txg_put(t);
-            itb_free(i);
-            return;
-        }
-    } else if (err) {
-        hvfs_err(mds, "Internal error %d, data lossing.\n", err);
-        txg_put(t);
-        itb_free(i);
-        return;
+    err = itb_move(i);
+    if (err) {
+        hvfs_err(mds, "Move ITB %ld's ITE but remains %d entries!\n",
+                 i->h.itbid, err);
     }
-    /* it is ok, we need to free the locks */
-    xrwlock_runlock(&nbe->lock);
-    xrwlock_runlock(&nb->lock);
 
-    txg_add_itb(t, i);
-    txg_put(t);
-
-    mds_dh_bitmap_update(&hmo.dh, i->h.puuid, i->h.itbid,
-                         MDS_BITMAP_SET);
-    /* FIXME: if we using malloc to alloc the ITB, then we need to inc the
-     * csize counter */
-    atomic64_inc(&hmo.prof.mds.ausplit);
-    atomic64_add(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
-
-    hvfs_warning(mds, "[REDO] We update the bit of ITB %ld txg %ld\n", 
-                 i->h.itbid, i->h.txg);
+    hvfs_warning(mds, "[REDO] We have redo ITB %ld's ITEs one by one\n", 
+                 i->h.itbid);
 }
 
 void mds_forward(struct xnet_msg *msg)
@@ -1045,13 +971,6 @@ void mds_gossip_bitmap(struct xnet_msg *msg)
      */
 
     /* sanity checking */
-    if (hmo.state < HMO_STATE_RUNNING) {
-        hvfs_warning(mds, "Site %lx is not ready to handle this "
-                     "gossip message.\n",
-                     hmo.site_id);
-        goto out;
-    }
-
     if (msg->tx.len < sizeof(*b)) {
         hvfs_err(mds, "Invalid bitmap gossip message from %lx\n",
                  msg->tx.ssite_id);

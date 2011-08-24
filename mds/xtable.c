@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-05 05:19:26 macan>
+ * Time-stamp: <2011-08-22 23:17:33 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -267,16 +267,18 @@ out_relock:
     goto out;
 }
 
-/* ITB move: move entries from 'from' ITB to 'to' ITB.
+/* ITB move: move entries from 'from' ITB to 'target' ITB.
  *
- * If the 'to' ITB is not large enough to hold new entries, just fail this
- * move. We must hold wlock of 'to' ITB!
+ * For each entry in 'from' ITB, we construct a HI struct and send it to right
+ * target ITB.
  */
-int itb_move(struct itb *from, struct itb *to)
+int itb_move(struct itb *from)
 {
     struct itb_index *ii;
-    int j, moved = 0, offset, done = 0, need_rescan = 0;
-    
+    int j, moved = 0, failed = 0, offset, done = 0, need_rescan = 0,
+        err = 0;
+
+    hvfs_err(mds, "Begin move itb %ld\n", from->h.itbid);
     for (j = 0; j < (1 << ITB_DEPTH); j++) {
     rescan:
         ii = &from->index[j];
@@ -295,7 +297,6 @@ int itb_move(struct itb *from, struct itb *to)
                 hvfs_debug(mds, "self %d conflict %d\n", offset, conflict);
             }
 
-            /* move to the new itb */
             hvfs_debug(mds, "offset %d flag %d, %s hash %lx -- bit %ld, "
                        "moved %d\n",
                        offset, ii->flag, from->ite[ii->entry].s.name,
@@ -303,9 +304,18 @@ int itb_move(struct itb *from, struct itb *to)
                        (1UL << (from->h.depth - 1)), moved);
             if (ii->flag == 0)
                 ASSERT(0, mds);
-            __itb_add_ite_blob(to, &from->ite[ii->entry]);
+
+            /* move to the new itb by construct a request and recreate it */
+            err = do_move_ite(&from->ite[ii->entry], from);
+            if (err < 0) {
+                hvfs_err(mds, "Move ITE <%lx,%lx> failed w/ %d\n",
+                         from->ite[ii->entry].uuid,
+                         from->ite[ii->entry].hash, err);
+                failed++;
+            } else
+                moved++;
             itb_del_ite(from, &from->ite[ii->entry], offset, j);
-            moved++;
+
             if (offset == j)
                 need_rescan = 1;
 
@@ -319,11 +329,13 @@ int itb_move(struct itb *from, struct itb *to)
             offset = conflict;
         } while (1);
     }
-    atomic64_add(moved, &hmo.prof.cbht.aentry);
-    hvfs_warning(mds, "Move %d entries from ITB %ld (%p to %p)\n", moved,
-                 from->h.itbid, from, to);
 
-    return 0;
+    atomic64_add(moved, &hmo.prof.cbht.aentry);
+    hvfs_warning(mds, "Move %d/failed %d entries from ITB %ld "
+                 "(%p)\n", 
+                 moved, failed, from->h.itbid, from);
+
+    return atomic_read(&from->h.entries);
 }
 
 /* ITB overflow

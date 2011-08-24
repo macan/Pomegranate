@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 13:27:58 macan>
+ * Time-stamp: <2011-08-22 12:39:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -62,6 +62,11 @@ int main(int argc, char *argv[])
     hvfs_info(mds, "[FLS64]: First set bit in 0x%lx is %d.\n", a, offset);
     offset = fls(a);
     hvfs_info(mds, "[FLS  ]: First set bit in 0x%lx is %d.\n", a, offset);
+
+    /* redo region */
+    hvfs_info(mds, "RLSD Size %ld B, name offset %ld\n",
+              sizeof(struct redo_log_site_disk),
+              offsetof(struct redo_log_site_disk, u.rlc.hi.name));
 
     /* find first zero bit */
     atomic_set(&i, 0);

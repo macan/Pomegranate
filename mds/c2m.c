@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-28 06:05:57 macan>
+ * Time-stamp: <2011-08-17 13:11:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -288,9 +288,10 @@ void __mdsdisp mds_create(struct hvfs_tx *tx)
 
     err = mds_cbht_search(hi, hmr, tx->txg, &tx->txg);
     if (!err)
-        add_cli_log_entry(txgid, 0, LOG_CLI_CREATE, dlen + hi->namelen, 
-                          hi, (dlen > 0 ? hi->data - hi->namelen : 
-                               (tx->req->xm_data + sizeof(*hi))));
+        add_create_log_entry(txgid, dlen + hi->namelen, 
+                             hi, (dlen > 0 ? hi->data - hi->namelen : 
+                                  (tx->req->xm_data + sizeof(*hi))),
+                             hmr);
 
 actually_send:
     TIMER_EaU(LAT_STAT_CREATE);
@@ -897,7 +898,55 @@ void __mdsdisp mds_snapshot(struct hvfs_tx *tx)
 }
 
 /* REDO region for basic operations */
-void mds_create_redo(struct hvfs_index *hi)
+
+/* redirection redo request as needed
+ *
+ * Return value: <0 (errors); >0 (do not do this op on local site); =0 (do
+ * this op on local site).
+ */
+int mds_redo_redirect(struct hvfs_index *hi, u64 *dsite)
+{
+    struct dhe *e;
+    struct chp *p;
+    u64 itbid;
+    
+    e = mds_dh_search(&hmo.dh, hi->puuid);
+    if (unlikely(IS_ERR(e))) {
+        /* parent directory does not exist, ignore this request */
+        return EIGNORE;
+    }
+    itbid = mds_get_itbid(e, hi->hash);
+    p = ring_get_point(itbid, hi->psalt, hmo.chring[CH_RING_MDS]);
+    if (unlikely(IS_ERR(p))) {
+        /* ring is not ready */
+        mds_dh_put(e);
+        return -ECHP;
+    }
+    mds_dh_put(e);
+    
+    /* make sure to modify the original itbid */
+    if (hi->itbid != itbid) {
+        hi->itbid ^= itbid;
+        itbid ^= hi->itbid;
+        hi->itbid ^= itbid;
+    }
+    
+    hvfs_err(mds, "Route request<%lx,%lx,%lx,itb %ld> -> <itb %ld> "
+             "to site %lx\n",
+             hi->puuid, hi->psalt, hi->hash, itbid,
+             hi->itbid, p->site_id);
+
+    if (hmo.site_id != p->site_id) {
+        /* send the request to remote site, ignore any errors */
+        *dsite = p->site_id;
+
+        return EFWD;
+    } else 
+        return 0;
+}
+
+/* Create redo */
+int mds_create_redo(struct hvfs_index *hi)
 {
     struct hvfs_md_reply *hmr;
     struct hvfs_txg *txg;
@@ -908,21 +957,34 @@ void mds_create_redo(struct hvfs_index *hi)
     if (!hmr) {
         hvfs_err(mds, "get_hmr() failed\n");
         /* just return */
-        return;
+        return -ENOMEM;
     }
 
     /* create in the CBHT */
     hi->flag |= INDEX_CREATE;
     /* hi->data has been already installed */
 
+retry:
     txg = mds_get_open_txg(&hmo);
     err = mds_cbht_search(hi, hmr, txg, &txg);
     txg_put(txg);
+
+    /* if there is a tmp error, we have retry it */
+    if (err == -EAGAIN || err == -ERESTART || err == -ESPLIT) {
+        return -EAGAIN;
+    } else if (err == -EHWAIT) {
+        sleep(1);
+        goto retry;
+    } else if (err < 0) {
+        hvfs_err(mds, "[REDO]: redo create<%lx,%lx,%lx,itb %ld> "
+                 "failed w/ %d\n",
+                 hi->puuid, hi->psalt, hi->hash, hi->itbid, err);
+    }
 
     /* free resources */
     if (hmr->data)
         xfree(hmr->data);
     xfree(hmr);
     
-    return;
+    return err;
 }

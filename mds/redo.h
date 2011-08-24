@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-05 02:23:34 macan>
+ * Time-stamp: <2011-08-22 12:35:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -70,9 +70,10 @@ struct redo_log_site
 /* for HVFS_MDS_HA reqeust, commands */
 #define HA_REPLICATE            0
 #define HA_REAP                 1
+#define HA_APPLY                2
 /* for HVFS_MDS_RECOVERY request, commands */
-#define HA_QUERY                2
-#define HA_GET                  3
+#define HA_QUERY                3
+#define HA_GET                  4
 
 /* redo.c INTERNAL interface */
 struct xnet_msg *__prepare_replicate_log_entry(void);

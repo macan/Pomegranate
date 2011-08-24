@@ -457,3 +457,33 @@ Pomegranate TODOs:
     3. Progress
 
        1. Redo is almost working. However, there is a bug in fquery_log_entry!
+
+          Resolved! out-of-order redo log entry insert, and redundant write.
+
+       2. Redo ausplit replay failed at large insert test case. If there is no
+          ausplit redo log entry, everything is ok.
+
+          Normal execution sequence is NOT the same as redo execution
+          sequence. So how do we get the same result?
+
+          We log the requests, however, the requests are not the same sequence 
+          as they are handled. What's worse, the requests have a different 
+          bitmap view with respect to the normal execution. So, we have to 
+          route the request to correct MDS and update remote ITB by ausplit.
+
+          Bug 01: If the failed site contains a newly created (but not
+          commited) directory, gossip_bitmap and dh_load would failed. How to
+          handle this issue? How to keep consistent between bitmap and ITB
+          set.
+
+          Bug 02: On creating a new directory, we got the directory salt 
+          randomisely(both fs and kv mode). How about in recovery?
+
+          Bug 03: (might failed this total HA branch). Loop routed requests
+          in recovery stage: from A -> B(sync) -> A(sync) -> B(sync) -> A(sync)
+          -> B(sync) -> A(sync) -> B(sync) -> A(sync), thus, there is NO 
+          thread can serve incoming requests. System locks up!
+
+          To fix Bug 03, we have to split redo and MDS. We fork and execv a new
+          process and pipe the redo log to it, and run MDS as-is.
+          

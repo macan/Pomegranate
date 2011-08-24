@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-26 23:58:54 macan>
+ * Time-stamp: <2011-08-19 07:32:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -76,6 +76,8 @@ void hvfs_mds_profile_setup(struct hvfs_profile_ex *hp)
     HVFS_PROFILE_NAME_ADDIN(hp, i, "itb.wsearch_depth");
     HVFS_PROFILE_NAME_ADDIN(hp, i, "misc.reqin_qd");
     HVFS_PROFILE_NAME_ADDIN(hp, i, "redo.client_redo_nr");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "redo.in_rep_redo_nr");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "redo.reap_rep_redo_nr");
     hp->nr = i;
 }
 

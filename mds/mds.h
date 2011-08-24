@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-05 03:26:44 macan>
+ * Time-stamp: <2011-08-22 01:14:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -384,6 +384,7 @@ void mds_cbht_scan(struct eh *, int);
 
 /* for itb.c */
 struct itb *mds_read_itb(u64, u64, u64);
+struct itb *mds_pick_itb(u64, u64);
 void ite_update(struct hvfs_index *, struct ite *);
 struct itb *get_free_itb_fast();
 struct itb *get_free_itb(struct hvfs_txg *);
@@ -525,7 +526,8 @@ void mds_c2m_ldh(struct hvfs_tx *);
 void mds_list(struct hvfs_tx *);
 void mds_snapshot(struct hvfs_tx *);
 
-void mds_create_redo(struct hvfs_index *);
+int mds_create_redo(struct hvfs_index *);
+int mds_redo_redirect(struct hvfs_index *, u64 *);
 
 /* for m2m.c, mds 2 mds APIs */
 void mds_ldh(struct xnet_msg *msg);
@@ -619,7 +621,7 @@ struct hvfs_txg *mds_get_wb_txg(struct hvfs_mds_object *hmo)
 /* xtable.c */
 int itb_split_local(struct itb *, int, struct itb_lock *, struct hvfs_txg *,
                     struct hvfs_index *hi);
-int itb_move(struct itb *, struct itb *);
+int itb_move(struct itb *);
 
 /* bitmapc.c */
 int mds_bitmap_cache_init(void);
@@ -698,10 +700,17 @@ int redo_log_apply(u64 txg, int wantN);
 struct redo_log_site *add_cli_log_entry(u64 txg, u32 id, u16 op,
                                         u32 dlen, struct hvfs_index *hi,
                                         void *data);
+struct redo_log_site *add_create_log_entry(u64 txg, u32 dlen, 
+                                           struct hvfs_index *hi,
+                                           void *data,
+                                           struct hvfs_md_reply *hmr);
 struct redo_log_site *add_ausplit_log_entry(u64 txg, u64 ssite, u32 dlen,
                                             void *data);
 #define REDO_PROF_CLIENT        0x00
+#define REDO_PROF_IN_REP        0x01
+#define REDO_PROF_REAP_REP      0x02
 u64 get_redo_prof(int type);
 int redo_dispatch(struct xnet_msg *msg);
+int redo_log_apply_one(struct redo_log_site_disk *r);
 
 #endif

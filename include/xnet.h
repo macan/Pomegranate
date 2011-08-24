@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 13:53:30 macan>
+ * Time-stamp: <2011-08-18 11:02:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -191,9 +191,9 @@ void xnet_set_magic(u8 magic);
 static inline 
 void xnet_msg_fill_cmd(struct xnet_msg *m, u64 cmd, u64 arg0, u64 arg1) 
 {
+    m->tx.cmd = cmd;
     m->tx.arg0 = arg0;
     m->tx.arg1 = arg1;
-    m->tx.cmd = cmd;
 }
 
 static inline
