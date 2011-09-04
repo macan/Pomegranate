@@ -434,6 +434,10 @@ Pomegranate TODOs:
 
        1. Detection has been done!
 
+       2. Optimization: ping-pong latency is 42us, create latency is 72us,
+          32 thread create latency 480us(single), mds handle latency is 
+          about 20us(99.1%).
+
 35. R2 TODOs
 
     1. Support get info from R2 server, e.g. active/error sites,

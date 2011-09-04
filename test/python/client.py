@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-07-07 00:25:58 macan>
+# Time-stamp: <2011-08-25 06:42:55 macan>
 #
 # Armed with EMACS.
 #
@@ -1351,6 +1351,7 @@ def print_help():
     print " -t, --thread        how many threads do you want to run.(IGNORED)"
     print " -i, --id            the logical id of this FS client."
     print " -r, --ring          the R2 server ip address."
+    print " -b, --use_branch    init branch client."
 
 if __name__ == '__main__':
     main(sys.argv[1:])

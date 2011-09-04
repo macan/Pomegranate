@@ -8,7 +8,7 @@ reset
 set terminal png transparent size 1000,300
 set origin 0.0, 0.0
 set size 1, 1
-set grid
+#set grid
 #set output "cn.paper.lookup.unlink.eps"
 set output "cn.paper.lookup.unlink.png"
 set auto x

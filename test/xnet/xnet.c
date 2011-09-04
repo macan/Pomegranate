@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-28 09:55:49 macan>
+ * Time-stamp: <2011-08-25 11:42:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,40 +33,14 @@
 
 #define TEST_LEN        (100)
 
-char *ipaddr[] = {
-    "10.10.111.9",              /* server */
-    "10.10.111.90",
-
-    "10.10.111.9",              /* client */
-    "10.10.111.9",
-    "10.10.111.9",
-    "10.10.111.9",
-    "10.10.111.9",
-    "10.10.111.9",
-    "10.10.111.9",
-    "10.10.111.9",
-    "10.10.111.91",             /* 8 */
-    "10.10.111.92",
-    "10.10.111.93",
-    "10.10.111.94",
+char *ipaddr[2] = {
+    "127.0.0.1",
+    "127.0.0.1",
 };
 
-short port[] = {
-    8210,                       /* server */
+short port[2] = {
+    8210,
     5410,
-
-    8412,                       /* client */
-    8413,
-    8414,
-    8415,
-    8416,
-    8417,
-    8418,
-    8419,
-    5411,
-    5411,
-    5411,
-    5411,
 };
 
 #define HVFS_TYPE(type, idx) ({                 \
@@ -120,7 +94,7 @@ struct xnet_context *xc = NULL;
 int xnet_test_handler(struct xnet_msg *msg)
 {
     struct xnet_msg *rpy;
-    char data[TEST_LEN];
+    char data[TEST_LEN << 1];
 
     if (msg->tx.flag & XNET_NEED_REPLY) {
         rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
@@ -157,17 +131,15 @@ int main(int argc, char *argv[])
         .recv_handler = xnet_test_handler,
     };
     int err = 0, i;
-    short sport;
     char *value;
-    u64 site;
     int type;
     int loop;
-    int mode = 0;               /* default to client mode */
-    int target = 0;             /* default to server 0 */
+    int mode = 0;               /* default to server mode */
     char data[TEST_LEN];
 
     hvfs_info(xnet, "XNET Simple UNIT TESTing ...\n");
-    hvfs_info(xnet, "type 0/1/2/3 => MDS/CLIENT/MDSL/RING\n");
+    hvfs_info(xnet, "type 0/1 => Server/Client\n");
+    hvfs_info(xnet, "Args: IP PORT RIP RPORT\n");
 
     value = getenv("type");
     if (value) {
@@ -177,52 +149,39 @@ int main(int argc, char *argv[])
         return EINVAL;
     }
 
-    if (argc < 2) {
-        hvfs_err(xnet, "Self ID is not provided.\n");
-        return EINVAL;
-    } else {
-        site = atoi(argv[1]);
-        hvfs_info(xnet, "Self type+ID is %s:%ld.\n",
-                  (type == TYPE_MDS ? "mds" : 
-                   (type == TYPE_CLIENT ? "client" : 
-                    (type == TYPE_MDSL ? "mdsl" : "ring"))),
-                  site);
+    if (argc >= 5) {
+        if (type == 0) {
+            ipaddr[0] = strdup(argv[1]);
+            ipaddr[1] = strdup(argv[3]);
+            port[0] = atoi(argv[2]);
+            port[1] = atoi(argv[4]);
+        } else {
+            ipaddr[0] = strdup(argv[3]);
+            ipaddr[1] = strdup(argv[1]);
+            port[0] = atoi(argv[4]);
+            port[1] = atoi(argv[2]);
+        }
     }
-
+    hvfs_info(xnet, "Use Args: IP=%s, PORT=%d, RIP=%s, RPORT=%d\n",
+              ipaddr[0], port[0], ipaddr[1], port[1]);
+    
     switch (type) {
-    case TYPE_MDS:
-        sport = port[site];
-        site = HVFS_MDS(site);
-        mode = 1;               /* change to server mode */
+    case 0:                     /* server */
+        mode = 0;
         break;
-    case TYPE_CLIENT:
-        sport = port[2 + site];
-        site = HVFS_CLIENT(site);
-        break;
-    case TYPE_MDSL:
-        sport = port[site];
-        site = HVFS_MDSL(site);
-        break;
-    case TYPE_RING:
-        sport = port[site];
-        site = HVFS_RING(site);
+    case 1:                     /* client */
+        mode = 1;
         break;
     default:
-        sport = port[site];
+        hvfs_err(xnet, "Invalid TYPE: please use 0/1!\n");
+        return EINVAL;
     }
-    
+
     value = getenv("loop");
     if (value) {
         loop = atoi(value);
     } else {
         loop = 10000;
-    }
-
-    value = getenv("target");
-    if (value) {
-        target = atoi(value);
-    } else {
-        target = 0;
     }
 
     mds_pre_init();
@@ -231,20 +190,14 @@ int main(int argc, char *argv[])
     hmo.prof.xnet = &g_xnet_prof;
 
     st_init();
-    xc = xnet_register_type(0, sport, site, &ops);
+    xc = xnet_register_type(0, port[mode], mode, &ops);
     if (IS_ERR(xc)) {
         err = PTR_ERR(xc);
         goto out;
     }
 
-    for (i = 0; i < 14; i++) {
-        if (i < 2) {
-            xnet_update_ipaddr(HVFS_TYPE(TYPE_MDS, i), 1, 
-                               &ipaddr[i], (short *)(&port[i]));
-        } else {
-            xnet_update_ipaddr(HVFS_TYPE(TYPE_CLIENT, (i - 2)), 1, 
-                               &ipaddr[i], (short *)(&port[i]));
-        }
+    for (i = 0; i < 2; i++) {
+        xnet_update_ipaddr(i, 1, &ipaddr[i], (short *)(&port[i]));
     }
 
     /* alloc one msg and send it to the peer site */
@@ -257,7 +210,7 @@ int main(int argc, char *argv[])
 
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, 
-                     XNET_NEED_REPLY, site, HVFS_TYPE_SEL(TYPE_MDS, target));
+                     XNET_NEED_REPLY, mode, !mode);
 /*     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_DATA_FREE,  */
 /*                      site, HVFS_TYPE_SEL(TYPE_MDS, target)); */
 
@@ -266,7 +219,7 @@ int main(int argc, char *argv[])
 #endif
     xnet_msg_add_sdata(msg, data, sizeof(data));
 
-    if (!mode) {
+    if (mode) {
         int i;
 
         lib_timer_def();

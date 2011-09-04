@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-06-26 19:46:30 macan>
+# Time-stamp: <2011-09-04 01:05:04 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -660,6 +660,10 @@ function do_list_pfs() {
 
     ipnr=`cat $CONFIG_FILE | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
 
+    if [ "x$PFS_ROOT" == "x" ]; then
+        PFS_ROOT="/mnt/hvfs"
+    fi
+
     # start clients now
     I=0
     for x in $ipnr; do
@@ -669,7 +673,7 @@ function do_list_pfs() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         port=`echo $x | awk -F: '{print $3}'`
-        $SSH $UN$ip `which mount` -l | grep pfs.ut
+        $SSH $UN$ip `which mount` -l | grep "$PFS_ROOT"
         let I+=1
     done
 }

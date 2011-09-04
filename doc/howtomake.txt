@@ -1,5 +1,5 @@
 Writter: Ma Can <macan@ncic.ac.cn> or <ml.macana@gmail.com> (gmail is preferred)
-Time-stamp: <2011-06-26 18:29:53 macan>
+Time-stamp: <2011-09-03 04:11:18 macan>
 
 Making Pomegranate is very easy :) You just should following the next steps:
 
@@ -42,8 +42,8 @@ Making Pomegranate is very easy :) You just should following the next steps:
    stat, enable JEMALLOC support, enable BerkeleyDB support, enable FUSE
    support, disable python support, then you get the following cmd line:
 
-   $ CFLAGS="-DHVFS_FUSE_STAT" JEMALLOC=/usr/local USE_BDB=1 USE_FUSE=1
-   DISABLE_PYTHON=1 make -j4 
+   $ CFLAGS="-DHVFS_FUSE_STAT -DHVFS_LATENCY_STAT" JEMALLOC=/usr/local 
+   USE_BDB=1 USE_FUSE=1 DISABLE_PYTHON=1 make -j4 
 
    }
 
@@ -79,3 +79,15 @@ Making Pomegranate is very easy :) You just should following the next steps:
 
    $ # init fuse client, mount on /mnt/hvfs
    $ noxattr=0 dstore=conf/dstore.conf root=R2_IP id=CLIENT_ID test/xnet/pfs.ut /mnt/hvfs -o allow_other -o use_ino -o entry_timeout=1 -o attr_timeout=1
+
+   $ # to use unit test client
+   $ mode=1 op=100 thread=32 entry=500000 test/xnet/client.ut ID R2_IP SELF_PORT
+
+   $ # to use python client shell
+   $ python2.5 client.py -b # -h for help
+
+   $ # to use kv client shell
+   $ python2.5 amc.py
+
+   $ # to get statistic info or dynamically modify tracing flag
+   $ test/mds/cmd_sender.ut MDS/FUSE_PID

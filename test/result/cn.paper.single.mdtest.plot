@@ -8,7 +8,7 @@ reset
 set terminal png transparent size 600,300
 set origin 0.0, 0.0
 set size 1, 1
-set grid
+#set grid
 #set output "cn.paper.single.mdtest.eps"
 set output "cn.paper.single.mdtest.png"
 set logscale y 10

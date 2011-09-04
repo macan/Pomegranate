@@ -8,7 +8,7 @@ reset
 set terminal png transparent size 1000,300
 set origin 0.0, 0.0
 set size 1, 1
-set grid
+#set grid
 #set output "cn.paper.create.eps"
 set output "cn.paper.create.png"
 set auto x
