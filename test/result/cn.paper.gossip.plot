@@ -26,7 +26,7 @@ set y2label "# of Requests (#)"
 set y2tics
 set format y2 "%gK"
 set key right top 
-set title "Without Gossip"
+set title "(a) Without Gossip"
 
 plot "< awk '{if (ts == 0) {ts = $2; modify = $5;} \
               {print ($2 - ts)\" \"(($5 - modify)/5.0/1000);} \
@@ -41,7 +41,7 @@ plot "< awk '{if (ts == 0) {ts = $2; modify = $5;} \
               loop_fwds = $24;}' ./CP-BACK-mds.aggr" \
      using 1:2 t "Looped Routes" w linesp ls 4 axes x1y2
 
-set title "With Dynamically Gossip"
+set title "(b) With Dynamically Gossip"
 
 plot "< awk '{if (ts == 0) {ts = $2; modify = $5;} \
               {print ($2 - ts)\" \"(($5 - modify)/5.0/1000);} \

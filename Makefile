@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-05-21 14:42:59 macan>
+# Time-stamp: <2011-09-17 00:31:18 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -138,6 +138,7 @@ install: unit_test triggers
 	@rsync -r $(TEST)/mds/*.ut root@glnode09:~/hvfs/test/mds/
 	@rsync -r $(TEST)/xnet/*.ut root@glnode09:~/hvfs/test/xnet/
 	@rsync -r $(TEST)/mdsl/*.ut root@glnode09:~/hvfs/test/mdsl/
+	@rsync -r $(TEST)/fuse/*.ut root@glnode09:~/hvfs/test/fuse/
 	@rsync -r $(TEST)/bdb/* root@glnode09:~/hvfs/test/bdb/
 	@rsync -r $(TEST)/python/*.py root@glnode09:~/hvfs/test/python/
 	@echo "Install done."
