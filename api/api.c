@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-06 23:55:01 macan>
+ * Time-stamp: <2011-09-26 04:31:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -4718,7 +4718,8 @@ resend:
             if (hs) {
                 memset(hs, 0, sizeof(*hs));
                 hs->puuid = rhi->puuid;
-                if (hmr->flag & MD_REPLY_DIR) {
+                if (hmr->flag & MD_REPLY_DIR &&
+                    puuid == hmi.gdt_uuid) {
                     hs->ssalt = m->salt;
                 } else
                     hs->psalt = rhi->psalt;
@@ -4939,7 +4940,7 @@ resend:
         if (hs) {
             memset(hs, 0, sizeof(*hs));
             hs->puuid = rhi->puuid;
-            if (hmr->flag & MD_REPLY_DIR ||
+            if (hmr->flag & MD_REPLY_DIR &&
                 puuid == hmi.gdt_uuid) {
                 hs->ssalt = m->salt;
             } else 
@@ -5148,7 +5149,7 @@ resend:
         if (hs) {
             memset(hs, 0, sizeof(*hs));
             hs->puuid = rhi->puuid;
-            if (hmr->flag & MD_REPLY_DIR ||
+            if (hmr->flag & MD_REPLY_DIR &&
                 puuid == hmi.gdt_uuid) {
                 hs->ssalt = m->salt;
             } else 
@@ -7906,7 +7907,8 @@ retry:
         if (hs) {
             memset(hs, 0, sizeof(*hs));
             hs->puuid = rhi->puuid;
-            if (hmr->flag & MD_REPLY_DIR) {
+            if (hmr->flag & MD_REPLY_DIR &&
+                puuid == hmi.gdt_uuid) {
                 hs->ssalt = m->salt;
             } else 
                 hs->psalt = rhi->psalt;
