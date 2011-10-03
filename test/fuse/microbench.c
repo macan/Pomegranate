@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-09-17 02:08:42 macan>
+ * Time-stamp: <2011-10-04 06:50:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,8 +48,8 @@
 
 static long totalbytes = 0;
 static int seed = 0;
-static char *hvfs_home = "/mnt/hvfs";
-static char *norm_home = "/mnt";
+static char *hvfs_home = "/mnt/hvfs/testA";
+static char *norm_home = "/mnt/hvfs/testB";
 static long bsize = 1024;
 
 void __hvfs_bench_prepare(int nr)
@@ -84,35 +84,38 @@ void __hvfs_bench_fina(int nr)
 int __hvfs_bench(int nr)
 {
     char buf[bsize];
-    char path[256];
+    char path[256], cmd[64];
     ssize_t nbytes;
-    int err = 0, i;
+    int err = 0, i, j;
 
     srandom(seed);
     memset(buf, 'A', sizeof(buf));
 
     for (i = 0; i < nr; i++) {
-        sprintf(path, "%s/xattr.native.%d", hvfs_home, i);
-        nbytes = random() % bsize;
-        totalbytes += nbytes;
-        /* setxattr */
-        err = setxattr(path, "pfs.native.1.write", buf,
-                       nbytes, 0);
-        if (err) {
-            perror("setxattr('./xattr.native'):");
-            err = errno;
-            goto out;
-        }
+        for (j = 0; j < 3; j++) {
+            sprintf(path, "%s/xattr.native.%d", hvfs_home, i);
+            nbytes = random() % bsize;
+            totalbytes += nbytes;
 
-        /* read in the entry */
-        sprintf(buf, "pfs.native.1.read.%ld.%ld", 0UL, -1UL);
-        err = getxattr(path, buf, buf, sizeof(buf));
-        if (err < 0) {
-            perror("getxattr('./xattr.native', native.read):");
-            err = errno;
-            goto out;
-        } else {
-            buf[err] = '\0';
+            /* setxattr */
+            sprintf(cmd, "pfs.native.%d.write", j);
+            err = setxattr(path, cmd, buf, nbytes, 0);
+            if (err) {
+                perror("setxattr('./xattr.native'):");
+                err = errno;
+                goto out;
+            }
+            
+            /* read in the entry */
+            sprintf(buf, "pfs.native.%d.read.%ld.%ld", j, 0UL, -1UL);
+            err = getxattr(path, buf, buf, sizeof(buf));
+            if (err < 0) {
+                perror("getxattr('./xattr.native', native.read):");
+                err = errno;
+                goto out;
+            } else {
+                buf[err] = '\0';
+            }
         }
     }
 
@@ -126,29 +129,32 @@ out:
 void __xattr_bench_prepare(int nr)
 {
     char path[256];
-    int err = 0, i;
+    int err = 0, i, j;
     
     for (i = 0; i < nr; i++) {
-        sprintf(path, "%s/xattr.normal.%d", norm_home, i);
-        err = open(path, O_CREAT, S_IRUSR | S_IWUSR);
-        if (err < 0) {
-            perror("open('./xattr.normal'):");
-            err = errno;
-            continue;
+        for (j = 0; j < 3; j++) {
+            sprintf(path, "%s/xattr.normal.%d.%d", norm_home, i, j);
+            err = open(path, O_CREAT, S_IRUSR | S_IWUSR);
+            if (err < 0) {
+                perror("open('./xattr.normal'):");
+                err = errno;
+                continue;
+            }
+            close(err);
         }
-        
-        close(err);
     }
 }
 
 void __xattr_bench_fina(int nr)
 {
     char path[256];
-    int i;
+    int i, j;
     
     for (i = 0; i < nr; i++) {
-        sprintf(path, "%s/xattr.normal.%d", norm_home, i);
-        unlink(path);
+        for (j = 0; j < 3; j++) {
+            sprintf(path, "%s/xattr.normal.%d.%d", norm_home, i, j);
+            unlink(path);
+        }
     }
 }
 
@@ -158,35 +164,94 @@ int __xattr_bench(int nr)
     char path[256];
     char str[128];
     ssize_t nbytes;
-    int err = 0, i;
+    int err = 0, i, j;
 
     srandom(seed);
     memset(buf, 'A', sizeof(buf));
 
     for (i = 0; i < nr; i++) {
-        sprintf(path, "%s/xattr.normal.%d", norm_home, i);
-        nbytes = random() % bsize;
-        totalbytes += nbytes;
-        /* setxattr */
-        sprintf(str, "pfs.content");
-        err = setxattr(path, str, buf, nbytes, 0);
-        if (err) {
-            perror("setxattr('./xattr.normal'):");
-            err = errno;
-            goto out;
-        }
+        for (j = 0; j < 3; j++) {
+            sprintf(path, "%s/xattr.normal.%d.%d", norm_home, i, j);
+            nbytes = random() % bsize;
+            totalbytes += nbytes;
 
-        /* read in the entry */
-        err = getxattr(path, str, buf, sizeof(buf));
-        if (err < 0) {
-            perror("getxattr('./xattr.normal', native.read):");
-            err = errno;
-            goto out;
-        } else {
-            buf[err] = '\0';
+            /* setxattr */
+            sprintf(str, "pfs.native.1.write");
+            err = setxattr(path, str, buf, nbytes, 0);
+            if (err) {
+                perror("setxattr('./xattr.normal'):");
+                err = errno;
+                goto out;
+            }
+            
+            /* read in the entry */
+            sprintf(str, "pfs.native.1.read.0.-1");
+            err = getxattr(path, str, buf, sizeof(buf));
+            if (err < 0) {
+                perror("getxattr('./xattr.normal', native.read):");
+                err = errno;
+                goto out;
+            } else {
+                buf[err] = '\0';
+            }
         }
     }
+    
+out:
+    return err;
+}
 
+int __norm_bench(int nr)
+{
+    char buf[bsize];
+    char path[256];
+    ssize_t nbytes;
+    int err = 0, i, j, fd, bw;
+
+    srandom(seed);
+    memset(buf, 'A', sizeof(buf));
+
+    for (i = 0; i < nr; i++) {
+        for (j = 0; j < 3; j++) {
+            sprintf(path, "%s/xattr.normal.%d.%d", norm_home, i, j);
+            nbytes = random() % bsize;
+            totalbytes += nbytes;
+
+            /* setxattr */
+            err = open(path, O_RDWR | O_TRUNC);
+            if (err < 0) {
+                perror("open():");
+                err = errno;
+                goto out;
+            }
+
+            fd = err;
+            bw = 0;
+            do {
+                err = write(fd, buf + bw, nbytes - bw);
+                if (err < 0) {
+                    perror("setxattr('./xattr.normal'):");
+                    err = errno;
+                    goto out;
+                }
+                bw += err;
+            } while (bw < nbytes);
+            
+            /* read in the entry */
+            do {
+                err = read(fd, buf + bw, nbytes - bw);
+                if (err < 0) {
+                    perror("read()");
+                    err = errno;
+                    goto out;
+                }
+                bw += err;
+            } while (bw < nbytes);
+
+            close(fd);
+        }
+    }
+    
 out:
     return err;
 }
@@ -209,6 +274,10 @@ int main(int argc, char *argv[])
     if (value)
         bsize = atol(value);
     
+    /* mkdirs */
+    mkdir(hvfs_home, 0777);
+    mkdir(norm_home, 0777);
+
     /* test hvfs */
     __hvfs_bench_prepare(nr);
     gettimeofday(&begin, NULL);

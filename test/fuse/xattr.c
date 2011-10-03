@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-26 10:16:17 macan>
+ * Time-stamp: <2011-10-04 06:51:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -250,7 +250,7 @@ int __dt_optest(int argc, char *argv[])
 
         err = stat("./xattr.dt/abc", &st);
         if (err) {
-            perror("fstat('./*/abc'):");
+            perror("fstat('./xattr.dt/abc'):");
             goto out_rmdir;
         }
         printf("OK to stat file 'abc'\n");
