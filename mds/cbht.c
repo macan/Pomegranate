@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-26 10:41:21 macan>
+ * Time-stamp: <2011-10-08 09:45:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -981,7 +981,7 @@ int __cbht cbht_itb_hit(struct itb *i, struct hvfs_index *hi,
     if (unlikely(hi->flag & INDEX_BY_ITB))
         hmr->flag |= MD_REPLY_READDIR;
 
-    if (S_ISDIR(m->mode) && hi->puuid != hmi.gdt_uuid) {
+    if (S_ISDIR(m->mode)) {
         hmr->flag |= MD_REPLY_DIR;
     }
     if (m->flags & HVFS_MDU_IF_LINKT) {
