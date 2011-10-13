@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-29 03:32:37 macan>
+ * Time-stamp: <2011-10-13 12:34:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -516,9 +516,19 @@ processing:
 
         /* check if this reply is the correct reply */
         if (req->tx.reqno != msg->tx.reqno) {
-            /* hoo, we just ignore this reply message */
-            hvfs_err(xnet, "ignore the reply message, mismatch %u vs %u\n",
-                     req->tx.reqno, msg->tx.reqno);
+            /* hoo, we just ignore this reply message, and dump the ignored
+             * msg header now */
+            hvfs_err(xnet, "ignore the reply message, mismatch %u vs %u\n"
+                     "MSG: type %x flag %x err %x ssite_id %lx "
+                     "dsite_id %lx cmd %lx arg0 %lx arg1 %lx reqno %x "
+                     "len %x handle %lx reserved %lx\n",
+                     req->tx.reqno, msg->tx.reqno, 
+                     msg->tx.type, msg->tx.flag, 
+                     msg->tx.err, msg->tx.ssite_id, 
+                     msg->tx.dsite_id, msg->tx.cmd, 
+                     msg->tx.arg0, msg->tx.arg1, 
+                     msg->tx.reqno, msg->tx.len, 
+                     msg->tx.handle, msg->tx.reserved);
             /* clean the PTRRESTORE flag */
             msg->tx.flag &= ~XNET_PTRESTORE;
             goto out_free;

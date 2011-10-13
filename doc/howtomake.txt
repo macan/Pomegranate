@@ -1,5 +1,5 @@
 Writter: Ma Can <macan@ncic.ac.cn> or <ml.macana@gmail.com> (gmail is preferred)
-Time-stamp: <2011-09-03 04:11:18 macan>
+Time-stamp: <2011-10-10 04:53:24 macan>
 
 Making Pomegranate is very easy :) You just should following the next steps:
 
@@ -91,3 +91,22 @@ Making Pomegranate is very easy :) You just should following the next steps:
 
    $ # to get statistic info or dynamically modify tracing flag
    $ test/mds/cmd_sender.ut MDS/FUSE_PID
+
+6. How to test the dtriggers?
+
+   $ cd $POMEGRANATE_HOME
+   $ vim conf/hvfs.conf # modify your cluster configuration
+   $ bin/hvfs.sh stat   # check if there is already an instance running
+   $ bin/hvfs.sh start  # start the servers: mds, mdsl, and r2
+   $ bin/hvfs.sh mkfs   # make the file system
+
+   $ # start python client
+   $ cd test/python
+   $ python client.py -b
+   #(cmd) regdtrigger /a 1 4 100 ../../triggers/default.so
+   #(cmd) regdtrigger /a 1 8 101 ../../triggers/default.so
+   #(cmd) catdtrigger /a
+   #(cmd) touch /a/x
+   #(cmd) touch /a/y
+   #(cmd) touch /a/z
+   #(cmd) search default-8000000000000003 all default_db default "r:@ctime>0"

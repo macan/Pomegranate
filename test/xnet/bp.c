@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-11 17:04:57 macan>
+ * Time-stamp: <2011-10-09 00:49:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -105,6 +105,11 @@ int main(int argc, char *argv[])
         port = atoi(value) + atoi(id);
     } else {
         port = 7900 + atoi(id);
+    }
+    /* reset the unreal port by this real port */
+    value = getenv("realport");
+    if (value) {
+        port = atoi(value);
     }
     sprintf(str_port, "%d", port);
     value = getenv("fsid");

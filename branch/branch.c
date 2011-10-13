@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-21 00:21:29 macan>
+ * Time-stamp: <2011-10-13 04:04:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,7 +42,7 @@ static struct branch_local_op branch_default_blo = {
 
 struct branch_mgr
 {
-    struct regular_hash *bht;
+    struct regular_hash_rw *bht;
     int hsize;
     atomic_t asize;
     struct branch_local_op op;
@@ -160,7 +160,7 @@ int branch_init(int hsize, int bto, u64 memlimit,
 
     /* regular hash init */
     hsize = (hsize == 0) ? BRANCH_HT_DEFAULT_SIZE : hsize;
-    bmgr.bht = xzalloc(hsize * sizeof(struct regular_hash));
+    bmgr.bht = xzalloc(hsize * sizeof(struct regular_hash_rw));
     if (!bmgr.bht) {
         hvfs_err(xnet, "BRANCH hash table allocation failed\n");
         err = -ENOMEM;
@@ -168,7 +168,7 @@ int branch_init(int hsize, int bto, u64 memlimit,
     }
     for (i = 0; i < hsize; i++) {
         INIT_HLIST_HEAD(&bmgr.bht[i].h);
-        xlock_init(&bmgr.bht[i].lock);
+        xrwlock_init(&bmgr.bht[i].lock);
     }
     bmgr.hsize = hsize;
 
@@ -445,7 +445,7 @@ int hvfs_fwrite_eh(struct hstat *hs, int column, u32 flag,
 
 int __branch_insert(char *branch_name, struct branch_header *bh)
 {
-    struct regular_hash *rh;
+    struct regular_hash_rw *rh;
     struct branch_entry *be, *tpos;
     struct hlist_node *pos;
     int i;
@@ -467,7 +467,7 @@ int __branch_insert(char *branch_name, struct branch_header *bh)
     be->bh = bh;
 
     i = 0;
-    xlock_lock(&rh->lock);
+    xrwlock_wlock(&rh->lock);
     hlist_for_each_entry(tpos, pos, &rh->h, hlist) {
         if (strlen(branch_name) == strlen(tpos->branch_name) &&
             strcmp(tpos->branch_name, branch_name) == 0) {
@@ -477,7 +477,7 @@ int __branch_insert(char *branch_name, struct branch_header *bh)
     }
     if (!i)
         hlist_add_head(&be->hlist, &rh->h);
-    xlock_unlock(&rh->lock);
+    xrwlock_wunlock(&rh->lock);
 
     if (i) {
         xfree(be);
@@ -490,7 +490,7 @@ int __branch_insert(char *branch_name, struct branch_header *bh)
 
 int __branch_remove(char *branch_name)
 {
-    struct regular_hash *rh;
+    struct regular_hash_rw *rh;
     struct branch_entry *tpos;
     struct hlist_node *pos, *n;
     int i;
@@ -499,13 +499,13 @@ int __branch_remove(char *branch_name)
     rh = bmgr.bht + i;
 
 retry:
-    xlock_lock(&rh->lock);
+    xrwlock_wlock(&rh->lock);
     hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {
         if (strlen(branch_name) == strlen(tpos->branch_name) &&
             strcmp(tpos->branch_name, branch_name) == 0) {
             /* wait for the last reference */
             if (atomic_read(&tpos->ref) > 1) {
-                xlock_unlock(&rh->lock);
+                xrwlock_wunlock(&rh->lock);
                 /* not in the hot path, we can sleep longer */
                 xsleep(1000);
                 goto retry;
@@ -516,7 +516,7 @@ retry:
             break;
         }
     }
-    xlock_unlock(&rh->lock);
+    xrwlock_wunlock(&rh->lock);
     
     return 0;
 }
@@ -526,7 +526,7 @@ retry:
 struct branch_entry *__branch_lookup(char *branch_name)
 {
     struct branch_entry *be = NULL;
-    struct regular_hash *rh;
+    struct regular_hash_rw *rh;
     struct hlist_node *pos;
     int i, len;
 
@@ -535,7 +535,7 @@ struct branch_entry *__branch_lookup(char *branch_name)
     rh = bmgr.bht + i;
 
     i = 0;
-    xlock_lock(&rh->lock);
+    xrwlock_rlock(&rh->lock);
     hlist_for_each_entry(be, pos, &rh->h, hlist) {
         if (strlen(be->branch_name) == len &&
             memcmp(be->branch_name, branch_name, len) == 0) {
@@ -544,7 +544,7 @@ struct branch_entry *__branch_lookup(char *branch_name)
             break;
         }
     }
-    xlock_unlock(&rh->lock);
+    xrwlock_runlock(&rh->lock);
     if (!i)
         be = NULL;
 
@@ -606,19 +606,25 @@ int __branch_destroy(struct branch_entry *be)
 
 int branch_cleanup(time_t cur)
 {
-    struct regular_hash *rh;
+    struct regular_hash_rw *rh;
     struct branch_entry *tpos;
     struct hlist_node *pos, *n;
     int i, err = 0, errstate;
 
     for (i = 0; i < bmgr.hsize; i++) {
         rh = bmgr.bht + i;
-        xlock_lock(&rh->lock);
+        xrwlock_wlock(&rh->lock);
         hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {
             if (cur - tpos->update > bmgr.bto) {
+                if (atomic_read(&tpos->ref) > 0) {
+                    hvfs_warning(xnet, "Branch '%s' lingering too long (busy?)\n",
+                                 tpos->branch_name);
+                    continue;
+                }
                 hlist_del(&tpos->hlist);
                 errstate = BO_FLUSH;
                 if (tpos->bp) {
+                    xlock_lock(&tpos->bp->lock);
                     err = tpos->bp->bo_root.input(tpos->bp,
                                                   &tpos->bp->bo_root,
                                                   NULL, -1UL, 0, &errstate);
@@ -630,20 +636,22 @@ int branch_cleanup(time_t cur)
                                      err);
                         }
                     }
-                    bp_destroy(tpos->bp);
+                    xlock_unlock(&tpos->bp->lock);
                 }
                 err = __branch_destroy(tpos);
                 if (!err) {
+                    if (tpos->bp)
+                        bp_destroy(tpos->bp);
                     xfree(tpos->branch_name);
                     xfree(tpos);
                     atomic_dec(&bmgr.asize);
                 } else {
-                    hvfs_err(xnet, "Branch '%s' lingering too long (busy?)\n",
+                    hvfs_err(xnet, "Branch '%s' ref changing (busy?)\n",
                              tpos->branch_name);
                 }
             }
         }
-        xlock_unlock(&rh->lock);
+        xrwlock_wunlock(&rh->lock);
     }
     
     return 0;
@@ -651,14 +659,14 @@ int branch_cleanup(time_t cur)
 
 int branch_final_flush(void)
 {
-    struct regular_hash *rh;
+    struct regular_hash_rw *rh;
     struct branch_entry *tpos;
     struct hlist_node *pos, *n;
     int i, err = 0, errstate;
 
     for (i = 0; i < bmgr.hsize; i++) {
         rh = bmgr.bht + i;
-        xlock_lock(&rh->lock);
+        xrwlock_wlock(&rh->lock);
         hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {
             hlist_del(&tpos->hlist);
             /* for each branch_entry, we call root flush, left flush, and
@@ -685,7 +693,7 @@ int branch_final_flush(void)
                 atomic_dec(&bmgr.asize);
             }
         }
-        xlock_unlock(&rh->lock);
+        xrwlock_wunlock(&rh->lock);
     }
 
     return 0;
@@ -946,7 +954,8 @@ int __branch_pack_bulk_push_header(struct xnet_msg *msg,
                                    int nr)
 {
     blph->name_len = strlen(be->branch_name);
-    blph->nr = nr;
+    /* reset blph->nr to ZERO */
+    blph->nr = 0;
 
     xnet_msg_add_sdata(msg, blph, sizeof(*blph));
     if (blph->name_len)
@@ -960,20 +969,25 @@ int __branch_pack_bulk_push_header(struct xnet_msg *msg,
 static inline
 int __branch_pack_msg(struct xnet_msg *msg, 
                       struct branch_line_disk *bld,
-                      struct branch_line *bl)
+                      struct branch_line *bl,
+                      struct branch_line_push_header *blph)
 {
+    int err = 0;
+    
     bld->bl = *bl;
     if (bl->tag)
         bld->tag_len = strlen(bl->tag);
     bld->name_len = 0;
     
-    xnet_msg_add_sdata(msg, bld, sizeof(*bld));
-    if (bld->tag_len)
-        xnet_msg_add_sdata(msg, bl->tag, bld->tag_len);
-    if (bl->data_len)
-        xnet_msg_add_sdata(msg, bl->data, bl->data_len);
+    err = xnet_msg_add_sdata(msg, bld, sizeof(*bld));
+    if (!err && bld->tag_len)
+        err = xnet_msg_add_sdata(msg, bl->tag, bld->tag_len);
+    if (!err && bl->data_len)
+        err = xnet_msg_add_sdata(msg, bl->data, bl->data_len);
+    if (!err)
+        blph->nr++;
 
-    return 0;
+    return err;
 }
 
 /* __branch_bulk_push() try to send more branch_lines as a whole
@@ -982,7 +996,7 @@ int __branch_pack_msg(struct xnet_msg *msg,
 int __branch_bulk_push(struct branch_entry *be, u64 dsite)
 {
     struct branch_line *bl, *start_bl = NULL;
-    int nr = 0, err = 0;
+    int nr = 0, err = 0, remain = 0;
     
     /* calculate how many branch entry we can send */
     xlock_lock(&be->lock);
@@ -1052,11 +1066,16 @@ int __branch_bulk_push(struct branch_entry *be, u64 dsite)
         ASSERT(start_bl, xnet);
         bl = start_bl;
         while (iter < nr) {
-            err = __branch_pack_msg(msg, bld_array + iter, bl);
+            err = __branch_pack_msg(msg, bld_array + iter, bl, &blph);
+            if (err)
+                break;
             bl = list_entry(bl->list.next, struct branch_line, 
                             list);
             iter++;
         }
+        if (iter < nr)
+            remain = 1;
+        nr = iter;
 
         /* Step 2: do sending now */
         err = xnet_send(hmo.xc, msg);
@@ -1096,7 +1115,10 @@ int __branch_bulk_push(struct branch_entry *be, u64 dsite)
         xlock_unlock(&be->lock);
     }
 
-    return err;
+    if (!err && remain)
+        return remain;
+    else
+        return err;
 }
 
 int __branch_line_bcast_ack(char *branch_name, u64 ack_id, 
@@ -2035,10 +2057,10 @@ void *branch_scheduler(void *arg)
 {
     sigset_t set;
     struct branch_entry *be;
-    struct regular_hash *rh;
+    struct regular_hash_rw *rh;
     struct hlist_node *pos;
     time_t cur;
-    int i, wait, err = 0;
+    int i, wait, err = 0, push_immediately = 0;
 
     /* first, let us block the SIGALRM and SIGCHLD */
     sigemptyset(&set);
@@ -2057,18 +2079,25 @@ void *branch_scheduler(void *arg)
         /* check the branch entries */
         for (i = 0; i < bmgr.hsize; i++) {
             rh = bmgr.bht + i;
-            xlock_lock(&rh->lock);
+            xrwlock_rlock(&rh->lock);
             hlist_for_each_entry(be, pos, &rh->h, hlist) {
                 /* for bp.mode=0: we should push the branch lines to BP
                  * node */
-                if (cur >= be->update + bmgr.dirty_to) {
+                if (cur >= be->update + (push_immediately ? 
+                                         push_immediately : bmgr.dirty_to)) {
                     err = __branch_bulk_push(be, 
                                              SELECT_BP_SITE(be->branch_name,
                                                             hmo.site_id));
-                    if (err) {
-                        hvfs_err(xnet, "branch bulk push for %s "
-                                 "failed w/ %d\n",
-                                 be->branch_name, err);
+                    if (err > 0) {
+                        wait = 1;
+                        push_immediately = 2;
+                    } else {
+                        push_immediately = 0;
+                        if (err < 0) {
+                            hvfs_err(xnet, "branch bulk push for %s "
+                                     "failed w/ %d\n",
+                                     be->branch_name, err);
+                        }
                     }
                 } else {
                     wait = min(wait, (int)(cur - be->update));
@@ -2093,7 +2122,7 @@ void *branch_scheduler(void *arg)
                     }
                 }
             }
-            xlock_unlock(&rh->lock);
+            xrwlock_runlock(&rh->lock);
         }
         /* check if we should do some cleanups */
         branch_cleanup(cur);
@@ -2130,9 +2159,11 @@ void *branch_processor(void *arg)
         if (err == EINTR)
             continue;
 
+    retry:
         xlock_lock(&bmgr.qlock);
         list_for_each_entry_safe(pos, n, &bmgr.qin, list) {
             list_del_init(&pos->list);
+            xlock_unlock(&bmgr.qlock);
             ssite_id = pos->tx.ssite_id;
             cmd = pos->tx.cmd;
             err = branch_dispatch(pos);
@@ -2141,6 +2172,7 @@ void *branch_processor(void *arg)
                          " failed w/ %d\n", 
                          ssite_id, cmd, err);
             }
+            goto retry;
         }
         xlock_unlock(&bmgr.qlock);
     }

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-18 22:34:27 macan>
+ * Time-stamp: <2011-10-11 00:18:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -340,7 +340,11 @@ struct dir_trigger_mgr *mds_dtrigger_parse(void *data, size_t len)
         dtm = ERR_PTR(-EINVAL);
     }
 
-    hvfs_debug(mds, "DTM nr %d %p %p\n", nr, dtm, dtm->dt[0].code);
+#if 1
+    if (IS_ERR(dtm)) 
+#endif
+        hvfs_err(mds, "DTM nr %d %p %p\n", nr, dtm, (IS_ERR(dtm) ? NULL :
+                                                     dtm->dt[0].code));
 
     return dtm;
 }

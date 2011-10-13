@@ -455,3 +455,9 @@ Pomegranate TODOs:
        1. Scan txg log to detect abnormal shutdown;
 
        2. Replicate TXG commit group to remote MDSLs.
+
+37. Testing for my thesis
+
+    1. Begin a test on realtime tag analysis
+
+    2. Prepare a test on multi-views

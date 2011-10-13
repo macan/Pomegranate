@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-09-04 01:05:04 macan>
+# Time-stamp: <2011-10-10 10:20:28 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -195,6 +195,28 @@ function start_mds() {
     fi
 }
 
+function start_bp() {
+    if [ "x$1" == "x" ]; then
+        ipnr=`cat $CONFIG_FILE | grep "bp:" | awk -F: '{print $2":"$4":"$3}'`
+        for x in $ipnr; do
+            ip=`echo $x | awk -F: '{print $1}'`
+            id=`echo $x | awk -F: '{print $2}'`
+            port=`echo $x | awk -F: '{print $3}'`
+            $SSH $UN$ip "id=$id root=$R2IP realport=$port $HVFS_HOME/test/xnet/bp.ut $id > $LOG_DIR/bp.$id.log" > /dev/null &
+        done
+        echo "Start BP server done."
+    else
+        ipnr=`cat $CONFIG_FILE | grep "bp:.*:$1\$" | awk -F: '{print $2":"$4":"$3}'`
+        for x in $ipnr; do
+            ip=`echo $x | awk -F: '{print $1}'`
+            id=`echo $x | awk -F: '{print $2}'`
+            port=`echo $x | awk -F: '{print $3}'`
+            $SSH $UN$ip "id=$id root=$R2IP realport=$port $HVFS_HOME/test/xnet/bp.ut $id > $LOG_DIR/bp.$id.log" > /dev/null &
+            echo "Start BP server $id done."
+        done
+    fi
+}
+
 function start_root() {
     if [ "x$1" == "x" ]; then
         ipnr=`cat $CONFIG_FILE | grep "r2:" | awk -F: '{print $2":"$4":"$3}'`
@@ -220,12 +242,19 @@ function start_root() {
 
 function start_r2cli() {
     if [ "x$1" == "x" ]; then
-        ipnr=`cat $CONFIG_FILE | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
+        hint=""
+    else
+        hint=$1
+    fi
+
+    ipnr=`cat $CONFIG_FILE | grep "client:.*$hint:.*:.*" | awk -F: '{print $2":"$4":"$3}'`
+    for x in $ipnr; do
         ip=`echo $ipnr | awk -F: '{print $1}'`
         id=`echo $ipnr | awk -F: '{print $2}'`
         port=`echo $ipnr | awk -F: '{print $3}'`
         $SSH $UN$ip "type=1 fsid=0 op=1 $HVFS_HOME/test/xnet/r2cli.ut $id $R2IP $port"
-    fi
+        break
+    done
 }
 
 function check_mdsl() {
@@ -246,6 +275,18 @@ function check_mds() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         R=`$SSH $UN$ip "cat $LOG_DIR/mds.$id.log | grep UP"`
+        if [ "x$R" == "x" ]; then
+            echo "MDS $id is not alive, please check it!"
+        fi
+    done
+}
+
+function check_bp() {
+    ipnr=`cat $CONFIG_FILE | grep "bp:" | awk -F: '{print $2":"$4}'`
+    for x in $ipnr; do 
+        ip=`echo $x | awk -F: '{print $1}'`
+        id=`echo $x | awk -F: '{print $2}'`
+        R=`$SSH $UN$ip "cat $LOG_DIR/bp.$id.log | grep UP"`
         if [ "x$R" == "x" ]; then
             echo "MDS $id is not alive, please check it!"
         fi
@@ -303,6 +344,22 @@ function stop_mds() {
     sleep 2
 }
 
+function stop_bp() {
+    if [ "x$1" == "x" ]; then
+        ipnr=`cat $CONFIG_FILE | grep "bp:" | awk -F: '{print $2":"$4}'`
+    else
+        ipnr=`cat $CONFIG_FILE | grep "bp:.*:$1\$" | awk -F: '{print $2":"$4}'`
+    fi
+
+    for x in $ipnr; do
+        ip=`echo $x | awk -F: '{print $1}'`
+        id=`echo $x | awk -F: '{print $2}'`
+        PID=`$SSH $UN$ip "ps aux" | grep "bp.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
+         $SSH $UN$ip "kill -s SIGHUP $PID 2&>1 > /dev/null" > /dev/null
+    done
+    sleep 2
+}
+
 function stop_root() {
     if [ "x$1" == "x" ]; then
         ipnr=`cat $CONFIG_FILE | grep "r2:" | awk -F: '{print $2":"$4}'`
@@ -345,6 +402,22 @@ function kill_mds() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         PID=`$SSH $UN$ip "ps aux" | grep "mds.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
+        $SSH $UN$ip "kill -9 $PID 2&>1 > /dev/null" > /dev/null
+    done
+    sleep 2
+}
+
+function kill_bp() {
+    if [ "x$1" == "x" ]; then
+        ipnr=`cat $CONFIG_FILE | grep "bp:" | awk -F: '{print $2":"$4}'`
+    else
+        ipnr=`cat $CONFIG_FILE | grep "bp:.*:$1\$" | awk -F: '{print $2":"$4}'`
+    fi
+
+    for x in $ipnr; do
+        ip=`echo $x | awk -F: '{print $1}'`
+        id=`echo $x | awk -F: '{print $2}'`
+        PID=`$SSH $UN$ip "ps aux" | grep "bp.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
         $SSH $UN$ip "kill -9 $PID 2&>1 > /dev/null" > /dev/null
     done
     sleep 2
@@ -423,6 +496,21 @@ function stat_mds() {
             echo "MDS  $id is running."
         else
             echo "MDS  $id is gone."
+        fi
+    done
+}
+
+function stat_bp() {
+    echo "----------BP----------"
+    ipnr=`cat $CONFIG_FILE | grep "bp:" | awk -F: '{print $2":"$4}'`
+    for x in $ipnr; do 
+        ip=`echo $x | awk -F: '{print $1}'`
+        id=`echo $x | awk -F: '{print $2}'`
+        NR=`$SSH $UN$ip "ps aux" | grep "bp.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep | wc -l`
+        if [ "x$NR" == "x1" ]; then
+            echo "BP   $id is running."
+        else
+            echo "BP   $id is gone."
         fi
     done
 }
@@ -682,7 +770,7 @@ function do_help() {
     echo "Version 1.0.0b"
     echo "Copyright (c) 2010 Can Ma <ml.macana@gmail.com>"
     echo ""
-    echo "Usage: hvfs.sh [start|stop|kill|check] [mds|mdsl|r2|all] [id]"
+    echo "Usage: hvfs.sh [start|stop|kill|check] [mds|mdsl|r2|bp|all] [id]"
     echo "               [clean|stat]"
     echo "               [ut|kut|sut]"
     echo "               [mount|umount|ml]"
@@ -736,6 +824,8 @@ if [ "x$1" == "xstart" ]; then
         start_mdsl $3
     elif [ "x$2" == "xr2" ]; then
         start_root $3
+    elif [ "x$2" == "xbp" ]; then
+        start_bp $3
     else
         start_all
     fi
@@ -746,6 +836,8 @@ elif [ "x$1" == "xstop" ]; then
         stop_mdsl $3
     elif [ "x$2" == "xr2" ]; then
         stop_root $3
+    elif [ "x$2" == "xbp" ]; then
+        stop_bp $3
     else
         stop_all
     fi
@@ -756,6 +848,8 @@ elif [ "x$1" == "xkill" ]; then
         kill_mdsl
     elif [ "x$2" == "xr2" ]; then
         kill_root
+    elif [ "x$2" == "xbp" ]; then
+        kill_bp
     else
         kill_all
     fi
@@ -766,6 +860,8 @@ elif [ "x$1" == "xcheck" ]; then
         check_mdsl
     elif [ "x$2" == "xr2" ]; then
         check_root
+    elif [ "x$2" == "xbp" ]; then
+        check_bp
     else
         check_all
     fi
@@ -791,7 +887,11 @@ elif [ "x$1" == "xsut" ]; then
     do_ut_conf_check
     stat_client
 elif [ "x$1" == "xstat" ]; then
-    do_status
+    if [ "x$2" == "x" ]; then
+        do_status
+    elif [ "x$2" == "xbp" ]; then
+        stat_bp
+    fi
 elif [ "x$1" == "xrut" ]; then
     repeat_ut
 elif [ "x$1" == "xclean" ]; then
@@ -808,7 +908,7 @@ elif [ "x$1" == "xumount" ]; then
 elif [ "x$1" == "xml" ]; then
     do_list_pfs
 elif [ "x$1" == "xmkfs" ]; then
-    start_r2cli
+    start_r2cli $2
 elif [ "x$1" == "xhelp" ]; then
     do_help
 else

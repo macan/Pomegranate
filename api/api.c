@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-09-26 04:31:57 macan>
+ * Time-stamp: <2011-10-11 05:00:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3606,6 +3606,50 @@ char *hvfs_active_site(char *type)
             hvfs_info(xnet, "Site %ld => %lx\n", xg->sites[i].site_id - base,
                       xg->sites[i].site_id);
         }
+    }
+    
+    xfree(xg);
+out:
+    return err;
+}
+
+int hvfs_active_site_size(char *type)
+{
+    struct xnet_group *xg = NULL;
+    u64 base;
+    int err = 0;
+    
+    if (strncmp(type, "mdsl", 4) == 0) {
+        base = HVFS_MDSL(0);
+        xg = cli_get_active_site(hmo.chring[CH_RING_MDSL]);
+        if (!xg) {
+            hvfs_err(xnet, "cli_get_active_site() failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+    } else if (strncmp(type, "mds", 3) == 0) {
+        base = HVFS_MDS(0);
+        xg = cli_get_active_site(hmo.chring[CH_RING_MDS]);
+        if (!xg) {
+            hvfs_err(xnet, "cli_get_active_site() failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+    } else if (strncmp(type, "bp", 2) == 0) {
+        base = HVFS_BP(0);
+        xg = cli_get_active_site(hmo.chring[CH_RING_BP]);
+        if (!xg) {
+            hvfs_err(xnet, "cli_get_active_site() failed\n");
+            err = -ENOMEM;
+            goto out;
+        }
+    } else {
+        hvfs_err(xnet, "Type '%s' not supported yet.\n", type);
+    }
+
+    /* print the active sites */
+    if (xg) {
+        err = xg->asize;
     }
     
     xfree(xg);
@@ -7284,6 +7328,13 @@ int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
 
     if (!path || !data)
         return -EINVAL;
+    /* if this is the '.branches' directory */
+    if (strcmp(path, "/") == 0 &&
+        strcmp(name, ".branches") == 0) {
+        hvfs_err(xnet, "/.branches is RESERVED for system. Do not register "
+                 "dtrigger on it!\n");
+        return -EINVAL;
+    }
 
     /* parse the path and do __stat on each directory */
     do {
@@ -7327,7 +7378,6 @@ int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
                      name, err);
             goto out;
         }
-        puuid = hs.uuid;
         hs.hash = 0;
         err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, HVFS_TRIG_COLUMN, &hs);
         if (err) {
@@ -7335,7 +7385,12 @@ int hvfs_reg_dtrigger(char *path, char *name, u16 priority, u16 where,
                      name, err);
             goto out;
         }
-        psalt = hs.ssalt;
+        /* BUG-xxxxx:
+         *
+         * for dtriggers of a directory, we use GDT_UUID and self.salt to
+         * route the request! Be sure to keep this convention works with
+         * dh.c->__mds_dh_data_read().
+         */
     } else {
         /* check if it is root directory */
         if (puuid == hmi.root_uuid) {
@@ -7516,7 +7571,6 @@ int hvfs_cat_dtrigger(char *path, char *name, void **data)
                      name, err);
             goto out;
         }
-        puuid = hs.uuid;
         hs.hash = 0;
         err = __hvfs_stat(hmi.gdt_uuid, hmi.gdt_salt, HVFS_TRIG_COLUMN, &hs);
         if (err) {
@@ -7524,7 +7578,6 @@ int hvfs_cat_dtrigger(char *path, char *name, void **data)
                      name ,err);
             goto out;
         }
-        psalt = hs.ssalt;
     } else {
         /* check if it is root directory */
         if (puuid == hmi.root_uuid) {

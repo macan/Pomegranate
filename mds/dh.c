@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-25 04:49:41 macan>
+ * Time-stamp: <2011-10-11 06:54:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -45,6 +45,12 @@ u64 SELECT_SITE(u64 itbid, u64 psalt, int type, u32 *vid)
  *
  * try to read the column data from MDSL
  */
+/* BUG-xxxxx:
+ *
+ * for dtriggers of a directory, we use GDT_UUID and self.salt to
+ * route the request! Be sure to keep this convention works with
+ * dh.c->__mds_dh_data_read().
+ */
 int __mds_dh_data_read(struct hvfs_index *hi, int column, 
                        void **data, struct column *c)
 {
@@ -53,6 +59,19 @@ int __mds_dh_data_read(struct hvfs_index *hi, int column,
     u64 dsite;
     u32 vid = 0;
     int err = 0;
+
+    /* make sure we have loaded the root_salt now */
+    if (hmi.root_salt == 0xffffffffffffffff) {
+        struct dhe *e;
+
+        e = mds_dh_search(&hmo.dh, hmi.root_uuid);
+        if (IS_ERR(e)) {
+            hvfs_err(mds, "The DHE(%lx) is not exist.\n", hmi.root_uuid);
+            return -EFAULT;
+        }
+        hmi.root_salt = e->salt;
+        mds_dh_put(e);
+    }
 
     si = xzalloc(sizeof(*si) + sizeof(struct column_req));
     if (!si) {
@@ -68,8 +87,13 @@ int __mds_dh_data_read(struct hvfs_index *hi, int column,
         goto out_free;
     }
 
-    /* fill the parent (dir) uuid to si.uuid */
-    si->sic.uuid = hi->puuid;
+    /* fill the parent (dir) uuid to si.uuid. If the column is
+     * HVFS_TRIG_COLUMN, we should reset the puuid to gdt_uuid. */
+    if (column == HVFS_TRIG_COLUMN) {
+        si->sic.uuid = hmi.gdt_uuid;
+    } else {
+        si->sic.uuid = hi->puuid;
+    }
     si->sic.arg0 = hi->uuid;
     si->scd.cnr = 1;
     si->scd.cr[0].cno = column;
@@ -79,7 +103,7 @@ int __mds_dh_data_read(struct hvfs_index *hi, int column,
     si->scd.cr[0].req_len = c->len;
 
     /* select the MDSL site by itbid */
-    dsite = SELECT_SITE(c->stored_itbid, hi->psalt, CH_RING_MDSL, &vid);
+    dsite = SELECT_SITE(c->stored_itbid, hi->ssalt, CH_RING_MDSL, &vid);
 
     /* construct the request message */
     xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
@@ -608,7 +632,7 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
             
             if (thi.uuid == hmi.root_uuid)
                 thi.puuid = hmi.gdt_uuid;
-            thi.psalt = hmi.gdt_salt;
+            thi.ssalt = m->salt;
             if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c &&
                 HVFS_IS_MDS(hmo.site_id)) {
                 /* load the trigger content from MDSL */
@@ -626,7 +650,6 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                     xfree(data);
                 }
             }
-            thi.ssalt = m->salt;
             /* setup mdu_flags */
             mdu_flags = m->mdu.flags;
         }
@@ -686,7 +709,6 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
         } else {
             struct gdt_md *m;
             struct column *c = NULL;
-            u64 saved_salt;
             void *data;
 
             hmr = (struct hvfs_md_reply *)(msg->pair->xm_data);
@@ -709,11 +731,11 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                 e = ERR_PTR(-EFAULT);
                 goto out_free;
             }
-            saved_salt = rhi->ssalt;
             if (rhi->uuid == hmi.root_uuid)
                 rhi->puuid = hmi.gdt_uuid;
-            rhi->psalt = hmi.gdt_salt;
-            if (m) {
+            /* do we need to load triggers? */
+            {
+                rhi->psalt = m->salt;
                 c = hmr_extract(hmr, EXTRACT_DC, &no);
                 if (!c) {
                     hvfs_err(mds, "hmr_extract DC failed, do not found this "
@@ -737,7 +759,6 @@ struct dhe *mds_dh_load(struct dh *dh, u64 duuid)
                         xfree(data);
                     }
                 }
-                rhi->ssalt = saved_salt;
                 /* setup mdu_flags */
                 mdu_flags = m->mdu.flags;
             }
@@ -891,7 +912,8 @@ int mds_dh_reload_nolock(struct dhe *ue)
             
             if (thi.uuid == hmi.root_uuid)
                 thi.puuid = hmi.gdt_uuid;
-            thi.psalt = hmi.gdt_salt;
+            thi.ssalt = m->salt;
+
             if ((m->mdu.flags & HVFS_MDU_IF_TRIG) && c &&
                 HVFS_IS_MDS(hmo.site_id)) {
                 /* load the trigger content from MDSL */
@@ -991,7 +1013,7 @@ int mds_dh_reload_nolock(struct dhe *ue)
             }
             if (rhi->uuid == hmi.root_uuid)
                 rhi->puuid = hmi.gdt_uuid;
-            rhi->psalt = hmi.gdt_salt;
+            rhi->ssalt = m->salt;
             if (m) {
                 c = hmr_extract(hmr, EXTRACT_DC, &no);
                 if (!c) {

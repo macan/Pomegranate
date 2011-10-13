@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-21 23:50:24 macan>
+ * Time-stamp: <2011-10-11 06:17:55 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -4584,7 +4584,7 @@ int bo_indexer_bdb_input(struct branch_processor *bp,
             memcpy(errbuf, "db_", 3);
             memcpy(errbuf + 3, p + pmatch[2].rm_so, len);
             errbuf[len + 3] = '\0';
-            hvfs_err(xnet, "Got DB '%s'\n", errbuf);
+            hvfs_warning(xnet, "Got DB '%s'\n", errbuf);
             {
                 int olen = 0;
                 char *m;
@@ -5214,7 +5214,9 @@ int bp_handle_bulk_push(struct branch_processor *bp, struct xnet_msg *msg,
         len = sizeof(*bld) + bld->name_len + 
             bld->tag_len + bld->bl.data_len;
 
+        xlock_lock(&bp->lock);
         err = bp_handle_push(bp, msg, bld);
+        xlock_unlock(&bp->lock);
         if (err == -EADJUST) {
             /* if it is a adjust notice, we should break right now */
             break;

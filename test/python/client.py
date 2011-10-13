@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-08-25 06:42:55 macan>
+# Time-stamp: <2011-10-10 04:57:43 macan>
 #
 # Armed with EMACS.
 #
@@ -206,7 +206,8 @@ class pamc_shell(cmd.Cmd):
                 "regdtrigger", "catdtrigger", "statfs", "setattr",
                 "getactivesite", "addsite", "rmvsite", "shutdown",
                 "cbranch", "bc", "bp", "getbor", "search", 
-                "pst", "clrdtrigger", "getinfo", "analysestorage"]
+                "pst", "clrdtrigger", "getinfo", "analysestorage",
+                "getactivesitesize"]
 
     def __init__(self, ub = False):
         cmd.Cmd.__init__(self)
@@ -760,7 +761,7 @@ class pamc_shell(cmd.Cmd):
 
     def do_getcluster(self, line):
         '''Get the MDS/MDSL cluster status.
-        Usage: getcluster 'mds/mdsl' '''
+        Usage: getcluster 'mds/mdsl/bp' '''
         l = shlex.split(line)
         if len(l) < 1:
             print "Invalid argument."
@@ -779,7 +780,7 @@ class pamc_shell(cmd.Cmd):
 
     def do_getactivesite(self, line):
         '''Get the active sites.
-        Usage: getactivesite 'mds/mdsl' '''
+        Usage: getactivesite 'mds/mdsl/bp' '''
         l = shlex.split(line)
         if len(l) < 1:
             print "Invalid argument. See help getactivesite!"
@@ -793,6 +794,32 @@ class pamc_shell(cmd.Cmd):
                 return
         except ValueError, ve:
             print "ValueError %s" % ve
+
+    def do_getactivesitesize(self, line):
+        '''Get the active sites' size.
+        Usage: getactivesite 'mds/mdslbp' '''
+        l = shlex.split(line)
+        if len(l) < 1:
+            print "Invalid argument. See help getactivesitesize!"
+            return
+        # ok
+        try:
+            type = c_char_p(l[0])
+            err = api.hvfs_active_site_size(type)
+            if err < 0:
+                print "api.hvfs_active_site() failed w/ %d" % err
+                return
+            else:
+                print "Active %s sites: %d" % (l[0], err)
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def get_bp_cluster_size(self):
+        err = api.hvfs_active_site_size("bp")
+        if err < 0:
+            print "api.hvfs_active_site_size() failed w/ %d" % err
+            return
+        return range(0, err)
 
     def do_offline(self, line):
         '''Offline a site or a group of sites.
@@ -1185,31 +1212,42 @@ class pamc_shell(cmd.Cmd):
             return
         # ok
         try:
-            c_data = c_void_p(None)
-            c_size = c_uint64(0);
-            c_str = c_char_p(None)
+            if str(l[1]) != "all":
+                bplist = [int(l[1])]
+            else:
+                bplist = self.get_bp_cluster_size()
+
             self.start_clock()
-            err = branch.branch_search(c_char_p(l[0]), c_uint64(int(l[1])),
-                                       c_char_p(l[2]), c_char_p(l[3]),
-                                       c_char_p(l[4]), byref(c_data), 
-                                       byref(c_size))
-            if err != 0:
-                print "branch.branch_search() failed w/ %d" % err
-                return
+            for idx in bplist:
+                c_data = c_void_p(None)
+                c_size = c_uint64(0);
+                c_str = c_char_p(None)
+                err = branch.branch_search(c_char_p(l[0]), c_uint64(int(idx)),
+                                           c_char_p(l[2]), c_char_p(l[3]),
+                                           c_char_p(l[4]), byref(c_data), 
+                                           byref(c_size))
+                if err == -22:
+                    # ignore this error
+                    continue
+                elif err != 0:
+                    print "branch.branch_search() failed w/ %d" % err
+                    return
+                branch.branch_dumpbase(c_data, c_size, byref(c_str))
+                print c_str.value
+                c_data2 = c_void_p(None)
+                c_nr = c_int(0)
+                c_data3 = c_char_p(None)
+                branch.branch_base2fh(c_data, c_size, byref(c_data2), byref(c_nr))
+                api.hvfs_ploop(c_data2, c_nr, api.hvfs_pstat, byref(c_data3), byref(c_size))
+                print c_data3.value
+                api.hvfs_free(c_data3)
+                api.hvfs_free(c_data2)
+                api.hvfs_free(c_data)
+                api.hvfs_free(c_str)
+
             self.stop_clock()
-            branch.branch_dumpbase(c_data, c_size, byref(c_str))
-            print c_str.value
-            c_data2 = c_void_p(None)
-            c_nr = c_int(0)
-            c_data3 = c_char_p(None)
-            branch.branch_base2fh(c_data, c_size, byref(c_data2), byref(c_nr))
-            api.hvfs_ploop(c_data2, c_nr, api.hvfs_pstat, byref(c_data3), byref(c_size))
-            print c_data3.value
-            api.hvfs_free(c_data3)
-            api.hvfs_free(c_data2)
-            api.hvfs_free(c_data)
-            api.hvfs_free(c_str)
-            self.echo_clock("Time elasped:")
+            
+            self.echo_clock("Time elasped+p:")
         except TypeError, te:
             print "TypeError %s" % te
         except ValueError, ve:

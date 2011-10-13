@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-18 09:11:02 macan>
+ * Time-stamp: <2011-10-11 07:19:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,7 +61,7 @@ int dt_main(u16 where, struct itb *itb, struct ite *ite,
 
         /* Step 1: try to load the branch 'default-puuid' */
         memset(branch_name, 0, sizeof(branch_name));
-        snprintf(branch_name, 255, "default-%lx", hi->puuid);
+        sprintf(branch_name, "default-%lx", hi->puuid);
         be = branch_lookup_load(branch_name);
         if (PTR_ERR(be) == -ENOENT) {
             /* create it now */
@@ -115,7 +115,7 @@ int dt_main(u16 where, struct itb *itb, struct ite *ite,
 
         /* Step 1: try to load the branch 'default-puuid' */
         memset(branch_name, 0, sizeof(branch_name));
-        snprintf(branch_name, 255, "default-%lx", hi->puuid);
+        sprintf(branch_name, "default-%lx", hi->puuid);
         be = branch_lookup_load(branch_name);
         if (PTR_ERR(be) == -ENOENT) {
             /* create it now */
