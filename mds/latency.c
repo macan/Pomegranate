@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-23 22:16:39 macan>
+ * Time-stamp: <2011-10-18 06:32:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -186,9 +186,9 @@ void mds_cb_latency(void *arg)
 #define TIMER_E()
 #define TIMER_EaU(which)
 
-void *mds_cb_latency(void *arg)
+void mds_cb_latency(void *arg)
 {
-    return NULL;
+    return;
 }
 
 #endif

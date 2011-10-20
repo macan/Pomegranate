@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-10-10 10:20:28 macan>
+# Time-stamp: <2011-10-19 11:59:00 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -766,6 +766,16 @@ function do_list_pfs() {
     done
 }
 
+function pview() {
+    if [ "x$1" == "x" ]; then
+        exec $SSH $UN$R2IP tail -f $LOG_DIR/CP-BACK-root.0.mds
+    elif [ "x$1" == "xmds" ]; then
+        exec $SSH $UN$R2IP tail -f $LOG_DIR/CP-BACK-root.0.mds
+    elif [ "x$1" == "xmdsl" ]; then
+        exec $SSH $UN$R2IP tail -f $LOG_DIR/CP-BACK-root.0.mdsl
+    fi
+}
+
 function do_help() {
     echo "Version 1.0.0b"
     echo "Copyright (c) 2010 Can Ma <ml.macana@gmail.com>"
@@ -789,6 +799,8 @@ function do_help() {
     echo "      mount           mount the fuse client"
     echo "      umount          umount the fuse client"
     echo "      ml              list the mounted pfs entry"
+    echo "      pview [mds|"
+    echo "             mdsl]    view the aggregated R2 log"
     echo ""
     echo "Environments:"
     echo "      HVFS_HOME       default to the current path."
@@ -909,6 +921,8 @@ elif [ "x$1" == "xml" ]; then
     do_list_pfs
 elif [ "x$1" == "xmkfs" ]; then
     start_r2cli $2
+elif [ "x$1" == "xpview" ]; then
+    pview $2
 elif [ "x$1" == "xhelp" ]; then
     do_help
 else

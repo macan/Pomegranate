@@ -1,5 +1,5 @@
 Writter: Ma Can <macan@ncic.ac.cn> or <ml.macana@gmail.com> (gmail is preferred)
-Time-stamp: <2011-10-10 04:53:24 macan>
+Time-stamp: <2011-10-14 01:05:42 macan>
 
 Making Pomegranate is very easy :) You just should following the next steps:
 
@@ -110,3 +110,26 @@ Making Pomegranate is very easy :) You just should following the next steps:
    #(cmd) touch /a/y
    #(cmd) touch /a/z
    #(cmd) search default-8000000000000003 all default_db default "r:@ctime>0"
+
+7. How to read/write large files?
+
+   $ cd $POMEGRANATE_HOME
+   $ vim conf/hvfs.conf # modify your cluster configuration
+   $ bin/hvfs.sh stat   # check if there is already an instance running
+   $ bin/hvfs.sh start  # start the servers: mds, mdsl, and r2
+   $ bin/hvfs.sh mkfs   # make the file system
+
+   $ # start python client
+   $ cd test/python
+   $ python client.py -b
+   #(cmd) mkdir /test
+   #(cmd) setattr /test flag_add=67108864; # flag=0x4000000 is IF_LARGE
+   #(cmd) quit
+
+   $ # start pfs fuse client
+   $ dstore=/root/hvfs/conf/dstore.conf noxattr=0 root=10.10.111.9 id=0 /root/hvfs/test/xnet/pfs.ut /mnt/hvfs -o allow_other -o use_ino -o entry_timeout=1 -o attr_timeout=1 -f
+   $ cd /mnt/hvfs/test
+   $ echo "hello, big file" > big
+   $ cat /PATH/TO/DSTORE/xxxxxxxx
+   hello, big file
+   $

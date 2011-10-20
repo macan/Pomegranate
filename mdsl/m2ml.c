@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-07 22:15:42 macan>
+ * Time-stamp: <2011-10-20 12:27:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1097,7 +1097,7 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                          te->site_id, te->txg);
                 toe_to_tmpfile(TXG_OPEN_ENTRY_DISK_END,
                                te->site_id, te->txg, te);
-                goto out_complete;
+                goto out_fail;
             }
 
             /* ok, check the itb_nr now */
@@ -1141,6 +1141,7 @@ void mdsl_wbtxg(struct xnet_msg *msg)
             xcond_unlock(&toe->wcond);
             xcond_broadcast(&toe->wcond);
             toe_put(toe);
+        out_fail:;
         }
     out_reply:
         __mdsl_send_err_rpy(msg, err);

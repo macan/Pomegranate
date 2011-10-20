@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-21 11:43:27 macan>
+ * Time-stamp: <2011-10-18 06:48:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -188,7 +188,7 @@ void pfs_cb_latency(void *arg)
 #define FC_TIMER_E()
 #define FC_TIMER_EaU(which)
 
-void *pfs_cb_latency(void *arg)
+void pfs_cb_latency(void *arg)
 {
     return NULL;
 }
