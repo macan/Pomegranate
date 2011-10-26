@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-09-15 15:14:35 macan>
+ * Time-stamp: <2011-10-27 00:02:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -80,6 +80,7 @@ struct chp *ring_get_point2(u64 point, struct chring *r);
 
 /* Dump the consistent hash ring */
 void ring_dump(struct chring *r);
+void ring_stat(struct chring *r, int nr);
 
 /* Ring Hash function, using what? */
 u64 ring_hash(u64 key, u64 salt);

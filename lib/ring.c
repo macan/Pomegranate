@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-10-29 19:22:26 macan>
+ * Time-stamp: <2011-10-27 00:02:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -287,14 +287,47 @@ int ring_find_site(struct chring *r, u64 site_id, void **data)
 void ring_dump(struct chring *r)
 {
     int i;
+    
     if (!r)
         return;
 
     hvfs_debug(lib, "Ring %d with %d(%d) entries:\n", r->group, 
                r->used, r->alloc);
     for (i = 0; i < r->used; i++) {
-        hvfs_debug(lib, "%16d: %20lu %20lu\n", i, r->array[i].point,
+        hvfs_debug(lib, "%16d: %20lu %20lx\n", i, r->array[i].point,
                    r->array[i].site_id);
+    }
+}
+
+/* @nr: # of physical sites
+ */
+void ring_stat(struct chring *r, int nr)
+{
+    u64 *rglen, last_point = 0;
+    int i;
+
+    if (nr <= 0)
+        return;
+
+    rglen = xzalloc(nr * sizeof(u64));
+    if (!rglen)
+        return;
+    
+    hvfs_info(lib, "Ring Stat:\n");
+    for (i = 0; i < r->used; i++) {
+        if (i == 0) {
+            rglen[r->array[i].site_id - HVFS_MDS(0)] +=
+                r->array[i].point;
+            rglen[r->array[i].site_id - HVFS_MDS(0)] += (
+                0xffffffffffffffff - r->array[r->used].point);
+        } else {
+            rglen[r->array[i].site_id - HVFS_MDS(0)] += 
+                r->array[i].point - last_point;
+        }
+        last_point = r->array[i].point;
+    }
+    for (i = 0; i < nr; i++) {
+        hvfs_info(lib, "rglen[%d] = %ld\n", i, rglen[i]);
     }
 }
 

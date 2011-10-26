@@ -461,3 +461,9 @@ Pomegranate TODOs:
     1. Begin a test on realtime tag analysis
 
     2. Prepare a test on multi-views
+
+    3. Do a log on GH platform for 100m file creations
+
+       1. get chring ranges
+
+       2. get itb split id for each server, and compute their hash values

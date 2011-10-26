@@ -31,7 +31,7 @@ def aggr_mds(argv):
                 # accumulate the stats
                 for y in range(2, 39):
 #                for y in range(2, 35):
-                    r[y] = int(r[y]) + int(a[y])
+                    r[y] = long(r[y]) + long(a[y])
         except:
             break
 
@@ -65,7 +65,7 @@ def aggr_mdsl(argv):
 
                 # accumulate the stats
                 for y in range(2, 27):
-                    r[y] = int(r[y]) + int(a[y])
+                    r[y] = long(r[y]) + long(a[y])
         except:
             break
 
