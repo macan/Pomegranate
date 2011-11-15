@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-29 10:02:04 macan>
+ * Time-stamp: <2011-11-12 23:18:30 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -978,6 +978,7 @@ out:
 
 void mds_gossip_rdir(struct xnet_msg *msg)
 {
+    static xlock_t rdir_lock = XLOCK_INITIALIZER;
     struct hvfs_txg *txg;
     u64 *array;
     int i, found;
@@ -999,6 +1000,7 @@ void mds_gossip_rdir(struct xnet_msg *msg)
 
     /* add the rdir array to hmo.rm */
     for (i = 0; i < msg->tx.arg0; i++) {
+        xlock_lock(&rdir_lock);
         found = rdir_insert(&hmo.rm, array[i]);
         if (!found) {
             /* add to the txg rdir list */
@@ -1008,6 +1010,7 @@ void mds_gossip_rdir(struct xnet_msg *msg)
                 txg_add_rdir(txg, array[i]);
             txg_put(txg);
         }
+        xlock_unlock(&rdir_lock);
     }
 
 out:

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-11 12:57:51 macan>
+ * Time-stamp: <2011-11-12 23:19:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,6 +55,7 @@ int xlock_lock(xlock_t *);
 int xlock_unlock(xlock_t *);
 int xlock_init(xlock_t *);
 int xlock_destroy(xlock_t *);
+#define XLOCK_INITIALIZER PTHREAD_MUTEX_INITIALIZER
 
 #else  /* !HVFS_LOCK_DEBUG */
 /* section for rwlock */
@@ -77,6 +78,7 @@ typedef pthread_mutex_t xlock_t;
 #define xlock_unlock pthread_mutex_unlock
 #define xlock_init(l) pthread_mutex_init(l, NULL)
 #define xlock_destroy pthread_mutex_destroy
+#define XLOCK_INITIALIZER PTHREAD_MUTEX_INITIALIZER
 
 #endif
 
