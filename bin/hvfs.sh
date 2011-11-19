@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-10-19 11:59:00 macan>
+# Time-stamp: <2011-11-12 23:25:30 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -323,7 +323,7 @@ function stop_mdsl() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         PID=`$SSH $UN$ip "ps aux" | grep "mdsl.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
-        $SSH $UN$ip "kill -s SIGHUP $PID 2&>1 > /dev/null" > /dev/null
+        $SSH $UN$ip "kill -s SIGHUP $PID 2>&1 > /dev/null" > /dev/null
     done
     sleep 5
 }
@@ -339,7 +339,7 @@ function stop_mds() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         PID=`$SSH $UN$ip "ps aux" | grep "mds.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
-        $SSH $UN$ip "kill -s SIGHUP $PID 2&>1 > /dev/null" > /dev/null
+        $SSH $UN$ip "kill -s SIGHUP $PID 2>&1 > /dev/null" > /dev/null
     done
     sleep 2
 }
@@ -355,7 +355,7 @@ function stop_bp() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         PID=`$SSH $UN$ip "ps aux" | grep "bp.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
-         $SSH $UN$ip "kill -s SIGHUP $PID 2&>1 > /dev/null" > /dev/null
+         $SSH $UN$ip "kill -s SIGHUP $PID 2>&1 > /dev/null" > /dev/null
     done
     sleep 2
 }
@@ -371,7 +371,7 @@ function stop_root() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         PID=`$SSH $UN$ip "ps aux" | grep "root.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
-        $SSH $UN$ip "kill -s SIGHUP $PID 2&>1 > /dev/null" > /dev/null
+        $SSH $UN$ip "kill -s SIGHUP $PID 2>&1 > /dev/null" > /dev/null
     done
 }
 
@@ -386,7 +386,7 @@ function kill_mdsl() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         PID=`$SSH $UN$ip "ps aux" | grep "mdsl.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
-        $SSH $UN$ip "kill -9 $PID 2&>1 > /dev/null" > /dev/null
+        $SSH $UN$ip "kill -9 $PID 2>&1 > /dev/null" > /dev/null
     done
     sleep 5
 }
@@ -402,7 +402,7 @@ function kill_mds() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         PID=`$SSH $UN$ip "ps aux" | grep "mds.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
-        $SSH $UN$ip "kill -9 $PID 2&>1 > /dev/null" > /dev/null
+        $SSH $UN$ip "kill -9 $PID 2>&1 > /dev/null" > /dev/null
     done
     sleep 2
 }
@@ -418,7 +418,7 @@ function kill_bp() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         PID=`$SSH $UN$ip "ps aux" | grep "bp.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
-        $SSH $UN$ip "kill -9 $PID 2&>1 > /dev/null" > /dev/null
+        $SSH $UN$ip "kill -9 $PID 2>&1 > /dev/null" > /dev/null
     done
     sleep 2
 }
@@ -434,7 +434,7 @@ function kill_root() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         PID=`$SSH $UN$ip "ps aux" | grep "root.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
-        $SSH $UN$ip "kill -9 $PID 2&>1 > /dev/null" > /dev/null
+        $SSH $UN$ip "kill -9 $PID 2>&1 > /dev/null" > /dev/null
     done
 }
 
@@ -662,7 +662,7 @@ function do_kut() {
         id=`echo $x | awk -F: '{print $2}'`
         port=`echo $x | awk -F: '{print $3}'`
         PID=`$SSH $UN$ip "ps aux | grep \"client.ut $id\" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep"`
-        $SSH $UN$ip "kill -9 $PID 2&>1 > /dev/null" > /dev/null
+        $SSH $UN$ip "kill -9 $PID 2>&1 > /dev/null" > /dev/null
         let I+=1
     done
 }
@@ -699,7 +699,7 @@ function do_mount_pfs() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         port=`echo $x | awk -F: '{print $3}'`
-        $SSH $UN$ip "$CLIENT_CMD root=$R2IP id=$id $HVFS_HOME/test/xnet/pfs.ut $PFS_ROOT -o allow_other -o use_ino -o entry_timeout=$ENTRY_TO -o attr_timeout=$ATTR_TO -f > $LOG_DIR/pfs.$id.log" > /dev/null &
+        $SSH $UN$ip "$MNT_OPT $CLIENT_CMD root=$R2IP id=$id $HVFS_HOME/test/xnet/pfs.ut $PFS_ROOT -o allow_other -o use_ino -o entry_timeout=$ENTRY_TO -o attr_timeout=$ATTR_TO -f > $LOG_DIR/pfs.$id.log" > /dev/null &
         let I+=1
     done
     echo "Start $NR PFS fuse client(s) running."

@@ -12,7 +12,7 @@ set size 1, 1
 #set output "cn.paper.mdscale.eps"
 set output "cn.paper.mdscale.png"
 set auto x
-set xtics out offset -1,0
+#set xtics out offset -1,0
 set auto y
 
 set xlabel "Server Cluster Size (#)"

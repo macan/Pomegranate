@@ -460,6 +460,13 @@ Pomegranate TODOs:
 
     1. Begin a test on realtime tag analysis
 
+       1. fuse/dbsearch.c has a simple test for tag dbsearch: compare
+          bdb-search with xattr brute-force search. Select rate: 1 5 10 20 30
+          34 ADD: 50 70 90 100 (for OR)
+
+       2. fuse/dbsearch.c add a new test for tag dbsearch: compare bdb-search
+          with xattr brute-force search.
+
     2. Prepare a test on multi-views
 
     3. Do a log on GH platform for 100m file creations
@@ -467,3 +474,12 @@ Pomegranate TODOs:
        1. get chring ranges
 
        2. get itb split id for each server, and compute their hash values
+
+       3. Done @ 10/26/2011: we luckily got a low-pass hash function!
+
+38. File System Top Command
+
+    1. options: {-n seconds }
+
+    2. contains: {file stats/modify; dir inserts; file read/write; dir
+                  read/write; }

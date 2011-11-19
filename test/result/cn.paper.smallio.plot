@@ -13,7 +13,7 @@ set multiplot layout 1,2
 
 set style data histogram
 set style histogram cluster gap 1
-set style fill solid 1.00 border -1
+set style fill solid 1.00 border -1 pattern
 set boxwidth 0.9
 set logscale y 10
 set xlabel "File Size Range (Bytes)"
