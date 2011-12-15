@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-10 17:29:34 macan>
+ * Time-stamp: <2011-12-15 10:13:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -117,6 +117,11 @@ void *racer(void *arg)
         /* try to append more itb to the itb file */
         len = lib_random(range_end - range_begin) + range_begin;
         atomic_set(&itb->h.len, len);
+        /* cheat hole detection */
+        itb->h.flag = ITB_ACTIVE;
+        itb->h.adepth = ITB_DEPTH;
+        itb->h.depth = 1;
+        
         itb->h.itbid = lib_random(0xfff);
         itb->h.puuid = duuid;
 
@@ -190,28 +195,41 @@ int main(int argc, char *argv[])
 {
     u64 duuid = 1;
     pthread_t racer_thread;
-    int err = 0;
+    char *value;
+    int err = 0, sid = 0, start_racer;
     
     hvfs_info(mdsl, "MDSL GC Unit Test ...\n");
 
-    /* got the uuid from user */
-    if (argc < 2) {
-        hvfs_err(mdsl, "Usage: %s dir_uuid\n", argv[0]);
+    /* got the site_id, uuid from user */
+    if (argc < 3) {
+        hvfs_err(mdsl, "Usage: %s site_id dir_uuid\n", argv[0]);
         return EINVAL;
     } else {
-        duuid = atol(argv[1]);
+        sid = atoi(argv[1]);
+        duuid = atol(argv[2]);
     }
+
+    value = getenv("racer");
+    if (value) {
+        start_racer = atoi(value);
+    } else
+        start_racer = 0;
+    hvfs_info(mdsl, "Begin GC with RACER %s.\n", 
+              start_racer ? "enabled(corrupt original file)" : "disable");
     
     mdsl_init();
-    hmo.site_id = HVFS_MDSL(0);
+    hmo.site_id = HVFS_MDSL(sid);
     mdsl_verify();
 
     preload_dir(duuid);
-    /* start a racer */
-    err = pthread_create(&racer_thread, NULL, &racer, (void *)duuid);
-    if (err)
-        goto out_clean;
 
+    /* start a racer */
+    if (start_racer) {
+        err = pthread_create(&racer_thread, NULL, &racer, (void *)duuid);
+        if (err)
+            goto out_clean;
+    }
+        
     sleep(5);
     err = mdsl_gc_md(duuid);
     if (err) {
@@ -220,8 +238,10 @@ int main(int argc, char *argv[])
         goto out_clean;
     }
 
-    racer_stop = 1;
-    pthread_join(racer_thread, NULL);
+    if (start_racer) {
+        racer_stop = 1;
+        pthread_join(racer_thread, NULL);
+    }
     
 out_clean:
     mdsl_destroy();

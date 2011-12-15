@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-27 22:28:27 macan>
+ * Time-stamp: <2011-12-15 10:10:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -74,6 +74,44 @@ int itb_gc_append(int gen, struct itb *itb, struct itb_info *ii)
 
 out:
     return err;
+}
+
+/* __is_hole() detect holes in ITB file
+ *
+ * Rational:
+ * 1. if itb->h is ALL zero, it is a hole
+ * 2. if itb->h is PART zero, and across a page border, it is a hole
+ */
+int __is_hole(u64 offset, struct itb *itb) 
+{
+    if (!atomic_read(&itb->h.len) ||
+        itb->h.depth == 0 ||
+        itb->h.adepth == 0)
+        return 1;
+    else {
+        /* check if the itbheader is INTEGRATED */
+        u64 size = offset & (getpagesize() - 1);
+
+        if (size >= sizeof(itb->h))
+            return 0;
+        
+        if (offsetof(struct itbh, len) < size) {
+            return 0;
+        } else if (offsetof(struct itbh, depth) < size) {
+            return 0;
+        } else {
+            /* blind detect! */
+            if (itb->h.flag > ITB_SNAPSHOT)
+                return 1;
+            if (itb->h.adepth != ITB_DEPTH)
+                return 1;
+            if (atomic_read(&itb->h.len) > 
+                sizeof(struct itb) + sizeof(struct ite) * ITB_SIZE)
+                return 1;
+        }
+    }
+    
+    return 0;
 }
 
 /* do GC-TX on itb file change
@@ -422,7 +460,12 @@ int mdsl_gc_md_round(u64 duuid, int master, struct fdhash_entry *md,
             hvfs_err(mdsl, "fd read failed w/ %d\n", err);
             goto out_free;
         }
-        if (!atomic_read(&itb->h.len)) {
+        /* BUG-xxx: how to determine the ITB border?
+         *
+         * The page hole might be in range 1-4095 bytes, we need a always
+         * correct way to detect holes.
+         */
+        if (__is_hole(offset, itb)) {
             /* we should seek to next active page! */
             u64 last_offset;
 
@@ -604,7 +647,8 @@ int mdsl_gc_md(u64 duuid)
     last_offset = gc_offset;
 
 redo_round:
-    hvfs_warning(mdsl, "GC directory %lx in round %d\n", duuid, round++);
+    hvfs_warning(mdsl, "GC directory %lx in round %d from off %lx\n", 
+                 duuid, round++, gc_offset);
     err = mdsl_gc_md_round(duuid, master, fde, itbf, &gc_offset);
     if (err < 0) {
         hvfs_err(mdsl, "GC metadata in stage %d's round %d failed w/ %d\n",
