@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-07 21:55:13 macan>
+ * Time-stamp: <2011-12-18 00:42:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -330,6 +330,58 @@ out:
     return err;
 }
 
+/*
+ * Note: holding the fde->lock please
+ */
+int append_buf_flush_trunc(struct fdhash_entry *fde, u64 offset) 
+{
+    int err = 0;
+
+    err = append_buf_flush(fde, ABUF_SYNC | ABUF_UNMAP);
+    if (err) {
+        hvfs_err(mdsl, "ABUF flush failed w/ %d\n", err);
+        goto out;
+    }
+
+    /* The CALLER must be sure that we are the ONLY owner for this file, and
+     * we try to adjust the offset now */
+    switch (fde->state) {
+    case FDE_ABUF_UNMAPPED:
+        fde->abuf.falloc_offset = 
+            fde->abuf.file_offset = PAGE_ROUNDUP(offset, getpagesize());
+        err = ftruncate(fde->fd, fde->abuf.falloc_offset +
+                        (fde->abuf.falloc_size << 1));
+        if (err) {
+            hvfs_err(mdsl, "ftruncate fd %d failed w/ %d\n",
+                     fde->fd, err);
+            goto out;
+        }
+        fde->abuf.falloc_offset += fde->abuf.falloc_size;
+        hvfs_warning(mdsl, "ftruncate offset %lx len %ld\n",
+                     fde->abuf.falloc_offset, fde->abuf.falloc_size);
+        mdsl_aio_start();
+        fde->abuf.addr = mmap(NULL, fde->abuf.len, PROT_WRITE | PROT_READ,
+                              MAP_SHARED, fde->fd, fde->abuf.file_offset);
+        if (fde->abuf.addr == MAP_FAILED) {
+            hvfs_err(mdsl, "mmap fd %d in ragion [%ld,%ld] failed w/ %d\n",
+                     fde->fd, fde->abuf.file_offset,
+                     fde->abuf.file_offset + fde->abuf.len, errno);
+            err = -errno;
+            goto out;
+        }
+        fde->state = FDE_ABUF;
+        fde->abuf.offset = 0;
+        break;
+    default:
+        hvfs_err(mdsl, "Invalid FDE state %d\n", fde->state);
+        err = -EINVAL;
+        goto out;
+    }
+
+out:
+    return err;
+}
+    
 /*
  * Note: holding the fde->lock
  */
@@ -866,25 +918,34 @@ int mdsl_storage_fd_lockup(struct fdhash_entry *fde)
 {
     int err = 0;
 
-    if (fde->type != MDSL_STORAGE_MD || fde->state == FDE_OPEN)
+    if ((fde->type != MDSL_STORAGE_MD &&
+         fde->type != MDSL_STORAGE_DATA) 
+        || fde->state == FDE_OPEN)
         return -EINVAL;
     
-    /* wait for the active references */
-    while (atomic_read(&fde->ref) > 1) {
-        xsleep(1000);   /* wait 1ms */
-    }
     xcond_lock(&fde->cond);
-    if (fde->state == FDE_MDISK)
+    if (fde->type == MDSL_STORAGE_MD && fde->state == FDE_MDISK)
         fde->state = FDE_LOCKED;
+    else if (fde->type == MDSL_STORAGE_DATA && 
+             fde->aux_state != FDE_AUX_LOCKED)
+        fde->aux_state = FDE_AUX_LOCKED;
     else
         err = -ELOCKED;
     xcond_unlock(&fde->cond);
 
     if (!err) {
-        if (fde->state == FDE_LOCKED)
+        if (fde->state == FDE_LOCKED ||
+            fde->aux_state == FDE_AUX_LOCKED)
             err = 0;
         else
             err = -EFAULT;
+    }
+    if (!err) {
+        /* wait for the active references, then nobody can hold unsafe
+         * reference */
+        while (atomic_read(&fde->ref) > 1) {
+            xsleep(1000);   /* wait 1ms */
+        }
     }
 
     return err;
@@ -894,12 +955,16 @@ int mdsl_storage_fd_unlock(struct fdhash_entry *fde)
 {
     int err = 0;
 
-    if (fde->type != MDSL_STORAGE_MD)
+    if (fde->type != MDSL_STORAGE_MD &&
+        fde->type != MDSL_STORAGE_DATA)
         return -EINVAL;
 
     xcond_lock(&fde->cond);
-    if (fde->state == FDE_LOCKED)
+    if (fde->type == MDSL_STORAGE_MD && fde->state == FDE_LOCKED)
         fde->state = FDE_MDISK;
+    if (fde->type == MDSL_STORAGE_DATA && 
+        fde->aux_state == FDE_AUX_LOCKED)
+        fde->aux_state = FDE_AUX_FREE;
     xcond_broadcast(&fde->cond);
     xcond_unlock(&fde->cond);
 
@@ -2313,13 +2378,15 @@ struct fdhash_entry *mdsl_storage_fd_lookup_create(u64 duuid, int fdtype,
     recheck_state:
         if (fde->state <= FDE_OPEN) {
             goto reinit;
-        } else if (fde->state == FDE_LOCKED) {
+        } else if (fde->state == FDE_LOCKED ||
+                   fde->aux_state == FDE_AUX_LOCKED) {
             /* this FDE has already been locked, we should wait it.(Note that
              * we have already got the reference) */
             xcond_lock(&fde->cond);
             do {
                 xcond_wait(&fde->cond);
-            } while (fde->state == FDE_LOCKED);
+            } while (fde->state == FDE_LOCKED ||
+                     fde->aux_state == FDE_AUX_LOCKED);
             xcond_unlock(&fde->cond);
             /* ok, we should return this fde to user */
             goto recheck_state;
@@ -2521,7 +2588,11 @@ int mdsl_storage_fd_cleanup(struct fdhash_entry *fde)
 
     switch (fde->state) {
     case FDE_ABUF:
-        append_buf_destroy(fde);
+        if (fde->type == MDSL_STORAGE_DATA &&
+            fde->aux_state == FDE_AUX_LOCKED)
+            err = 0;
+        else
+            append_buf_destroy(fde);
         break;
     case FDE_ODIRECT:
         odirect_destroy(fde);

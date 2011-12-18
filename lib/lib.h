@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-29 02:43:14 macan>
+ * Time-stamp: <2011-12-16 19:20:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -301,5 +301,19 @@ extern u64 cpu_frequency;
 /* embedpy.c */
 int ebpy(u16 where, void *itb, void *ite, void *hi, int status,
          void *dt);
+
+/* brtree.c: binary range tree */
+struct brtnode
+{
+    u64 low, high;
+};
+
+int brt_add(struct brtnode *n, void **rootp);
+int brt_del(u64 low, u64 high, void **rootp);
+void brt_destroy(void *root, void (*free_node)(void *p));
+int brt_loop_on_holes(void **rootp, void *arg, 
+                      void (*cb)(u64 low, u64 high, void *arg));
+int brt_loop_on_ranges(void **rootp, void *arg, 
+                       void (*cb)(u64 low, u64 high, void *arg));
 
 #endif

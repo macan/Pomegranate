@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-12-15 10:10:07 macan>
+ * Time-stamp: <2011-12-18 22:57:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -424,7 +424,7 @@ int mdsl_gc_md_round(u64 duuid, int master, struct fdhash_entry *md,
         .iov_nr = 1,
     };
     struct mmap_args ma;
-    u64 offset = *gc_offset, location = 0;
+    u64 offset = *gc_offset, location = 0, copied = 0;
     int err = 0, data_len, compacted = 0, handled = 0, missed = 0;
 
     if (offset == -1UL) {
@@ -447,7 +447,7 @@ int mdsl_gc_md_round(u64 duuid, int master, struct fdhash_entry *md,
     
     while (1) {
         /* prepare itb */
-        memset(itb, 0, sizeof(struct itb) + ITB_SIZE * sizeof(struct ite));
+        //memset(itb, 0, sizeof(struct itb) + ITB_SIZE * sizeof(struct ite));
         /* read the header */
         msa.offset = offset;
         itb_iov.iov_base = itb;
@@ -510,7 +510,7 @@ int mdsl_gc_md_round(u64 duuid, int master, struct fdhash_entry *md,
         if (!location) {
             missed++;
             hvfs_warning(mdsl, "lookup itbid %ld in range file "
-                         "failed w/ ENOENT\n",
+                         "failed w/ ENOENT, copy it directly!\n",
                          itb->h.itbid);
             goto compact_it;
         }
@@ -518,6 +518,7 @@ int mdsl_gc_md_round(u64 duuid, int master, struct fdhash_entry *md,
         if (offset == location) {
             compacted++;
         compact_it:
+            copied += atomic_read(&itb->h.len);
             /* read in the data region of itb */
             data_len = atomic_read(&itb->h.len) - sizeof(itb->h);
             if (data_len > 0) {
@@ -606,10 +607,12 @@ int mdsl_gc_md_round(u64 duuid, int master, struct fdhash_entry *md,
     }
     err = compacted;
     hvfs_info(mdsl, "This round handled %s%d%s, compacted %s%d%s "
-              "and missed %s%d%s ITBs.\n",
+              "and missed %s%d%s ITBs (GC Remain %.2f%% %ld/%ld).\n",
               HVFS_COLOR_RED, handled, HVFS_COLOR_END,
               HVFS_COLOR_GREEN, compacted, HVFS_COLOR_END,
-              HVFS_COLOR_YELLOW, missed, HVFS_COLOR_END);
+              HVFS_COLOR_YELLOW, missed, HVFS_COLOR_END,
+              100 * (double)copied / (double)(offset - *gc_offset), copied, 
+              (offset - *gc_offset));
     
 out_free:
     xfree(itb);
@@ -704,6 +707,8 @@ redo_round:
     }
     /* ok, we should release the memory resouce of ITB file */
     append_buf_destroy_async(itbf); /* already close the fd */
+    /* FIXME: itbf might be referenced by OTHER threads! how to recover from
+     * it? */
     mdsl_storage_fd_remove(itbf);
     xfree(itbf);
     mdsl_storage_evict_rangef(duuid);
@@ -734,4 +739,440 @@ out_cleanup:
     fde->mdisk.gc_offset = gc_offset;
     mdsl_storage_fd_put(itbf);
     goto out_put;
+}
+
+/* CB on holes
+ */
+void gc_data_stat_cb(u64 low, u64 high, void *arg)
+{
+    struct gc_data_stat *gds = arg;
+
+    gds->valid += (high - low);
+    if (high > gds->max)
+        gds->max = high;
+}
+
+int itb_lzo_decompress(struct itb *in)
+{
+    lzo_uint outlen, inlen;
+    int err = 0;
+    void *p;
+
+    inlen = atomic_read(&in->h.len) - sizeof(in->h);
+    p = xmalloc(inlen);
+    if (!p) {
+        hvfs_err(mdsl, "Unable to alloc the memory to decompress ITB!\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    memcpy(p, (void *)in->lock, inlen);
+    
+    err = lzo1x_decompress(p, inlen, 
+                           (void *)in->lock, &outlen, NULL);
+    if (err == LZO_E_OK && 
+        outlen == atomic_read(&in->h.zlen) - sizeof(in->h)) {
+        err = 0;
+    } else {
+        hvfs_err(mdsl, "LZO decompress failed w/ %d\n", err);
+    }
+    /* clear the compress flag */
+    in->h.compress_algo = COMPR_NONE;
+    /* exchange the len back */
+    atomic_set(&in->h.len, outlen + sizeof(in->h));
+    xfree(p);
+    
+out:
+    return err;
+}
+
+void __add_to_brtree(void **root, struct ite *e, int column)
+{
+    struct brtnode *n = NULL;
+
+    if (e->column[column].len > 0) {
+        n = xmalloc(sizeof(struct brtnode));
+        if (n) {
+            n->low = e->column[column].offset;
+            n->high = e->column[column].offset + e->column[column].len + 1;
+            hvfs_info(mdsl, "Add Data Range [%ld,%ld) {%s}\n", 
+                      n->low, n->high, e->s.name);
+            brt_add(n, root);
+        }
+    }
+}
+
+int mdsl_gc_data_first_round(u64 duuid, int column, void **root, int type,
+                             struct fdhash_entry *md, struct fdhash_entry *fde,
+                             u64 *begin, u64 *end)
+{
+    return 0;
+}
+
+/* One round on data gc
+ *
+ * Return value: <0:error; >=0: # of inserted_itbs
+ */
+int mdsl_gc_data_round(u64 duuid, int column, void **root, int type, 
+                       struct fdhash_entry *md, struct fdhash_entry *fde, 
+                       u64 *begin, u64 *end)
+{
+    int err = 0;
+
+#if 0
+    if (*begin == 0) {
+        /* this is the first round, we use a top-down approach to find valid
+         * itbs */
+        err = mdsl_gc_data_first_round(duuid, column, root, type, md, fde, 
+                                       begin, end);
+        if (err) {
+            hvfs_err(mdsl, "GC data in first round failed w/ %d\n", err);
+            goto out;
+        }
+    } else {
+#else
+    {
+#endif
+        struct itb *itb;
+        range_t *range;
+        struct iovec itb_iov;
+        struct mdsl_storage_access msa = {
+            .iov = &itb_iov,
+            .iov_nr = 1,
+        };
+        struct mmap_args ma;
+        u64 offset = *begin, location = 0, handled = 0, inserted = 0,
+            missed = 0;
+
+        if (offset == -1UL)
+            goto out;
+        if (!offset) {
+            /* adjust offset to 1! */
+            offset = 1;
+        }
+
+        if (!md->mdisk.ranges && !md->mdisk.new_range)
+            return -ENOENT;
+
+        itb = xmalloc(sizeof(struct itb) + ITB_SIZE * sizeof(struct ite));
+        if (!itb) {
+            hvfs_err(mdsl, "xzalloc() itb failed.\n");
+            return -ENOMEM;
+        }
+
+        while (1) {
+            struct ite *ite;
+            int nr, data_len = 0, itenr = 0;
+        
+            /* prepare itb */
+            //memset(itb, 0, sizeof(struct itb) + ITB_SIZE * sizeof(struct ite));
+            /* read the header */
+            msa.offset = offset;
+            itb_iov.iov_base = itb;
+            itb_iov.iov_len = sizeof(itb->h);
+            if (offset >= fde->abuf.file_offset + fde->abuf.offset) {
+                break;
+            }
+            err = mdsl_storage_fd_read(fde, &msa);
+            if (err) {
+                hvfs_err(mdsl, "fd read failed w/ %d\n", err);
+                goto out_free;
+            }
+            if (__is_hole(offset, itb)) {
+                /* we should seek to next active page! */
+                u64 last_offset;
+
+            reskip:
+                last_offset = offset;
+                offset = PAGE_ROUNDUP(offset, getpagesize());
+                if (offset == last_offset) {
+                    offset += 1;
+                    goto reskip;
+                }
+                continue;
+            }
+
+            /* compare this itb with the latest offset */
+            handled++;
+            ma.win = MDSL_STORAGE_DEFAULT_RANGE_SIZE;
+
+            err = __mdisk_lookup(md, MDSL_MDISK_RANGE, itb->h.itbid, &range);
+            if (err == -ENOENT) {
+                /* it is ok */
+                hvfs_warning(mdsl, "lookup itbid %ld in md file failed w/ %d\n",
+                             itb->h.itbid, err);
+                goto insert_it;
+            } else if (err) {
+                hvfs_err(mdsl, "lookup itbid %ld in old md file failed w/ %d\n",
+                         itb->h.itbid, err);
+                goto out_free;
+            }
+            ma.foffset = 0;
+            ma.range_id = range->range_id;
+            ma.range_begin = range->begin;
+            ma.flag = MA_OFFICIAL;
+
+            err = __range_lookup(duuid, itb->h.itbid, &ma, &location);
+            if (err)
+                goto out_free;
+            /* if location is ZERO, it means that the racer has not been
+             * update the range file, we just insert this entry to memory
+             * tree. */
+            if (!location) {
+                missed++;
+                hvfs_warning(mdsl, "lookup itbid %ld in range file "
+                             "failed w/ ENOENT, insert it directly!\n",
+                             itb->h.itbid);
+                goto insert_it;
+            }
+
+            if (offset == location) {
+            insert_it:
+                {
+                    inserted++;
+                    data_len = atomic_read(&itb->h.len) - sizeof(itb->h);
+
+                    if (data_len > 0) {
+                        /* read in it */
+                        msa.offset = offset + sizeof(itb->h);
+                        msa.iov->iov_base = &itb->lock;
+                        msa.iov->iov_len = data_len;
+                        err = mdsl_storage_fd_read(fde, &msa);
+                        if (err) {
+                            hvfs_err(mdsl, "fd read failed w/ %d\n", err);
+                            goto out_free;
+                        }
+                        /* uncompress it if needed */
+                        switch (itb->h.compress_algo) {
+                        case COMPR_NONE:
+                            break;
+                        case COMPR_LZO:
+                            err = itb_lzo_decompress(itb);
+                            if (err) {
+                                hvfs_err(mdsl, "decompress ITB failed w/ %d\n",
+                                         err);
+                                goto out_free;
+                            }
+                            break;
+                        default:;
+                            hvfs_err(mdsl, "Invalid ITB compress algo %d\n",
+                                     itb->h.compress_algo);
+                            err = -EINVAL;
+                            goto out_free;
+                        }
+                    } else {
+                        hvfs_err(mdsl, "data_len %d is minus, internal error!\n",
+                                 data_len);
+                        err = -EFAULT;
+                        goto out_free;
+                    }
+                    /* ok, we need analyse each ITE and insert the valid range
+                     * into the tree */
+                    nr = -1;
+                    while (nr < (1 << itb->h.adepth)) {
+                        nr = find_next_bit((unsigned long *)itb->bitmap, 
+                                           (1 << itb->h.adepth), nr + 1);
+                        if (nr < (1 << itb->h.adepth)) {
+                            ite = &itb->ite[nr];
+                            switch (type) {
+                            case GC_DATA_STAT:
+                                __add_to_brtree(root, ite, column);
+                                break;
+                            case GC_DATA:
+                                break;
+                            default:
+                                hvfs_err(mdsl, "Invalid GC type %d\n",
+                                         type);
+                            }
+                            itenr++;
+                        }
+                    }
+                    if (itenr != atomic_read(&itb->h.entries)) {
+                        hvfs_warning(mdsl, "Active entries %d, but we only get "
+                                     "%d entries\n",
+                                     atomic_read(&itb->h.entries), itenr);
+                    }
+                }
+            }
+            hvfs_warning(mdsl, "Process itb %ld len %d zlen %ld (%s) done.\n",
+                         itb->h.itbid, atomic_read(&itb->h.len), 
+                         data_len + sizeof(itb->h), 
+                         (offset == location ? "+" : "."));
+            offset += data_len + sizeof(itb->h);
+        }
+        err = inserted;
+        hvfs_info(mdsl, "This round handled %s%ld%s, inserted %s%ld%s "
+                  "and missed %s%ld%s ITBs.\n",
+                  HVFS_COLOR_RED, handled, HVFS_COLOR_END,
+                  HVFS_COLOR_GREEN, inserted, HVFS_COLOR_END,
+                  HVFS_COLOR_YELLOW, missed, HVFS_COLOR_END);
+    out_free:
+        xfree(itb);
+    }
+out:
+    return err;
+}
+
+/* Get the stat of data GCing
+ *
+ * Rational: Use the range files and build a memory BINARY tree to detect data
+ * file holes.
+ */
+int mdsl_gc_data_stat(u64 duuid, int column, struct gc_data_stat *gds)
+{
+    struct fdhash_entry *fde, *itbf;
+    void *tree = NULL;
+    u64 begin_offset = 0, end_offset;
+    int err = 0, master, round = 0;
+
+    fde = mdsl_storage_fd_lookup_create(duuid, MDSL_STORAGE_DATA, column);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create DATA file failed w/ %ld\n",
+                 PTR_ERR(fde));
+        err = PTR_ERR(fde);
+        goto out;
+    }
+    gds->total = mdsl_storage_fd_max_offset(fde);
+    if (gds->total == -1UL) {
+        hvfs_err(mdsl, "get the DATA-%d file offset failed\n", column);
+        err = -EINVAL;
+    }
+    mdsl_storage_fd_put(fde);
+    if (err)
+        goto out;
+    
+    /* Read in the ITB file to construct memory range tree */
+    fde = mdsl_storage_fd_lookup_create(duuid, MDSL_STORAGE_MD, 0);
+    if (IS_ERR(fde)) {
+        hvfs_err(mdsl, "lookup create MD file failed w/ %ld\n", 
+                 PTR_ERR(fde));
+        err = PTR_ERR(fde);
+        goto out;
+    }
+
+    master = fde->mdisk.itb_master;
+    itbf = mdsl_storage_fd_lookup_create(duuid, MDSL_STORAGE_ITB, master);
+    if (IS_ERR(itbf)) {
+        hvfs_err(mdsl, "lookup create ITB file failed w/ %ld\n", 
+                 PTR_ERR(itbf));
+        err = PTR_ERR(itbf);
+        goto out_put_fde;
+    }
+    end_offset = mdsl_storage_fd_max_offset(itbf);
+    if (end_offset == -1UL) {
+        hvfs_err(mdsl, "get the ITB file offset failed\n");
+        err = -EINVAL;
+        goto out_put_itbf;
+    }
+
+redo_round:
+    hvfs_info(mdsl, "Constructing memory range tree for DATA file"
+              "(%lx/data-%d) ITB [%ld,%ld]B Round %d\n",
+              duuid, column, begin_offset, end_offset, round++);
+    err = mdsl_gc_data_round(duuid, column, &tree, GC_DATA_STAT, fde, itbf, 
+                             &begin_offset, &end_offset);
+    if (err < 0) {
+        hvfs_err(mdsl, "GC data in round %d faield w/ %d\n",
+                 round - 1, err);
+        goto out_put_itbf;
+    }
+
+    /* do check */
+    begin_offset = mdsl_storage_fd_max_offset(itbf);
+    if (begin_offset == -1UL) {
+        hvfs_err(mdsl, "get the ITB file offset failed\n");
+        err = -EINVAL;
+        goto out_put_itbf;
+    }
+
+    if (begin_offset > end_offset) {
+        /* we need another gc round! */
+        u64 tmp_offset = begin_offset;
+        
+        begin_offset = end_offset;
+        end_offset = tmp_offset;
+        goto redo_round;
+    }
+
+out_put_itbf:
+    mdsl_storage_fd_put(itbf);
+out_put_fde:
+    mdsl_storage_fd_put(fde);
+
+    /* we finish getting the hole tree, fill it now */
+retry:
+    err = brt_loop_on_ranges(&tree, gds, gc_data_stat_cb);
+    if (err == -EBUSY) {
+        sleep(1);
+        goto retry;
+    }
+    brt_destroy(tree, xfree);
+    gds->hole = gds->total - gds->valid;
+    
+out:
+    return err;
+}
+
+/* GC the data of directory duuid by TRUNC data file
+ */
+int mdsl_gc_data_by_trunc(u64 duuid, int column)
+{
+    struct gc_data_stat gds = {0,};
+    int err = 0;
+    
+    /* First, we compute the holes */
+    err = mdsl_gc_data_stat(duuid, column, &gds);
+    if (err) {
+        hvfs_err(mdsl, "mdsl_gc_data_stat() failed w/ %d\n", err);
+        goto out;
+    }
+    
+    /* If the MGC remain ratio is under 50%, we do trunc the file */
+    if ((double)gds.max / (double)gds.total <= 0.5) {
+        struct fdhash_entry *fde;
+
+        hvfs_info(mdsl, "Data file %lx/data-%d: PGC Remain %.2f%%,"
+                  " MGC Remain %.2f%% < 50%%\n",
+                  duuid, column,
+                  100 * (double)gds.valid / (double)gds.total,
+                  100 * (double)gds.max / (double)gds.total);
+        
+        /* open the data file */
+        fde = mdsl_storage_fd_lookup_create(duuid, MDSL_STORAGE_DATA,
+                                            column);
+        if (IS_ERR(fde)) {
+            hvfs_err(mdsl, "lookup create DATA file failed w/ %ld\n",
+                     PTR_ERR(fde));
+            err = PTR_ERR(fde);
+            goto out;
+        }
+        /* lockup the file */
+        err = mdsl_storage_fd_lockup(fde);
+        if (err) {
+            hvfs_err(mdsl, "lockup the DATA file failed w/ %d\n", err);
+            goto out_put;
+        }
+        hvfs_info(mdsl, "DO DATA FILE TRUNC NOW!\n");
+
+        xlock_lock(&fde->lock);
+        err = append_buf_flush_trunc(fde, gds.max);
+        if (err) {
+            hvfs_err(mdsl, "append_buf_flush_trunc() failed w/ %d\n", err);
+            xlock_unlock(&fde->lock);
+            goto out_unlock;
+        }
+        xlock_unlock(&fde->lock);
+        
+        hvfs_info(mdsl, "DATA FILE TRUNC DONE!\n");
+    out_unlock:
+        err = mdsl_storage_fd_unlock(fde);
+        if (err) {
+            hvfs_err(mdsl, "unlock the DATA file failed w/ %d\n", err);
+            goto out_put;
+        }
+    out_put:
+        mdsl_storage_fd_put(fde);
+    }
+    
+out:
+    return 0;
 }

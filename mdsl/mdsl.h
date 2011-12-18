@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-07 21:55:27 macan>
+ * Time-stamp: <2011-12-18 22:55:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -173,8 +173,11 @@ struct fdhash_entry
 #define FDE_MDISK       6         /* md disk structure accessing */
 #define FDE_ODIRECT     7         /* using the O_DIRECT to write */
 #define FDE_BITMAP      8         /* bitmap of dir */
-#define FDE_LOCKED      9         /* lock this ite */
-    int state;
+#define FDE_LOCKED      9       /* lock this md file */
+    short state;
+#define FDE_AUX_FREE    0
+#define FDE_AUX_LOCKED  1
+    short aux_state;            /* for lock */
     union 
     {
         struct md_disk mdisk;
@@ -477,6 +480,7 @@ int mdsl_storage_evict_rangef(u64);
 void mdsl_storage_fd_limit_check(time_t);
 int mdsl_storage_fd_cleanup(struct fdhash_entry *fde);
 int append_buf_create(struct fdhash_entry *, char *, int);
+int append_buf_flush_trunc(struct fdhash_entry *, u64);
 int mdsl_storage_fd_write(struct fdhash_entry *fde, 
                           struct mdsl_storage_access *msa);
 int mdsl_storage_fd_read(struct fdhash_entry *fde, 
@@ -534,7 +538,16 @@ int mdsl_aio_submit_request(void *addr, u64 len, u64, loff_t, int, int);
 void mdsl_aio_start(void);
 
 /* gc.c */
+struct gc_data_stat
+{
+    u64 total, valid, hole, max;
+};
+#define GC_DATA_NONE    0x00
+#define GC_DATA_STAT    0x01
+#define GC_DATA         0x02
 int mdsl_gc_md(u64);
+int mdsl_gc_data_stat(u64 duuid, int column, struct gc_data_stat *gds);
+int mdsl_gc_data_by_trunc(u64 duuid, int column);
 
 /* ml2ml.c */
 int mdsl_do_recovery(void);
