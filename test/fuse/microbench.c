@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-10-04 06:50:36 macan>
+ * Time-stamp: <2011-12-27 22:38:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -248,6 +248,8 @@ int __norm_bench(int nr)
                 bw += err;
             } while (bw < nbytes);
 
+            /* fsync(PFS sync data automatically) and close it */
+            fsync(fd);
             close(fd);
         }
     }
