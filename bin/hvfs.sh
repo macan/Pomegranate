@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-11-12 23:25:30 macan>
+# Time-stamp: <2011-12-01 10:55:46 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -761,6 +761,7 @@ function do_list_pfs() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         port=`echo $x | awk -F: '{print $3}'`
+        echo -n "[$ip] "
         $SSH $UN$ip `which mount` -l | grep "$PFS_ROOT"
         let I+=1
     done

@@ -1,0 +1,25 @@
+#!/bin/bash
+
+HOSTNAME=`hostname`
+
+#1. whether if current load is large than ZERO
+function get_load() {
+    cat /proc/loadavg | cut -d' ' -f 1 | grep -v 0.0
+}
+
+#2. free memory
+function get_freemm() {
+    cat /proc/meminfo | grep "MemFree" | awk '{print $2}'
+}
+
+case $1 in 
+    getload)
+        get_load
+        ;;
+    getfreemm)
+        get_freemm
+        ;;
+    *)
+        echo "Nothing to do."
+        ;;
+esac
