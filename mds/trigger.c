@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-10-11 00:18:48 macan>
+ * Time-stamp: <2012-02-15 18:14:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,12 @@
  */
 
 #include "mds.h"
+
+#ifdef HVFS_DT_LATENCY
+atomic64_t g_dt_num = {.counter = 0,};
+xlock_t g_dt_lock = XLOCK_INITIALIZER;
+double g_dt_latency = 0.0f;
+#endif
 
 /* The native trigger code is defined as followed:
  *
@@ -82,6 +88,11 @@ int mds_dir_trigger(u16 where, struct itb *i, struct ite *e,
     if (!dtm || !dtm->nr)
         return TRIG_CONTINUE;
 
+#ifdef HVFS_DT_LATENCY
+    lib_timer_def();
+    lib_timer_B();
+#endif
+
     /* travel the trigger list */
     for (idx = 0; idx < dtm->nr; idx++) {
         if (dtm->dt[idx].where != where)
@@ -103,6 +114,13 @@ int mds_dir_trigger(u16 where, struct itb *i, struct ite *e,
         default:;
         }
     }
+#ifdef HVFS_DT_LATENCY
+    lib_timer_E();
+    atomic64_inc(&g_dt_num);
+    xlock_lock(&g_dt_lock);
+    lib_timer_A(&g_dt_latency);
+    xlock_unlock(&g_dt_lock);
+#endif
     
     return err;
 }

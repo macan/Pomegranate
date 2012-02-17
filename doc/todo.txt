@@ -477,9 +477,16 @@ Pomegranate TODOs:
 
        3. Done @ 10/26/2011: we luckily got a low-pass hash function!
 
-38. File System Top Command
+38. File System Top Command and others
 
     1. options: {-n seconds }
 
     2. contains: {file stats/modify; dir inserts; file read/write; dir
                   read/write; }
+
+    3. ALERT: user can set a expr, when fs observe and evaluate it as true, it
+              alerts by throw a predefined event.
+
+    4. How to detect aggregated network bandwidth of a cluster?
+
+       1. All to all communication, calculate aggreated bandwidth?

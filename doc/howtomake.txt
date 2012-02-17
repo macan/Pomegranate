@@ -1,5 +1,5 @@
 Writter: Ma Can <macan@ncic.ac.cn> or <ml.macana@gmail.com> (gmail is preferred)
-Time-stamp: <2011-10-14 01:05:42 macan>
+Time-stamp: <2012-02-17 09:48:00 macan>
 
 Making Pomegranate is very easy :) You just should following the next steps:
 
@@ -106,6 +106,7 @@ Making Pomegranate is very easy :) You just should following the next steps:
    #(cmd) regdtrigger /a 1 4 100 ../../triggers/default.so
    #(cmd) regdtrigger /a 1 8 101 ../../triggers/default.so
    #(cmd) catdtrigger /a
+   #(cmd) mkdir /.branches
    #(cmd) touch /a/x
    #(cmd) touch /a/y
    #(cmd) touch /a/z

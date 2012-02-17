@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-10-18 06:32:21 macan>
+ * Time-stamp: <2012-02-15 18:14:23 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +26,11 @@
 
 /* if HVFS_LATENCY_STAT defined, we do latency stat */
 #ifdef HVFS_LATENCY_STAT
+
+#ifdef HVFS_DT_LATENCY
+extern double g_dt_latency;
+extern atomic64_t g_dt_num;
+#endif
 
 /* histogram */
 struct lat_hist
@@ -154,13 +159,18 @@ void mds_cb_latency(void *arg)
     char *p = NULL;
     int i;
 
-    p = xzalloc((LAT_SMALL_MAX + LAT_LARGE_MAX) * 100);
+    /* for DT latency, we add another 100B */
+    p = xzalloc((LAT_SMALL_MAX + LAT_LARGE_MAX) * 100 + 100);
     if (!p) {
         hvfs_err(xnet, "xzalloc() cb_latency array failed\n");
         return;
     }
     
     *((char **)arg) = p;
+#ifdef HVFS_DT_LATENCY
+    p += sprintf(p, "Average DT Latency: %7.2f\n", 
+                 g_dt_latency / atomic64_read(&g_dt_num));
+#endif
 
     for (i = 0; i < LAT_STAT_MAX; i++) {
         p += sprintf(p, "Latency Distribution of '%s':\n", __lat_stat_name(i));
