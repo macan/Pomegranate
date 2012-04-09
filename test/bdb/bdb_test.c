@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-05-12 15:31:18 macan>
+ * Time-stamp: <2012-02-17 17:08:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 
 #include <stdio.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <regex.h>
 #include <errno.h>
 #include <string.h>
@@ -374,11 +375,14 @@ set_default:
 
 int load_db()
 {
+    struct timeval begin, end;
     int retval = 0;
 
     DBT key;
     DBT value;
     DB_TXN *txn;
+
+    gettimeofday(&begin, NULL);
     retval = env->txn_begin(env, NULL, &txn, 0);
     if(retval != 0)
     {
@@ -437,6 +441,12 @@ int load_db()
                  "error while committing transaction");
         return -1;
     }
+    gettimeofday(&end, NULL);
+    printf("ECHO\t %lf us\n", ((end.tv_sec - begin.tv_sec) * 
+                               1000000.0 +
+                               end.tv_usec - begin.tv_usec) / num_records);
+
+
     return 0;
 }
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-12-18 00:42:05 macan>
+ * Time-stamp: <2012-03-03 11:32:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -504,6 +504,7 @@ int append_buf_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
             /* we should mmap another region */
             err = append_buf_flush_remap(fde);
             if (err) {
+                /* FIXME: this might be a DATA CORRUPTION */
                 hvfs_err(mdsl, "ABUFF flush remap failed w/ %d\n", err);
                 goto out_unlock;
             }
@@ -1585,6 +1586,50 @@ int __normal_read(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 out:
     random_read_control_up(msa->iov->iov_len);
     
+    return err;
+}
+
+/* Read the content and drop it. Use the buffer and length in msa
+ */
+int __normal_read_drop(struct fdhash_entry *fde, 
+                       struct mdsl_storage_access *msa)
+{
+    loff_t offset;
+    long bl, br;
+    int err = 0, i;
+
+    if (unlikely(fde->state < FDE_OPEN || !msa->iov_nr || !msa->iov))
+        return -EINVAL;
+    
+    /* reset offset to ZERO */
+    offset = 0;
+
+    do {
+        random_read_control_down(msa->iov->iov_len);
+        for (i = 0; i < msa->iov_nr; i++) {
+            bl = 0;
+            do {
+                br = pread(fde->fd, (msa->iov + i)->iov_base + bl, 
+                           (msa->iov + i)->iov_len - bl, offset + bl);
+                if (br < 0) {
+                    hvfs_err(mdsl, "pread failed w/ %d\n", errno);
+                    err = -errno;
+                    goto out;
+                } else if (br == 0) {
+                    hvfs_warning(mdsl, "reach EOF, exit.\n");
+                    goto out;
+                }
+                bl += br;
+            } while (bl < (msa->iov + i)->iov_len);
+            atomic64_add(bl, &hmo.prof.storage.rbytes);
+            offset += (msa->iov + i)->iov_len;
+        }
+        random_read_control_up(msa->iov->iov_len);
+    } while (offset < fde->abuf.file_offset + fde->abuf.offset);
+
+    return err;
+out:
+    random_read_control_up(msa->iov->iov_len);
     return err;
 }
 
@@ -3091,3 +3136,43 @@ out:
     return err;
 }
 
+/* if msa->arg is MDSL_FILE_BULK_LOAD_DROP, then we read in the file content,
+ * and then drop it.
+ */
+int mdsl_storage_bulk_load(struct fdhash_entry *fde,
+                           struct mdsl_storage_access *msa)
+{
+    int err = 0;
+
+retry:
+    if (fde->state == FDE_ABUF || fde->state == FDE_NORMAL ||
+        fde->state == FDE_ABUF_UNMAPPED) {
+        if (((u64)msa->arg) == MDSL_FILE_BULK_LOAD_DROP) {
+            err = __normal_read_drop(fde, msa);
+        } else {
+            err = __normal_read(fde, msa);
+        }
+        if (err) {
+            hvfs_err(mdsl, "__normal_read failed w/ %d\n", 
+                     err);
+            goto out_failed;
+        }
+    } else if (fde->state == FDE_OPEN) {
+        /* we should init the fd and retry */
+        err = mdsl_storage_fd_init(fde);
+        if (err) {
+            hvfs_err(mdsl, "try to change state failed w/ %d\n", err);
+            goto out_failed;
+        }
+        goto retry;
+    } else {
+        hvfs_warning(mdsl, "Invalid read operation: state %d\n",
+                     fde->state);
+        err = -EINVAL;
+    }
+
+    atomic64_inc(&hmo.prof.storage.rreq);
+
+out_failed:
+    return err;
+}

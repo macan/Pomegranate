@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-12-18 22:55:28 macan>
+ * Time-stamp: <2012-02-21 19:07:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -465,6 +465,9 @@ void toe_wait(struct txg_open_entry *, int);
     (1UL << (3 + MDSL_STORAGE_RANGE_SHIFT)) /* 8MB */
 #define MDSL_STORAGE_idx2range(idx)     (idx >> MDSL_STORAGE_RANGE_SHIFT)
 #define MDSL_STORAGE_RANGE_SLOTS        (1UL << MDSL_STORAGE_RANGE_SHIFT)
+
+#define MDSL_FILE_BULK_LOAD             0x0000
+#define MDSL_FILE_BULK_LOAD_DROP        0x000f
 
 int mdsl_storage_init(void);
 void mdsl_storage_destroy(void);
