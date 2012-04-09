@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-12-01 10:55:46 macan>
+# Time-stamp: <2012-02-17 15:01:58 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -247,7 +247,13 @@ function start_r2cli() {
         hint=$1
     fi
 
-    ipnr=`cat $CONFIG_FILE | grep "client:.*$hint:.*:.*" | awk -F: '{print $2":"$4":"$3}'`
+    if [ "x$2" == "x" ]; then
+        hint2=".*"
+    else
+        hint2=$2
+    fi
+
+    ipnr=`cat $CONFIG_FILE | grep "client:.*$hint:$hint2:.*" | awk -F: '{print $2":"$4":"$3}'`
     for x in $ipnr; do
         ip=`echo $ipnr | awk -F: '{print $1}'`
         id=`echo $ipnr | awk -F: '{print $2}'`
@@ -921,7 +927,7 @@ elif [ "x$1" == "xumount" ]; then
 elif [ "x$1" == "xml" ]; then
     do_list_pfs
 elif [ "x$1" == "xmkfs" ]; then
-    start_r2cli $2
+    start_r2cli $2 $3
 elif [ "x$1" == "xpview" ]; then
     pview $2
 elif [ "x$1" == "xhelp" ]; then
