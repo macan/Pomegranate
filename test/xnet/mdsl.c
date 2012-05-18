@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-17 09:09:27 macan>
+ * Time-stamp: <2012-05-18 11:59:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -520,7 +520,7 @@ int main(int argc, char *argv[])
     int self, sport = -1, i, j, mode, plot_method;
     char *value;
     char *ring_ip = NULL;
-    char profiling_fname[256];
+    char profiling_fname[256], *log_home;
 
     hvfs_info(xnet, "MDSL Unit Testing...\n");
     hvfs_info(xnet, "Usage %s id ring_ip self_port\n", argv[0]);
@@ -558,6 +558,12 @@ int main(int argc, char *argv[])
     } else
         plot_method = MDSL_PROF_PLOT;
 
+    value = getenv("LOG_DIR");
+    if (value) {
+        log_home = strdup(value);
+    } else
+        log_home = NULL;
+
     st_init();
     mdsl_pre_init();
     hmo.conf.prof_plot = plot_method;
@@ -594,8 +600,11 @@ int main(int argc, char *argv[])
     }
 
     /* setup the profiling file */
+    if (!log_home)
+        log_home = ".";
+    
     memset(profiling_fname, 0, sizeof(profiling_fname));
-    sprintf(profiling_fname, "./CP-BACK-mdsl.%d", self);
+    sprintf(profiling_fname, "%s/CP-BACK-mdsl.%d", log_home, self);
     hmo.conf.pf_file = fopen(profiling_fname, "w+");
     if (!hmo.conf.pf_file) {
         hvfs_err(xnet, "fopen() profiling file %s faield %d\n",

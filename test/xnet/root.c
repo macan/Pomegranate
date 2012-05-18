@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-26 16:39:07 macan>
+ * Time-stamp: <2012-05-17 09:57:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -141,7 +141,7 @@ int main(int argc, char *argv[])
     };
     int err = 0, i, j;
     int self, sport = -1, mode, do_create;
-    char profiling_fname[256];
+    char profiling_fname[256], *root_home;
     char *value;
     char *conf_file;
     struct sockaddr_in sin = {
@@ -177,12 +177,22 @@ int main(int argc, char *argv[])
     } else 
         do_create = 0;
 
+    value = getenv("root_home");
+    if (value) {
+        root_home = strdup(value);
+    }
+    else
+        root_home = NULL;
+
     st_init();
     root_pre_init();
 
     /* setup the profiling file */
+    if (!root_home)
+        root_home = HVFS_ROOT_HOME;
+    
     memset(profiling_fname, 0, sizeof(profiling_fname));
-    sprintf(profiling_fname, "./CP-BACK-root.%d", self);
+    sprintf(profiling_fname, "%s/CP-BACK-root.%d", root_home, self);
     hro.conf.profiling_file = strdup(profiling_fname);
     hro.conf.prof_plot = ROOT_PROF_PLOT;
     

@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2012-03-03 13:18:09 macan>
+# Time-stamp: <2012-05-16 18:09:03 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -11,8 +11,8 @@
 CC = gcc
 LD = gcc
 AR = ar
-PYTHON = /bin/env python
-GIT = /bin/env git
+PYTHON = env python
+GIT = env git
 
 INC_PATH = $(HOME_PATH)/include
 LIB_PATH = $(HOME_PATH)/lib
@@ -35,7 +35,7 @@ endif
 COMPILE_DATE = `date`
 COMPILE_HOST = `hostname`
 PYTHON_IX = /usr/include/python
-PYTHON_VERSION = $(shell /bin/env python -V 2>&1 | awk '{print $$2}' | sed -e 's/\.[0-9]$$//g')
+PYTHON_VERSION = $(shell env python -V 2>&1 | awk '{print $$2}' | sed -e 's/\.[0-9]$$//g')
 PYTHON_LIB = /usr/lib/
 
 # for now we know the number of cores of the target machines is 8, so just set
@@ -111,7 +111,7 @@ endif
 
 ifeq ($(DISABLE_PYTHON),)
 CFLAGS += -DUSE_DT_PYTHON
-LFLAGS += $(PYTHON_LIB)libpython$(PYTHON_VERSION).a -lm -lutil
+LFLAGS += $(PYTHON_LIB)libpython$(PYTHON_VERSION).a -lm -lutil -lz -lssl
 endif
 LFLAGS += -lrt -ldl -lpthread
 

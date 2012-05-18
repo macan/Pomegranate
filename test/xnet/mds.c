@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-29 05:18:13 macan>
+ * Time-stamp: <2012-05-18 11:59:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1105,7 +1105,7 @@ int main(int argc, char *argv[])
     int memonly, memlimit, mode, plot_method;
     char *value;
     char *ring_ip = NULL;
-    char profiling_fname[256];
+    char profiling_fname[256], *log_home;
     
     hvfs_info(xnet, "MDS Unit Testing...\n");
     hvfs_info(xnet, "Mode is 0/1 (no ring/with ring)\n");
@@ -1154,6 +1154,12 @@ int main(int argc, char *argv[])
     } else
         plot_method = MDS_PROF_PLOT;
 
+    value = getenv("LOG_DIR");
+    if (value) {
+        log_home = strdup(value);
+    } else
+        log_home = NULL;
+
     st_init();
     mds_pre_init();
     hmo.prof.xnet = &g_xnet_prof;
@@ -1191,9 +1197,12 @@ int main(int argc, char *argv[])
             sport = port[TYPE_MDS][0];
     }
     
-    /* setup the profiling file */
+    /* setup home and the profiling file */
+    if (!log_home)
+        log_home = ".";
+
     memset(profiling_fname, 0, sizeof(profiling_fname));
-    sprintf(profiling_fname, "./CP-BACK-mds.%d", self);
+    sprintf(profiling_fname, "%s/CP-BACK-mds.%d", log_home, self);
     hmo.conf.pf_file = fopen(profiling_fname, "w+");
     if (!hmo.conf.pf_file) {
         hvfs_err(xnet, "fopen() profiling file %s faield %d\n",

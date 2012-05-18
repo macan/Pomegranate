@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-10-11 05:00:26 macan>
+ * Time-stamp: <2012-05-16 17:21:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -6951,7 +6951,7 @@ out:
 
 /* hvfs_pstat() lookup a file by <PUUID, fname> or <PUUID, uuid, hash>
  */
-int hvfs_pstat(struct file_handle *fh, void **data, size_t *size)
+int hvfs_pstat(struct pfile_handle *fh, void **data, size_t *size)
 {
     struct hstat hs = {0,};
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
@@ -7018,9 +7018,9 @@ out:
     return err;
 }
 
-/* ploop() accepts a array of file_handle, and do user's operations
+/* ploop() accepts a array of pfile_handle, and do user's operations
  */
-int hvfs_ploop(struct file_handle *fh, int nr, ploop_func_t pf, void **data, 
+int hvfs_ploop(struct pfile_handle *fh, int nr, ploop_func_t pf, void **data, 
                size_t *size)
 {
     int err = 0, i;

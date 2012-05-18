@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2012-02-17 15:01:58 macan>
+# Time-stamp: <2012-05-18 12:10:52 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -28,6 +28,7 @@ fi
 if [ "x$LOG_DIR" == "x" ]; then
     LOG_DIR="~"
 fi
+export LOG_DIR
 
 if [ "x$PASSWD" == "x" ]; then
     # it is the normal mode, we do not use expect
@@ -88,13 +89,13 @@ if [ -e $HVFS_HOME/conf/mdsl.conf ]; then
     # Using the config file
     if [ "x$MODE" == "xfs" ]; then
         ARGS=`cat $HVFS_HOME/conf/mdsl.conf | grep -v "^ *#" | grep -v "^$" | grep -v "fsid="`
-        MDSL_CMD="fsid=0 "`echo $ARGS`
+        MDSL_CMD="LOG_DIR=$LOG_DIR fsid=0 "`echo $ARGS`
     elif [ "x$MODE" == "xkv" ]; then
         ARGS=`cat $HVFS_HOME/conf/mdsl.conf | grep -v "^ *#" | grep -v "^$" | grep -v "fsid="`
-        MDSL_CMD="fsid=1 "`echo $ARGS`
+        MDSL_CMD="LOG_DIR=$LOG_DIR fsid=1 "`echo $ARGS`
     else
         ARGS=`cat $HVFS_HOME/conf/mdsl.conf | grep -v "^ *#" | grep -v "^$"`
-        MDSL_CMD=`echo $ARGS`
+        MDSL_CMD="LOG_DIR=$LOG_DIR "`echo $ARGS`
     fi
 else
     if [ "x$MODE" == "xfs" ]; then
@@ -109,13 +110,13 @@ if [ -e $HVFS_HOME/conf/mds.conf ]; then
     # Using the config file
     if [ "x$MODE" == "xfs" ]; then
         ARGS=`cat $HVFS_HOME/conf/mds.conf | grep -v "^ *#" | grep -v "^$" | grep -v "fsid="`
-        MDS_CMD="fsid=0 "`echo $ARGS`
+        MDS_CMD="LOG_DIR=$LOG_DIR fsid=0 "`echo $ARGS`
     elif [ "x$MODE" == "xkv" ]; then
         ARGS=`cat $HVFS_HOME/conf/mds.conf | grep -v "^ *#" | grep -v "^$" | grep -v "fsid="`
-        MDS_CMD="fsid=1 "`echo $ARGS`
+        MDS_CMD="LOG_DIR=$LOG_DIR fsid=1 "`echo $ARGS`
     else
         ARGS=`cat $HVFS_HOME/conf/mds.conf | grep -v "^ *#" | grep -v "^$"`
-        MDS_CMD=`echo $ARGS`
+        MDS_CMD="LOG_DIR=$LOG_DIR "`echo $ARGS`
     fi
 else
     if [ "x$MODE" == "xfs" ]; then
@@ -631,7 +632,7 @@ function do_ut() {
     fi
     ipnr=`cat $CONFIG_FILE | grep "client:" | awk -F: '{print $2":"$4":"$3}'`
     # prepare the client cmd environment variables
-    CLIENT_CMD=`echo $ARGS | sed -e "s/nr=[-0-9]*//g"`
+    CLIENT_CMD="LOG_DIR=$LOG_DIR "`echo $ARGS | sed -e "s/nr=[-0-9]*//g"`
 
     # start clients now
     I=0

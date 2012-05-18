@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-17 09:42:09 macan>
+ * Time-stamp: <2012-05-16 17:21:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -156,10 +156,10 @@ int __hvfs_clear_dtrigger(struct hstat *);
 int hvfs_statfs(void **data);
 void hvfs_free(void *p);
 
-struct file_handle;
-typedef int (*ploop_func_t)(struct file_handle *, void **, size_t *);
-int hvfs_pstat(struct file_handle *fh, void **data, size_t *size);
-int hvfs_ploop(struct file_handle *fh, int nr, ploop_func_t pf, void **data,
+struct pfile_handle;
+typedef int (*ploop_func_t)(struct pfile_handle *, void **, size_t *);
+int hvfs_pstat(struct pfile_handle *fh, void **data, size_t *size);
+int hvfs_ploop(struct pfile_handle *fh, int nr, ploop_func_t pf, void **data,
     size_t *size);
 
 /* internal APIs */
@@ -207,7 +207,7 @@ struct branch_search_expr_tx
 };
 
 /* File handle returned by BRANCH subsystem */
-struct file_handle
+struct pfile_handle
 {
     u64 puuid;
     u64 uuid;

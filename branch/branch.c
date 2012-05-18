@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-10-13 04:04:23 macan>
+ * Time-stamp: <2012-05-16 17:22:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3072,13 +3072,13 @@ void branch_dumpbase(void *data, size_t size, char **outstr)
     }
 }
 
-/* branch_base2fh() translate a base array to file_handle array
+/* branch_base2fh() translate a base array to pfile_handle array
  */
-int branch_base2fh(void *data, size_t size, struct file_handle **ofh, 
+int branch_base2fh(void *data, size_t size, struct pfile_handle **ofh, 
                    int *onr)
 {
     struct base_dbs *bd, *end;
-    struct file_handle *fh;
+    struct pfile_handle *fh;
     char *regstr = "^([0-9a-fA-F]+):([^:]*):([0-9a-fA-F]+):([0-9a-fA-F]+)";
     regex_t reg;
     regmatch_t pmatch[5];
@@ -3106,7 +3106,7 @@ int branch_base2fh(void *data, size_t size, struct file_handle **ofh,
 
     fh = xzalloc(nr * sizeof(*fh));
     if (!fh) {
-        hvfs_err(xnet, "xzalloc() file_handle failed\n");
+        hvfs_err(xnet, "xzalloc() pfile_handle failed\n");
         err = -ENOMEM;
         goto out_free;
     }

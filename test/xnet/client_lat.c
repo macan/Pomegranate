@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-16 06:35:56 macan>
+ * Time-stamp: <2012-05-18 11:59:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2649,7 +2649,7 @@ int main(int argc, char *argv[])
     int op;
     char *value;
     char *ring_ip = NULL;
-    char profiling_fname[256];
+    char profiling_fname[256], *log_home;
 
     hvfs_info(xnet, "EV: range_begin (d) range_end (d)\n");
     hvfs_info(xnet, "op:   0/1/2/3/4/5/100/200   => "
@@ -2678,6 +2678,11 @@ int main(int argc, char *argv[])
         mode = atoi(value);
     } else 
         mode = 0;
+    value = getenv("LOG_DIR");
+    if (value) {
+        log_home = strdup(value);
+    } else
+        log_home = NULL;
     value = getenv("range_begin");
     if (value) {
         range_begin = atoi(value);
@@ -2730,8 +2735,11 @@ int main(int argc, char *argv[])
 //    SET_TRACING_FLAG(xnet, HVFS_DEBUG);
 
     /* setup the profiling file */
+    if (!log_home)
+        log_home = ".";
+    
     memset(profiling_fname, 0, sizeof(profiling_fname));
-    sprintf(profiling_fname, "./CP-BACK-client.%d", self);
+    sprintf(profiling_fname, "%s/CP-BACK-client.%d", log_home, self);
     hmo.conf.pf_file = fopen(profiling_fname, "w+");
     if (!hmo.conf.pf_file) {
         hvfs_err(xnet, "fopen() profiling file %s failed %d\n", 

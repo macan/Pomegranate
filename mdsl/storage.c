@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-03-03 11:32:31 macan>
+ * Time-stamp: <2012-05-18 11:39:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -757,7 +757,10 @@ int mdsl_storage_init(void)
     err = setrlimit(RLIMIT_NOFILE, &rli);
     if (err) {
         hvfs_err(xnet, "setrlimit failed w/ %s\n", strerror(errno));
-        return -errno;
+        hvfs_warning(xnet, "%sStorage Server has FD limit! To overcome "
+                     "this limit, please use a powerful UID to run this"
+                     " process.%s\n", 
+                     HVFS_COLOR_RED, HVFS_COLOR_END);
     }
 
     if (!hmo.conf.storage_fdhash_size) {

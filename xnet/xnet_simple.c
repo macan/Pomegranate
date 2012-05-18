@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-10-13 12:34:26 macan>
+ * Time-stamp: <2012-05-18 11:37:37 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1161,7 +1161,9 @@ struct xnet_context *xnet_register_type(u8 type, u16 port, u64 site_id,
     err = setrlimit(RLIMIT_NOFILE, &rli);
     if (err) {
         hvfs_err(xnet, "setrlimit failed w/ %s\n", strerror(errno));
-        return ERR_PTR(-errno);
+        hvfs_warning(xnet, "%sXNET has FD limit! To overcome this limit, "
+                     "please use a powerful UID to run this process.%s\n", 
+                     HVFS_COLOR_RED, HVFS_COLOR_END);
     }
     
     xc = xzalloc(sizeof(*xc));
