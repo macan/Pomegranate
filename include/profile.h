@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-23 10:42:15 macan>
+ * Time-stamp: <2012-05-22 16:25:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,6 +58,13 @@ struct hvfs_profile_mds_rate
     time_t last_update;
     double modify, nonmodify;      /* rates */
     u64 last_modify, last_nonmodify;
+};
+
+struct hvfs_profile_mdsl_rate
+{
+    time_t last_update;
+    double write, read;         /* rates */
+    u64 last_write, last_read;
 };
 
 #define HVFS_PROFILE_NAME_ADDIN(hp, idx, iname) do { \

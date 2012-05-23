@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2012-05-16 18:09:03 macan>
+# Time-stamp: <2012-05-22 09:40:38 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -13,6 +13,7 @@ LD = gcc
 AR = ar
 PYTHON = env python
 GIT = env git
+ECHO = echo
 
 INC_PATH = $(HOME_PATH)/include
 LIB_PATH = $(HOME_PATH)/lib

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-26 18:41:36 macan>
+ * Time-stamp: <2012-05-22 17:56:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1328,6 +1328,7 @@ int root_do_info(struct xnet_msg *msg)
 {
     struct hvfs_sys_info *hsi;
     struct xnet_msg *rpy = NULL;
+    char tbuf[32];
     void *buf = NULL, *buf1 = NULL, *buf2 = NULL;
     int err = 0;
 
@@ -1352,6 +1353,10 @@ int root_do_info(struct xnet_msg *msg)
         __simply_send_reply(msg, 0);
         break;
     case HVFS_SYSINFO_ALL:
+        /* stick a uptime buffer */
+        snprintf(tbuf, 32, "ROOT Server Uptime %ds\n", 
+                 time(NULL) - hro.uptime);
+        xnet_msg_add_sdata(rpy, tbuf, strlen(tbuf));
         /* fall through */
     case HVFS_SYSINFO_SITE:
         err = root_info_site(hsi->arg0, &buf);
@@ -1368,6 +1373,10 @@ int root_do_info(struct xnet_msg *msg)
         if (hsi->cmd == HVFS_SYSINFO_MDS)
             break;
     case HVFS_SYSINFO_MDSL:
+        err = root_info_mdsl(hsi->arg0, &buf2);
+        if (!err && buf2) {
+            xnet_msg_add_sdata(rpy, buf2, strlen(buf2));
+        }
         if (hsi->cmd == HVFS_SYSINFO_MDSL)
             break;
     }

@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2012-05-18 12:10:52 macan>
+# Time-stamp: <2012-05-18 15:48:24 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -82,7 +82,7 @@ function do_ut_conf_check() {
 
 # Read the config file and start the servers 
 
-ROOT_CMD="create=0 mode=1 hvfs_root_hb_interval=10"
+ROOT_CMD="LOG_DIR=$LOG_DIR create=0 mode=1 hvfs_root_hb_interval=10"
 
 #Construct the mdsl command line
 if [ -e $HVFS_HOME/conf/mdsl.conf ]; then

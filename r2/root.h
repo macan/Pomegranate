@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-23 10:58:14 macan>
+ * Time-stamp: <2012-05-22 17:52:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -139,6 +139,9 @@ struct hvfs_root_object
     /* profile section */
     struct hvfs_profile_ex hp_mds, hp_mdsl, hp_bp, hp_client;
 
+    /* uptime */
+    time_t uptime;
+    
     u8 spool_thread_stop;       /* running flag for service thread */
     u8 timer_thread_stop;       /* running flag for timer thread */
 };
@@ -170,6 +173,9 @@ struct hvfs_sys_info
 
 #define HVFS_SYSINFO_MDS_RATE           0
 #define HVFS_SYSINFO_MDS_RAW            1
+
+#define HVFS_SYSINFO_MDSL_RATE          0
+#define HVFS_SYSINFO_MDSL_RAW           1
 };
 
 /* API Region */

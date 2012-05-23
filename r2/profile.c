@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-23 11:09:58 macan>
+ * Time-stamp: <2012-05-22 17:18:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 #include "root.h"
 
 static struct hvfs_profile_mds_rate g_hpmr = {0, 0.0, 0.0, 0, 0,};
+static struct hvfs_profile_mdsl_rate g_hpmlr = {0, 0.0, 0.0, 0, 0,};
 
 /* This profile unit recv requests from other sites and write to corresponding
  * log file
@@ -217,6 +218,26 @@ void __root_profile_update_mds_rate(struct hvfs_profile_ex *hp)
     g_hpmr.last_nonmodify = hp->hpe[2].value;
 }
 
+/* try to update data I/O rate on each mdsl profile update */
+static inline
+void __root_profile_update_mdsl_rate(struct hvfs_profile_ex *hp)
+{
+    time_t cur = time(NULL);
+
+    if (cur == g_hpmlr.last_update)
+        return;
+    
+    /* 17th entry is write counter */
+    g_hpmlr.write = (double)(hp->hpe[17].value - g_hpmlr.last_write) /
+        (cur - g_hpmlr.last_update);
+    g_hpmlr.read = (double)(hp->hpe[18].value - g_hpmlr.last_read) /
+        (cur - g_hpmlr.last_update);
+
+    g_hpmlr.last_update = cur;
+    g_hpmlr.last_write = hp->hpe[17].value;
+    g_hpmlr.last_read = hp->hpe[18].value;
+}
+
 int root_profile_update_mds(struct hvfs_profile *hp, 
                             struct xnet_msg *msg)
 {
@@ -254,6 +275,8 @@ int root_profile_update_mdsl(struct hvfs_profile *hp,
     for (i = 0; i < hp->nr; i++) {
         HVFS_PROFILE_VALUE_UPDATE(&hro.hp_mdsl, hp, i);
     }
+
+    __root_profile_update_mdsl_rate(&hro.hp_mdsl);
 
 out:
     return err;
@@ -342,6 +365,38 @@ int root_info_mds(u64 arg, void **buf)
         p += sprintf(p, "MDS Rate:\n -> [Modify] %10.4f/s "
                      "[NonModify] %10.4f/s\n",
                      g_hpmr.modify, g_hpmr.nonmodify);
+    }
+
+out:
+    return err;
+}
+
+int root_info_mdsl(u64 arg, void **buf)
+{
+    char *p;
+    int err = 0, i;
+
+    p = xzalloc(4096 << 2);
+    if (!p) {
+        hvfs_err(root, "xzalloc() info mdsl buffer failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    *buf = (void *)p;
+
+    switch (arg) {
+    case HVFS_SYSINFO_MDSL_RAW:
+        p += sprintf(p, "MDSL RAW:\n");
+        for (i = 0; i < hro.hp_mdsl.nr; i++) {
+            p += sprintf(p, " -> %20s\t\t%ld\n", hro.hp_mdsl.hpe[i].name,
+                         hro.hp_mdsl.hpe[i].value);
+        }
+        break;
+    default:
+    case HVFS_SYSINFO_MDSL_RATE:
+        p += sprintf(p, "MDSL I/O Rate:\n -> [Write ] %10.4f/s "
+                     "[Read     ] %10.4f/s\n",
+                     g_hpmlr.write, g_hpmlr.read);
     }
 
 out:

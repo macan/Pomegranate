@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-26 17:08:29 macan>
+ * Time-stamp: <2012-05-22 17:51:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -488,6 +488,7 @@ int root_init(void)
 
     /* ok to run */
     hro.state = HRO_STATE_RUNNING;
+    hro.uptime = time(NULL);
 
 out_profile:
 out_timers:
