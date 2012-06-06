@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-19 20:59:24 macan>
+ * Time-stamp: <2011-08-17 11:45:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -797,6 +797,7 @@ int mds_bc_backend_commit(void)
     struct hvfs_md_reply *hmr;
     struct hvfs_index hi = {
         .namelen = 0,
+        .auxflag = 0,
         {.column = HVFS_GDT_BITMAP_COLUMN,},
         .flag = INDEX_LOOKUP | INDEX_COLUMN | INDEX_BY_UUID,
         .puuid = hmi.gdt_uuid,

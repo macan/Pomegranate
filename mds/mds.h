@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-29 06:11:01 macan>
+ * Time-stamp: <2011-08-25 05:58:05 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,6 +37,7 @@
 #include "bitmapc.h"
 #include "ring.h"
 #include "profile.h"
+#include "redo.h"
 
 /* FIXME: we should implement a ARC/DULO cache */
 struct itb_cache 
@@ -155,6 +156,7 @@ struct mds_conf
     u8 dati;                    /* enable or disable DATI (dynamic adjust txg
                                  * interval */
     u8 active_ft;               /* active ft module */
+    u8 redo_replicas;           /* # of redo replicas */
 
     /* intervals */
     int profiling_thread_interval;
@@ -382,6 +384,7 @@ void mds_cbht_scan(struct eh *, int);
 
 /* for itb.c */
 struct itb *mds_read_itb(u64, u64, u64);
+struct itb *mds_pick_itb(u64, u64);
 void ite_update(struct hvfs_index *, struct ite *);
 struct itb *get_free_itb_fast();
 struct itb *get_free_itb(struct hvfs_txg *);
@@ -476,6 +479,7 @@ int txg_rddb_add(struct hvfs_txg *, struct dir_delta_au *, u32);
 void txg_change_immediately(void);
 void mds_snapshot_fr2(struct xnet_msg *);
 int TXG_IS_COMMITED(u64 txg);
+int mds_analyse_storage(u64 site, int cmd, void *data, int *len);
 
 /* for prof.c */
 void dump_profiling(time_t, struct hvfs_profile *hp);
@@ -522,9 +526,13 @@ void mds_c2m_ldh(struct hvfs_tx *);
 void mds_list(struct hvfs_tx *);
 void mds_snapshot(struct hvfs_tx *);
 
+int mds_create_redo(struct hvfs_index *);
+int mds_redo_redirect(struct hvfs_index *, u64 *);
+
 /* for m2m.c, mds 2 mds APIs */
 void mds_ldh(struct xnet_msg *msg);
 void mds_ausplit(struct xnet_msg *msg);
+void mds_ausplit_redo(void *data, int len);
 void mds_forward(struct xnet_msg *msg);
 void mds_aubitmap(struct xnet_msg *msg);
 void mds_aubitmap_r(struct xnet_msg *msg);
@@ -610,8 +618,10 @@ struct hvfs_txg *mds_get_wb_txg(struct hvfs_mds_object *hmo)
     return hmo->txg[TXG_WB];
 }
 
+/* xtable.c */
 int itb_split_local(struct itb *, int, struct itb_lock *, struct hvfs_txg *,
                     struct hvfs_index *hi);
+int itb_move(struct itb *);
 
 /* bitmapc.c */
 int mds_bitmap_cache_init(void);
@@ -681,5 +691,27 @@ void mds_dt_destroy(struct dir_trigger_mgr *);
 
 /* latency.c */
 void mds_cb_latency(void *);
+
+/* redo.c */
+int redo_log_recovery(u64 txg, u64 *redo_txg);
+int redo_log_init(struct chring *r, int replica_nr);
+void redo_log_destroy(void);
+int redo_log_apply(u64 txg, int wantN);
+struct redo_log_site *add_cli_log_entry(u64 txg, u32 id, u16 op,
+                                        u32 dlen, struct hvfs_index *hi,
+                                        void *data);
+struct redo_log_site *add_create_log_entry(u64 txg, u32 dlen, 
+                                           struct hvfs_index *hi,
+                                           void *data,
+                                           struct hvfs_md_reply *hmr);
+struct redo_log_site *add_ausplit_log_entry(u64 txg, u64 ssite, u32 dlen,
+                                            void *data);
+#define REDO_PROF_CLIENT        0x00
+#define REDO_PROF_IN_REP        0x01
+#define REDO_PROF_REAP_REP      0x02
+u64 get_redo_prof(int type);
+int redo_dispatch(struct xnet_msg *msg);
+int redo_log_apply_one(struct redo_log_site_disk *r);
+int do_move_ite(struct ite *e, struct itb *i);
 
 #endif

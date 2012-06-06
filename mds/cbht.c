@@ -1072,7 +1072,15 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
                 /* Note: i->h.depth >= itb_depth_default means that the
                  * splited ITB will be finally routed to this server, we just
                  * wait and retry */
-                if (unlikely(!(hmo.conf.option & HVFS_MDS_LIMITED))) {
+                if (unlikely(hmo.state < HMO_STATE_RUNNING &&
+                             hmo.aux_state & HMO_AUX_STATE_RECOVER)) {
+                    /* this means that we can safely ignore this error and
+                     * create this new itb */
+                    hvfs_err(mds, "Recovery mode: itb <%lx,%ld> "
+                             "depth %d ausplit is reordered! "
+                             "Insert a new one.\n",
+                             hi->puuid, hi->itbid, i->h.depth);
+                } else if (unlikely(!(hmo.conf.option & HVFS_MDS_LIMITED))) {
                     hvfs_err(mds, "want to create itbid %ld depth %d, "
                              "hi psalt %lx\n", 
                              hi->itbid, i->h.depth, hi->psalt);

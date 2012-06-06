@@ -1344,6 +1344,8 @@ class pamc_shell(cmd.Cmd):
         '''
         site = 0
         type = 1
+        max = 0
+        len = 0
         l = shlex.split(line)
 
         try:
@@ -1369,10 +1371,12 @@ class pamc_shell(cmd.Cmd):
         site = HVFS_MDS(site)
         print "Analyse TXG log file for site: %x" % site
 
-        err = api.hvfs_analyse_storage(c_long(site), c_int(type))
+        err = api.hvfs_analyse_storage(c_long(site), c_int(type), 
+                                       byref(max), byref(len))
         if err != 0:
             print "api.hvfs_analyse_storage() failed w/ %d" % err
             return
+        print "MAX TXG: " + str(max)
         print "+OK"
 
     def do_quit(self, line):

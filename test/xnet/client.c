@@ -576,10 +576,11 @@ resend:
                  msg->pair->tx.ssite_id, msg->pair->tx.err);
         err = msg->pair->tx.err;
         lookup_failed++;
+        hvfs_err(mds, "DUMP criminal hash 0x%lx\n", hi->hash);
 #if 0
         __send_msg_dump(msg);
+        exit(0);
 #endif
-        hvfs_err(mds, "DUMP criminal hash 0x%lx\n", hi->hash);
         goto out;
     }
     if (msg->pair->xm_datacheck)
@@ -2723,9 +2724,13 @@ int main(int argc, char *argv[])
         double acc = 0.0;
 
         /* Step 1: we should warmup the system a litte */
-        hvfs_info(xnet, "Warmup the whole system a little ...\n");
-        msg_send_mt(100, 100, thread);
-        hvfs_info(xnet, "OK to real test now...\n");
+        if (op == 100) {
+            hvfs_info(xnet, "Warmup the whole system a little ...\n");
+            msg_send_mt(100, 100, thread);
+            hvfs_info(xnet, "OK to real test now...\n");
+        } else {
+            hvfs_info(xnet, "Warmup by yourself, please!\n");
+        }
 
         /* Step 2: do real test */
         lib_timer_B();

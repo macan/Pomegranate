@@ -1169,7 +1169,10 @@ int main(int argc, char *argv[])
     hmo.cb_branch_init = mds_cb_branch_init;
     hmo.cb_branch_destroy = mds_cb_branch_destroy;
 
-    mds_init(11);
+    err = mds_init(11);
+    if (err) {
+        return err;
+    }
 
     /* set the uuid base! */
     hmi.uuid_base = (u64)self << 45;

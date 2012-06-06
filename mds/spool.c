@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-29 06:03:16 macan>
+ * Time-stamp: <2011-08-05 05:25:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -63,6 +63,7 @@ void mds_spool_redispatch(struct xnet_msg *msg, int sempost)
     xlock_lock(&spool_mgr.rin_lock);
     list_add_tail(&msg->list, &spool_mgr.reqin);
     xlock_unlock(&spool_mgr.rin_lock);
+    atomic64_inc(&hmo.prof.misc.reqin_qd);
     if (sempost)
         sem_post(&spool_mgr.rin_sem);
 }

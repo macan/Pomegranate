@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-14 13:13:00 macan>
+ * Time-stamp: <2011-08-17 11:32:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,7 +32,9 @@
 /* the general index structure between HVFS client and MDS */
 struct hvfs_index
 {
-    u16 namelen;                /* the name length */
+    u8 namelen;                 /* the name length */
+#define AUX_RECOVERY            0x01 /* in recovery mode */
+    u8 auxflag;                 /* aux flag */
     union
     {
 #define INDEX_COLUMN_ALL        0xffff

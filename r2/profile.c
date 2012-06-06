@@ -76,6 +76,9 @@ void hvfs_mds_profile_setup(struct hvfs_profile_ex *hp)
     HVFS_PROFILE_NAME_ADDIN(hp, i, "itb.rsearch_depth");
     HVFS_PROFILE_NAME_ADDIN(hp, i, "itb.wsearch_depth");
     HVFS_PROFILE_NAME_ADDIN(hp, i, "misc.reqin_qd");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "redo.client_redo_nr");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "redo.in_rep_redo_nr");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "redo.reap_rep_redo_nr");
     hp->nr = i;
 }
 

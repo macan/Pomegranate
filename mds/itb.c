@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-15 02:42:17 macan>
+ * Time-stamp: <2011-08-23 12:21:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -188,6 +188,25 @@ out_free:
     xnet_free_msg(msg);
     
     return i;
+}
+
+/* mds_pick_itb()
+ */
+struct itb *mds_pick_itb(u64 puuid, u64 itbid)
+{
+    struct dhe *e;
+    u64 salt;
+
+    e = mds_dh_search(&hmo.dh, puuid);
+    if (unlikely(IS_ERR(e))) {
+        hvfs_err(mds, "mds_dh_search(dir %lx) failed w/ %ld\n",
+                 puuid, PTR_ERR(e));
+        return NULL;
+    }
+    salt = e->salt;
+    mds_dh_put(e);
+
+    return mds_read_itb(puuid, salt, itbid);
 }
 
 /* __itb_get_free_index
@@ -505,6 +524,36 @@ retry:
 }
 
 /*
+ * __itb_find()
+ *
+ * Note: this function is out of date. You should not call this API!
+ */
+int __itb_find(struct itb *i, struct ite *e)
+{
+    struct itb_index *ii;
+    u64 offset, total = 1 << (ITB_DEPTH + 1);
+
+    offset = e->hash & ((1 << i->h.adepth) - 1);
+    while (offset < total) {
+        ii = &i->index[offset];
+        if (ii->flag == ITB_INDEX_FREE)
+            break;
+        /* compare by uuid and hash */
+        if (e->hash == i->ite[ii->entry].hash &&
+            e->uuid == i->ite[ii->entry].uuid) {
+            return 1;
+        }
+
+        if (ii->flag == ITB_INDEX_UNIQUE)
+            return 0;
+        else
+            offset = ii->conflict;
+    }
+
+    return 0;
+}
+
+/*
  * ITE unlink internal
  */
 static inline void __ite_unlink(struct itb *i, u64 offset)
@@ -732,10 +781,12 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
             if (unlikely(hi->flag & INDEX_CREATE_KV)) {
                 e->g.salt = e->g.mdu.dev;
             } else {
-                e->g.salt = lib_random(0xfffffff);
+                if (!(hi->auxflag & AUX_RECOVERY))
+                    e->g.salt = lib_random(0xfffffff);
             }
-        } else 
+        } else {
             memcpy(&e->s.mdu, hi->data, sizeof(struct mdu));
+        }
     } else if (unlikely(hi->flag & INDEX_CREATE_LINK)) {
         /* hi->data is LS */
         memcpy(&e->s.ls, hi->data, sizeof(struct link_source));

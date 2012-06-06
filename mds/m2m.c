@@ -308,9 +308,21 @@ void mds_ausplit(struct xnet_msg *msg)
     i->h.state = ITB_STATE_DIRTY;
     /* re-init */
     itb_reinit(i);
+    xnet_clear_auto_free(msg);
 
-    txg_add_itb(t, i);
-    txg_put(t);
+    /* sanity check:
+     *
+     * There is a new situation that if some mds crashed and restart it will
+     * check the redo log and redo some lost splits. For the target site, a
+     * lost split means a re-split message. How do we detect it?
+     *
+     * We do not check it. Use itb_move() to redirect ITEs to target MDS and
+     * use mds_create_redo() to record any sucessfully creations.
+     */
+    
+    /* FIXME: Remove this ENTRY!!! if and only if are we using mds_create().
+     * REDO: add this entry to redo log (we are IN critical path now) */
+    add_ausplit_log_entry(i->h.txg, msg->tx.ssite_id, msg->tx.len, i);
 
     /* insert the ITB to CBHT */
     err = mds_cbht_insert_bbrlocked(&hmo.cbht, i, &nb, &nbe, &ti);
@@ -318,19 +330,29 @@ void mds_ausplit(struct xnet_msg *msg)
         /* someone has already create the new ITB, we just ignore ourself? */
         hvfs_err(mds, "Someone create ITB %ld, fatal failed w/ "
                  "data loss @ txg %ld\n", i->h.itbid, i->h.txg);
+        /* FIXME:!!! temp code, move ITEs */
+        itb_move(i);
         /* it is ok, we need to free the locks */
         xrwlock_runlock(&nbe->lock);
         xrwlock_runlock(&nb->lock);
         /* this maybe a resend message, we just send the reply now */
+        txg_put(t);
+        itb_free(i);
+        
         goto send_rpy;
     } else if (err) {
         hvfs_err(mds, "Internal error %d, data lossing.\n", err);
+        txg_put(t);
+        itb_free(i);
+        
         goto send_rpy;
     }
-
     /* it is ok, we need to free the locks */
     xrwlock_runlock(&nbe->lock);
     xrwlock_runlock(&nb->lock);
+
+    txg_add_itb(t, i);
+    txg_put(t);
 
     mds_dh_bitmap_update(&hmo.dh, i->h.puuid, i->h.itbid,
                          MDS_BITMAP_SET);
@@ -343,7 +365,6 @@ void mds_ausplit(struct xnet_msg *msg)
 
     hvfs_warning(mds, "We update the bit of ITB %ld txg %ld\n", 
                  i->h.itbid, i->h.txg);
-    xnet_clear_auto_free(msg);
 
 send_rpy:
     {
@@ -374,6 +395,37 @@ send_rpy:
         xnet_free_msg(rpy);
     }
     xnet_free_msg(msg);         /* do not free the allocated ITB */
+}
+
+/* Note that, it might be WRONG to insert/copy the ITEs directly from this ITB
+ * to target ITB. Thus, we copy one by one through itb_move().
+ */
+void mds_ausplit_redo(void *data, int len)
+{
+    struct itb *i = data;
+    int err = 0;
+    
+    /* sanity check */
+    if (len < sizeof(struct itb)) {
+        hvfs_err(mds, "Invalid ausplit redo log entry\n");
+        return;
+    }
+
+    /* checking the ITB */
+    if (len != atomic_read(&i->h.len)) {
+        hvfs_err(mds, "redo log length %d vs itb %d\n",
+                 len, atomic_read(&i->h.len));
+    }
+    ASSERT(len == atomic_read(&i->h.len), mds);
+
+    err = itb_move(i);
+    if (err) {
+        hvfs_err(mds, "Move ITB %ld's ITE but remains %d entries!\n",
+                 i->h.itbid, err);
+    }
+
+    hvfs_warning(mds, "[REDO] We have redo ITB %ld's ITEs one by one\n", 
+                 i->h.itbid);
 }
 
 void mds_forward(struct xnet_msg *msg)
@@ -919,13 +971,6 @@ void mds_gossip_bitmap(struct xnet_msg *msg)
      */
 
     /* sanity checking */
-    if (hmo.state < HMO_STATE_RUNNING) {
-        hvfs_warning(mds, "Site %lx is not ready to handle this "
-                     "gossip message.\n",
-                     hmo.site_id);
-        goto out;
-    }
-
     if (msg->tx.len < sizeof(*b)) {
         hvfs_err(mds, "Invalid bitmap gossip message from %lx\n",
                  msg->tx.ssite_id);

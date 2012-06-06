@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-26 19:49:39 macan>
+ * Time-stamp: <2011-07-20 16:45:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -509,6 +509,7 @@ int main(int argc, char *argv[])
             ring_ip = argv[2];
             sport = atoi(argv[3]);
         }
+        hvfs_info(xnet, "Got ring ip %s\n", ring_ip);
     }
     
     st_init();

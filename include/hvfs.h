@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-29 10:41:41 macan>
+ * Time-stamp: <2011-07-23 17:33:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -99,7 +99,6 @@
 #define HVFS_MDS_RECOVERY       0x0000000080000020 /* recovery analyse
                                                     * request */
 /* begin recovery subregion: arg0 */
-#define HVFS_RECOVERY_
 /* end recovery subregion */
 
 /* MDSL to MDS */
@@ -180,6 +179,8 @@
 #include "hash.c"
 
 #define __cbht __attribute__((__section__(".cbht.text")))
+#define __xnet __attribute__((__section__(".xnet.text")))
+#define __mdsdisp __attribute__((__section__(".mds.dispatch.text")))
 #define __UNUSED__ __attribute__((unused))
 
 struct itbitmap

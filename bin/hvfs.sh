@@ -469,10 +469,10 @@ function do_clean() {
     for x in $ipnr; do
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
+        $SSH $UN$ip "rm -rf /tmp/hvfs/4*" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/hvfs/6*" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/hvfs/bp" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/hvfs/*_store" > /dev/null
-        $SSH $UN$ip "rm -rf /tmp/hvfs/txg" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/.MDS.DCONF.*" > /dev/null
     done
 }

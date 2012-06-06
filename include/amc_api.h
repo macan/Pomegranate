@@ -184,6 +184,7 @@ int __hvfs_fwritev(struct hstat *hs, int column, u32 flag,
                   struct iovec *iov, int iovlen, struct column *c);
 int __hvfs_statfs(struct statfs *s, u64 dsite);
 int __hvfs_is_empty_dir(u64 puuid, u64 psalt, struct hstat *hs);
+int hvfs_analyse_storage(u64 site, int cmd, void *data, int *len);
 
 /* Region for BRANCH subsystem */
 

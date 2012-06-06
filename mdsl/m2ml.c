@@ -1187,7 +1187,7 @@ void mdsl_analyse(struct xnet_msg *msg)
             u64 __txg = 0;
             int fd = 0;
 
-            sprintf(path, "%s/last-txg", hmo.conf.mdsl_home);
+            sprintf(path, "%s/%lx/last-txg", hmo.conf.mdsl_home, hmo.site_id);
             fd = err = open(path, O_RDONLY);
             if (err < 0) {
                 hvfs_warning(mdsl, "open file '%s' failed w/ %d\n",

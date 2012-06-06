@@ -790,12 +790,6 @@ int mdsl_storage_init(void)
         hvfs_err(mdsl, "dir %s do not exist %d.\n", path, err);
         return -ENOTEXIST;
     }
-    sprintf(path, "%s/txg", hmo.conf.mdsl_home);
-    hmo.storage.txg_fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-    if (hmo.storage.txg_fd < 0) {
-        hvfs_err(mdsl, "open file '%s' faield w/ %d\n", path, errno);
-        return -errno;
-    }
 
     /* check if we should set recovery flag */
     err = mdsl_txg_integrated();
@@ -2998,8 +2992,8 @@ void __mdsl_txg_rename(void)
     char opath[256], npath[256];
     int err = 0;
 
-    sprintf(opath, "%s/txg", hmo.conf.mdsl_home);
-    sprintf(npath, "%s/last-txg", hmo.conf.mdsl_home);
+    sprintf(opath, "%s/%lx/txg", hmo.conf.mdsl_home, hmo.site_id);
+    sprintf(npath, "%s/%lx/last-txg", hmo.conf.mdsl_home, hmo.site_id);
 
     err = rename(opath, npath);
     if (err) {

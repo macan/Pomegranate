@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-30 03:02:45 macan>
+ * Time-stamp: <2011-08-17 07:38:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,7 +31,7 @@
 
 /* return the recent reqno for COMPARE
  */
-u32 mds_get_recent_reqno(u64 site)
+u32 __mdsdisp mds_get_recent_reqno(u64 site)
 {
     /* FIXME: we do not support TXC for now */
     return 0;
@@ -39,7 +39,7 @@ u32 mds_get_recent_reqno(u64 site)
 
 /* update the recent reqno
  */
-void mds_update_recent_reqno(u64 site, u64 reqno)
+void __mdsdisp mds_update_recent_reqno(u64 site, u64 reqno)
 {
     return;
 }
@@ -48,7 +48,7 @@ void mds_update_recent_reqno(u64 site, u64 reqno)
  *
  * Return value: 0:no loop; 1: first loop; 2: second or greater loop;
  */
-int __mds_fwd_loop_detect(struct mds_fwd *mf, u64 dsite)
+int __mdsdisp __mds_fwd_loop_detect(struct mds_fwd *mf, u64 dsite)
 {
     int i, looped = 0;
     
@@ -109,7 +109,7 @@ void __simply_send_reply(struct xnet_msg *msg, int err)
  * NOTE: how to handle the err from the dispatcher? We just print the err
  * message and free the msg.
  */
-void mds_fe_handle_err(struct xnet_msg *msg, int err)
+void __mdsdisp mds_fe_handle_err(struct xnet_msg *msg, int err)
 {
     if (unlikely(err)) {
         hvfs_warning(mds, "MSG(%lx->%lx)(reqno %d) can't be handled w/ %d\n",
@@ -122,7 +122,7 @@ void mds_fe_handle_err(struct xnet_msg *msg, int err)
     xnet_free_msg(msg);
 }
 
-int mds_do_forward(struct xnet_msg *msg, u64 dsite)
+int __mdsdisp mds_do_forward(struct xnet_msg *msg, u64 dsite)
 {
     int err = 0, i, relaied = 0, looped = 0;
     
@@ -334,7 +334,7 @@ int mds_addr_table_update(struct xnet_msg *msg)
 
 /* Callback for XNET, should be thread-safe!
  */
-int mds_fe_dispatch(struct xnet_msg *msg)
+int __mdsdisp mds_fe_dispatch(struct xnet_msg *msg)
 {
     u64 itbid;
     int err = 0;
@@ -357,11 +357,14 @@ l0_recheck:
         /* 1. for mds memory lookup and analyse, just fail it (because we are
          * fresh). */
         /* 2. for mdsl analyse, just do it from mdsl */
-        if (msg->tx.cmd == HVFS_MDS_RECOVERY &&
-            HVFS_IS_MDS(msg->tx.ssite_id)) {
-            return mds_mds_dispatch(msg);
-        } else 
-            mds_spool_redispatch(msg, 0);
+        if (HVFS_IS_MDS(msg->tx.ssite_id)) {
+            if (msg->tx.cmd == HVFS_MDS_RECOVERY ||
+                msg->tx.cmd == HVFS_MDS2MDS_GB)
+                return mds_mds_dispatch(msg);
+        }
+        
+        mds_spool_redispatch(msg, 0);
+
         return -EAGAIN;
     case HMO_STATE_RUNNING:
         /* accept all requests */

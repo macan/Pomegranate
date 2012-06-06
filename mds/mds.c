@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-29 06:11:30 macan>
+ * Time-stamp: <2011-08-25 05:57:35 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,8 +48,8 @@ void mds_sigaction_default(int signo, siginfo_t *info, void *arg)
         return;
     }
 #endif
-    if (signo == SIGSEGV || signo == SIGBUS) {
-        hvfs_info(lib, "Recv %sSIGSEGV%s %s @ addr %p\n",
+    if (signo == SIGSEGV || signo == SIGBUS || signo == SIGABRT) {
+        hvfs_info(lib, "Recv %sSIGSEGV/SIGBUS/SIGABRT%s %s @ addr %p\n",
                   HVFS_COLOR_RED,
                   HVFS_COLOR_END,
                   SIGCODES(info->si_code),
@@ -307,6 +307,8 @@ static void *mds_timer_thread_main(void *arg)
         mds_scrub(cur);
         /* next, check the dh hash table */
         mds_dh_check(cur);
+        /* next, reap redo logs */
+        redo_log_reap(cur);
         /* FIXME: */
     }
 
@@ -480,7 +482,7 @@ int mds_cbht_evict_default(struct bucket *b, void *arg0, void *arg1)
             }
         ok:
             /* try to release the ITB now */
-            if (ih->be == obe) {
+            if (ih->be == obe && atomic_read(&ih->ref) == 1) {
                 /* not moved, unhash it */
                 hlist_del_init(&ih->cbht);
                 ih->be = NULL;
@@ -495,6 +497,7 @@ int mds_cbht_evict_default(struct bucket *b, void *arg0, void *arg1)
 
             hvfs_warning(mds, "DO evict on clean ITB %ld txg %ld\n", 
                          ih->itbid, ih->txg);
+            /* free it finally */
             itb_put((struct itb *)ih);
         }
         txg_put(t);
@@ -965,13 +968,24 @@ int mds_dir_make_exist(char *path)
  */
 int mds_verify(void)
 {
+    char path[256];
     int err = 0;
+    
+    if (!HVFS_IS_MDS(hmo.site_id))
+        goto set_state;
     
     /* check the MDS_HOME */
     err = mds_dir_make_exist(hmo.conf.mds_home);
     if (err) {
         hvfs_err(mds, "dir %s does not exist %d.\n", 
                  hmo.conf.mds_home, err);
+        return -EINVAL;
+    }
+    /* check the MDS site home directory */
+    sprintf(path, "%s/%lx", hmo.conf.mds_home, hmo.site_id);
+    err = mds_dir_make_exist(path);
+    if (err) {
+        hvfs_err(mds, "dir %s does not exist %d.\n", path, err);
         return -EINVAL;
     }
     
@@ -994,12 +1008,66 @@ int mds_verify(void)
         txg_put(t);
     }
 
+    /* init redo log, this must be done AFTER reg with R2 */
+    err = redo_log_init(hmo.chring[CH_RING_MDS], hmo.conf.redo_replicas);
+    if (err)
+        return err;
+
     /* we are almost done, but we have to check if we need a recovery */
     if (hmo.aux_state & HMO_AUX_STATE_RECOVER) {
-        /* Step 1: compare mi_txg with max/min txg in redo log */
-        /* Step 2: check the latest committed txg in mdsl's txg log */
+        u64 redo_txg, saved_txg, r2_txg = atomic64_read(&hmi.mi_txg);
+        
+        /* Step 1: check the latest committed txg in mdsl's txg log */
+        err = mds_analyse_storage(hmo.site_id, HVFS_ANA_MAX_TXG, &saved_txg, 
+                                  NULL);
+        if (err) {
+            hvfs_err(mds, "Analyse storage failed w/ %d\n", err);
+            saved_txg = 0;
+        }
+
+        /* Step 2: compare mi_txg with max/min txg in redo log */
+        if (saved_txg > r2_txg)
+            hvfs_info(mds, "MDSL saves txg %ld > R2 %ld, use MDSL!.\n",
+                      saved_txg, r2_txg);
+        else if (saved_txg < r2_txg) {
+            if (saved_txg)
+                hvfs_info(mds, "MDSL saves txg %ld < R2 %ld, use MDSL!.\n",
+                          saved_txg, r2_txg);
+            else {
+                /* this means MDSL has NO info of commited entries, maybe
+                 * txg_log is missing or it is too longer to remember which
+                 * txg this mds had been committed. In this situation we try
+                 * our best to REDO sth (this may corrupt current state:( ) */
+                saved_txg = ((s64)(r2_txg - 2) < 0) ? 0 : r2_txg - 2;
+                hvfs_info(mds, "MDSL info missing, R2 txg is %ld, "
+                          "we use txg %ld!\n",
+                          r2_txg, saved_txg);
+            }
+        }
+        err = redo_log_recovery(saved_txg, &redo_txg);
+        switch (err) {
+        case 0:
+            hvfs_info(mds, "No redo info, it is ok to continue!\n");
+            break;
+        case 1:
+            /* we have trouble, need recover */
+            hvfs_info(mds, "There are pending TX, we have to do recovery!\n");
+            redo_log_apply(saved_txg, 0);
+            break;
+        default:
+            hvfs_err(mds, "Query recovery info failed w/ %d, "
+                     "kill myself!\n", err);
+            exit(-err);
+        }
+        /* reset mi_txg if needed */
+        if (saved_txg > r2_txg) {
+            atomic64_set(&hmi.mi_txg, saved_txg);
+            hvfs_info(mds, "After recovery, update HMI txg to %ld\n",
+                      saved_txg);
+        }
     }
 
+set_state:
     /* enter into running mode */
     hmo.state = HMO_STATE_RUNNING;
 
@@ -1069,6 +1137,7 @@ int mds_config(void)
     HVFS_MDS_GET_ENV_atoi(active_ft, value);
     HVFS_MDS_GET_ENV_atoi(rdir_hsize, value);
     HVFS_MDS_GET_ENV_atoi(stacksize, value);
+    HVFS_MDS_GET_ENV_atoi(redo_replicas, value);
 
     HVFS_MDS_GET_kmg(memlimit, value);
 
@@ -1104,6 +1173,8 @@ int mds_config(void)
         hmo.conf.gto = 1;
     if (!hmo.conf.loadin_pressure)
         hmo.conf.loadin_pressure = 30;
+    if (!hmo.conf.redo_replicas)
+        hmo.conf.redo_replicas = 1;
 
     return 0;
 }
@@ -1149,7 +1220,9 @@ int mds_init(int bdepth)
     hmo.conf.scrub_interval = 3600;
 
     /* get configs from env */
-    mds_config();
+    err = mds_config();
+    if (err)
+        goto out_config;
 
     /* Init the signal handlers */
     err = mds_init_signal();
@@ -1279,6 +1352,7 @@ out_txc:
 out_bc:
 out_timers:
 out_signal:
+out_config:
 out_lzo:
     return err;
 }
@@ -1286,6 +1360,9 @@ out_lzo:
 void mds_destroy(void)
 {
     hvfs_verbose(mds, "OK, stop it now...\n");
+
+    /* try to change to a new txg immediately */
+    txg_change_immediately();
 
     /* destroy branch subsystem */
     if (hmo.cb_branch_destroy) {
@@ -1347,6 +1424,9 @@ void mds_destroy(void)
     /* rdir */
     rdir_destroy();
     
+    /* it is ok to free redo resources */
+    redo_log_destroy();
+
     /* close the files */
     if (hmo.conf.pf_file)
         fclose(hmo.conf.pf_file);
