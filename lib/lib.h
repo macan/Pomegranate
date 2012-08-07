@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-12-16 19:20:52 macan>
+ * Time-stamp: <2012-08-07 14:51:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -286,6 +286,8 @@ enum {
 int conf_parse(char *, struct conf_site *, int *);
 u64 conf_site_id(char *, int);
 
+/* md5.c */
+#include "md5.h"
 void lib_md5_print(void *addr, int len, char *str);
 
 static inline
@@ -315,5 +317,8 @@ int brt_loop_on_holes(void **rootp, void *arg,
                       void (*cb)(u64 low, u64 high, void *arg));
 int brt_loop_on_ranges(void **rootp, void *arg, 
                        void (*cb)(u64 low, u64 high, void *arg));
+
+/* crc32.c */
+u32 crc32c(u32 crc, const u8 *data, unsigned int length);
 
 #endif
