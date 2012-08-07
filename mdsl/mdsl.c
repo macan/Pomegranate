@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-22 10:29:21 macan>
+ * Time-stamp: <2012-08-07 11:05:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -256,8 +256,8 @@ int mdsl_setup_timers(void)
             err = errno;
             goto out;
         }
-        hvfs_debug(mdsl, "OK, we have created a timer thread to handle txg change"
-                   " and profiling events every %d second(s).\n", interval);
+        hvfs_debug(mdsl, "OK, we have created a timer thread to "
+                   "profile events every %d second(s).\n", interval);
     } else {
         hvfs_debug(mdsl, "Hoo, there is no need to setup itimers based on the"
                    " configration.\n");
@@ -295,7 +295,7 @@ out:
     return;
 }
 
-/* mdsl_pre_init()
+/* mdsl_pre_init() : must be called first
  */
 void mdsl_pre_init(void)
 {
@@ -309,42 +309,18 @@ void mdsl_pre_init(void)
     hmo.state = HMO_STATE_INIT;
 }
 
-/* mdsl_verify() hmo.site_id is ready now
+/* mdsl_verify() hmo.site_id is ready now : must be called LAST!
  */
 int mdsl_verify(void)
 {
-    char path[256] = {0, };
     int err = 0;
-
-    /* check the MDSL_HOME */
-    err = mdsl_storage_dir_make_exist(hmo.conf.mdsl_home);
-    if (err) {
-        hvfs_err(mdsl, "dir %s do not exist.\n", hmo.conf.mdsl_home);
-        goto out;
-    }
-
-    /* check the MDSL site directory */
-    sprintf(path, "%s/%lx", hmo.conf.mdsl_home, hmo.site_id);
-    err = mdsl_storage_dir_make_exist(path);
-    if (err) {
-        hvfs_err(mdsl, "dir %s do not exist.\n", path);
-        goto out;
-    }
-
-    /* open the txg file */
-    sprintf(path, "%s/%lx/txg", hmo.conf.mdsl_home, hmo.site_id);
-    hmo.storage.txg_fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-    if (hmo.storage.txg_fd < 0) {
-        hvfs_err(mdsl, "open file '%s' faield w/ %d\n", path, errno);
-        return -errno;
-    }
 
     /* check if we need a recovery */
     if (hmo.aux_state) {
         err = mdsl_do_recovery();
         if (err) {
-            hvfs_err(mdsl, "MDSL do recovery failed w/ %d\n",
-                     err);
+            hvfs_err(mdsl, "MDSL do recovery failed w/ %d(%s)\n",
+                     err, strerror(-err));
         }
         hmo.aux_state = 0;
     }
@@ -356,11 +332,10 @@ int mdsl_verify(void)
     hmo.session = lib_random(0xfffffff);
     mdsl_startup_normal();
 
-out:
     return err;
 }
 
-/* mdsl_config()
+/* mdsl_config() : must be called after mdsl_pre_init and before mdsl_init
  *
  * Get configuration from the execution environment
  */
@@ -381,6 +356,7 @@ int mdsl_config(void)
     HVFS_MDSL_GET_ENV_cpy(log_file, value);
 
     HVFS_MDSL_GET_ENV_atoi(spool_threads, value);
+    HVFS_MDSL_GET_ENV_atoi(aio_threads, value);
     HVFS_MDSL_GET_ENV_atoi(ring_vid_max, value);
     HVFS_MDSL_GET_ENV_atoi(tcc_size, value);
     HVFS_MDSL_GET_ENV_atoi(prof_plot, value);

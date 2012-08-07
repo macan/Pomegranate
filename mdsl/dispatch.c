@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-06 23:37:50 macan>
+ * Time-stamp: <2012-08-06 16:26:34 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -116,16 +116,6 @@ int mdsl_ring_dispatch(struct xnet_msg *msg)
     return 0;
 }
 
-static
-int mdsl_root_dispatch(struct xnet_msg *msg)
-{
-    if (msg->tx.cmd == HVFS_FR2_RU) {
-        /* do nothing */
-    }
-    xnet_free_msg(msg);
-    return 0;
-}
-
 void mdsl_handle_err(struct xnet_msg *msg, int err)
 {
     xnet_free_msg(msg);
@@ -182,7 +172,7 @@ l0_recheck:
     } else if (HVFS_IS_RING(msg->tx.ssite_id)) {
         return mdsl_ring_dispatch(msg);
     } else if (HVFS_IS_ROOT(msg->tx.ssite_id)) {
-        return mdsl_root_dispatch(msg);
+        return mdsl_ring_dispatch(msg);
     }
     hvfs_err(mdsl, "MDSL core dispatcher handle INVALID request <0x%lx %d>\n",
              msg->tx.ssite_id, msg->tx.reqno);

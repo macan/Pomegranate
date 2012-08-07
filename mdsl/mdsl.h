@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-02-21 19:07:28 macan>
+ * Time-stamp: <2012-06-07 00:04:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -95,7 +95,7 @@ struct md_disk
 {
     /* region for range */
     u32 winsize;                /* the window size of the each range file */
-    u32 range_nr[3];            /* primary, secondary, third replicas */
+    u32 range_nr;               /* primary range */
     range_t *new_range;         /* region for new ranges comming in */
     range_t *ranges;            /* ranges loaded from disk file */
     u64 gc_offset;
@@ -106,6 +106,7 @@ struct md_disk
     /* region for itb/data file */
     u32 itb_master;
     u32 data_master;
+    u32 crc;
 };
 
 #define DISK_SEC        (512)

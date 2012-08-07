@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-12-18 22:57:40 macan>
+ * Time-stamp: <2012-06-07 00:03:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -155,7 +155,7 @@ int mdsl_gc_tx_itb(u64 duuid, int gen, struct fdhash_entry *omd)
      * md file's range to old md file */
     xfree(omd->mdisk.ranges);
     xfree(omd->mdisk.new_range);
-    omd->mdisk.range_nr[0] = fde->mdisk.range_nr[0];
+    omd->mdisk.range_nr = fde->mdisk.range_nr;
     omd->mdisk.size = fde->mdisk.size;
     omd->mdisk.new_size = fde->mdisk.new_size;
     omd->mdisk.new_range = fde->mdisk.new_range;

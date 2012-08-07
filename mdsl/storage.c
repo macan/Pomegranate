@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-05-18 11:39:02 macan>
+ * Time-stamp: <2012-08-06 18:05:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -791,13 +791,29 @@ int mdsl_storage_init(void)
         return -ENOTEXIST;
     }
 
+    /* check the MDSL site directory */
+    sprintf(path, "%s/%lx", hmo.conf.mdsl_home, hmo.site_id);
+    err = mdsl_storage_dir_make_exist(path);
+    if (err) {
+        hvfs_err(mdsl, "dir %s do not exist.\n", path);
+        return -ENOTEXIST;
+    }
+
+    /* open the txg file */
+    sprintf(path, "%s/%lx/txg", hmo.conf.mdsl_home, hmo.site_id);
+    hmo.storage.txg_fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+    if (hmo.storage.txg_fd < 0) {
+        hvfs_err(mdsl, "open file '%s' faield w/ %d\n", path, errno);
+        return -errno;
+    }
+
     /* check if we should set recovery flag */
     err = mdsl_txg_integrated();
     if (err) {
         hmo.aux_state = HMO_AUX_STATE_RECOVERY;
-        hvfs_err(mdsl, "mdsl_txg_integrated() failed w/ %d, "
-                 "change state to RECOVERY\n",
-                 err);
+        hvfs_warning(mdsl, "mdsl_txg_integrated() failed w/ %d, "
+                     "change state to RECOVERY\n",
+                     err);
     }
     
     return 0;
@@ -1372,9 +1388,7 @@ int mdsl_storage_fd_mdisk(struct fdhash_entry *fde, char *path)
         } while (bl < sizeof(struct md_disk));
 
         /* we alloc the region for the ranges */
-        fde->mdisk.size = (fde->mdisk.range_nr[0] +
-                           fde->mdisk.range_nr[1] +
-                           fde->mdisk.range_nr[2]);
+        fde->mdisk.size = (fde->mdisk.range_nr);
         size = fde->mdisk.size * sizeof(range_t);
         
         if (!size) {
@@ -1644,10 +1658,16 @@ int __mdisk_write(struct fdhash_entry *fde, struct mdsl_storage_access *msa)
 {
     loff_t offset = 0;
     long bw, bl = 0;
+    u32 crc = ~(u32)0;
     int err = 0;
     
     if (fde->state != FDE_MDISK && fde->state != FDE_LOCKED)
         return 0;
+    
+    /* calculate the crc32c checksum */
+    fde->mdisk.crc = 0;
+    fde->mdisk.crc = crc32c(crc, (const u8 *)(&fde->mdisk), 
+                            sizeof(struct md_disk));
     
     /* we should write the fde.mdisk to disk file */
     xlock_lock(&fde->lock);
@@ -1734,7 +1754,7 @@ int __mdisk_add_range_nolock(struct fdhash_entry *fde, u64 begin, u64 end,
     ptr->range_id = range_id;
     fde->mdisk.new_size = size;
 
-    fde->mdisk.range_nr[0]++;
+    fde->mdisk.range_nr++;
     
 out_unlock:
     
@@ -3077,7 +3097,8 @@ int mdsl_txg_integrated(void)
             br = pread(hmo.storage.txg_fd, (void *)&tb + bl,
                        sizeof(tb) - bl, offset + bl);
             if (br < 0) {
-                hvfs_err(mdsl, "read txg log file failed w/ %d\n", errno);
+                hvfs_err(mdsl, "read txg log file failed w/ %d offset %ld\n", 
+                         errno, offset + bl);
                 err = -errno;
                 goto out;
             } else if (br == 0) {
@@ -3126,8 +3147,8 @@ out_check:
     }
 out:
     if (err) {
-        hvfs_warning(mdsl, "MDSL txg integrated check failed w/ %d\n",
-                     err);
+        hvfs_warning(mdsl, "MDSL txg integrated check failed w/ %d(%s)\n",
+                     err, strerror(-err));
     }
 
     return err;
@@ -3172,4 +3193,9 @@ retry:
 
 out_failed:
     return err;
+}
+
+/* syncer helpers */
+int __sync_md(u64 duuid)
+{
 }
