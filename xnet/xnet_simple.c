@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-05-18 11:37:37 macan>
+ * Time-stamp: <2012-08-06 15:05:15 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -570,7 +570,7 @@ processing:
         }
         sem_post(&req->event);
     } else if (msg->tx.type == XNET_MSG_CMD) {
-        /* just receive the data */
+        /* same as NOP message, just receive the next msg. */
     } else if (msg->tx.type == XNET_MSG_NOP) {
         hvfs_debug(xnet, "recv NOP message, just receive the next msg.\n");
     }

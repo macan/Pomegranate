@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-27 22:29:00 macan>
+ * Time-stamp: <2012-08-10 17:11:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -334,7 +334,7 @@ send_rpy:
 void mdsl_statfs(struct xnet_msg *msg)
 {
     struct statfs *s = (struct statfs *)xzalloc(sizeof(struct statfs));
-    struct iovec iov;
+    struct iovec iov = {0,};
     int err = 0;
     
     /* ABI:

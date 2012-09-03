@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-12-30 16:11:31 macan>
+ * Time-stamp: <2012-08-16 14:09:24 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@
 #include <attr/xattr.h>
 #include <time.h>
 #include <sys/time.h>
+#ifdef USE_BDB
 #include "db.h"
 
 static char *hvfs_home = "/mnt/hvfs/testC";
@@ -401,7 +402,8 @@ void __hvfs_bench_fina_bdb(void)
         printf("Close the environment failed w %d\n", err);
     }
     sprintf(cmd, "rm -rf %s/*", hvfs_home);
-    system(cmd);
+    if (system(cmd) < 0)
+        printf("system(%s) failed!\n", cmd);
 }
 
 int __hvfs_bdb_set(int nr)
@@ -568,7 +570,8 @@ int main(int argc, char *argv[])
     fflush(stdout);
     {
         char key;
-        scanf("%c", &key);
+        if (scanf("%c", &key) <= 0)
+            return 0;
     }
 
     gettimeofday(&begin, NULL);
@@ -626,3 +629,11 @@ int main(int argc, char *argv[])
     
     return 0;
 }
+#else
+int main(int argc, char *argv[])
+{
+    printf("Please enable BDB support!\n");
+    
+    return 0;
+}
+#endif

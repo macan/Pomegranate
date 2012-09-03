@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-05-07 16:46:26 macan>
+ * Time-stamp: <2012-08-10 10:42:54 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,6 +46,12 @@ struct root_misc_prof
     atomic64_t reqin_handle;    /* # of handled requests */
 };
 
+struct root_osd_prof
+{
+    atomic64_t objrep_recved;   /* # of recved object reports */
+    atomic64_t objrep_handled;  /* # of handled object reports */
+};
+
 struct root_storage_prof
 {
 };
@@ -59,6 +65,7 @@ struct root_prof
     struct root_mdsl_prof mdsl;
     struct root_misc_prof misc;
     struct root_storage_prof storage;
+    struct root_osd_prof osd;
     struct xnet_prof *xnet;
 };
 

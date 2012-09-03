@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-05-22 17:18:49 macan>
+ * Time-stamp: <2012-08-10 17:33:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -122,6 +122,36 @@ void hvfs_mdsl_profile_setup(struct hvfs_profile_ex *hp)
     hp->nr = i;
 }
 
+void hvfs_osd_profile_setup(struct hvfs_profile_ex *hp)
+{
+    int i = 0;
+
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "timestamp");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "client.objrnr");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "client.objwnr");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "client.objrbytes");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "client.objwbytes");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "ring.update");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "ring.size");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "mdsl.objrnr");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "mdsl.objwnr");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "mdsl.objrbytes");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "mdsl.objwbytes");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "misc.reqin_total");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "misc.reqin_handle");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "xnet.msg_alloc");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "xnet.msg_free");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "xnet.inbytes");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "xnet.outbytes");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "xnet.active_links");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "storage.wbytes");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "storage.rbytes");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "storage.wreq");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "storage.rreq");
+    HVFS_PROFILE_NAME_ADDIN(hp, i, "storage.cpbytes");
+    hp->nr = i;
+}
+
 int root_setup_profile(void)
 {
     struct hvfs_profile_ex *hp;
@@ -131,6 +161,11 @@ int root_setup_profile(void)
     size_t len;
     int i;
 
+    /* sanity check */
+    if (!hro.conf.profiling_file) {
+        return -EINVAL;
+    }
+    
     /* Setup up mds profile */
     hp = &hro.hp_mds;
     memset(hp, 0, sizeof(*hp));
@@ -194,6 +229,38 @@ int root_setup_profile(void)
     }
     fflush(fp);
     hro.hp_mdsl.fp = fp;
+
+    /* Setup up osd profile */
+    hp = &hro.hp_osd;
+    memset(hp, 0, sizeof(*hp));
+    hvfs_osd_profile_setup(hp);
+    memset(fname, 0, sizeof(fname));
+    snprintf(fname, 255, "%s.osd", hro.conf.profiling_file);
+    fp = fopen(fname, "w+");
+    if (!fp) {
+        hvfs_err(xnet, "fopen() profiling file %s faield %d\n",
+                 fname, errno);
+        return -EINVAL;
+    }
+    len = fwrite("## ##\n", 1, 6, fp);
+    if (len < 6) {
+        hvfs_err(xnet, "fwrite() profiling file %s failed %d\n",
+                 fname, errno);
+        return -errno;
+    }
+    memset(data, 0, 4096);
+    len = sprintf(data, "@HVFS OSD PLOT DATA FILE :)\nlocal_ts");
+    for (i = 0; i < hp->nr; i++) {
+        len += sprintf(data + len, " %s", hp->hpe[i].name);
+    }
+    len += sprintf(data + len, "\n");
+    if (fwrite(data, 1, len, fp) < len) {
+        hvfs_err(xnet, "fwrite() profiling file %s failed %d\n",
+                 fname, errno);
+        return -errno;
+    }
+    fflush(fp);
+    hro.hp_osd.fp = fp;
 
     /* FIXME: Setup up bp profile */
     /* FIXME: Setup up client profile */
@@ -285,6 +352,26 @@ out:
     return err;
 }
 
+int root_profile_update_osd(struct hvfs_profile *hp,
+                            struct xnet_msg *msg)
+{
+    int err = 0, i;
+
+    if (hp->nr != hro.hp_osd.nr) {
+        hvfs_err(xnet, "Invalid OSD request from %lx, nr mismatch "
+                 "%d vs %d\n",
+                 msg->tx.ssite_id, hp->nr, hro.hp_osd.nr);
+        goto out;
+    }
+
+    for (i = 0; i < hp->nr; i++) {
+        HVFS_PROFILE_VALUE_UPDATE(&hro.hp_osd, hp, i);
+    }
+
+out:
+    return err;
+}
+
 int root_profile_update_bp(struct hvfs_profile *hp,
                            struct xnet_msg *msg)
 {
@@ -338,6 +425,19 @@ void root_profile_flush(time_t cur)
     }
     fflush(hro.hp_mdsl.fp);
     
+    /* flush osd profile */
+    memset(data, 0, sizeof(data));
+    len = sprintf(data, "%ld", cur);
+    for (i = 0; i < hro.hp_osd.nr; i++) {
+        len += sprintf(data + len, " %ld", hro.hp_osd.hpe[i].value);
+    }
+    len += sprintf(data + len, "\n");
+    if (fwrite(data, 1, len, hro.hp_osd.fp) < len) {
+        hvfs_err(xnet, "fwrite() profiling file OSD failed %d\n",
+                 errno);
+    }
+    fflush(hro.hp_osd.fp);
+
     /* FIXME: flush bp profile */
     /* FIXME: flush client profile */
 }
@@ -393,7 +493,7 @@ int root_info_mdsl(u64 arg, void **buf)
         for (i = 0; i < hro.hp_mdsl.nr; i++) {
             p += sprintf(p, " -> %20s\t\t%ld\n", hro.hp_mdsl.hpe[i].name,
                          hro.hp_mdsl.hpe[i].value);
-        }
+         }
         break;
     default:
     case HVFS_SYSINFO_MDSL_RATE:
@@ -401,6 +501,61 @@ int root_info_mdsl(u64 arg, void **buf)
                      "[Read     ] %10.4f/s\n",
                      g_hpmlr.write, g_hpmlr.read);
     }
+
+out:
+    return err;
+}
+
+int root_info_osd(u64 arg, void **buf)
+{
+    char *p;
+    int err = 0, i;
+
+    p = xzalloc(4096 << 2);
+    if (!p) {
+        hvfs_err(root, "xzalloc() info osd buffer failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    *buf = (void *)p;
+
+    switch (arg) {
+    default:
+    case HVFS_SYSINFO_OSD_RAW:
+        p += sprintf(p, "OSD RAW:\n");
+        for (i = 0; i < hro.hp_osd.nr; i++) {
+            p += sprintf(p, " -> %20s\t\t%ld\n", hro.hp_osd.hpe[i].name,
+                         hro.hp_osd.hpe[i].value);
+        }
+        break;
+    }
+
+out:
+    return err;
+}
+
+int root_info_root(u64 arg, void **buf)
+{
+    char *p;
+    int err = 0;
+
+    p = xzalloc(4096 << 2);
+    if (!p) {
+        hvfs_err(root, "xzalloc() info osd buffer failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    *buf = (void *)p;
+
+    p += sprintf(p, " -> %20s\t\t%ld\n", "misc.reqin_total", 
+                 atomic64_read(&hro.prof.misc.reqin_total));
+    p += sprintf(p, " -> %20s\t\t%ld\n", "misc.reqin_handle", 
+                 atomic64_read(&hro.prof.misc.reqin_handle));
+    p += sprintf(p, " -> %20s\t\t%ld\n", "osd.objrep_recved", 
+                 atomic64_read(&hro.prof.osd.objrep_recved));
+    p += sprintf(p, " -> %20s\t\t%ld\n", "osd.objrep_handled", 
+                 atomic64_read(&hro.prof.osd.objrep_handled));
+    
 
 out:
     return err;

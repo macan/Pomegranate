@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-06-07 00:04:15 macan>
+ * Time-stamp: <2012-08-10 15:31:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -516,6 +516,8 @@ int __mdisk_add_range_nolock(struct fdhash_entry *fde, u64 begin, u64 end,
                              u64 range_id);
 void __mdisk_range_sort(void *ranges, size_t size);
 int append_buf_destroy_async(struct fdhash_entry *fde);
+int mdsl_storage_bulk_load(struct fdhash_entry *fde,
+                           struct mdsl_storage_access *msa);
 
 /* defines for buf flush */
 #define ABUF_ASYNC      0x01

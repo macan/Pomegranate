@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-23 13:06:33 macan>
+ * Time-stamp: <2012-08-07 14:38:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -64,7 +64,7 @@
 #define HVFS_MDSL_GET_kmg(name, value) do {         \
         double base;                                \
         char *p;                                    \
-        (value) = getenv("hvfs_mds_" #name);        \
+        (value) = getenv("hvfs_mdsl_" #name);       \
         if (value) {                                \
             base = strtod(value, &p);               \
             if (*p == 'g' || *p == 'G') {           \

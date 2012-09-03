@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-23 12:07:25 macan>
+ * Time-stamp: <2012-09-03 14:24:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -118,7 +118,7 @@ int __aur_itb_split(struct async_update_request *aur)
             hvfs_warning(xnet, "xnet_alloc_msg() failed, re-submit the"
                          " AU request.\n");
             au_submit(aur);
-            return -ENOMEM;
+            return -ERETRY;
         }
         /* Step 1: we should update the local bitmap */
         mds_dh_bitmap_update(&hmo.dh, i->h.puuid, i->h.itbid,
@@ -753,7 +753,8 @@ int __au_req_handle(void)
                      aur->op, aur->arg);
     }
     atomic64_inc(&hmo.prof.misc.au_handle);
-    xfree(aur);
+    if (err != -ERETRY)
+        xfree(aur);
 
     return err;
 }
@@ -800,7 +801,8 @@ void au_handle_split_sync(void)
         hvfs_err(mds, "AU (split/bitmap[%ld]) handle error %d\n", 
                  aur->op, err);
     }
-    xfree(aur);
+    if (err != -ERETRY)
+        xfree(aur);
 
     return;
 }

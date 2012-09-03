@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-15 02:35:22 macan>
+ * Time-stamp: <2012-08-09 10:56:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,6 +42,14 @@ struct rename_reloc
 {
     u64 puuid;                  /* the original puuid */
     u64 psalt;                  /* the original psalt */
+};
+
+/* the object info */
+struct obj_info
+{
+    u32 prefer_bs;              /* prefered block size */
+    u32 objnr;                  /* # of objs */
+    u64 pad;
 };
 
 /* the HVFS metadata unit */
@@ -96,6 +104,7 @@ struct mdu
         struct llfs_ref lr;
         char symname[16];
         struct rename_reloc rr;
+        struct obj_info oi;
     };
 };
 

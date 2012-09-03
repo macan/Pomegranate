@@ -1,0 +1,81 @@
+/**
+ * Copyright (c) 2012 Ma Can <ml.macana@gmail.com>
+ *                           <macan@ncic.ac.cn>
+ *
+ * Armed with EMACS.
+ * Time-stamp: <2012-08-07 14:39:51 macan>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ */
+
+#ifndef __OSD_CONFIG_H__
+#define __OSD_CONFIG_H__
+
+#define HVFS_OSD_GET_ENV_strncpy(name, value, len) do {     \
+        (value) = getenv("hvfs_osd_" #name);                \
+        if (value) {                                        \
+            strncpy(hoo.conf.name, value, len);             \
+        }                                                   \
+    } while (0)
+
+#define HVFS_OSD_GET_ENV_cpy(name, value) do {  \
+        (value) = getenv("hvfs_osd_" #name);    \
+        if (value) {                            \
+            hoo.conf.name = value;              \
+        }                                       \
+    } while (0)
+
+#define HVFS_OSD_GET_ENV_atoi(name, value) do {     \
+        (value) = getenv("hvfs_osd_" #name);        \
+        if (value) {                                \
+            hoo.conf.name = atoi(value);            \
+        }                                           \
+    } while (0)
+
+#define HVFS_OSD_GET_ENV_atol(name, value) do {     \
+        (value) = getenv("hvfs_osd_" #name);        \
+        if (value) {                                \
+            hoo.conf.name = atol(value);            \
+        }                                           \
+    } while (0)
+
+#define HVFS_OSD_GET_ENV_option(name, uname, value) do {    \
+        (value) = getenv("hvfs_osd_opt_" #name);            \
+        if (value) {                                        \
+            if (atoi(value) != 0) {                         \
+                hoo.conf.option |= HVFS_OSD_##uname;        \
+            }                                               \
+        }                                                   \
+    } while (0)
+
+#define HVFS_OSD_GET_kmg(name, value) do {          \
+        double base;                                \
+        char *p;                                    \
+        (value) = getenv("hvfs_osd_" #name);        \
+        if (value) {                                \
+            base = strtod(value, &p);               \
+            if (*p == 'g' || *p == 'G') {           \
+                base *= 1024 * 1024 * 1024;         \
+            } else if (*p == 'm' || *p == 'M') {    \
+                base *= 1024 * 1024;                \
+            } else if (*p == 'k' || *p == 'K') {    \
+                base *= 1024;                       \
+            }                                       \
+            hoo.conf.name = (u64)base;              \
+        }                                           \
+    } while (0)
+
+#endif

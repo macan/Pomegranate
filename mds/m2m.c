@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-11-12 23:18:30 macan>
+ * Time-stamp: <2012-08-10 15:16:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -430,7 +430,7 @@ void mds_ausplit_redo(void *data, int len)
 
 void mds_forward(struct xnet_msg *msg)
 {
-    struct mds_fwd *mf;
+    struct mds_fwd __UNUSED__ *mf;
     struct xnet_msg_tx *tx;
     /* FIXME: we know we are using xnet-simple, so all the receiving iovs are
      * packed into one buf, we should save the begin address here */
@@ -916,13 +916,11 @@ send_rpy:
 void mds_audirdelta_r(struct xnet_msg *msg)
 {
     struct hvfs_dir_delta *hdd;
-    int err = 0;
     
     /* sanity checking */
     if (msg->tx.len < sizeof(struct hvfs_dir_delta)) {
         hvfs_err(mds, "Invalid AUDIRDELTA_R request %d received from %lx\n",
                  msg->tx.reqno, msg->tx.ssite_id);
-        err = -EINVAL;
         goto out;
     }
 

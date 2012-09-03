@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-17 11:32:21 macan>
+ * Time-stamp: <2012-08-09 11:00:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -82,6 +82,7 @@ struct hvfs_index
 #define INDEX_CREATE_GDT        0x00020000 /* create the gdt entry */
 
 #define INDEX_CREATE_LARGE      0x00800000 /* create large file */
+#define INDEX_CREATE_OBJ        0x08000000 /* create large object file */
 #define INDEX_CREATE_SMALL      0x00040000 /* create small file */
 #define INDEX_CREATE_KV         0x00080000 /* create kv file */
 
@@ -206,6 +207,7 @@ struct mdu_update
                                    * linkadd operation */
 #define MU_DEV          (1 << 15)
 #define MU_SRR          (1 << 16) /* suppress rename relocation fix */
+#define MU_OI           (1 << 17) /* set object info */
 
     u64 atime;
     u64 mtime;

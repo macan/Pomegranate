@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-22 15:18:15 macan>
+ * Time-stamp: <2012-09-03 16:00:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -726,6 +726,8 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
             (*freed)++;
         } else if (ih->state == ITB_STATE_DIRTY) {
             /* write w/ lock holding */
+            hvfs_debug(mds, "ITB %ld %p state %x, ref %d, flag %d.\n",
+                       ih->itbid, i, ih->state, atomic_read(&ih->ref), ih->flag);
             if (tmpi) {
                 /* ok, we just copy the itb to the temp itb */
                 memcpy(tmpi, i, atomic_read(&i->h.len));
@@ -1300,7 +1302,7 @@ static inline
 struct xnet_group *__get_active_site(struct chring *r)
 {
     struct xnet_group *xg = NULL;
-    int i, err;
+    int i, __UNUSED__ err;
 
     for (i = 0; i < r->used; i++) {
         err = xnet_group_add(&xg, r->array[i].site_id);

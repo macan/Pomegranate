@@ -43,6 +43,12 @@ BP_IP_PREFIX = os.getenv("BP_IP_PREFIX", DEFAULT_IP_PREFIX)
 BP_IP_SUFFIX = os.getenv("BP_IP_SUFFIX", None)
 BP_PORT = os.getenv("BP_PORT", "7900")
 
+# D. osd ip prefix
+OSD_IP_PREFIX = os.getenv("OSD_IP_PREFIX", DEFAULT_IP_PREFIX)
+# E. osd ip suffix set
+OSD_IP_SUFFIX = os.getenv("OSD_IP_SUFFIX", None)
+OSD_PORT = os.getenv("OSD_PORT", "7900")
+
 def main(argv):
     # argv[1] is target file
     if len(argv) < 2:
@@ -109,6 +115,16 @@ def main(argv):
         id = 0
         for x in sset:
             line = "bp:" + BP_IP_PREFIX + x + ":" + BP_PORT + ":" + str(id)
+            id += 1
+            f.write(line + "\n")
+            print line
+
+    # write osd region
+    if OSD_IP_SUFFIX != None:
+        sset = shlex.split(OSD_IP_SUFFIX)
+        id = 0
+        for x in sset:
+            line = "osd:" + OSD_IP_PREFIX + x + ":" + OSD_PORT + ":" + str(id)
             id += 1
             f.write(line + "\n")
             print line

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-23 09:56:06 macan>
+ * Time-stamp: <2012-08-10 17:15:11 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -663,7 +663,7 @@ out:
 struct xnet_group *cli_get_active_site(struct chring *r)
 {
     struct xnet_group *xg = NULL;
-    int i, err;
+    int i, __UNUSED__ err;
 
     for (i = 0; i < r->used; i++) {
         err = xnet_group_add(&xg, r->array[i].site_id);

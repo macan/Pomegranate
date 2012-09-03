@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-10-04 06:51:40 macan>
+ * Time-stamp: <2012-08-10 15:09:38 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@
 #include <attr/xattr.h>
 
 #define HVFS_MDU_IF_LARGE       0x04000000 /* large file */
+#define __UNUSED__ __attribute__((unused))
 
 struct base_dbs
 {
@@ -85,9 +86,9 @@ int __native_optest(int argc, char *argv[])
 {
     char buf[4096];
     char *p = NULL, *s = NULL;
-    unsigned long itbid;
+    unsigned long __UNUSED__ itbid;
     ssize_t len;
-    off_t offset;
+    off_t __UNUSED__ offset;
     int err = 0;
 
     err = open("./xattr.native", O_CREAT, S_IRUSR | S_IWUSR);
@@ -151,7 +152,12 @@ out:
 
 int __native_umftest(int argc, char *argv[])
 {
-    char buf[4096];
+    union __abc__
+    {
+        char buf[4096];
+        unsigned int ibuf[4096/sizeof(unsigned int)];
+    } abc;
+    
     int err = 0;
 
     err = mkdir("./xattr.umf", 0777);
@@ -162,8 +168,8 @@ int __native_umftest(int argc, char *argv[])
     }
 
     /* setxattr */
-    sprintf(buf, "pfs.native.0.umf.set.%d", HVFS_MDU_IF_LARGE);
-    err = setxattr("./xattr.umf", buf, NULL, 0, 0);
+    sprintf(abc.buf, "pfs.native.0.umf.set.%d", HVFS_MDU_IF_LARGE);
+    err = setxattr("./xattr.umf", abc.buf, NULL, 0, 0);
     if (err) {
         perror("setxattr('./xattr.umf'):");
         err = errno;
@@ -171,14 +177,14 @@ int __native_umftest(int argc, char *argv[])
     }
 
     /* check the flag value */
-    sprintf(buf, "pfs.native.0.umf.cat");
-    err = getxattr("./xattr.umf", buf, buf, sizeof(buf));
+    sprintf(abc.buf, "pfs.native.0.umf.cat");
+    err = getxattr("./xattr.umf", abc.buf, abc.buf, sizeof(abc.buf));
     if (err < 0) {
         perror("getxattr('./xattr.umf'):");
         err = errno;
         goto out_rmdir;
     }
-    if (*(unsigned int *)buf & HVFS_MDU_IF_LARGE) {
+    if (abc.ibuf[0] & HVFS_MDU_IF_LARGE) {
         printf("OK to cat the LARGE flag.\n");
     } else {
         printf("BAD, failed with LARGE flag.\n");

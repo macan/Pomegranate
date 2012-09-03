@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-18 11:02:40 macan>
+ * Time-stamp: <2012-08-06 15:05:44 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,7 +33,7 @@ struct xnet_msg_tx
 #define XNET_MSG_NOP    0
 #define XNET_MSG_REQ    1
 #define XNET_MSG_RPY    2
-#define XNET_MSG_CMD    3
+#define XNET_MSG_CMD    3       /* this is a local marker in recv queue */
 #define XNET_MSG_HELLO  4
 #define XNET_MSG_HELLO_ACK 5
     u8 type;                           /* msg type */
@@ -301,6 +301,24 @@ retry:
     }
 out:
     return err;
+}
+
+static int __xg_compare(const void *a, const void *b)
+{
+    return ((struct xnet_group_entry *)a)->site_id < 
+        ((struct xnet_group_entry *)b)->site_id ? -1 :
+        (((struct xnet_group_entry *)a)->site_id >
+         ((struct xnet_group_entry *)b)->site_id ? 1 : 0);
+}
+
+static inline
+void xnet_group_sort(struct xnet_group *xg)
+{
+    if (!xg)
+        return;
+
+    qsort(xg->sites, xg->asize, sizeof(struct xnet_group_entry),
+          __xg_compare);
 }
 
 /* Profiling Section */

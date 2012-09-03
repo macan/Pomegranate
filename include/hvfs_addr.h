@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-02 13:12:22 macan>
+ * Time-stamp: <2012-08-14 09:59:36 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -150,6 +150,19 @@ struct hvfs_mdsl_info
     atomic64_t mi_bid;          /* next branch id */
 };
 
+struct hvfs_osd_info
+{
+    u32 state;
+    u32 group;
+    u64 gdt_salt;               /* just a magic to test */
+    u64 root_salt;              /* just a magic to test */
+    atomic64_t active;          /* total active objects */
+    atomic64_t mi_bused;        /* used bytes */
+    atomic64_t mi_bfree;        /* free bytes */
+    atomic64_t mi_bwrite;       /* bytes totally written(for data) */
+    atomic64_t mi_bread;        /* bytes totally read(for data) */
+};
+
 /*
  * Note: we just saving the data region to the storage, ourself do not
  * interpret it.
@@ -162,6 +175,7 @@ union hvfs_x_info
     struct hvfs_mdsl_info hmli;
     struct hvfs_client_info hci;
     struct hvfs_amc_info ami;
+    struct hvfs_osd_info hoi;
 };
 
 /* please refer to r2/mgr.h struct root, this is a mirror of that structure */

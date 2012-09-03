@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2012-05-18 15:48:24 macan>
+# Time-stamp: <2012-09-03 13:10:39 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -126,6 +126,27 @@ else
     fi
 fi
 
+# Construct the osd command line
+if [ -e $HVFS_HOME/conf/osd.conf ]; then
+    # Using the config file
+    if [ "x$MODE" == "xfs" ]; then
+        ARGS=`cat $HVFS_HOME/conf/osd.conf | grep -v "^ *#" | grep -v "^$" | grep -v "fsid="`
+        OSD_CMD="LOG_DIR=$LOG_DIR fsid=0 "`echo $ARGS`
+    elif [ "x$MODE" == "xkv" ]; then
+        ARGS=`cat $HVFS_HOME/conf/osd.conf | grep -v "^ *#" | grep -v "^$" | grep -v "fsid="`
+        OSD_CMD="LOG_DIR=$LOG_DIR fsid=1 "`echo $ARGS`
+    else
+        ARGS=`cat $HVFS_HOME/conf/osd.conf | grep -v "^ *#" | grep -v "^$"`
+        OSD_CMD="LOG_DIR=$LOG_DIR "`echo $ARGS`
+    fi
+else
+    if [ "x$MODE" == "xfs" ]; then
+        OSD_CMD="fsid=0 mode=1 hvfs_osd_prof_plot=1 hvfs_osd_opt_write_drop=0"
+    else
+        OSD_CMD="fsid=1 mode=1 hvfs_osd_prof_plot=1 hvfs_osd_opt_write_drop=0"
+    fi
+fi
+
 CLIENT_CMD=""
 
 ipnr=`cat $CONFIG_FILE | grep "r2:" | awk -F: '{print $2":"$4}'`
@@ -144,6 +165,12 @@ function adjust_syn() {
         $SSH $UN$ip "$SYSCTL_ADJ_SYN" > /dev/null &
     done
     echo "Adjust SYN on MDSL server done."
+    ipnr=`cat $CONFIG_FILE | grep "osd:" | awk -F: '{print $2":"$4":"$3}'`
+    for x in $ipnr; do 
+        ip=`echo $x | awk -F: '{print $1}'`
+        $SSH $UN$ip "$SYSCTL_ADJ_SYN" > /dev/null &
+    done
+    echo "Adjust SYN on OSD server done."
     ipnr=`cat $CONFIG_FILE | grep "mds:" | awk -F: '{print $2":"$4":"$3}'`
     for x in $ipnr; do
         ip=`echo $x | awk -F: '{print $1}'`
@@ -170,6 +197,28 @@ function start_mdsl() {
             port=`echo $x | awk -F: '{print $3}'`
             $SSH $UN$ip "$MDSL_CMD $HVFS_HOME/test/xnet/mdsl.ut $id $R2IP $port > $LOG_DIR/mdsl.$id.log" > /dev/null &
             echo "Start MDSL server $id done."
+        done
+    fi
+}
+
+function start_osd() {
+    if [ "x$1" == "x" ]; then
+        ipnr=`cat $CONFIG_FILE | grep "osd:" | awk -F: '{print $2":"$4":"$3}'`
+        for x in $ipnr; do 
+            ip=`echo $x | awk -F: '{print $1}'`
+            id=`echo $x | awk -F: '{print $2}'`
+            port=`echo $x | awk -F: '{print $3}'`
+            $SSH $UN$ip "$OSD_CMD $HVFS_HOME/test/xnet/osd.ut $id $R2IP $port > $LOG_DIR/osd.$id.log" > /dev/null &
+        done
+        echo "Start OSD server done."
+    else
+        ipnr=`cat $CONFIG_FILE | grep "osd:.*:$1\$" | awk -F: '{print $2":"$4":"$3}'`
+        for x in $ipnr; do 
+            ip=`echo $x | awk -F: '{print $1}'`
+            id=`echo $x | awk -F: '{print $2}'`
+            port=`echo $x | awk -F: '{print $3}'`
+            $SSH $UN$ip "$OSD_CMD $HVFS_HOME/test/xnet/osd.ut $id $R2IP $port > $LOG_DIR/osd.$id.log" > /dev/null &
+            echo "Start OSD server $id done."
         done
     fi
 }
@@ -276,6 +325,18 @@ function check_mdsl() {
     done
 }
 
+function check_osd() {
+    ipnr=`cat $CONFIG_FILE | grep "osd:" | awk -F: '{print $2":"$4}'`
+    for x in $ipnr; do 
+        ip=`echo $x | awk -F: '{print $1}'`
+        id=`echo $x | awk -F: '{print $2}'`
+        R=`$SSH $UN$ip "cat $LOG_DIR/osd.$id.log | grep UP"`
+        if [ "x$R" == "x" ]; then
+            echo "OSD $id is not alive, please check it!"
+        fi
+    done
+}
+
 function check_mds() {
     ipnr=`cat $CONFIG_FILE | grep "mds:" | awk -F: '{print $2":"$4}'`
     for x in $ipnr; do 
@@ -317,6 +378,7 @@ function check_all() {
     check_root
     check_mds
     check_mdsl
+    check_osd
 }
 
 function stop_mdsl() {
@@ -330,6 +392,22 @@ function stop_mdsl() {
         ip=`echo $x | awk -F: '{print $1}'`
         id=`echo $x | awk -F: '{print $2}'`
         PID=`$SSH $UN$ip "ps aux" | grep "mdsl.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
+        $SSH $UN$ip "kill -s SIGHUP $PID 2>&1 > /dev/null" > /dev/null
+    done
+    sleep 5
+}
+
+function stop_osd() {
+    if [ "x$1" == "x" ]; then
+        ipnr=`cat $CONFIG_FILE | grep "osd:" | awk -F: '{print $2":"$4}'`
+    else
+        ipnr=`cat $CONFIG_FILE | grep "osd:.*:$1\$" | awk -F: '{print $2":"$4}'`
+    fi
+
+    for x in $ipnr; do 
+        ip=`echo $x | awk -F: '{print $1}'`
+        id=`echo $x | awk -F: '{print $2}'`
+        PID=`$SSH $UN$ip "ps aux" | grep "osd.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
         $SSH $UN$ip "kill -s SIGHUP $PID 2>&1 > /dev/null" > /dev/null
     done
     sleep 5
@@ -398,6 +476,22 @@ function kill_mdsl() {
     sleep 5
 }
 
+function kill_osd() {
+    if [ "x$1" == "x" ]; then
+        ipnr=`cat $CONFIG_FILE | grep "osd:" | awk -F: '{print $2":"$4}'`
+    else
+        ipnr=`cat $CONFIG_FILE | grep "osd:.*:$1\$" | awk -F: '{print $2":"$4}'`
+    fi
+
+    for x in $ipnr; do 
+        ip=`echo $x | awk -F: '{print $1}'`
+        id=`echo $x | awk -F: '{print $2}'`
+        PID=`$SSH $UN$ip "ps aux" | grep "osd.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep`
+        $SSH $UN$ip "kill -9 $PID 2>&1 > /dev/null" > /dev/null
+    done
+    sleep 5
+}
+
 function kill_mds() {
     if [ "x$1" == "x" ]; then
         ipnr=`cat $CONFIG_FILE | grep "mds:" | awk -F: '{print $2":"$4}'`
@@ -449,15 +543,18 @@ function start_all() {
     start_root
     start_mdsl
     start_mds
+    start_osd
 }
 
 function stop_all() {
+    stop_osd
     stop_mds
     stop_mdsl
     stop_root
 }
 
 function kill_all() {
+    kill_osd
     kill_mdsl
     kill_mds
     kill_root
@@ -471,6 +568,7 @@ function do_clean() {
         id=`echo $x | awk -F: '{print $2}'`
         $SSH $UN$ip "rm -rf /tmp/hvfs/4*" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/hvfs/6*" > /dev/null
+        $SSH $UN$ip "rm -rf /tmp/hvfs/a*" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/hvfs/bp" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/hvfs/*_store" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/.MDS.DCONF.*" > /dev/null
@@ -488,6 +586,21 @@ function stat_mdsl() {
             echo "MDSL $id is running."
         else
             echo "MDSL $id is gone."
+        fi
+    done
+}
+
+function stat_osd() {
+    echo "----------OSD-----------"
+    ipnr=`cat $CONFIG_FILE | grep "osd:" | awk -F: '{print $2":"$4}'`
+    for x in $ipnr; do 
+        ip=`echo $x | awk -F: '{print $1}'`
+        id=`echo $x | awk -F: '{print $2}'`
+        NR=`$SSH $UN$ip "ps aux" | grep "osd.ut $id" | grep -v bash | grep -v ssh | grep -v expect | grep -v grep | wc -l`
+        if [ "x$NR" == "x1" ]; then
+            echo "OSD  $id is running."
+        else
+            echo "OSD  $id is gone."
         fi
     done
 }
@@ -598,6 +711,7 @@ function repeat_ut() {
     RND=1
     while true;
     do
+        sleep 5
         stat_client > rut.log
         RES=`cat rut.log | grep running`
         if [ "x$RES" == "x" ]; then
@@ -609,7 +723,6 @@ function repeat_ut() {
             let RND+=1
             do_ut
         fi
-        sleep 5
     done
     rm -rf rut.log
 }
@@ -618,6 +731,7 @@ function do_status() {
     echo "Checking servers' status ..."
     stat_mdsl
     stat_mds
+    stat_osd
     stat_root
 }
 
@@ -781,14 +895,16 @@ function pview() {
         exec $SSH $UN$R2IP tail -f $LOG_DIR/CP-BACK-root.0.mds
     elif [ "x$1" == "xmdsl" ]; then
         exec $SSH $UN$R2IP tail -f $LOG_DIR/CP-BACK-root.0.mdsl
+    elif [ "x$1" == "xosd" ]; then
+        exec $SSH $UN$R2IP tail -f $LOG_DIR/CP-BACK-root.0.osd
     fi
 }
 
 function do_help() {
-    echo "Version 1.0.0b"
-    echo "Copyright (c) 2010 Can Ma <ml.macana@gmail.com>"
+    echo "Version 1.0.1b"
+    echo "Copyright (c) 2010-2012 Can Ma <ml.macana@gmail.com>"
     echo ""
-    echo "Usage: hvfs.sh [start|stop|kill|check] [mds|mdsl|r2|bp|all] [id]"
+    echo "Usage: hvfs.sh [start|stop|kill|check] [mds|mdsl|osd|r2|bp|all] [id]"
     echo "               [clean|stat]"
     echo "               [ut|kut|sut]"
     echo "               [mount|umount|ml]"
@@ -807,7 +923,8 @@ function do_help() {
     echo "      mount           mount the fuse client"
     echo "      umount          umount the fuse client"
     echo "      ml              list the mounted pfs entry"
-    echo "      pview [mds|"
+    echo "      pview [mds |"
+    echo "             osd |"
     echo "             mdsl]    view the aggregated R2 log"
     echo ""
     echo "Environments:"
@@ -842,6 +959,8 @@ if [ "x$1" == "xstart" ]; then
         start_mds $3
     elif [ "x$2" == "xmdsl" ]; then
         start_mdsl $3
+    elif [ "x$2" == "xosd" ]; then
+        start_osd $3
     elif [ "x$2" == "xr2" ]; then
         start_root $3
     elif [ "x$2" == "xbp" ]; then
@@ -854,6 +973,8 @@ elif [ "x$1" == "xstop" ]; then
         stop_mds $3
     elif [ "x$2" == "xmdsl" ]; then
         stop_mdsl $3
+    elif [ "x$2" == "xosd" ]; then
+        stop_osd $3
     elif [ "x$2" == "xr2" ]; then
         stop_root $3
     elif [ "x$2" == "xbp" ]; then
@@ -866,6 +987,8 @@ elif [ "x$1" == "xkill" ]; then
         kill_mds
     elif [ "x$2" == "xmdsl" ]; then
         kill_mdsl
+    elif [ "x$2" == "xosd" ]; then
+        kill_osd
     elif [ "x$2" == "xr2" ]; then
         kill_root
     elif [ "x$2" == "xbp" ]; then
@@ -878,6 +1001,8 @@ elif [ "x$1" == "xcheck" ]; then
         check_mds
     elif [ "x$2" == "xmdsl" ]; then
         check_mdsl
+    elif [ "x$2" == "xosd" ]; then
+        check_osd
     elif [ "x$2" == "xr2" ]; then
         check_root
     elif [ "x$2" == "xbp" ]; then
@@ -891,13 +1016,13 @@ elif [ "x$1" == "xut" ]; then
     do_ut
     while true;
     do
+        sleep 5
         stat_client > ut.log
         RES=`cat ut.log | grep running`
         if [ "x$RES" == "x" ]; then
             gather_rps
             break;
         fi
-        sleep 5
     done
     rm -rf ut.log
 elif [ "x$1" == "xkut" ]; then

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-10-08 09:45:28 macan>
+ * Time-stamp: <2012-08-10 15:14:25 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -38,7 +38,7 @@ int mds_seg_alloc(struct segment *s, struct eh *eh)
         err = -ENOMEM;
     }
 
-    return 0;
+    return err;
 }
 
 void mds_seg_free(struct segment *s)

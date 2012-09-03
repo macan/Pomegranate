@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-04-06 16:33:25 macan>
+# Time-stamp: <2012-08-10 14:00:43 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -20,10 +20,10 @@ BDB_INC_PATH = $(BDB_MAIN)/include
 BDB_LIB_PATH = $(BDB_MAIN)/lib
 
 all : bdb_test
-	@echo "BDB test targets are ready."
+	@$(ECHO) "BDB test targets are ready."
 
 bdb_test : $(BDB_TEST)
-	@echo -e " " CC"\t" bdb_test.c
+	@$(ECHO) -e " " CC"\t" bdb_test.c
 	@gcc bdb_test.c -o bdb_test.ut -I$(BDB_INC_PATH) -L$(BDB_LIB_PATH) -ldb
 
 clean :

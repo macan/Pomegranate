@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-10-27 05:55:45 macan>
+ * Time-stamp: <2012-08-10 15:13:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -327,7 +327,7 @@ void ring_stat(struct chring *r, int nr)
         last_point = r->array[i].point;
     }
     for (i = 0; i < nr; i++) {
-        hvfs_info(lib, "rglen[%d] = %ld %.2f\\%\n", i, rglen[i],
+        hvfs_info(lib, "rglen[%d] = %ld %.2f%%\n", i, rglen[i],
                   (double)rglen[i] / 0xffffffffffffffff * 100);
     }
 }

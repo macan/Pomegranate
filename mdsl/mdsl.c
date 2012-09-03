@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-07 11:05:57 macan>
+ * Time-stamp: <2012-08-09 14:16:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -460,7 +460,7 @@ void mdsl_help(void)
                " hvfs_mdsl_gc_interval          wakeup interval for gc thread.\n"
                " hvfs_mdsl_opt_write_drop       drop the writes to this MDSL.\n"
         );
-    hvfs_plain(mdsl, "Any questions please contacts Ma Can <macan@ncic.ac.cn>\n");
+    hvfs_plain(mdsl, "Any questions please contacts Ma Can.\n");
 }
 
 /* mdsl_init()
@@ -472,7 +472,6 @@ int mdsl_init(void)
     /* lib init */
     lib_init();
 
-    mdsl_pre_init();
     /* FIXME: decode the cmdline */
 
     /* FIXME: configurations */

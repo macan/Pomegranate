@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-05-22 17:51:22 macan>
+ * Time-stamp: <2012-08-13 09:11:03 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -477,6 +477,11 @@ int root_init(void)
     if (err)
         goto out_profile;
 
+    /* setup the object manager */
+    err = om_init(HVFS_OM_TYPE_MASTER);
+    if (err)
+        goto out_om;
+
     /* maks the SIGUSR1 signal for main thread */
     {
         sigset_t set;
@@ -490,6 +495,7 @@ int root_init(void)
     hro.state = HRO_STATE_RUNNING;
     hro.uptime = time(NULL);
 
+out_om:
 out_profile:
 out_timers:
 out_spool:
@@ -509,6 +515,7 @@ void root_destroy(void)
     hvfs_verbose(root, "OK, stop it now ...\n");
 
     /* free something */
+    om_destroy();
 
     /* destroy the service thread pool */
     root_spool_destroy();

@@ -1,0 +1,27 @@
+1. Under high memory usage (w/o memlimit)
+
+*** glibc detected *** /home/macan/Work/Pomegranate/test/xnet/mds.ut: double free or corruption (fasttop): 0x00007f55d8d56fa0 ***
+======= Backtrace: =========
+/lib/x86_64-linux-gnu/libc.so.6(+0x7e626)[0x7f561f12e626]
+/home/macan/Work/Pomegranate/test/xnet/mds.ut(__au_req_handle+0x98)[0x45c068]
+/home/macan/Work/Pomegranate/test/xnet/mds.ut(async_update+0xc2)[0x45c222]
+/lib/x86_64-linux-gnu/libpthread.so.0(+0x7e9a)[0x7f561f474e9a]
+/lib/x86_64-linux-gnu/libc.so.6(clone+0x6d)[0x7f561f1a24bd]
+
+2. Under high memory usage (w/ memlimit)
+
+[ERR ] HVFS (/home/macan/Work/Pomegranate/mds/itb.c,  1238): get_free_itb[7f24349cb700]: Pause modify operations @ Fri Aug 17 10:01:27 2012
+[INFO] Entering new txg 3 (mp forced)
+[INFO] OK, we reset the itimer to 125000 us.
+[WARN] HVFS (/home/macan/Work/Pomegranate/mds/txg.c,  1229): txg_ddht_compact[7f24359d3700]: In txg 2 compact 0 dir delta(s)
+[WARN] HVFS (/home/macan/Work/Pomegranate/mds/mds.c,   499): mds_cbht_evict_default[7f242e7fc700]: DO evict on clean ITB 0 txg 1
+[ERR ] HVFS (/home/macan/Work/Pomegranate/mds/itb.c,  1238): get_free_itb[7f242ffff700]: Pause modify operations @ Fri Aug 17 10:01:27 2012
+[INFO] Recv ^[[0;40;31mSIGSEGV/SIGBUS/SIGABRT^[[0m address not mapped to object @ addr 0x7f242c06d030
+[INFO] /home/macan/Work/Pomegranate/test/xnet/mds.ut(lib_segv+0x17) [0x4a7757]
+[INFO] /home/macan/Work/Pomegranate/test/xnet/mds.ut(mds_sigaction_default+0x46) [0x448196]
+[INFO] /lib/x86_64-linux-gnu/libpthread.so.0(+0xfcb0) [0x7f24363a3cb0]
+[INFO] /lib/x86_64-linux-gnu/libpthread.so.0(pthread_rwlock_unlock+0x7) [0x7f243639f8a7]
+[INFO] /home/macan/Work/Pomegranate/test/xnet/mds.ut(txg_commit+0x3ab) [0x44ae5b]
+[INFO] /lib/x86_64-linux-gnu/libpthread.so.0(+0x7e9a) [0x7f243639be9a]
+[INFO] /lib/x86_64-linux-gnu/libc.so.6(clone+0x6d) [0x7f24360c94bd]
+[INFO] SIGSEGV info: signo 11 errno 0 code 1

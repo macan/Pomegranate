@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-17 13:11:09 macan>
+ * Time-stamp: <2012-08-10 15:15:45 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -748,13 +748,11 @@ send_err_rpy:
 void mds_dump_itb(struct hvfs_tx *tx)
 {
     struct hvfs_index *hi = NULL;
-    int err;
 
     /* sanity checking */
     if (unlikely(tx->req->tx.len < sizeof(*hi))) {
         hvfs_err(mds, "Invalid DITB request %d recieved\n",
                  tx->req->tx.reqno);
-        err = -EINVAL;
         goto out;
     }
 

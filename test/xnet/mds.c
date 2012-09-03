@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-05-18 11:59:35 macan>
+ * Time-stamp: <2012-08-10 13:43:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1102,7 +1102,7 @@ int main(int argc, char *argv[])
     };
     int err = 0;
     int self, sport = -1, i, j;
-    int memonly, memlimit, mode, plot_method;
+    int mode, plot_method;
     char *value;
     char *ring_ip = NULL;
     char profiling_fname[256], *log_home;
@@ -1123,18 +1123,6 @@ int main(int argc, char *argv[])
         } else if (argc == 3)
             ring_ip = argv[2];
     }
-
-    value = getenv("memonly");
-    if (value) {
-        memonly = atoi(value);
-    } else
-        memonly = 1;
-
-    value = getenv("memlimit");
-    if (value) {
-        memlimit = atoi(value);
-    } else
-        memlimit = 0;
 
     value = getenv("mode");
     if (value) {

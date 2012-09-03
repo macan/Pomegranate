@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-21 10:20:14 macan>
+ * Time-stamp: <2012-08-10 15:30:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1618,7 +1618,7 @@ static int hvfs_mkdir(const char *pathname, mode_t mode)
     struct mdu_update mu;
     char *dup = strdup(pathname), *path, *name, *spath = NULL;
     char *p = NULL, *n, *s = NULL;
-    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt, duuid;
+    u64 puuid = hmi.root_uuid, psalt = hmi.root_salt, __UNUSED__ duuid;
     u32 mdu_flags = 0;
     int err = 0;
 
@@ -1733,8 +1733,9 @@ static int hvfs_unlink(const char *pathname)
     struct hstat hs = {0,};
     char *dup = strdup(pathname), *path, *name, *spath = NULL;
     char *p = NULL, *n, *s = NULL;
-    u64 saved_puuid = hmi.root_uuid, saved_psalt = hmi.root_salt;
-    u64 saved_hash = 0;
+    u64 __UNUSED__ saved_puuid = hmi.root_uuid, 
+        __UNUSED__ saved_psalt = hmi.root_salt,
+        __UNUSED__ saved_hash = 0;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     u32 mdu_flags = 0;
     int err = 0;
@@ -1816,8 +1817,9 @@ static int hvfs_rmdir(const char *pathname)
     struct hstat hs = {0,};
     char *dup = strdup(pathname), *path, *name, *spath = NULL;
     char *p = NULL, *n, *s = NULL;
-    u64 saved_puuid = hmi.root_uuid, saved_psalt = hmi.root_salt;
-    u64 saved_hash = 0;
+    u64 __UNUSED__ saved_puuid = hmi.root_uuid, 
+        __UNUSED__ saved_psalt = hmi.root_salt,
+        __UNUSED__ saved_hash = 0;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     u32 mdu_flags = 0;
     int err = 0;
@@ -2933,8 +2935,9 @@ static int hvfs_truncate(const char *pathname, off_t size)
     struct mdu_update mu = {.valid = 0,};
     char *dup = strdup(pathname), *path, *name;
     char *p = NULL, *n, *s = NULL;
-    u64 saved_puuid = hmi.root_uuid, saved_psalt = hmi.root_salt;
-    u64 saved_hash = 0;
+    u64 __UNUSED__ saved_puuid = hmi.root_uuid, 
+        __UNUSED__ saved_psalt = hmi.root_salt,
+        __UNUSED__ saved_hash = 0;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
     ssize_t rlen;
     int err = 0;
@@ -5329,9 +5332,9 @@ ssize_t __hvfs_xattr_tag_test(char *key, char *p, char **s,
                               char *value, size_t size)
 {
     ssize_t err = 0;
-    char *B_name = NULL;
-    char *buf = NULL, *ukey = NULL;
-    u8 no_B = 0;
+    char __UNUSED__ *B_name = NULL;
+    char *buf = NULL, __UNUSED__ *ukey = NULL;
+    u8 __UNUSED__ no_B = 0;
 
     /* get B */
     HVFS_XATTR_NT(key, p, s, err, out);
@@ -5436,7 +5439,7 @@ ssize_t __hvfs_xattr_tag_search(char *key, char *p, char **s,
     ssize_t err = 0;
     char *B_name = NULL;
     char *buf = NULL, *dbname = NULL, *prefix = NULL, *sexpr = NULL;
-    u8 no_B = 0;
+    u8 __UNUSED__ no_B = 0;
 
     /* get B */
     HVFS_XATTR_NT(key, p, s, err, out);

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-05-22 17:52:13 macan>
+ * Time-stamp: <2012-08-13 09:49:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,6 +31,7 @@
 #include "mgr.h"
 #include "xnet.h"
 #include "profile.h"
+#include "obj.h"
 
 struct root_conf
 {
@@ -137,7 +138,7 @@ struct hvfs_root_object
     pthread_t timer_thread;
 
     /* profile section */
-    struct hvfs_profile_ex hp_mds, hp_mdsl, hp_bp, hp_client;
+    struct hvfs_profile_ex hp_mds, hp_mdsl, hp_osd, hp_bp, hp_client;
 
     /* uptime */
     time_t uptime;
@@ -158,6 +159,8 @@ struct hvfs_sys_info
 #define HVFS_SYSINFO_SITE               1
 #define HVFS_SYSINFO_MDS                2
 #define HVFS_SYSINFO_MDSL               3
+#define HVFS_SYSINFO_OSD                4
+#define HVFS_SYSINFO_ROOT               5
 
 #define HVFS_SYSINFO_ALL                100
     u32 cmd;
@@ -168,6 +171,7 @@ struct hvfs_sys_info
 #define HVFS_SYSINFO_SITE_CLIENT        3
 #define HVFS_SYSINFO_SITE_BP            4
 #define HVFS_SYSINFO_SITE_R2            5
+#define HVFS_SYSINFO_SITE_OSD           6
 
 #define HVFS_SYSINFO_SITE_MASK          0x0f
 
@@ -176,6 +180,9 @@ struct hvfs_sys_info
 
 #define HVFS_SYSINFO_MDSL_RATE          0
 #define HVFS_SYSINFO_MDSL_RAW           1
+
+#define HVFS_SYSINFO_OSD_RATE           0
+#define HVFS_SYSINFO_OSD_RAW            1
 };
 
 /* API Region */
@@ -234,8 +241,22 @@ int root_profile_update_bp(struct hvfs_profile *,
                            struct xnet_msg *);
 int root_profile_update_client(struct hvfs_profile *,
                                struct xnet_msg *);
+int root_profile_update_osd(struct hvfs_profile *,
+                            struct xnet_msg *);
 int root_setup_profile(void);
 void root_profile_flush(time_t);
 int root_info_mds(u64, void **);
+int root_info_mdsl(u64, void **);
+int root_info_root(u64, void **);
+
+/* om.c */
+struct osd_list *om_query_obj(struct objid);
+int om_dispatch_objrep(struct xnet_msg *);
+int om_init(u32);
+void om_destroy(void);
+
+/* x2r.c */
+int root_do_objrep(struct xnet_msg *);
+int root_do_query_obj(struct xnet_msg *);
 
 #endif

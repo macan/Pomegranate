@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-03-03 12:35:27 macan>
+ * Time-stamp: <2012-08-10 17:14:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -174,7 +174,10 @@ int main(int argc, char *argv[])
     mdsl_verify();
 
     /* drop the cache now */
-    system("echo 3 > /proc/sys/vm/drop_caches");
+    if (system("echo 3 > /proc/sys/vm/drop_caches") < 0) {
+        hvfs_err(mdsl, "drop cache failed! %s\n", strerror(errno));
+        return errno;
+    }
 
     err = __test_bulk_load(duuid, column, &begin, &end);
     if (err) {
@@ -187,7 +190,10 @@ int main(int argc, char *argv[])
                     (end.tv_usec - begin.tv_usec)));
 
     /* drop the cache now */
-    system("echo 3 > /proc/sys/vm/drop_caches");
+    if (system("echo 3 > /proc/sys/vm/drop_caches") < 0) {
+        hvfs_err(mdsl, "drop cache failed! %s\n", strerror(errno));
+        return errno;
+    }
 
     err = __test_rand_load(duuid, column, &begin, &end);
     if (err) {

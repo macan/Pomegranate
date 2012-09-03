@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-05-18 11:59:46 macan>
+ * Time-stamp: <2012-08-07 17:15:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -568,6 +568,9 @@ int main(int argc, char *argv[])
     mdsl_pre_init();
     hmo.conf.prof_plot = plot_method;
     mdsl_config();
+
+    /* BUG-XXXX: we have set the site_id BEFORE mdsl_init() */
+    hmo.site_id = HVFS_MDSL(self);
     err = mdsl_init();
     if (err) {
         hvfs_err(xnet, "mdsl_init() failed %d\n", err);

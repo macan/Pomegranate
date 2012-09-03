@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-10-20 12:27:39 macan>
+ * Time-stamp: <2012-08-10 15:02:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -547,12 +547,10 @@ void mdsl_bitmap_commit(struct xnet_msg *msg)
     struct fdhash_entry *fde;
     struct mdsl_storage_access msa;
     struct bc_commit_core *bcc;
-    size_t len;
     u64 location = -1UL;
     u64 size = 0;
     int err = 0;
 
-    len = msg->tx.len;
     if (msg->xm_datacheck)
         bcc = msg->xm_data;
     else
@@ -700,12 +698,10 @@ void mdsl_bitmap_commit_v2(struct xnet_msg *msg)
     struct mdsl_storage_access msa;
     struct bc_commit_core *bcc;
     union bmmap_disk *bd;
-    size_t len;
     u64 location = -1UL, update_location = -1UL;
     u64 size = 0;
     int err = 0, nr;
 
-    len = msg->tx.len;
     if (msg->xm_datacheck)
         bcc = msg->xm_data;
     else
@@ -930,12 +926,14 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                              "nlink %d\n",
                              hdd->site_id, hdd->duuid, hdd->flag, 
                              atomic_read(&hdd->nlink));
+                    hdd = (void *)hdd + sizeof(*hdd);
                 }
+                ASSERT(p + region_len == hdd, mdsl);
             }
         }
         if (msg->tx.arg0 & HVFS_WBTXG_R_DIR_DELTA) {
             /* FIXME: should we do sth on this region? */
-            size_t region_len = 0;
+            size_t __UNUSED__ region_len = 0;
             loff_t offset = tb->dir_delta_nr * sizeof(struct hvfs_dir_delta);
 
             if (tb && toe && toe->other_region) {
@@ -947,12 +945,14 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                 for (i = 0; i < tb->rdd_nr; i++) {
                     hvfs_err(mdsl, "HDD site %lx uuid %ld flag %x nlink %d\n",
                              hdd->site_id, hdd->duuid, hdd->flag, hdd->nlink);
+                    hdd = (void *)hdd + sizeof(*hdd);
                 }
+                ASSERT(p + region_len == hdd, mdsl);
 #endif
             }
         }
         if (msg->tx.arg0 & HVFS_WBTXG_BITMAP_DELTA) {
-            size_t region_len = 0;
+            size_t __UNUSED__ region_len = 0;
             loff_t offset = tb->dir_delta_nr * sizeof(struct hvfs_dir_delta) +
                 tb->rdd_nr * sizeof(struct hvfs_dir_delta);
             
@@ -966,7 +966,9 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                     hvfs_err(mdsl, "sid %lx uuid %ld oitb %ld nitb %ld\n",
                              (bd + i)->site_id, (bd + i)->uuid,
                              (bd + i)->oitb, (bd + i)->nitb);
+                    bd = (void *)bd + sizeof(*bd);
                 }
+                ASSERT(p + region_len == bd, mdsl);
 #endif
             }
         }
@@ -995,6 +997,7 @@ void mdsl_wbtxg(struct xnet_msg *msg)
                                  *(rd + i), err);
                     }
                 }
+                ASSERT(region_len >= 0, mdsl);
             }
         }
     }

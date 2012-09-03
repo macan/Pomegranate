@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-23 11:22:40 macan>
+ * Time-stamp: <2012-08-17 09:44:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -72,6 +72,7 @@ struct redo_logger
 
     pthread_t thread;
     int thread_stop:1;
+    int is_active:1;
     sem_t sem;
     struct redo_logger_local_queue rllq;
     struct redo_logger_queue *rlq;
@@ -96,7 +97,7 @@ static inline
 struct xnet_group *__get_active_site(struct chring *r)
 {
     struct xnet_group *xg = NULL;
-    int i, err;
+    int i, __UNUSED__ err;
 
     for (i = 0; i < r->used; i++) {
         err = xnet_group_add(&xg, r->array[i].site_id);
@@ -321,8 +322,14 @@ retry:
             if (cnt <= 5)
                 goto retry;
             else {
+                int err = 0;
+                
                 hvfs_err(mds, "Completely corrupted file, truncate it!\n");
-                ftruncate(g_rl.rlfd, 0);
+
+                if ((err = ftruncate(g_rl.rlfd, 0)) < 0) {
+                    hvfs_err(mds, "truncate file failed w/ %d (%s)!\n",
+                             err, strerror(err));
+                }
                 goto out;
             }            
         }
@@ -492,6 +499,7 @@ int redo_log_init(struct chring *r, int replica_nr)
     atomic64_set(&g_rl.client_redo_nr, 0);
     atomic64_set(&g_rl.in_rep_redo_nr, 0);
     atomic64_set(&g_rl.reap_rep_redo_nr, 0);
+    g_rl.is_active = 1;
 
     /* get the reap interval from EV */
     {
@@ -591,6 +599,8 @@ int redo_log_init(struct chring *r, int replica_nr)
                           xg->sites[e].site_id, i, replica_nr - 1);
             }
         }
+    } else {
+        g_rl.is_active = 0;
     }
 
     hvfs_info(mds, "Setting up %d replica(s) for site %lx\n", 
@@ -698,7 +708,7 @@ struct redo_log_site *add_cli_log_entry(u64 txg, u32 id, u16 op,
 {
     struct redo_log_site *rls;
 
-    if (hmo.state < HMO_STATE_RUNNING)
+    if (hmo.state < HMO_STATE_RUNNING || !g_rl.is_active)
         return NULL;
     
     rls = __add_cli_log_entry(NULL, txg, id, op, dlen, hi, data);
@@ -719,7 +729,7 @@ struct redo_log_site *add_create_log_entry(u64 txg, u32 dlen,
     struct redo_log_site *rls;
     struct gdt_md *go = data, *gi;
 
-    if (hmo.state < HMO_STATE_RUNNING)
+    if (hmo.state < HMO_STATE_RUNNING || !g_rl.is_active)
         return NULL;
     
     if (hi->flag & INDEX_CREATE_GDT) {
@@ -747,7 +757,7 @@ struct redo_log_site *add_ausplit_log_entry(u64 txg, u64 ssite, u32 dlen,
 {
     struct redo_log_site *rls = NULL;
 
-    if (hmo.state < HMO_STATE_RUNNING)
+    if (hmo.state < HMO_STATE_RUNNING || !g_rl.is_active)
         return NULL;
 
     rls = xzalloc(sizeof(*rls) + dlen);

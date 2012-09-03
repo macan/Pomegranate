@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-07-20 16:45:31 macan>
+ * Time-stamp: <2012-08-10 17:39:46 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 #include "root.h"
 #include "lib.h"
 #include "ring.h"
+#include "mds.h"
 
 #ifdef UNIT_TEST
 #define TYPE_MDS        0
@@ -463,6 +464,7 @@ int main(int argc, char *argv[])
     int type = 0;
     int err = 0;
     int self, sport = -1, op, fsid;
+    char profiling_fname[256], *log_home;
 
     hvfs_info(xnet, "R2 Unit Test Client running...\n");
     hvfs_info(xnet, "type 0/1/2/3 => MDS/CLIENT/MDSL/RING\n");
@@ -492,6 +494,12 @@ int main(int argc, char *argv[])
         fsid = 0;
     }
 
+    value = getenv("LOG_DIR");
+    if (value) {
+        log_home = strdup(value);
+    } else
+        log_home = NULL;
+
     if (argc < 2) {
         hvfs_err(xnet, "Self ID is not provided.\n");
         err = EINVAL;
@@ -513,16 +521,32 @@ int main(int argc, char *argv[])
     }
     
     st_init();
-    root_pre_init();
-//    SET_TRACING_FLAG(root, HVFS_DEBUG | HVFS_VERBOSE);
-    err = root_init();
+    mds_pre_init();
+
+    /* init misc configurations */
+    hmo.prof.xnet = &g_xnet_prof;
+    hmo.conf.prof_plot = 1;
+    //SET_TRACING_FLAG(root, HVFS_DEBUG | HVFS_VERBOSE);
+
+    err = mds_init(10);
     if (err) {
         hvfs_err(xnet, "root_init() failed w/ %d\n", err);
         goto out;
     }
+    hmo.gossip_thread_stop = 1;
 
-    /* init misc configurations */
-    hro.prof.xnet = &g_xnet_prof;
+    /* setup the profiling file */
+    if (!log_home)
+        log_home = ".";
+
+    memset(profiling_fname, 0, sizeof(profiling_fname));
+    sprintf(profiling_fname, "%s/CP-BACK-r2cli.%d", log_home, self);
+    hmo.conf.pf_file = fopen(profiling_fname, "w+");
+    if (!hmo.conf.pf_file) {
+        hvfs_err(xnet, "fopen() profiling file %s failed %d\n", 
+                 profiling_fname, errno);
+        return EINVAL;
+    }
 
     if (sport == -1)
         sport = port[type][self];
@@ -535,7 +559,7 @@ int main(int argc, char *argv[])
     }
 
     hro.site_id = self;
-    root_verify();
+    mds_verify();
 
     /* prepare the init site table now */
     if (!ring_ip)
@@ -581,11 +605,11 @@ out_unreg:
         goto out;
     }
 
-    root_destroy();
+    mds_destroy();
     xnet_unregister_type(hro.xc);
     return 0;
 out:
-    root_destroy();
+    mds_destroy();
     return err;
 }
 #endif

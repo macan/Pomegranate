@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-23 12:06:33 macan>
+ * Time-stamp: <2012-08-07 14:24:53 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -37,6 +37,7 @@
 #define MDS_DCONF_MAX_NAME_LEN  64
 #define MDSL_DCONF_MAX_NAME_LEN MDS_DCONF_MAX_NAME_LEN
 #define ROOT_DCONF_MAX_NAME_LEN MDS_DCONF_MAX_NAME_LEN
+#define OSD_DCONF_MAX_NAME_LEN  MDS_DCONF_MAX_NAME_LEN
 #define HVFS_RING_VID_MAX       256
 
 #define HVFS_GDT_BITMAP_COLUMN  0 /* default bitmap data column in GDT dir */

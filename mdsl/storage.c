@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-06 18:05:17 macan>
+ * Time-stamp: <2012-08-10 15:15:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -815,6 +815,9 @@ int mdsl_storage_init(void)
                      "change state to RECOVERY\n",
                      err);
     }
+    hvfs_info(mdsl, "MDSL %lx log recovery return %s\n",
+              hmo.site_id,
+              (err == 0 ? "CLEAN" : "?DIRTY?"));
     
     return 0;
 }
@@ -3198,4 +3201,5 @@ out_failed:
 /* syncer helpers */
 int __sync_md(u64 duuid)
 {
+    return 0;
 }

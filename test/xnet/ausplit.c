@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-11-02 18:17:54 macan>
+ * Time-stamp: <2012-08-10 13:44:58 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -810,9 +810,8 @@ int main(int argc, char *argv[])
     };
     int err = 0;
     int type = 0;
-    int self, sport, i, j, thread;
+    int self, sport, i, j, thread, op;
     long entry;
-    int op, memonly, memlimit;
     char *value;
     char profiling_fname[256];
 
@@ -840,16 +839,6 @@ int main(int argc, char *argv[])
     } else {
         thread = 1;
     }
-    value = getenv("memonly");
-    if (value) {
-        memonly = atoi(value);
-    } else
-        memonly = 1;
-    value = getenv("memlimit");
-    if (value) {
-        memlimit = atoi(value);
-    } else
-        memlimit = 0;
 
     pthread_barrier_init(&barrier, NULL, thread);
 

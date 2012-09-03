@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-05-22 17:56:20 macan>
+ * Time-stamp: <2012-08-10 15:18:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,6 +34,7 @@ int __prepare_xnet_msg(struct xnet_msg *msg, struct xnet_msg **orpy)
     rpy = xnet_alloc_msg(XNET_MSG_NORMAL);
     if (!rpy) {
         hvfs_err(root, "xnet_alloc_msg() reply failed.\n");
+        *orpy = NULL;
         return -ENOMEM;
     }
 #ifdef XNET_EAGER_WRITEV
@@ -1302,6 +1303,8 @@ int root_do_profile(struct xnet_msg *msg)
         err = root_profile_update_bp(hp, msg);
     } else if (HVFS_IS_CLIENT(msg->tx.ssite_id)) {
         err = root_profile_update_client(hp, msg);
+    } else if (HVFS_IS_OSD(msg->tx.ssite_id)) {
+        err = root_profile_update_osd(hp, msg);
     } else {
         hvfs_err(root, "Invalid source site(%lx), type is ??\n",
                  msg->tx.ssite_id);
@@ -1354,10 +1357,17 @@ int root_do_info(struct xnet_msg *msg)
         break;
     case HVFS_SYSINFO_ALL:
         /* stick a uptime buffer */
-        snprintf(tbuf, 32, "ROOT Server Uptime %ds\n", 
-                 time(NULL) - hro.uptime);
+        snprintf(tbuf, 32, "ROOT Server Uptime %lds\n", 
+                 (long)(time(NULL) - hro.uptime));
         xnet_msg_add_sdata(rpy, tbuf, strlen(tbuf));
         /* fall through */
+    case HVFS_SYSINFO_ROOT:
+        err = root_info_root(hsi->arg0, &buf);
+        if (!err && buf) {
+            xnet_msg_add_sdata(rpy, buf, strlen(buf));
+        }
+        if (hsi->cmd == HVFS_SYSINFO_ROOT)
+            break;
     case HVFS_SYSINFO_SITE:
         err = root_info_site(hsi->arg0, &buf);
         if (!err && buf) {
@@ -1386,6 +1396,58 @@ int root_do_info(struct xnet_msg *msg)
     xfree(buf1);
     xfree(buf2);
     
+out:
+    xnet_free_msg(msg);
+
+    return err;
+}
+
+/* do_objrep recv the object report from osd site and move it to om.queue
+ *
+ * DO NOT TOUCH the message
+ */
+int root_do_objrep(struct xnet_msg *msg)
+{
+    return om_dispatch_objrep(msg);
+}
+
+/* do_query_obj recv the cmd from a site and response with the corresponding
+ * osd list.
+ *
+ * ABI: xmdata saves objid structure
+ *
+ * Return format: <struct osd_list> | tx.err: ?(-ENOENT)
+ */
+int root_do_query_obj(struct xnet_msg *msg)
+{
+    struct objid *id;
+    struct xnet_msg *rpy = NULL;
+    struct osd_list *ol;
+    int err = 0;
+
+    if (msg->tx.len < sizeof(*id) ||
+        !msg->xm_datacheck) {
+        hvfs_err(root, "Invalid query obj request from site %lx\n",
+                 msg->tx.ssite_id);
+        err = -EINVAL;
+        goto out;
+    }
+
+    err = __prepare_xnet_msg(msg, &rpy);
+    if (err) {
+        goto out;
+    }
+
+    id = msg->xm_data;
+
+    ol = om_query_obj(*id);
+    if (!IS_ERR(ol)) {
+        xnet_msg_add_sdata(rpy, ol, sizeof(*ol) + ol->size * sizeof(u64));
+    } else
+        err = PTR_ERR(ol);
+
+    __root_send_rpy(rpy, err);
+
 out:
     xnet_free_msg(msg);
 

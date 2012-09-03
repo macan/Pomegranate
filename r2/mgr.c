@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-29 06:16:58 macan>
+ * Time-stamp: <2012-08-08 11:01:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1403,7 +1403,7 @@ out:
 /* root_compact_hxi()
  *
  * This function compact the need info for a request client:
- * mds/mdsl/client. The caller should supply the needed arguments.
+ * mds/mdsl/client/osd. The caller should supply the needed arguments.
  *
  * @site_id: requested site_id
  * @fsid: requested fsid
@@ -1420,6 +1420,7 @@ int root_compact_hxi(u64 site_id, u64 fsid, u32 gid, union hvfs_x_info *hxi)
         return -EINVAL;
 
     if (HVFS_IS_CLIENT(site_id) |
+        HVFS_IS_OSD(site_id) |
         HVFS_IS_BP(site_id)) {
         /* we should reject if root->root_salt is -1UL */
         /* Step 1: find site state in the site_mgr */
@@ -2004,7 +2005,9 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
      * mkfs utility can create a new file system w/ a fsid. After reading the
      * root entry we can construct the site by ourself:) */
 
-    if (HVFS_IS_MDS(site_id) || HVFS_IS_MDSL(site_id)) {
+    if (HVFS_IS_MDS(site_id) || 
+        HVFS_IS_MDSL(site_id) ||
+        HVFS_IS_OSD(site_id)) {
         err = root_mgr_lookup_create2(&hro.root, fsid, &root);
         if (err < 0) {
             hvfs_err(root, "lookup create entry %ld failed w/ %d\n",
@@ -2143,6 +2146,25 @@ int root_read_hxi(u64 site_id, u64 fsid, union hvfs_x_info *hxi)
                 goto out;
             }
         }
+    } else if (HVFS_IS_OSD(site_id)) {
+        struct hvfs_osd_info *holi = (struct hvfs_osd_info *)hxi;
+
+        memcpy(hxi, &sd.hxi, sizeof(*holi));
+        if (holi->gdt_salt != root->gdt_salt ||
+            holi->root_salt != root->root_salt) {
+            hvfs_err(root, "Internal error, salt mismatch in holi and root\n");
+            if (holi->root_salt == -1UL ||
+                !holi->gdt_salt) {
+                holi->gdt_salt = root->gdt_salt;
+                holi->root_salt = root->root_salt;
+            } else if (holi->gdt_salt == root->gdt_salt) {
+                /* it means root changing, it is ok */
+                holi->root_salt = root->root_salt;
+            } else {
+                err = -EFAULT;
+                goto out;
+            }
+        }
     } else if (HVFS_IS_AMC(site_id)) {
         struct hvfs_amc_info *ami = (struct hvfs_amc_info *)hxi;
 
@@ -2256,6 +2278,16 @@ int root_create_hxi(struct site_entry *se)
         hci->root_uuid = root->root_uuid;
         hci->root_salt = root->root_salt;
         hci->group = se->gid;
+    } else if (HVFS_IS_OSD(se->site_id)) {
+        struct hvfs_osd_info *hoi = (struct hvfs_osd_info *)&se->hxi;
+
+        memset(hoi, 0, sizeof(*hoi));
+        hoi->state = HMI_STATE_CLEAN;
+        hoi->group = se->gid;
+        atomic64_set(&hoi->mi_bused, 0);
+        atomic64_set(&hoi->mi_bfree, -1UL);
+        atomic64_set(&hoi->mi_bwrite, 0);
+        atomic64_set(&hoi->mi_bread, 0);
     } else if (HVFS_IS_MDS(se->site_id)) {
         struct hvfs_mds_info *hmi = (struct hvfs_mds_info *)&se->hxi;
 

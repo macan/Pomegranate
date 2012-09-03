@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-03-09 16:17:21 macan>
+ * Time-stamp: <2012-08-07 16:15:10 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,6 +55,8 @@ int get_site(parser_state_t *ps, char *line,
         *type = "mds";
     } else if (strcmp(str, "client") == 0) {
         *type = "client";
+    } else if (strcmp(str, "osd") == 0) {
+        *type = "osd";
     } else if (strcmp(str, "amc") == 0) {
         *type = "amc";
     } else if (strcmp(str, "bp") == 0) {
@@ -123,6 +125,8 @@ u64 conf_site_id(char *type, int id)
         site_id = HVFS_RING(id);
     } else if (strcmp(type, "client") == 0) {
         site_id = HVFS_CLIENT(id);
+    } else if (strcmp(type, "osd") == 0) {
+        site_id = HVFS_OSD(id);
     } else if (strcmp(type, "amc") == 0) {
         site_id = HVFS_AMC(id);
     } else if (strcmp(type, "bp") == 0) {

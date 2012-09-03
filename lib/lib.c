@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-29 02:42:35 macan>
+ * Time-stamp: <2012-08-10 14:05:02 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -65,7 +65,8 @@ void lib_init(void)
                  strerror(errno), errno);
         return;
     }
-    fscanf(fp, "%ld", &cpu_frequency);
+    if (fscanf(fp, "%ld", &cpu_frequency) < 0)
+        return;
     pclose(fp);
     if (!cpu_frequency)
         cpu_frequency = 2000;
@@ -267,8 +268,10 @@ void lib_backtrace(void)
                         hvfs_info(lib, "%s\n", bts[i]);
                         continue;
                     } else {
-                        fscanf(fp, "%s", str);
-                        hvfs_info(lib, "%s %s\n", bts[i], str);
+                        if (fscanf(fp, "%s", str) > 0)
+                            hvfs_info(lib, "%s %s\n", bts[i], str);
+                        else
+                            hvfs_info(lib, "%s %s\n", bts[i], "Unknown");
                     }
                     pclose(fp);
                 } else {

@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2011-10-10 04:57:43 macan>
+# Time-stamp: <2012-08-07 18:20:59 macan>
 #
 # Armed with EMACS.
 #
@@ -1345,7 +1345,7 @@ class pamc_shell(cmd.Cmd):
         site = 0
         type = 1
         max = 0
-        len = 0
+        length = 8
         l = shlex.split(line)
 
         try:
@@ -1371,8 +1371,12 @@ class pamc_shell(cmd.Cmd):
         site = HVFS_MDS(site)
         print "Analyse TXG log file for site: %x" % site
 
+        c_data = c_void_p(max)
+        c_len = c_long(length)
         err = api.hvfs_analyse_storage(c_long(site), c_int(type), 
-                                       byref(max), byref(len))
+                                       byref(c_data), byref(c_len))
+        if type == 1:
+            max = c_data.value
         if err != 0:
             print "api.hvfs_analyse_storage() failed w/ %d" % err
             return

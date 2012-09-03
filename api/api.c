@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-05-16 17:21:48 macan>
+ * Time-stamp: <2012-08-10 15:20:04 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1009,9 +1009,9 @@ int __core_main(int argc, char *argv[])
     };
     int err = 0;
     int self = -1, sport = -1;
-    int thread = 1;
+    int __UNUSED__ thread = 1;
     int fsid = 1;               /* default to fsid 1 for kv store */
-    int use_branch = 0;
+    int __UNUSED__ use_branch = 0;
     int loop_reg = 0;
     char *r2_ip = NULL;
     char *type = NULL;
@@ -3616,7 +3616,7 @@ out:
 int hvfs_active_site_size(char *type)
 {
     struct xnet_group *xg = NULL;
-    u64 base;
+    u64 __UNUSED__ base;
     int err = 0;
     
     if (strncmp(type, "mdsl", 4) == 0) {
