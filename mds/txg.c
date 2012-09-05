@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-09-03 16:00:29 macan>
+ * Time-stamp: <2012-09-05 10:45:22 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -725,6 +725,8 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
             itb_put(i);
             (*freed)++;
         } else if (ih->state == ITB_STATE_DIRTY) {
+            int force_free = 0;
+            
             /* write w/ lock holding */
             hvfs_debug(mds, "ITB %ld %p state %x, ref %d, flag %d.\n",
                        ih->itbid, i, ih->state, atomic_read(&ih->ref), ih->flag);
@@ -740,9 +742,12 @@ int txg_wb_itb(struct commit_thread_arg *cta, struct hvfs_txg *t,
              * do not free it */
             if (ih->flag == ITB_JUST_SPLIT) {
                 ih->flag = ITB_ACTIVE;
-                itb_put((struct itb *)ih);
+                if (atomic_dec_return(&ih->ref) == 0)
+                    force_free = 1;
             }
             xrwlock_wunlock(&ih->lock);
+            if (force_free)
+                itb_free((struct itb *)ih);
             if (tmpi) {
                 if (hmo.conf.option & HVFS_MDS_MDZIP) {
                     /* reset some regions to ZERO to decrease zip size */

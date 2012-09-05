@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 20:06:54 macan>
+ * Time-stamp: <2012-09-05 15:15:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -49,10 +49,18 @@ void *scrub_main(void *arg)
     pthread_sigmask(SIG_BLOCK, &set, NULL); /* oh, we do not care about the
                                              * errs */
     while (!hmo.scrub_thread_stop) {
-        err = sem_wait(&scrub_mgr.sem);
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 5;
+        err = sem_timedwait(&scrub_mgr.sem, &ts);
         if (err == EINTR)
             continue;
-        hvfs_debug(mds, "Scrub thread wakeup to evict the ITBs.\n");
+        if (err < 0 && errno == ETIMEDOUT) {
+            if (!hmo.scrub_running)
+                continue;
+        }
+        hvfs_debug(mds, "Scrub thread wakeup to evict the ITBs, aitb %ld.\n",
+                   atomic64_read(&hmo.prof.cbht.aitb));
         /* trying to evict the itbs */
         if (unlikely(hmo.scrub_thread_stop))
             break;

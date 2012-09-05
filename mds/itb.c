@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-23 12:21:49 macan>
+ * Time-stamp: <2012-09-05 10:48:49 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -161,6 +161,7 @@ struct itb *mds_read_itb(u64 puuid, u64 psalt, u64 itbid)
             err = itb_lzo_decompress(i);
             if (err) {
                 hvfs_err(mds, "itb_lzo_decompress() failed w/ %d\n", err);
+                atomic64_dec(&hmo.prof.cbht.aitb);
                 i = ERR_PTR(-EFAULT);
                 xnet_set_auto_free(msg->pair);
                 goto out_free;
@@ -1372,9 +1373,10 @@ struct itb *itb_cow(struct itb *itb, struct hvfs_txg *txg)
         return ERR_PTR(-ERESTART);
     }
 
-    /* do NOT copy the ref! */
+    /* do NOT copy the ref and flag! */
     memcpy(n, itb, sizeof(struct itbh) - sizeof(atomic_t));
     atomic_set(&n->h.ref, 1);
+    n->h.flag = ITB_ACTIVE;
 
     /* init ITB header */
     xrwlock_init(&n->h.lock);

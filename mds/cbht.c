@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-10 15:14:25 macan>
+ * Time-stamp: <2012-09-05 10:49:48 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1127,6 +1127,10 @@ int __cbht cbht_itb_miss(struct hvfs_index *hi,
             itb_free(i);
             i = oi;
         } else if (unlikely(err)) {
+            hvfs_err(mds, "insert ITB %ld failed w/ %d, leaking?\n",
+                     i->h.itbid, err);
+            atomic64_sub(atomic_read(&i->h.entries), &hmo.prof.cbht.aentry);
+            itb_free(i);
             goto out;
         }
         err = cbht_itb_hit(i, hi, hmr, txg, otxg);

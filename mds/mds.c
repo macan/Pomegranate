@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-25 05:57:35 macan>
+ * Time-stamp: <2012-09-04 15:52:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -495,8 +495,8 @@ int mds_cbht_evict_default(struct bucket *b, void *arg0, void *arg1)
                 goto out_unlock;
             }
 
-            hvfs_warning(mds, "DO evict on clean ITB %ld txg %ld\n", 
-                         ih->itbid, ih->txg);
+            hvfs_warning(mds, "DO evict on clean ITB %ld txg %ld ref %d\n", 
+                         ih->itbid, ih->txg, atomic_read(&ih->ref));
             /* free it finally */
             itb_put((struct itb *)ih);
         }
@@ -504,6 +504,8 @@ int mds_cbht_evict_default(struct bucket *b, void *arg0, void *arg1)
         goto out;
     } else if (ih->state == ITB_STATE_DIRTY) {
         hvfs_debug(mds, "DO not evict dirty ITB %ld\n", ih->itbid);
+    } else {
+        hvfs_debug(mds, "DO not evict ITB %ld state %d\n", ih->itbid, ih->state);
     }
 
 out_unlock:

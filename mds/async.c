@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-09-03 14:24:47 macan>
+ * Time-stamp: <2012-09-05 15:13:32 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -155,7 +155,19 @@ int __aur_itb_split(struct async_update_request *aur)
         itb_put((struct itb *)i->h.twin);
         hvfs_warning(mds, "Receive the AU split %ld reply from %lx.\n", 
                      i->h.itbid, msg->pair->tx.ssite_id);
+        /* BUG-xxxx: 
+         * Try 1: if it is a JUST_SPLIT itb, before we put it we have to reset
+         * the flag (FALSE)
+         *
+         * Try 2: if it is a JUST_SPLIT itb, we can not reset the JUST_SPLIT
+         * flag until we are sure that this itb is saved to MDSL. Thus, ONLY
+         * txg_wb can reset the flag, here we just set it to JUST_SPLIT_SAFE
+         * state.
+         *
+         * Try 3: just put this ITB, even the h.flag == ITB_JUST_SPLIT
+         */
         itb_put(i);
+
         atomic64_inc(&hmo.prof.mds.split);
     msg_free:
         xnet_free_msg(msg);
@@ -172,6 +184,8 @@ int __aur_itb_split(struct async_update_request *aur)
                 hvfs_warning(mds, "Receive the AU split %ld reply "
                              "from %lx.\n", 
                              i->h.itbid, p->site_id);
+                /* we don't care this itb now, the target site will
+                 * redo(move) the active ITEs, thus drop it safely */
                 itb_put(i);
                 atomic64_inc(&hmo.prof.mds.split);
             }
