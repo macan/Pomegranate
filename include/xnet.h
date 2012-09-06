@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-06 15:05:44 macan>
+ * Time-stamp: <2012-09-06 11:08:20 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -155,9 +155,11 @@ struct xnet_conf
     int resend_timeout;
     int send_timeout;
     int siov_nr;
+    int rpy_cache_size;
     u32 magic:4;                /* magic we should use */
     u32 enable_resend:1;
     u32 pause:1;
+    u32 use_rpy_cache:1;
 };
 #else
 struct xnet_context *xnet_register_type(u8, struct xnet_type_ops *);

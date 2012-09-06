@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-06 15:05:15 macan>
+ * Time-stamp: <2012-09-06 11:32:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,9 +48,11 @@ struct xnet_conf g_xnet_conf = {
     .resend_timeout = RESEND_TIMEOUT,
     .send_timeout = SEND_TIMEOUT,
     .siov_nr = SIOV_NR,
+    .rpy_cache_size = 0,
     .magic = 0,
     .enable_resend = 0,
     .pause = 0,
+    .use_rpy_cache = 0,
 };
 
 void xnet_set_magic(u8 magic)
@@ -58,6 +60,19 @@ void xnet_set_magic(u8 magic)
     g_xnet_conf.magic = magic & 0x0f;
     hvfs_info(xnet, "Set XNET MAGIC to 0x%x\n", g_xnet_conf.magic);
 }
+
+struct xnet_rpy_cache
+{
+#define XNET_RPY_CACHE_SIZE     (4096)
+    struct regular_hash *cache;
+    int hsize;                  /* hash table size */
+};
+struct xrc_entry
+{
+    struct hlist_node hlist;
+    struct xnet_msg *msg;
+};
+static struct xnet_rpy_cache xrc;
 
 /* First, how do we handle the site_id to ip address translation?
  */
@@ -219,6 +234,82 @@ int st_clean_sockfd(struct site_table *st, int fd);
 int st_update_sockfd_lock(struct site_table *st, int fd, u64 dsid, 
                           struct xnet_addr **oxa);
 void st_update_sockfd_unlock(struct xnet_addr *xa);
+
+
+static inline
+int xrc_hash(void *addr, struct xnet_rpy_cache *xrc)
+{
+    return hash_64((u64)addr, 64) & (xrc->hsize - 1);
+}
+
+static int rpy_cache_add(struct xnet_msg *msg)
+{
+    struct regular_hash *rh;
+    struct xrc_entry *xe;
+    int i;
+
+    xe = xmalloc(sizeof(*xe));
+    if (!xe) {
+        hvfs_err(xnet, "xmalloc xrc_entry failed\n");
+        return -ENOMEM;
+    }
+    INIT_HLIST_NODE(&xe->hlist);
+    xe->msg = msg;
+    
+    /* use msg as the key */
+    i = xrc_hash(msg, &xrc);
+    rh = xrc.cache + i;
+
+    xlock_lock(&rh->lock);
+    hlist_add_head(&xe->hlist, &rh->h);
+    xlock_unlock(&rh->lock);
+
+    return 0;
+}
+
+static struct xnet_msg *rpy_cache_find_del(struct xnet_msg *msg)
+{
+    struct regular_hash *rh;
+    struct xrc_entry *xe;
+    struct hlist_node *pos, *n;
+    int i, found = 0;
+
+    i = xrc_hash(msg, &xrc);
+    rh = xrc.cache + i;
+
+    xlock_lock(&rh->lock);
+    hlist_for_each_entry_safe(xe, pos, n, &rh->h, hlist) {
+        if (xe->msg == msg) {
+            hlist_del(&xe->hlist);
+            xfree(xe);
+            found = 1;
+            break;
+        }
+    }
+    xlock_unlock(&rh->lock);
+
+    if (!found)
+        return NULL;
+    else
+        return msg;
+}
+
+static inline
+int xrc_is_cached(u64 handle)
+{
+    return (handle) & 0x1;
+}
+static inline
+struct xnet_msg *xrc_clr_cached(u64 handle)
+{
+    return (struct xnet_msg *)(handle & (~0x1L));
+}
+
+static inline
+void xrc_set_cached(struct xnet_msg *msg)
+{
+    msg->tx.handle |= 0x1;
+}
 
 /*
  * Return value: 0 => 
@@ -507,7 +598,13 @@ processing:
         /* we should find the original request by handle */
         hvfs_debug(xnet, "We got a RPY(%lx) message, handle to msg %p\n", 
                    msg->tx.cmd, (void *)msg->tx.handle);
-        req = (struct xnet_msg *)msg->tx.handle;
+        /* check if it in the cache */
+        if (xrc_is_cached(msg->tx.handle)) {
+            req = rpy_cache_find_del(xrc_clr_cached(msg->tx.handle));
+        } else {
+            /* not cached */
+            req = (struct xnet_msg *)msg->tx.handle;
+        }
         if (req == NULL) {
             hvfs_err(xnet, "Invalid reply msg from %lx to %lx reqno %d\n",
                      msg->tx.ssite_id, msg->tx.dsite_id, msg->tx.reqno);
@@ -1082,6 +1179,24 @@ struct xnet_context *xnet_register_lw(u8 type, u16 port, u64 site_id,
     xlock_init(&xc->resend_lock);
     list_add_tail(&xc->list, &global_xc_list);
 
+    /* init the rpy cache */
+    if (g_xnet_conf.rpy_cache_size > 0)
+        xrc.hsize = g_xnet_conf.rpy_cache_size;
+    else
+        xrc.hsize = XNET_RPY_CACHE_SIZE;
+    xrc.cache = xzalloc(xrc.hsize * sizeof(struct regular_hash));
+    if (!xrc.cache) {
+        hvfs_err(xnet, "xzalloc() rpy cache failed, disable the resend module\n");
+        g_xnet_conf.enable_resend = 1;
+    } else {
+        int i;
+
+        for (i = 0; i < xrc.hsize; i++) {
+            INIT_HLIST_HEAD(&xrc.cache[i].h);
+            xlock_init(&xrc.cache[i].lock);
+        }
+    }
+
     /* ok, let us create the listening socket now */
     err = socket(AF_INET, SOCK_STREAM, 0);
     if (err < 0) {
@@ -1182,6 +1297,24 @@ struct xnet_context *xnet_register_type(u8 type, u16 port, u64 site_id,
     INIT_LIST_HEAD(&xc->resend_q);
     xlock_init(&xc->resend_lock);
     list_add_tail(&xc->list, &global_xc_list);
+
+    /* init the rpy cache */
+    if (g_xnet_conf.rpy_cache_size > 0)
+        xrc.hsize = g_xnet_conf.rpy_cache_size;
+    else
+        xrc.hsize = XNET_RPY_CACHE_SIZE;
+    xrc.cache = xzalloc(xrc.hsize * sizeof(struct regular_hash));
+    if (!xrc.cache) {
+        hvfs_err(xnet, "xzalloc() rpy cache failed, disable the resend module\n");
+        g_xnet_conf.use_rpy_cache = 1;
+    } else {
+        int i;
+
+        for (i = 0; i < xrc.hsize; i++) {
+            INIT_HLIST_HEAD(&xrc.cache[i].h);
+            xlock_init(&xrc.cache[i].lock);
+        }
+    }
 
     /* ok, let us create the listening socket now */
     err = socket(AF_INET, SOCK_STREAM, 0);
@@ -1630,9 +1763,11 @@ retry:
     }
     
     msg->tx.ssite_id = xc->site_id;
+    /* the reqno is set, and it has also added to rpy cache */
     if (msg->tx.type != XNET_MSG_RPY)
         msg->tx.handle = (u64)msg;
-    ASSERT((u64)msg == msg->tx.handle, xnet);
+    if (g_xnet_conf.use_rpy_cache)
+        xrc_set_cached(msg);
 
 reselect_conn:
     ssock = SELECT_CONNECTION(xa, &lock_idx);
@@ -1975,10 +2110,20 @@ retry:
     }
     
     msg->tx.ssite_id = xc->site_id;
-    if (msg->tx.type == XNET_MSG_REQ)
-        msg->tx.reqno = atomic_inc_return(&global_reqno);
     if (msg->tx.type != XNET_MSG_RPY)
         msg->tx.handle = (u64)msg;
+    if (msg->tx.type == XNET_MSG_REQ) {
+        msg->tx.reqno = atomic_inc_return(&global_reqno);
+        /* add to the rpy cache if needed */
+        if (g_xnet_conf.use_rpy_cache) {
+            err = rpy_cache_add(msg);
+            if (err) {
+                hvfs_err(xnet, "Add to rpy cache failed, abort sending\n");
+                goto out;
+            }
+            xrc_set_cached(msg);
+        }
+    }
 
 reselect_conn:
     ssock = SELECT_CONNECTION(xa, &lock_idx);
@@ -2184,6 +2329,10 @@ reselect_conn:
                 hvfs_err(xnet, "Send to %lx time out for %d seconds.\n",
                          msg->tx.dsite_id, g_xnet_conf.send_timeout);
                 err = -ETIMEDOUT;
+                /* we need to remove the msg from rpy cache if needed */
+                if (g_xnet_conf.use_rpy_cache) {
+                    rpy_cache_find_del(msg);
+                }
             } else
                 hvfs_err(xnet, "sem_wait() failed %d\n", errno);
         }
