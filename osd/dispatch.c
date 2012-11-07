@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-07 14:48:02 macan>
+ * Time-stamp: <2012-09-17 11:17:47 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -94,12 +94,19 @@ l0_recheck:
 
     switch (msg->tx.cmd) {
     case HVFS_OSD_READ:
+        err = osd_read(msg);
         break;
     case HVFS_OSD_WRITE:
+        err = osd_write(msg);
+        break;
+    case HVFS_OSD_SWEEP:
+        err = osd_sweep(msg);
         break;
     case HVFS_OSD_SYNC:
+        err = osd_sync(msg);
         break;
     case HVFS_OSD_STATFS:
+        err = osd_statfs(msg);
         break;
     default:
         if (HVFS_IS_RING(msg->tx.ssite_id)) {

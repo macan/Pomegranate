@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-05 11:17:38 macan>
+ * Time-stamp: <2012-10-22 14:55:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -68,6 +68,8 @@
 
 #define HVFS_IS_OSD(site) (((site & HVFS_SITE_TYPE_MASK) >> 17) ==   \
                            HVFS_SITE_TYPE_OSD)
+
+#define HVFS_GET_TYPE(site) ((site & HVFS_SITE_TYPE_MASK) >> 17)
 
 #define HVFS_SITE_N_MASK        ((1 << 17) - 1)
 

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-10 15:18:59 macan>
+ * Time-stamp: <2012-11-07 15:34:00 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -495,6 +495,15 @@ out_unlock:
         hvfs_err(root, "Flush fs root %ld to storage failed w/ %d.\n",
                  re->fsid, err);
         goto out;
+    }
+
+    /* update OM:obj/osd tables */
+    if (HVFS_IS_OSD(msg->tx.ssite_id)) {
+        err = om_del_osd(msg->tx.ssite_id);
+        if (err) {
+            hvfs_err(root, "Delete OSD site %lx from OM tables failed w/ %d\n",
+                     msg->tx.ssite_id, err);
+        }
     }
     
 out:
@@ -1435,6 +1444,7 @@ int root_do_query_obj(struct xnet_msg *msg)
 
     err = __prepare_xnet_msg(msg, &rpy);
     if (err) {
+        hvfs_err(root, "Failed to alloc reply msg, caller would be blocked\n");
         goto out;
     }
 
@@ -1451,5 +1461,40 @@ int root_do_query_obj(struct xnet_msg *msg)
 out:
     xnet_free_msg(msg);
 
+    return err;
+}
+
+/* do_getasite() get the active site from site_mgr
+ *
+ * ABI: arg0 saves the target site_type (HVFS_SITE_TYPE_****)
+ */
+int root_do_getasite(struct xnet_msg *msg)
+{
+    struct xnet_msg *rpy = NULL;
+    struct xnet_group *xg;
+    int err = 0;
+
+    err = __prepare_xnet_msg(msg, &rpy);
+    if (err) {
+        hvfs_err(root, "Failed to alloc reply msg, caller would be blocked\n");
+        goto out;
+    }
+    xg = site_mgr_get_active_site(msg->tx.arg0);
+    if (!xg) {
+        err = -ENOENT;
+        hvfs_err(root, "site_mgr get active site (%ld) failed w/ %d?(%s)\n",
+                 msg->tx.arg0, err, strerror(-err));
+    } else {
+        xnet_msg_add_sdata(rpy, xg, sizeof(*xg) + 
+                           xg->asize * sizeof(struct xnet_group_entry));
+    }
+
+    __root_send_rpy(rpy, err);
+    
+out:
+    if (!err)
+        xfree(xg);
+    xnet_free_msg(msg);
+    
     return err;
 }

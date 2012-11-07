@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-13 09:11:03 macan>
+ * Time-stamp: <2012-11-06 12:48:14 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -190,6 +190,7 @@ int root_config(void)
     HVFS_ROOT_GET_ENV_atoi(ring_push_interval, value);
     HVFS_ROOT_GET_ENV_atoi(profile_interval, value);
     HVFS_ROOT_GET_ENV_atoi(hb_interval, value);
+    HVFS_ROOT_GET_ENV_atoi(log_print_interval, value);
     HVFS_ROOT_GET_ENV_atoi(sync_interval, value);
     HVFS_ROOT_GET_ENV_atoi(ring_vid_max, value);
     HVFS_ROOT_GET_ENV_atoi(prof_plot, value);
@@ -284,6 +285,9 @@ int root_config(void)
     if (!hro.conf.hb_interval) {
         hro.conf.hb_interval = 60;
     }
+    if (!hro.conf.log_print_interval) {
+        hro.conf.log_print_interval = 15;
+    }
     if (!hro.conf.sync_interval) {
         hro.conf.sync_interval = 0; /* do not do sync actually */
     }
@@ -350,6 +354,22 @@ static void *root_timer_thread_main(void *arg)
         if (hro.state > HRO_STATE_LAUNCH) {
             /* ok, check the site entry state now */
             site_mgr_check(cur);
+            site_mgr_check2(cur);
+            {
+                struct objid id = {.uuid = 100, .bid = 10,};
+                struct osd_list *list = om_query_obj(id);
+                int i;
+                
+                if (!IS_ERR(list)) {
+                    hvfs_info(root, "OK, query return osd list => \n");
+                    for (i = 0; i < list->size; i++) {
+                        hvfs_info(root, "osd[%d] = %lx\n", i, list->site[i]);
+                    }
+                    xfree(list);
+                } else {
+                    hvfs_err(root, "Bad, query return %ld\n", PTR_ERR(list));
+                }
+            }
             /* write profile? */
             if (hro.conf.prof_plot == ROOT_PROF_PLOT) {
                 root_profile_flush(cur);
@@ -361,7 +381,7 @@ static void *root_timer_thread_main(void *arg)
     pthread_exit(0);
 }
 
-int root_setup_timers(void)
+static int root_setup_timers(void)
 {
     struct sigaction ac;
     struct itimerval value, ovalue, pvalue;

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-13 09:47:10 macan>
+ * Time-stamp: <2012-10-22 14:57:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -91,6 +91,9 @@ int root_dispatch(struct xnet_msg *msg)
         break;
     case HVFS_OSD_QUERY:
         err = root_do_query_obj(msg);
+        break;
+    case HVFS_R2_GETASITE:
+        err = root_do_getasite(msg);
         break;
     default:
         hvfs_err(root, "R2 core dispatcher handle INVALID "

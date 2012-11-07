@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-14 17:24:29 macan>
+ * Time-stamp: <2012-11-06 10:12:59 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -61,6 +61,23 @@ struct osd_storage
     int objlog_fd;              /* obj log file FD */
     struct log_manager lm;      /* obj add/del in current session */
     struct scan_manager sm;
+};
+
+struct obj_gather
+{
+    int asize, psize;
+    struct objid *ids;
+};
+
+struct obj_gather_all
+{
+    struct obj_gather add, rmv;
+};
+
+struct oga_manager
+{
+    struct obj_gather_all *oga;
+    xlock_t lock;
 };
 
 struct osd_conf
@@ -135,6 +152,9 @@ struct hvfs_osd_object
     /* osd profiling array */
     struct hvfs_profile hp;
 
+    /* section for block info */
+    struct oga_manager om;
+
     u32 timer_thread_stop:1;    /* running flag for timer thread */
     u32 spool_thread_stop:1;    /* running flag for service thread */
     u32 aio_thread_stop:1;      /* running flag for aio thread */
@@ -197,6 +217,12 @@ int osd_storage_init(void);
 void osd_storage_destroy(void);
 void osd_startup_normal(void);
 void osd_exit_normal(void);
+int osd_storage_write(struct objid *obj, void *data, u32 offset, u32 length);
+int osd_storage_read(struct objid *obj, void *data, u32 offset, u32 length);
+int osd_storage_sync(struct objid *obj, u32 offset, u32 length);
+void osd_get_obj_path(struct objid oid, char *path);
+int osd_storage_statfs(struct statfs *s);
+struct obj_gather_all *osd_storage_process_report();
 
 /* spool.c */
 int osd_spool_dispatch(struct xnet_msg *);
@@ -217,5 +243,12 @@ void osd_spool_destroy(void);
 
 /* dispatch.c */
 int osd_dispatch(struct xnet_msg *);
+
+/* x2o.c */
+int osd_write(struct xnet_msg *);
+int osd_sweep(struct xnet_msg *);
+int osd_read(struct xnet_msg *);
+int osd_sync(struct xnet_msg *);
+int osd_statfs(struct xnet_msg *);
 
 #endif

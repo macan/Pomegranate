@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-14 14:01:46 macan>
+ * Time-stamp: <2012-11-07 15:38:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -140,13 +140,13 @@ u32 __om_hash(struct objid id)
     u32 u1 = JSHash((char *)&id.uuid, sizeof(id.uuid));
     u32 u2 = RSHash((char *)&id.bid, sizeof(id.bid));
 
-    return u1 ^ u2;
+    return (u1 ^ u2) % om.conf.obj_hsize;
 }
 
 static inline
 u32 __om_osd_hash(u64 site)
 {
-    return JSHash((char *)&site, sizeof(site));
+    return JSHash((char *)&site, sizeof(site)) % om.conf.osd_hsize;
 }
 
 /* API: add the message to OM.queue
@@ -221,7 +221,7 @@ struct osd_entry *om_get_osd(u64 site)
 static
 void om_put_obj(struct obj_entry *oe)
 {
-    if (atomic_dec_return(&oe->ref) == 0) {
+    if (atomic_dec_return(&oe->ref) < 0) {
         if (oe->sites.size > 0 && oe->sites.site)
             xfree(oe->sites.site);
         xfree(oe);
@@ -231,7 +231,7 @@ void om_put_obj(struct obj_entry *oe)
 static
 void om_put_osd(struct osd_entry *osd)
 {
-    if (atomic_dec_return(&osd->ref) == 0) {
+    if (atomic_dec_return(&osd->ref) < 0) {
         if (osd->objs.psize > 0 && osd->objs.obj)
             xfree(osd->objs.obj);
         xfree(osd);
@@ -324,8 +324,13 @@ void __om_remove_obj(struct objid id)
     }
     xrwlock_wunlock(&rh->lock);
 
-    if (!i)
+    if (!i) {
+        if (tpos->sites.size > 0 && tpos->sites.site)
+            xfree(tpos->sites.site);
         xfree(tpos);
+    } else {
+        om_put_obj(tpos);
+    }
 }
 
 static
@@ -353,8 +358,13 @@ void __om_remove_osd(u64 site)
     }
     xrwlock_wunlock(&rh->lock);
 
-    if (!i)
+    if (!i) {
+        if (tpos->objs.psize > 0 && tpos->objs.obj)
+            xfree(tpos->objs.obj);
         xfree(tpos);
+    } else {
+        om_put_osd(tpos);
+    }
 }
 
 /* add_or_del: 1=>add; -1=>del
@@ -368,14 +378,18 @@ void __om_update_obj(struct obj_entry *oe, u64 site, int add_or_del)
     if (add_or_del != 1 && add_or_del != -1)
         return;
 
+retry:
     for (i = 0; i < oe->sites.size; i++) {
         if (oe->sites.site[i] == site) {
             found = 1;
             break;
         }
     }
+    hvfs_info(root, "update obj %lx.%x size %d w/ site %lx, "
+             "add_or_del %d, found %d\n",
+              oe->id.uuid, oe->id.bid, 
+              oe->sites.size, site, add_or_del, found);
 
-retry:
     if (atomic_inc_return(&oe->lock) > 1) {
         atomic_dec(&oe->lock);
         sched_yield();
@@ -387,7 +401,7 @@ retry:
             hvfs_err(root, "Del site %lx from objid %lx+%d failed,"
                      " not found.\n",
                      site, oe->id.uuid, oe->id.bid);
-            return;
+            goto out;
         } else {
             /* exchange with the last entry */
             OSD_ARRAY_MOD tmp;
@@ -396,19 +410,26 @@ retry:
             oe->sites.site[i] = oe->sites.site[oe->sites.size - 1];
             oe->sites.site[oe->sites.size - 1] = tmp;
         }
+    } else if (add_or_del > 0) {
+        if (found) {
+            /* this means we should just do a in-position update */
+            oe->sites.site[i] = site;
+            goto out;
+        }
     }
     
     new.size = oe->sites.size + add_or_del;
     new.site = xrealloc(oe->sites.site, new.size * OSD_ARRAY_UNIT);
-    if (!new.site) {
+    if (!new.site && new.size) {
         hvfs_err(root, "OM update objid %lx+%d for site %lx failed,"
-                 " no free memory.\n",
-                 oe->id.uuid, oe->id.bid, site);
+                 " no free memory (%d unit).\n",
+                 oe->id.uuid, oe->id.bid, site, new.size);
         goto out;
     }
 
     if (add_or_del > 0) {
         new.site[oe->sites.size] = (OSD_ARRAY_MOD)site;
+        hvfs_err(root, "add site %lx\n", site);
     }
     oe->sites.size = new.size;
     oe->sites.site = new.site;
@@ -442,7 +463,8 @@ int __osd_array_realloc(struct osd_entry *oe)
                      oe->site_id);
             goto out;
         }
-    } else if (oe->objs.asize < (oe->objs.psize >> 1)) {
+    } else if (oe->objs.asize < (oe->objs.psize >> 1) &&
+               (oe->objs.psize > 1024)) {
         /* shrink the buffer */
         new.psize = (oe->objs.psize >> 1);
 
@@ -474,6 +496,7 @@ void __om_update_osd(struct osd_entry *osd, struct objid id, int add_or_del)
     if (add_or_del != 1 && add_or_del != -1)
         return;
 
+retry:
     for (i = 0; i < osd->objs.asize; i++) {
         if (OBJID_EQUAL(osd->objs.obj[i], id)) {
             found = 1;
@@ -481,7 +504,6 @@ void __om_update_osd(struct osd_entry *osd, struct objid id, int add_or_del)
         }
     }
 
-retry:
     if (atomic_inc_return(&osd->lock) > 1) {
         atomic_dec(&osd->lock);
         sched_yield();
@@ -493,7 +515,7 @@ retry:
             hvfs_err(root, "Del objid %lx+%d from site %lx failed,"
                      " not found.\n",
                      id.uuid, id.bid, osd->site_id);
-            return;
+            goto out;
         } else {
             /* exchange with the last entry */
             struct objid tmp;
@@ -501,6 +523,12 @@ retry:
             tmp = osd->objs.obj[i];
             osd->objs.obj[i] = osd->objs.obj[osd->objs.asize - 1];
             osd->objs.obj[osd->objs.asize - 1] = tmp;
+        }
+    } else if (add_or_del > 0) {
+        if (found) {
+            /* this means we should just do a in-position update */
+            osd->objs.obj[i] = id;
+            goto out;
         }
     }
 
@@ -512,6 +540,7 @@ retry:
     if (add_or_del > 0) {
         osd->objs.obj[osd->objs.asize] = id;
         osd->objs.asize++;
+        hvfs_err(root, "add id %lx.%x asize %d\n", id.uuid, id.bid, osd->objs.asize);
     } else {
         osd->objs.asize--;
     }
@@ -628,7 +657,7 @@ retry:
 
 /* delete the obj from obj_tab, for obj removing
  */
-static int om_del_obj(struct objid id)
+int om_del_obj(struct objid id)
 {
     __om_remove_obj(id);
 
@@ -672,10 +701,10 @@ static int om_del_obj_site(struct objid id, u64 site)
  * Note: for osd removing, we have to remove all the registered objects for
  * this OSD.
  */
-static int om_del_osd(u64 site)
+int om_del_osd(u64 site)
 {
     struct osd_entry *oe;
-    int i, err;
+    int i;
 
     oe = om_get_osd(site);
     if (!oe) {
@@ -684,13 +713,17 @@ static int om_del_osd(u64 site)
     }
     
     for (i = 0; i < oe->objs.asize; i++) {
-        err = om_del_obj_site(oe->objs.obj[i], site);
-        if (err) {
-            hvfs_warning(root, "Objid %lx+%d not found in site %lx, "
-                         "ignore it\n",
-                         oe->objs.obj[i].uuid, 
-                         oe->objs.obj[i].bid, site);
+        /* just delete all the objid from obj_table */
+        struct obj_entry *obj = om_get_obj(oe->objs.obj[i]);
+
+        if (!obj) {
+            hvfs_err(root, "Object %lx+%d not found, ignore it.\n",
+                     obj->id.uuid, obj->id.bid);
+            continue;
         }
+        __om_update_obj(obj, site, -1);
+        
+        om_put_obj(obj);
     }
     om_put_osd(oe);
 
@@ -732,6 +765,9 @@ retry:
     return ol;
 }
 
+/* block report ABI:
+ * ORT->addsize < 0 => do full update
+ */
 static inline
 int __serv_request(void)
 {
@@ -759,9 +795,13 @@ int __serv_request(void)
     }
     
     ort = msg->xm_data;
-    if ((ort->add_size + ort->rmv_size) * sizeof(struct objid) > msg->tx.len) {
+    if (ort->add_size < 0) {
+        i = -ort->add_size;
+    } else
+        i = ort->add_size;
+    if ((i + ort->rmv_size) * sizeof(struct objid) > msg->tx.len) {
         hvfs_err(root, "Partial OBJ REPORT received (%ld,%d) from %lx\n",
-                 (ort->add_size + ort->rmv_size) * sizeof(struct objid), 
+                 (i + ort->rmv_size) * sizeof(struct objid), 
                  msg->tx.len, msg->tx.ssite_id);
         err = -EINVAL;
         goto out;
@@ -773,22 +813,27 @@ int __serv_request(void)
         om_del_osd(msg->tx.ssite_id);
         ort->add_size = -ort->add_size;
     }
-    
+
     /* update report content to OM's obj/site table */
     for (i = 0; i < ort->add_size; i++) {
-        /* find the old object */
+        /* find and update the old object */
         err = om_add_obj_site(ort->ids[i], msg->tx.ssite_id);
         if (err) {
             hvfs_err(root, "add object %lx+%d site %lx failed.\n",
                      ort->ids[i].uuid, ort->ids[i].bid, msg->tx.ssite_id);
         }
+        hvfs_info(root, "ADD OBJ %lx+%d site %lx OK\n", 
+                  ort->ids[i].uuid, ort->ids[i].bid, msg->tx.ssite_id);
     }
     for (; i < ort->rmv_size + ort->add_size; i++) {
+        /* find and delete the old object */
         err = om_del_obj_site(ort->ids[i], msg->tx.ssite_id);
         if (err) {
             hvfs_err(root, "del object %lx+%d site %lx failed.\n",
                      ort->ids[i].uuid, ort->ids[i].bid, msg->tx.ssite_id);
         }
+        hvfs_info(root, "DEL OBJ %lx+%d site %lx OK\n", 
+                  ort->ids[i].uuid, ort->ids[i].bid, msg->tx.ssite_id);
     }
     
     /* do not reply to OSD site */

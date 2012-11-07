@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-04-28 14:01:19 macan>
+ * Time-stamp: <2012-10-26 16:44:28 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -208,5 +208,8 @@ int root_bitmap_default(struct root_entry *re);
 void site_mgr_check(time_t);
 typedef void *(*site_mgr_trav_callback_t)(void *);
 int site_mgr_traverse(struct site_mgr *, site_mgr_trav_callback_t, void *);
+
+struct xnet_group *site_mgr_get_active_site(u32 type);
+void site_mgr_check2(time_t);
 
 #endif

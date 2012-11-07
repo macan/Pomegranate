@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-14 16:29:34 macan>
+ * Time-stamp: <2012-11-06 11:34:09 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -295,6 +295,7 @@ void osd_pre_init(void)
 #ifdef HVFS_DEBUG_LOCK
     lock_table_init();
 #endif
+    xlock_init(&hoo.om.lock);
     /* setup the state */
     hoo.state = HOO_STATE_INIT;
 }
@@ -517,4 +518,204 @@ int osd_addr_table_update(struct xnet_msg *msg)
     xnet_free_msg(msg);
 
     return 0;
+}
+
+static inline
+void __free_oga(struct obj_gather_all *oga)
+{
+    if (oga->add.psize > 0)
+        xfree(oga->add.ids);
+    if (oga->rmv.psize > 0)
+        xfree(oga->rmv.ids);
+    xfree(oga);
+}
+
+/* Return value: 0 => not update; 1 => updated
+ */
+static int osd_update_objinfo(struct obj_gather_all *oga)
+{
+    int updated = 0;
+    
+retry:
+    if (hoo.om.oga == NULL) {
+        xlock_lock(&hoo.om.lock);
+        if (!hoo.om.oga) {
+            hoo.om.oga = oga;
+            updated = 1;
+        } else {
+            xlock_unlock(&hoo.om.lock);
+            /* somebody update the objinfo before us, just retry */
+            goto retry;
+        }
+        xlock_unlock(&hoo.om.lock);
+        return updated;
+    } else {
+        /* should we trigger a fully update now */
+        MD5_CTX mdContext1, mdContext2;
+        int i = 0, update = 0;
+
+        xlock_lock(&hoo.om.lock);
+        MD5Init(&mdContext1);
+        if (hoo.om.oga->add.asize > 0)
+            MD5Update(&mdContext1, hoo.om.oga->add.ids, 
+                      hoo.om.oga->add.asize * sizeof(struct objid));
+        if (hoo.om.oga->rmv.asize > 0)
+            MD5Update(&mdContext1, hoo.om.oga->rmv.ids,
+                      hoo.om.oga->rmv.asize * sizeof(struct objid));
+        MD5Final(&mdContext1);
+        xlock_unlock(&hoo.om.lock);
+
+        MD5Init(&mdContext2);
+        if (oga->add.asize > 0)
+            MD5Update(&mdContext2, oga->add.ids, 
+                      oga->add.asize * sizeof(struct objid));
+        if (oga->rmv.asize > 0)
+            MD5Update(&mdContext2, oga->rmv.ids,
+                      oga->rmv.asize * sizeof(struct objid));
+        MD5Final(&mdContext2);
+
+        for (i = 0; i < 16; i++) {
+            if (mdContext1.digest[i] != mdContext2.digest[i]) {
+                update = 1;
+                break;
+            }
+        }
+
+        if (update) {
+            hvfs_info(osd, "Get a new block info array, do fully update ...\n");
+            xlock_lock(&hoo.om.lock);
+            /* free the old OGA */
+            __free_oga(hoo.om.oga);
+            hoo.om.oga = oga;
+            updated = 1;
+            xlock_unlock(&hoo.om.lock);
+        } else {
+            hvfs_info(osd, "Get a dup block info array, no update ...\n");
+        }
+    }
+
+    return updated;
+}
+
+/* Input Args: *ort must be NULL
+ */
+static int osd_oga2ort(struct obj_gather_all *oga, struct obj_report_tx **ort)
+{
+    struct obj_report_tx *tmp;
+    int addsize = 0, rmvsize = 0;
+    int i;
+
+    if (*ort != NULL) {
+        return -EINVAL;
+    }
+
+    for (i = 0; i < oga->add.asize; i++) {
+        addsize++;
+    }
+    for (i = 0; i < oga->rmv.asize; i++) {
+        rmvsize++;
+    }
+
+    tmp = xzalloc(sizeof(*tmp) + sizeof(struct objid) * (addsize + rmvsize));
+    if (!tmp) {
+        hvfs_err(osd, "xzalloc() ORT region failed\n");
+        return -ENOMEM;
+    }
+    tmp->add_size = addsize;
+    tmp->rmv_size = rmvsize;
+    for (i = 0; i < addsize; i++) {
+        tmp->ids[i] = oga->add.ids[i];
+    }
+    for (; i < addsize + rmvsize; i++) {
+        tmp->ids[i] = oga->rmv.ids[i - addsize];
+    }
+    *ort = tmp;
+
+    return 0;
+}
+
+/* osd_do_report() report all the active blocks to R2 server
+ */
+int osd_do_report()
+{
+    struct obj_gather_all *oga;
+    struct obj_report_tx *ort = NULL;
+    struct xnet_msg *msg;
+    int err = 0, updated;
+
+    oga = osd_storage_process_report();
+    if (IS_ERR(oga)) {
+        err = PTR_ERR(oga);
+        hvfs_err(osd, "osd_storage_process_report() failed w/ %d\n",
+                 err);
+        goto out;
+    }
+
+#if 0
+    {
+        int i;
+        for (i = 0; i < oga->add.asize; i++) {
+            hvfs_info(osd, "OBJID %lx.%x\n", oga->add.ids[i].uuid,
+                      oga->add.ids[i].bid);
+        }
+    }
+#endif
+
+
+    /* handle the oga, free it if needed */
+    updated = osd_update_objinfo(oga);
+
+    /* generated the block report */
+    err = osd_oga2ort(oga, &ort);
+    if (err) {
+        hvfs_err(osd, "transform OGA to ORT failed w/ %d\n", err);
+        goto out;
+    }
+
+#if 0
+    {
+        int i = 0;
+        
+        for (; i < ort->add_size + ort->rmv_size; i++) {
+            hvfs_info(osd, "ORTOBJ %lx.%x\n",
+                      ort->ids[i].uuid, ort->ids[i].bid);
+        }
+    }
+#endif
+
+    /* change this block report to fully update report */
+    ort->add_size = -ort->add_size;
+        
+    /* send the block report */
+    {
+        msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+        if (!msg) {
+            hvfs_err(osd, "xnet_alloc_msg() msg failed.\n");
+            err = -ENOMEM;
+            goto out_free;
+        }
+#ifdef XNET_EAGER_WRITEV
+        xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+        xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0, hoo.site_id,
+                         osd_select_ring(&hoo));
+        xnet_msg_fill_cmd(msg, HVFS_R2_OREP, 0, 0);
+        xnet_msg_add_sdata(msg, ort, sizeof(*ort) + 
+                           sizeof(struct objid) * (-ort->add_size + ort->rmv_size));
+
+        if (xnet_send(hoo.xc, msg)) {
+            hvfs_err(osd, "xnet_send() block report failed.\n");
+        }
+        xnet_free_msg(msg);
+    }
+
+out_free:
+    if (ort) {
+        xfree(ort);
+    }
+    if (!updated) {
+        __free_oga(oga);
+    }
+out:
+    return err;
 }

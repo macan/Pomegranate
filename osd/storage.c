@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-14 17:26:42 macan>
+ * Time-stamp: <2012-11-06 10:21:01 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
 #include "xnet.h"
 #include "osd.h"
 #include "lib.h"
+#include <dirent.h>
 
 static u32 g_session = 0;
 
@@ -77,9 +78,38 @@ void osd_get_obj_path(struct objid oid, char *path)
      * sth else)
      */
     ASSERT(OSD_DEFAULT_PREFIX_LEN == 4, osd);
-    sprintf(path, "%s/%.4s/%s/%lx.%x", hoo.conf.osd_home, prefix, 
-            &prefix[OSD_DEFAULT_PREFIX_LEN],
+    sprintf(path, "%s/%lx/%.4s/%s/%lx.%x", hoo.conf.osd_home, hoo.site_id, 
+            prefix, &prefix[OSD_DEFAULT_PREFIX_LEN],
             oid.uuid, oid.bid);
+}
+
+void osd_obj_path_valid(char *path)
+{
+    /* alloc a level 0/1 path array */
+    char paths[2][256];
+    int len, i, level = 1;
+
+    if (!path)
+        return;
+    len = strlen(path);
+    for (i = len; i >= 0; i--) {
+        if (path[i] == '/') {
+            path[i] = '\0';
+            strcpy(paths[level], path);
+            level--;
+        }
+        if (level < 0)
+            break;
+    }
+    if (level >= 0) {
+        hvfs_err(osd, "Invalid obj path: %s\n", path);
+        return;
+    }
+    /* ok, we have to valid the directories */
+    for (i = 0; i < 2; i++) {
+        hvfs_info(osd, "make exist: %s\n", paths[i]);
+        osd_storage_dir_make_exist(paths[i]);
+    }
 }
 
 int osd_log_integrated(void)
@@ -156,6 +186,7 @@ int osd_log_redo(void)
                 goto out;
             } else if (br == 0) {
                 /* it is ok to break here */
+                err = 0;
                 goto out;
             }
             bl += br;
@@ -372,3 +403,382 @@ void osd_storage_destroy(void)
         fclose(hoo.conf.pf_file);
 }
 
+/* osd_storage_write() write thte data region to device
+ */
+int osd_storage_write(struct objid *obj, void *data, u32 offset, u32 length)
+{
+    char path[PATH_MAX];
+    int fd, err = 0, bl, bw;
+
+    /* Step 1: get the target obj file path */
+    osd_get_obj_path(*obj, path);
+    osd_obj_path_valid(path);
+
+    /* Step 2: try to open the file */
+    fd = open(path, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+checkit:
+    if (fd < 0) {
+        if (errno == EEXIST) {
+            /* this file does exist, just open it */
+            fd = open(path, O_RDWR);
+            goto checkit;
+        }
+        hvfs_err(osd, "open() file '%s' failed w/ %d (%s)\n",
+                 path, errno, strerror(errno));
+        err = -errno;
+        goto out;
+    }
+
+    /* Step 3: try to write the data region */
+    bl = 0;
+    do {
+        bw = pwrite(fd, data + bl, length - bl, offset + bl);
+        if (bw < 0) {
+            hvfs_err(osd, "pwrite to fd %d failed w/ %d\n",
+                     fd, errno);
+            goto out_close;
+        }
+        bl += bw;
+    } while (bl < length);
+
+    /* Step 4: close the file now */
+    atomic64_inc(&hoo.prof.storage.wreq);
+    atomic64_add(length, &hoo.prof.storage.wbytes);
+out_close:
+    close(fd);
+out:
+    return err;
+}
+
+/* osd_storage_read() read the data region from device
+ */
+int osd_storage_read(struct objid *obj, void *data, u32 offset, u32 length)
+{
+    char path[PATH_MAX];
+    int fd, err = 0, bl, br;
+
+    /* Step 1: get the target obj file path */
+    osd_get_obj_path(*obj, path);
+
+    /* Step 2: try to open the file */
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        hvfs_err(osd, "open() file '%s' failed w/ %d (%s)\n",
+                 path, errno, strerror(errno));
+        err = -errno;
+        goto out;
+    }
+
+    /* Step 3: try to read the data region */
+    bl = 0;
+    do {
+        br = pread(fd, data + bl, length - bl, offset + bl);
+        if (br < 0) {
+            hvfs_err(osd, "pread failed w/ %d (%s)\n", 
+                     errno, strerror(errno));
+            err = -errno;
+            goto out_close;
+        } else if (br == 0) {
+            hvfs_warning(osd, "pread to EOF w/ offset %d\n", offset + bl);
+            if (bl < length)
+                err = -EINVAL;
+            goto out_close;
+        }
+        bl += br;
+    } while (bl < length);
+
+    /* Step 4: close the file now */
+    atomic64_inc(&hoo.prof.storage.rreq);
+    atomic64_add(length, &hoo.prof.storage.rbytes);
+out_close:
+    close(fd);
+out:
+    return err;
+}
+
+/* osd_storage_sync() sync the data region or the whole file
+ */
+int osd_storage_sync(struct objid *obj, u32 offset, u32 length)
+{
+    char path[PATH_MAX];
+    int fd, err = 0;
+
+    /* Step 1: get the target obj file path */
+    osd_get_obj_path(*obj, path);
+
+    /* Step 2: try to open the file */
+    fd = open(path, O_WRONLY);
+    if (fd < 0) {
+        hvfs_err(osd, "open() file '%s' failed w/ %d (%s)\n",
+                 path, errno, strerror(errno));
+        err = -errno;
+        goto out;
+    }
+
+    /* Step 3: try to sync the data region
+     * At now, we just sync the whole obj file
+     */
+    err = fsync(fd);
+    if (err) {
+        hvfs_err(osd, "fsync() file '%s' failed w/ %d (%s)\n",
+                 path, errno, strerror(errno));
+        err = -errno;
+        goto out_close;
+    }
+
+    atomic64_inc(&hoo.prof.storage.wreq);
+out_close:
+    close(fd);
+
+out:
+    return err;
+}
+
+static inline
+struct obj_gather *__enlarge_og(struct obj_gather *in)
+{
+#define OG_DEFAULT_SIZE         (512)
+    void *out = NULL;
+    
+    if (!in) {
+        return NULL;
+    } else if (in->psize == 0) {
+        /* totally new alloc */
+        out = xzalloc(OG_DEFAULT_SIZE * sizeof(struct objid));
+        if (!out) {
+            hvfs_err(osd, "Failed to alloc new OG region\n");
+            return NULL;
+        }
+        in->psize = OG_DEFAULT_SIZE;
+        in->ids = out;
+    } else {
+        /* realloc a region */
+        out = xrealloc(in->ids, (in->psize + OG_DEFAULT_SIZE) * 
+                       sizeof(struct objid));
+        if (!out) {
+            hvfs_err(osd, "Failed to realloc new OG region\n");
+            return NULL;
+        }
+        in->psize += OG_DEFAULT_SIZE;
+        in->ids = out;
+    }
+
+    return in;
+}
+
+static inline
+void __free_og(struct obj_gather *og)
+{
+    if (og->psize > 0)
+        xfree(og->ids);
+}
+
+typedef void (*__osd_dir_iterate_func)(char *name, void *data);
+
+void __gather_statfs(char *name, void *data)
+{
+    struct statfs *s = (struct statfs *)data;
+
+    s->f_spare[0]++;
+    hvfs_debug(osd, "statfs: %s %ld\n", name, s->f_spare[0]);
+}
+
+void __gather_blocks(char *name, void *data)
+{
+    struct obj_gather_all *oga = (struct obj_gather_all *)data;
+    char *n, *s = NULL, *p;
+
+    if (!oga)
+        return;
+    if (oga->add.asize >= oga->add.psize) {
+        void *out = __enlarge_og(&oga->add);
+        if (!out) {
+            hvfs_err(osd, "enlarge OG region failed, block %s leaking\n",
+                     name);
+            return;
+        }
+    }
+    /* parse name to objid */
+    n = strdup(name);
+    if (!n) {
+        hvfs_err(osd, "duplicate the block NAME failed\n");
+        return;
+    }
+    p = strtok_r(n, ".\n", &s);
+    if (!p) {
+        hvfs_err(osd, "no objid.uuid find in NAME: %s\n", n);
+        goto out;
+    }
+    oga->add.ids[oga->add.asize].uuid = strtoul(p, NULL, 16);
+    p = strtok_r(NULL, ".\n", &s);
+    if (!p) {
+        hvfs_err(osd, "no objid.bid find in NAME: %s\n", n);
+        goto out;
+    }
+    oga->add.ids[oga->add.asize].bid = strtoul(p, NULL, 16);
+
+    /* get block length */
+    
+    oga->add.asize++;
+    
+    
+out:
+    xfree(n);
+}
+
+static inline 
+int __ignore_self_parent(char *dir)
+{
+    if ((strcmp(dir, ".") == 0) ||
+        (strcmp(dir, "..") == 0)) {
+        return 0;
+    }
+    return 1;
+}
+
+/* iterate over the directory tree and trigger the func on each REG file
+ */
+int __osd_dir_iterate(char *oldpath, char *name, __osd_dir_iterate_func func, 
+                      void *data)
+{
+    char path[PATH_MAX];
+    struct dirent entry;
+    struct dirent *result;
+    DIR *d;
+    int err = 0;
+
+    sprintf(path, "%s/%s", oldpath, name);
+    d = opendir(path);
+    if (!d) {
+        hvfs_err(osd, "opendir(%s) failed w/ %s(%d)\n",
+                 path, strerror(errno), errno);
+        goto out;
+    }
+
+    for (err = readdir_r(d, &entry, &result);
+         err == 0 && result != NULL;
+         err = readdir_r(d, &entry, &result)) {
+        /* ok, we should iterate over the dirs */
+        if (entry.d_type == DT_DIR && __ignore_self_parent(entry.d_name)) {
+            err = __osd_dir_iterate(path, entry.d_name, func, data);
+            if (err) {
+                hvfs_err(osd, "Dir %s: iterate to func failed w/ %d\n",
+                         entry.d_name, err);
+            }
+        } else if (entry.d_type == DT_REG) {
+            /* call the function now */
+            func(entry.d_name, data);
+        } else if (entry.d_type == DT_UNKNOWN) {
+            hvfs_warning(osd, "File %s with unknown file type?\n",
+                         entry.d_name);
+        }
+    }
+    closedir(d);
+
+out:
+    return err;
+}
+
+/* osd_storage_statfs() scan the storage directory and count the file number,
+ * block number, etc
+ *
+ * FIXME: add another level directory for DIFFERENT DEVICEs.
+ */
+int osd_storage_statfs(struct statfs *s)
+{
+    char path[PATH_MAX];
+    struct dirent entry;
+    struct dirent *result;
+    DIR *d;
+    int err = 0;
+
+    /* Step 1: open the home directory, get the first-level entries */
+    sprintf(path, "%s/%lx", hoo.conf.osd_home, hoo.site_id);
+    d = opendir(path);
+    if (!d) {
+        hvfs_err(osd, "opendir(%s) failed w/ %s(%d)\n",
+                 path, strerror(errno), errno);
+        goto out;
+    }
+    /* Step 2: iterate over the first-level entries */
+    for (err = readdir_r(d, &entry, &result);
+         err == 0 && result != NULL;
+         err = readdir_r(d, &entry, &result)) {
+        if (entry.d_type == DT_DIR && __ignore_self_parent(entry.d_name)) {
+            /* ok, we should iterate over the second-level entries */
+            err = __osd_dir_iterate(path, entry.d_name, __gather_statfs,
+                                    (void *)s);
+            if (err) {
+                hvfs_err(osd, "Dir %s: iterated to statfs failed w/ %d\n",
+                         entry.d_name, err);
+            }
+        } else if (entry.d_type == DT_UNKNOWN) {
+            hvfs_warning(osd, "File %s with unknown file type?\n", 
+                         entry.d_name);
+        }
+    }
+    closedir(d);
+
+out:
+    return err;
+}
+
+/* osd_storage_process_report() scan the storage directory and generate the
+ * obj_gather_all structure.
+ */
+struct obj_gather_all *osd_storage_process_report()
+{
+    char path[PATH_MAX];
+    struct dirent entry;
+    struct dirent *result;
+    struct obj_gather_all *oga;
+    DIR *d;
+    int err = 0;
+
+    /* Step 0: alloc the block info array */
+    oga = xzalloc(sizeof(*oga));
+    if (!oga) {
+        hvfs_err(osd, "Alloc obj_gather_all failed!\n");
+        return ERR_PTR(-ENOMEM);
+    }
+
+    /* Step 1: open the home directory, get the first-level entries */
+    sprintf(path, "%s/%lx", hoo.conf.osd_home, hoo.site_id);
+    d = opendir(path);
+    if (!d) {
+        hvfs_err(osd, "opendir(%s) failed w/ %s(%d)\n",
+                 path, strerror(errno), errno);
+        err = -errno;
+        goto out;
+    }
+    /* Step 2: iterate over the first-level entries */
+    for (err = readdir_r(d, &entry, &result);
+         err == 0 && result != NULL;
+         err = readdir_r(d, &entry, &result)) {
+        if (entry.d_type == DT_DIR && __ignore_self_parent(entry.d_name)) {
+            /* ok, we should iterate over the second-level entries */
+            err = __osd_dir_iterate(path, entry.d_name, __gather_blocks,
+                                    (void *)oga);
+            if (err) {
+                hvfs_err(osd, "Dir %s: iterated to gather blocks failed w/ %d\n",
+                         entry.d_name, err);
+            }
+        } else if (entry.d_type == DT_UNKNOWN) {
+            hvfs_warning(osd, "File %s with unknown file type?\n", 
+                         entry.d_name);
+        }
+    }
+    closedir(d);
+
+out:
+    if (err) {
+        if (oga) {
+            __free_og(&oga->add);
+            __free_og(&oga->rmv);
+            xfree(oga);
+        }
+        return ERR_PTR(err);
+    }
+    
+    return oga;
+}

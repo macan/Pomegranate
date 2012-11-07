@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-13 09:49:07 macan>
+ * Time-stamp: <2012-11-07 15:35:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -77,7 +77,8 @@ struct root_conf
     u32 hb_interval;            /* interval to check the site entry
                                  * heartbeat */
     u32 sync_interval;          /* interval to do self sync */
-    u32 profile_interval;       /* interval to dump sth */
+    u32 profile_interval;       /* interval to do profile */
+    u32 log_print_interval;     /* interval to dump sth */
 
     u32 ring_vid_max;
 
@@ -254,9 +255,11 @@ struct osd_list *om_query_obj(struct objid);
 int om_dispatch_objrep(struct xnet_msg *);
 int om_init(u32);
 void om_destroy(void);
+int om_del_osd(u64);
 
 /* x2r.c */
 int root_do_objrep(struct xnet_msg *);
 int root_do_query_obj(struct xnet_msg *);
+int root_do_getasite(struct xnet_msg *);
 
 #endif

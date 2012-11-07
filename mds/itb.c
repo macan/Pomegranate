@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-09-05 10:48:49 macan>
+ * Time-stamp: <2012-10-22 14:39:51 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -405,6 +405,11 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
             __itb_add_index(i, offset, nr, hi->name);
             /* set up the mdu base on hi->data */
             ite_create(hi, ite);
+            if (hi->flag & INDEX_CREATE_DIR) {
+                atomic64_inc(&hmi.mi_dnum);
+            } else {
+                atomic64_inc(&hmi.mi_fnum);
+            }
             /* copy the mdu into the hmr buffer */
             hi->uuid = ite->uuid;
             /* FIXME: we can optimize the kv memcpy here! */

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-08 11:01:26 macan>
+ * Time-stamp: <2012-10-26 16:48:27 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -2810,4 +2810,146 @@ void site_mgr_check(time_t ctime)
             xlock_unlock(&pos->lock);
         }
     }
+}
+
+char *__int2state(u32 state)
+{
+    switch (state) {
+    case SE_STATE_INIT:
+        return "INIT";
+        break;
+    case SE_STATE_NORMAL:
+        return "NORM";
+        break;
+    case SE_STATE_SHUTDOWN:
+        return "STDN";
+        break;
+    case SE_STATE_TRANSIENT:
+        return "TRAN";
+        break;
+    case SE_STATE_ERROR:
+        return "ERRO";
+        break;
+    default:
+        return "ERRO";
+    }
+}
+
+/* dump the site state array to stdout
+ */
+void site_mgr_check2(time_t ctime)
+{
+    struct site_entry *pos;
+    struct hlist_node *n;
+#define MAX_STR (10 * 1024)
+    char mds[MAX_STR], mdsl[MAX_STR], client[MAX_STR], 
+        bp[MAX_STR], osd[MAX_STR];
+    char *pmds = mds, *pmdsl= mdsl, *pclient = client, 
+        *pbp = bp, *posd = osd;
+    static time_t ts = 0;
+    int i;
+
+    if (ctime - ts < hro.conf.log_print_interval) {
+        return;
+    } else
+        ts = ctime;
+    
+    for (i = 0; i < hro.conf.site_mgr_htsize; i++) {
+        hlist_for_each_entry(pos, n, &hro.site.sht[i].h, hlist) {
+            if (HVFS_IS_MDS(pos->site_id)) {
+                struct hvfs_mds_info *hmi = (struct hvfs_mds_info *)(&pos->hxi);
+
+                if (pmds == mds) {
+                    pmds += sprintf(pmds, "MDS : [site_id, state, hb_lost, "
+                                    "next_tx, next_txg, next_uuid, fnum, "
+                                    "dnum, next_bid]\n");
+                }
+                pmds += sprintf(pmds, "[%lx, %s, %d, %ld, %ld, %ld, %ld, %ld, "
+                                "%ld]\n",
+                                pos->site_id, __int2state(pos->state),
+                                pos->hb_lost, 
+                                atomic64_read(&hmi->mi_tx),
+                                atomic64_read(&hmi->mi_txg),
+                                atomic64_read(&hmi->mi_uuid),
+                                atomic64_read(&hmi->mi_fnum),
+                                atomic64_read(&hmi->mi_dnum),
+                                atomic64_read(&hmi->mi_bid));
+            } else if (HVFS_IS_MDSL(pos->site_id)) {
+                struct hvfs_mdsl_info *hmi = (struct hvfs_mdsl_info *)(&pos->hxi);
+
+                if (pmdsl == mdsl) {
+                    pmdsl += sprintf(pmdsl, "MDSL: [site_id, state, hb_lost,"
+                                     "next_tx, next_txg, next_uuid, bused, "
+                                     "bfree, bwrite, bread, bid]\n");
+                }
+                pmdsl += sprintf(pmdsl, "[%lx, %s, %d, %ld, %ld, %ld, %ld, "
+                                 "%ld, %ld, %ld, %ld]\n",
+                                 pos->site_id, __int2state(pos->state),
+                                 pos->hb_lost,
+                                 atomic64_read(&hmi->mi_tx),
+                                 atomic64_read(&hmi->mi_txg),
+                                 atomic64_read(&hmi->mi_uuid),
+                                 atomic64_read(&hmi->mi_bused),
+                                 atomic64_read(&hmi->mi_bfree),
+                                 atomic64_read(&hmi->mi_bwrite),
+                                 atomic64_read(&hmi->mi_bread),
+                                 atomic64_read(&hmi->mi_bid));
+            } else if (HVFS_IS_OSD(pos->site_id)) {
+                if (posd == osd) {
+                    posd += sprintf(posd, "OSD : [site_id, state, hb_lost]\n");
+                }
+                posd += sprintf(posd, "[%lx, %s, %d]\n",
+                                pos->site_id, __int2state(pos->state),
+                                pos->hb_lost);
+            } else if (HVFS_IS_CLIENT(pos->site_id)) {
+                if (pclient == client) {
+                    pclient += sprintf(pclient, "CLT : [site_id, state, hb_lost]\n");
+                }
+                pclient += sprintf(pclient, "[%lx, %s, %d]\n",
+                                   pos->site_id, __int2state(pos->state),
+                                   pos->hb_lost);
+            } else if (HVFS_IS_BP(pos->site_id)) {
+                if (pbp == bp) {
+                    pbp += sprintf(pbp, "BP  : [site_id, state, hb_lost]\n");
+                }
+                pbp += sprintf(pbp, "[%lx, %s, %d]\n",
+                                   pos->site_id, __int2state(pos->state),
+                                   pos->hb_lost);
+            }
+        }
+    }
+
+    /* print the info to console */
+    if (pmds > mds)
+        hvfs_plain(root, "%s", mds);
+    if (pmdsl > mdsl)
+        hvfs_plain(root, "%s", mdsl);
+    if (posd > osd)
+        hvfs_plain(root, "%s", osd);
+    if (pbp > bp)
+        hvfs_plain(root, "%s", bp);
+    if (pclient > client)
+        hvfs_plain(root, "%s", client);
+}
+
+/* get the non-shutdown sites, ignore any errors
+ */
+struct xnet_group *site_mgr_get_active_site(u32 type)
+{
+    struct xnet_group *xg = NULL;
+    struct site_entry *pos;
+    struct hlist_node *n;
+    int i, __UNUSED__ err;
+
+    for (i = 0; i < hro.conf.site_mgr_htsize; i++) {
+        hlist_for_each_entry(pos, n, &hro.site.sht[i].h, hlist) {
+            if (HVFS_GET_TYPE(pos->site_id) == type &&
+                (pos->state == SE_STATE_NORMAL ||
+                 pos->state == SE_STATE_TRANSIENT ||
+                 pos->state == SE_STATE_ERROR))
+                err = xnet_group_add(&xg, pos->site_id);
+        }
+    }
+
+    return xg;
 }

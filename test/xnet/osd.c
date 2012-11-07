@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-07 17:25:02 macan>
+ * Time-stamp: <2012-11-05 16:11:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -531,6 +531,15 @@ int main(int argc, char *argv[])
     osd_verify();
 
     hvfs_info(xnet, "OSD is UP for serving requests now.\n");
+    {
+        char path[100];
+        struct objid obj = {.uuid = 100, .bid = 10, .len = 9,};
+
+        osd_get_obj_path(obj, path);
+        hvfs_info(xnet, "OSD path : %s\n", path);
+
+        osd_do_report();
+    }
 
     //SET_TRACING_FLAG(osd, HVFS_DEBUG);
     msg_wait();

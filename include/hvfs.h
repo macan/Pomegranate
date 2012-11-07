@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-09 13:11:46 macan>
+ * Time-stamp: <2012-10-22 14:57:31 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -161,6 +161,7 @@
 #define HVFS_R2_PROFILE         0x0000000040000023 /* gather profile */
 #define HVFS_R2_INFO            0x0000000040000024 /* get info */
 #define HVFS_R2_OREP            0x0000000040000025 /* object report */
+#define HVFS_R2_GETASITE        0x0000000040000026 /* get active site */
 
 /* ROOT/RING to * */
 #define HVFS_FR2_RU             0x0000000041000000 /* ring updates to all
@@ -174,6 +175,7 @@
 #define HVFS_OSD_SYNC           0x0000000010000003 /* object sync */
 #define HVFS_OSD_STATFS         0x0000000010000004 /* stat whole server */
 #define HVFS_OSD_QUERY          0x0000000010000005 /* query on specific object */
+#define HVFS_OSD_SWEEP          0x0000000010000006 /* object region sweep ZERO */
 
 /* APIs */
 #define HASH_SEL_EH     0x00

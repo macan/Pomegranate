@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2012-08-10 13:58:08 macan>
+# Time-stamp: <2012-09-17 10:47:10 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -143,7 +143,7 @@ MDS_AR_SOURCE = itb.c mds.c txg.c cbht.c tx.c prof.c conf.c dh.c xtable.c \
                 ddc.c scrub.c gossip.c capi.c ft.c trigger.c redo.c
 MDSL_AR_SOURCE = mdsl.c spool.c tcc.c dispatch.c m2ml.c prof.c storage.c \
 				 aio.c c2ml.c local.c gc.c ml2ml.c
-OSD_AR_SOURCE = osd.c spool.c dispatch.c storage.c prof.c 
+OSD_AR_SOURCE = osd.c spool.c dispatch.c storage.c prof.c x2o.c
 LIB_AR_SOURCE = lib.c ring.c time.c bitmap.c xlock.c segv.c conf.c md5.c \
                 embedpy.c minilzo.c brtree.c crc32.c
 XNET_AR_SOURCE = xnet.c xnet_simple.c

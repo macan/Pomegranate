@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-10 15:20:04 macan>
+ * Time-stamp: <2012-11-05 10:36:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -3554,6 +3554,56 @@ int hvfs_get_cluster(char *type)
     return 0;
 }
 
+struct xnet_group *hvfs_get_active_sites_from_r2(u32 type)
+{
+    struct xnet_msg *msg;
+    struct xnet_group *xg = ERR_PTR(-ENOENT);
+    int err = 0;
+
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        err = -ENOMEM;
+        goto out;
+    }
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, mds_select_ring(&hmo));
+    xnet_msg_fill_cmd(msg, HVFS_R2_GETASITE, type, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    ASSERT(msg->pair, xnet);
+    /* parse the xg */
+    if (msg->pair->tx.err) {
+        err = msg->pair->tx.err;
+        goto out_msg;
+    }
+    if (msg->pair->xm_datacheck) {
+        if (msg->pair->tx.len < sizeof(*xg)) {
+            hvfs_err(xnet, "Invalid xnet_group recved.\n");
+            err = -EINVAL;
+            goto out_msg;
+        }
+        xg = msg->pair->xm_data;
+        xnet_clear_auto_free(msg->pair);
+    }
+
+out_msg:
+    xnet_free_msg(msg);
+out:
+    if (err)
+        xg = ERR_PTR(err);
+    
+    return xg;
+}
+
 char *hvfs_active_site(char *type)
 {
     struct xnet_group *xg = NULL;
@@ -3563,30 +3613,76 @@ char *hvfs_active_site(char *type)
     
     if (strncmp(type, "mdsl", 4) == 0) {
         base = HVFS_MDSL(0);
-        hvfs_info(xnet, "Active MDSL Sites:\n");
-        xg = cli_get_active_site(hmo.chring[CH_RING_MDSL]);
-        if (!xg) {
-            hvfs_err(xnet, "cli_get_active_site() failed\n");
-            err = "Error: No memory.";
-            goto out;
+        if (hmo.chring[CH_RING_MDSL]->used > 0) {
+            hvfs_info(xnet, "Active MDSL Sites:\n");
+            xg = cli_get_active_site(hmo.chring[CH_RING_MDSL]);
+            if (!xg) {
+                hvfs_err(xnet, "cli_get_active_site() failed\n");
+                err = "Error: No memory.";
+                goto out;
+            }
+        } else {
+            hvfs_info(xnet, "No MDSL Site.\n");
         }
     } else if (strncmp(type, "mds", 3) == 0) {
         base = HVFS_MDS(0);
-        hvfs_info(xnet, "Active MDS Sites:\n");
-        xg = cli_get_active_site(hmo.chring[CH_RING_MDS]);
-        if (!xg) {
-            hvfs_err(xnet, "cli_get_active_site() failed\n");
-            err = "Error: No memory.";
-            goto out;
+        if (hmo.chring[CH_RING_MDS]->used > 0) {
+            hvfs_info(xnet, "Active MDS Sites:\n");
+            xg = cli_get_active_site(hmo.chring[CH_RING_MDS]);
+            if (!xg) {
+                hvfs_err(xnet, "cli_get_active_site() failed\n");
+                err = "Error: No memory.";
+                goto out;
+            }
+        } else {
+            hvfs_info(xnet, "No MDS Site.\n");
+        }
+    } else if (strncmp(type, "osd", 3) == 0) {
+        /* there is NO ring for OSD sites, thus we request osd site info from
+         * r2. */
+        base = HVFS_OSD(0);
+        xg = hvfs_get_active_sites_from_r2(HVFS_SITE_TYPE_OSD);
+        if (IS_ERR(xg)) {
+            if (PTR_ERR(xg) == -ENOENT) {
+                hvfs_info(xnet, "No OSD Site.\n");
+                goto out;
+            } else {
+                hvfs_err(xnet, "hvfs_get_active_sites_from_r2() failed "
+                         "w/ %ld\n",
+                         PTR_ERR(xg));
+                err = "Error: Unknown error.";
+                goto out;
+            }
         }
     } else if (strncmp(type, "bp", 2) == 0) {
         base = HVFS_BP(0);
-        hvfs_info(xnet, "Active BP Sites:\n");
-        xg = cli_get_active_site(hmo.chring[CH_RING_BP]);
-        if (!xg) {
-            hvfs_err(xnet, "cli_get_active_site() failed\n");
-            err = "Error: No memory.";
-            goto out;
+        if (hmo.chring[CH_RING_BP]->used > 0) {
+            hvfs_info(xnet, "Active BP Sites:\n");
+            xg = cli_get_active_site(hmo.chring[CH_RING_BP]);
+            if (!xg) {
+                hvfs_err(xnet, "cli_get_active_site() failed\n");
+                err = "Error: No memory.";
+                goto out;
+            }
+        } else {
+            hvfs_info(xnet, "No BP Site.\n");
+        }
+    } else if (strncmp(type, "client", 6) == 0) {
+        /* there is NO ring for CLIENT sites, thus we request osd site info
+         * from r2. */
+        base = HVFS_OSD(0);
+        xg = hvfs_get_active_sites_from_r2(HVFS_SITE_TYPE_CLIENT);
+        if (IS_ERR(xg)) {
+            if (PTR_ERR(xg) == -ENOENT) {
+                hvfs_info(xnet, "No CLIENT Site.\n");
+                goto out;
+            } else {
+                hvfs_err(xnet, "hvfs_get_active_sites_from_r2() failed "
+                         "w/ %ld\n",
+                         PTR_ERR(xg));
+                err = "Error: Unknown error.";
+                goto out;
+            }
         }
     } else {
         hvfs_err(xnet, "Type '%s' not supported yet.\n", type);
@@ -7676,6 +7772,9 @@ int __hvfs_statfs(struct statfs *s, u64 dsite)
         xnet_msg_fill_cmd(msg, HVFS_CLT2MDS_STATFS, 0, 0);
     else if (HVFS_IS_MDSL(dsite))
         xnet_msg_fill_cmd(msg, HVFS_CLT2MDSL_STATFS, 0, 0);
+    else if (HVFS_IS_OSD(dsite)) {
+        xnet_msg_fill_cmd(msg, HVFS_OSD_STATFS, 0, 0);
+    }
     else {
         hvfs_err(xnet, "Invalid target site %lx for STATFS command.\n",
                  dsite);
@@ -7709,6 +7808,7 @@ int __hvfs_statfs(struct statfs *s, u64 dsite)
     s->f_bavail += ns->f_bavail;
     s->f_files += ns->f_files;
     s->f_ffree += ns->f_ffree;
+    s->f_spare[0] += ns->f_spare[0];
     s->f_bsize = ns->f_bsize;
     
 out_msg:
@@ -7767,6 +7867,27 @@ int hvfs_statfs(void **data)
 
     xfree(xg);
 
+    xg = hvfs_get_active_sites_from_r2(HVFS_SITE_TYPE_OSD);
+    if (IS_ERR(xg)) {
+        if (PTR_ERR(xg) != -ENOENT) {
+            hvfs_err(xnet, "Get active OSD sites failed w/ %ld\n",
+                     PTR_ERR(xg));
+            err = PTR_ERR(xg);
+            goto out;
+        } else {
+            xg = NULL;
+        }
+    }
+
+    for (i = 0; i < xg->asize; i++) {
+        err = __hvfs_statfs(&s, xg->sites[i].site_id);
+        if (err) {
+            hvfs_err(xnet, "Statfs from %lx failed /w %d\n",
+                     xg->sites[i].site_id, err);
+        }
+    }
+
+    xfree(xg);
     s.f_type = HVFS_SUPER_MAGIC;
     s.f_namelen = HVFS_MAX_NAME_LEN;
     
@@ -7781,10 +7902,12 @@ int hvfs_statfs(void **data)
              "\tf_ffree\t\t%ld\n"
              "\tf_fsid\t\t????\n"
              "\tf_namelen\t%ld\n"
-             "\tf_afile\t\t%ld\n",
+             "\tf_afile\t\t%ld\n"
+             "\tf_ablock\t%ld\n",
              s.f_type, s.f_bsize, s.f_blocks, s.f_bfree,
              s.f_bavail, s.f_files, s.f_ffree, 
-             s.f_namelen, (s.f_files - s.f_ffree));
+             s.f_namelen, (s.f_files - s.f_ffree),
+             s.f_spare[0]);
     *data = p;
 
 out:
