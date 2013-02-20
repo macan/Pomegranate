@@ -2,7 +2,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2012-09-17 10:47:10 macan>
+# Time-stamp: <2012-11-21 15:48:11 macan>
 #
 # This is the makefile for HVFS project.
 #
@@ -88,7 +88,8 @@ CFLAGS += -Wall -DCDATE="\"$(COMPILE_DATE)\"" -DGIT_SHA="\"$(GIT_SHA)\""\
 			-D_USE_SPINLOCK_ -DHVFS_DEBUG_LATENCY_ -DXNET_BLOCKING \
 			-DXNET_EAGER_WRITEV -DCPU_CORE=$(__CORES__) \
 			-DMDSL_ACC_SYNC -DMDSL_RADICAL_DEL -DMDSL_DROP_CACHE_ \
-			-DFUSE_SAFE_OPEN -DXNET_CONN_EINTR
+			-DFUSE_SAFE_OPEN -DXNET_CONN_EINTR \
+			-DHVFS_OSD_STORE_DETECT_SLOW
 
 ifdef USE_BDB
 CFLAGS += -I$(BDB_INC_PATH) -DUSE_BDB=1
@@ -170,8 +171,8 @@ inc_h_depend_files = $(patsubst %.h, $(INC_PATH)/%.h, $(INC_H_SOURCE)) \
 						$(LIB_PATH)/hash.c
 mds_h_depend_files = $(patsubst %.h, $(MDS)/%.h, $(MDS_H_SOURCE)) \
                         $(MDS)/latency.c
-mdsl_h_depend_fils = $(patsubst %.h, $(MDSL)/%.h, $(MDSL_H_SOURCE))
-osd_h_depend_fils = $(patsubst %.h, $(OSD)/%.h, $(OSD_H_SOURCE))
+mdsl_h_depend_files = $(patsubst %.h, $(MDSL)/%.h, $(MDSL_H_SOURCE))
+osd_h_depend_files = $(patsubst %.h, $(OSD)/%.h, $(OSD_H_SOURCE))
 lib_h_depend_files = $(patsubst %.h, $(LIB_PATH)/%.h, $(LIB_H_SOURCE))
 r2_h_depend_files = $(patsubst %.h, $(R2)/%.h, $(R2_H_SOURCE))
 api_h_depend_files = $(patsubst %.h, $(API)/%.h, $(API_H_SOURCE))
@@ -191,7 +192,7 @@ mds_depend_files = $(patsubst %.c, $(MDS)/%.c, $(MDS_AR_SOURCE)) \
 mdsl_depend_files = $(patsubst %.c, $(MDSL)/%.c, $(MDSL_AR_SOURCE)) \
 					$(header_depend_files)
 osd_depend_files = $(patsubst %.c, $(OSD)/%.c, $(OSD_AR_SOURCE)) \
-					$(header_depend_files)
+					$(header_depend_files) $(osd_h_depend_files)
 lib_depend_files = $(patsubst %.c, $(LIB_PATH)/%.c, $(LIB_AR_SOURCE)) \
 					$(header_depend_files)
 xnet_depend_files = $(patsubst %.c, $(XNET)/%.c, $(XNET_AR_SOURCE)) \

@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-11-06 10:12:59 macan>
+ * Time-stamp: <2013-02-19 14:32:16 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -55,29 +55,82 @@ struct scan_manager
     xlock_t lock;
 };
 
+struct round_robin_algo
+{
+    int cur;                    /* current position */
+};
+
+union selector_algo
+{
+    struct round_robin_algo rra;
+};
+
+struct store_array_manager
+{
+    char **store_array;         /* copied from hoo.conf.osd_storages_array */
+    int array_size;             /* copied from
+                                 * hoo.conf.osd_storages_array_size */
+    union selector_algo sa;     /* selector algorithms */
+};
+
 struct osd_storage
 {
-    xlock_t objlog_fd_lock;     /* obj log file's lock */
-    int objlog_fd;              /* obj log file FD */
-    struct log_manager lm;      /* obj add/del in current session */
+    xlock_t objlog_fd_lock;        /* obj log file's lock */
+    int objlog_fd;                 /* obj log file FD */
+    struct store_array_manager am; /* storage array manager */
+    struct log_manager lm;         /* obj add/del in current session */
     struct scan_manager sm;
 };
 
 struct obj_gather
 {
     int asize, psize;
-    struct objid *ids;
+    struct objid_dev *ids;
 };
 
 struct obj_gather_all
 {
+    int cur;                    /* current dev */
     struct obj_gather add, rmv;
 };
 
+/* oga_manager manage a OGA array for all the active blocks
+ */
 struct oga_manager
 {
     struct obj_gather_all *oga;
     xlock_t lock;
+    xlock_t changed_lock;
+    /* hash table for fast lookup */
+#define HVFS_OSD_OM_HSIZE       10240
+    struct regular_hash *ht;
+    struct list_head changed;
+    struct list_head changed_saving;
+    int hsize;
+#define OM_REPORT_ALL           0x00 /* init report all, then reset to DIFF */
+#define OM_REPORT_BEGIN_SCAN    0x01
+#define OM_REPORT_END_SCAN      0x02
+#define OM_REPORT_DIFF          0x03
+    u8 report_type;
+#define OM_REPORT_PAUSE         0x00
+#define OM_REPORT_ACTIVE        0x01
+    u8 should_send;
+};
+
+struct om_entry
+{
+    struct hlist_node hlist;
+    struct objid id;
+    int dev;                    /* which device this obj exists */
+};
+
+struct om_changed_entry
+{
+    struct list_head list;
+    struct objid id;
+#define OM_UPDATE       0
+#define OM_DELETE       1
+    int upd_or_del;
 };
 
 struct osd_conf
@@ -92,6 +145,10 @@ struct osd_conf
     char *profiling_file;
     char *conf_file;
     char *log_file;             /* log file(HOME/log) for osd add/del */
+
+    /* section for storage directories */
+    char *storages;             /* use ',;' */
+    char **osd_storages_array;  /* parsed osd storages */
 
     /* section for file id */
     FILE *pf_file, *cf_file, *lf_file;
@@ -109,10 +166,13 @@ struct osd_conf
 #define OSD_PROF_HUMAN          0x02
 #define OSD_PROF_R2             0x03
     u8 prof_plot;               /* do we dump profilings for gnuplot */
+    u8 osd_storages_array_size;
 
     /* intervals */
     int profiling_thread_interval;
     int hb_interval;
+    int diff_rep_interval;
+    int full_rep_interval;
 
     /* conf */
 #define HVFS_OSD_WDROP          0x01 /* drop all the writes to this OSD */
@@ -143,21 +203,24 @@ struct hvfs_osd_object
 
     /* the following region is used for threads */
     sem_t timer_sem;            /* for timer thread wakeup */
+    sem_t reporter_sem;         /* for reporter thread wakeup */
     atomic64_t pending_ios;     /* pending IOs */
 
     pthread_t timer_thread;
     pthread_t *spool_thread;    /* array of service threads */
     pthread_t *aio_thread;      /* array of aio threads */
+    pthread_t reporter_thread;
 
     /* osd profiling array */
     struct hvfs_profile hp;
 
-    /* section for block info */
+    /* section for obj info */
     struct oga_manager om;
 
     u32 timer_thread_stop:1;    /* running flag for timer thread */
     u32 spool_thread_stop:1;    /* running flag for service thread */
     u32 aio_thread_stop:1;      /* running flag for aio thread */
+    u32 reporter_thread_stop:1; /* running flag for reporter thread */
 
     /* callback funcitons */
     void (*cb_exit)(void *);
@@ -207,22 +270,46 @@ void osd_destroy(void);
 u64 osd_select_ring(struct hvfs_osd_object *);
 void osd_set_ring(u64);
 int osd_addr_table_update(struct xnet_msg *);
+void osd_reporter_schedule();
+int osd_do_report();
+void __do_obj_diff_report();
 
 /* prof.c */
 void osd_dump_profiling(time_t t, struct hvfs_profile *hp);
 
 /* storage.c */
+struct osd_storage_file_header
+{
+    u64 uuid;
+    u32 bid;
+    u32 len;
+    u32 crc;
+    u32 version:20;
+    u32 consistency:4;
+    u32 fh_ver:8;
+    unsigned char digest[16];   /* MD5 digest */
+};
+
+typedef struct osd_storage_file_header OSD_FH;
+#define OSD_FH_SIZE     (sizeof(OSD_FH))
+
 int osd_storage_dir_make_exist(char *path);
 int osd_storage_init(void);
 void osd_storage_destroy(void);
 void osd_startup_normal(void);
 void osd_exit_normal(void);
-int osd_storage_write(struct objid *obj, void *data, u32 offset, u32 length);
-int osd_storage_read(struct objid *obj, void *data, u32 offset, u32 length);
+#define HVFS_OSD_WRITE_TRUNC    0x01
+int osd_storage_write(struct objid *obj, void *data, u32 offset, int length, int *dev);
+int osd_storage_read(struct objid *obj, void **data, u32 offset, int length);
+int osd_storage_read_strict(struct objid *obj, void **data, u32 offset, int length, int version);
 int osd_storage_sync(struct objid *obj, u32 offset, u32 length);
-void osd_get_obj_path(struct objid oid, char *path);
+int osd_storage_trunc(struct objid *obj, off_t length, int *dev);
+void osd_get_obj_path(struct objid oid, char *store, char *path);
 int osd_storage_statfs(struct statfs *s);
 struct obj_gather_all *osd_storage_process_report();
+int osd_om_state_change(u8 target_state, u8 target_send);
+int __om_update_entry(struct objid id, int dev);
+int osd_storage_getlen(struct objid *obj);
 
 /* spool.c */
 int osd_spool_dispatch(struct xnet_msg *);

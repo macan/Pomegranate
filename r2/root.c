@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-11-06 12:48:14 macan>
+ * Time-stamp: <2012-12-29 16:46:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -355,21 +355,6 @@ static void *root_timer_thread_main(void *arg)
             /* ok, check the site entry state now */
             site_mgr_check(cur);
             site_mgr_check2(cur);
-            {
-                struct objid id = {.uuid = 100, .bid = 10,};
-                struct osd_list *list = om_query_obj(id);
-                int i;
-                
-                if (!IS_ERR(list)) {
-                    hvfs_info(root, "OK, query return osd list => \n");
-                    for (i = 0; i < list->size; i++) {
-                        hvfs_info(root, "osd[%d] = %lx\n", i, list->site[i]);
-                    }
-                    xfree(list);
-                } else {
-                    hvfs_err(root, "Bad, query return %ld\n", PTR_ERR(list));
-                }
-            }
             /* write profile? */
             if (hro.conf.prof_plot == ROOT_PROF_PLOT) {
                 root_profile_flush(cur);

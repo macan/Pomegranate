@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-09-17 11:17:47 macan>
+ * Time-stamp: <2012-11-21 16:32:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -104,6 +104,12 @@ l0_recheck:
         break;
     case HVFS_OSD_SYNC:
         err = osd_sync(msg);
+        break;
+    case HVFS_OSD_TRUNC:
+        err = osd_trunc(msg);
+        break;
+    case HVFS_OSD_DEL:
+        err = osd_del(msg);
         break;
     case HVFS_OSD_STATFS:
         err = osd_statfs(msg);

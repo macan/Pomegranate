@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-05-16 17:21:28 macan>
+ * Time-stamp: <2013-02-19 14:33:21 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -216,5 +216,16 @@ struct pfile_handle
     char *name;                 /* if name is NULL, then uuid and hash must be
                                  * valid! */
 };
+
+/* Region for OSD subsystem */
+struct osd_list *hvfs_query_obj(u64 uuid, u32 bid);
+void hvfs_query_obj_print(u64 uuid, u32 bid);
+int hvfs_write_obj(u64 uuid, u32 bid, u64 site, const void *data, int len, 
+                   off_t offset, int do_trunc);
+int hvfs_read_obj(u64 uuid, u32 bid, u64 site, void **data, int len, off_t offset, int version);
+int hvfs_del_obj(u64 uuid, u32 bid, u64 site);
+int hvfs_trunc_obj(u64 uuid, u32 bid, u64 site, off_t nlen);
+int hvfs_sweep_obj(u64 uuid, u32 bid, u64 site, int len, off_t offset);
+struct xnet_group *hvfs_get_active_sites_from_r2(u32 type);
 
 #endif

@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2012-09-03 13:10:39 macan>
+# Time-stamp: <2012-12-29 16:05:40 macan>
 #
 # This is the mangement script for Pomegranate
 #
@@ -26,7 +26,7 @@ else
 fi
 
 if [ "x$LOG_DIR" == "x" ]; then
-    LOG_DIR="~"
+    LOG_DIR="$HVFS_HOME/log"
 fi
 export LOG_DIR
 
@@ -572,6 +572,7 @@ function do_clean() {
         $SSH $UN$ip "rm -rf /tmp/hvfs/bp" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/hvfs/*_store" > /dev/null
         $SSH $UN$ip "rm -rf /tmp/.MDS.DCONF.*" > /dev/null
+        $SSH $UN$ip "rm -rf /tmp/hvfs/osd*" > /dev/null
     done
 }
 

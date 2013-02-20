@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-11-07 15:38:07 macan>
+ * Time-stamp: <2013-02-20 09:54:07 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -91,7 +91,22 @@ struct hvfs_obj_manager
     xlock_t qlock;
     sem_t qsem;
     pthread_t om_thread;
+
+    /* object fix queue */
+    struct list_head fixq;
+    xlock_t fixqlock;
+    sem_t fixqsem;
+    pthread_t fix_thread;
+
     u32 om_thread_stop:1;
+    u32 fix_thread_stop:1;
+};
+
+struct fix_entry
+{
+    struct list_head list;
+    struct objid id, new;
+    u64 site;
 };
 
 struct osd_array
@@ -299,7 +314,7 @@ int __om_insert_osd(struct osd_entry *osd)
 }
 
 static
-void __om_remove_obj(struct objid id)
+void __UNUSED__ __om_remove_obj(struct objid id)
 {
     struct regular_hash_rw *rh;
     struct obj_entry *tpos = NULL;
@@ -329,6 +344,47 @@ void __om_remove_obj(struct objid id)
             xfree(tpos->sites.site);
         xfree(tpos);
     } else {
+        om_put_obj(tpos);
+    }
+}
+
+static inline
+void __om_remove_obj_cond(struct objid id)
+{
+    struct regular_hash_rw *rh;
+    struct obj_entry *tpos = NULL;
+    struct hlist_node *pos, *n;
+    int i;
+
+    i = __om_hash(id);
+    rh = om.obj_tab + i;
+
+    i = 0;
+    xrwlock_wlock(&rh->lock);
+    hlist_for_each_entry_safe(tpos, pos, n, &rh->h, hlist) {
+        if (OBJID_EQUAL(tpos->id, id)) {
+            if (tpos->sites.size > 0) {
+                /* there are active osd addr info, do not remove myself */
+                xrwlock_wunlock(&rh->lock);
+                return;
+            }
+            if (atomic_read(&tpos->ref) > 0) {
+                /* someone is dealing with current obj_entry */
+                i = 1;
+            }
+            hlist_del_init(&tpos->hlist);
+            atomic64_dec(&om.active);
+            break;
+        }
+    }
+    xrwlock_wunlock(&rh->lock);
+
+    if (!i) {
+        if (tpos->sites.size > 0 && tpos->sites.site)
+            xfree(tpos->sites.site);
+        xfree(tpos);
+    } else {
+        /* this means the caller would free the resource */
         om_put_obj(tpos);
     }
 }
@@ -385,11 +441,11 @@ retry:
             break;
         }
     }
-    hvfs_info(root, "update obj %lx.%x size %d w/ site %lx, "
-             "add_or_del %d, found %d\n",
-              oe->id.uuid, oe->id.bid, 
-              oe->sites.size, site, add_or_del, found);
-
+    hvfs_debug(root, "update obj %lx.%x size %d w/ site %lx, "
+               "add_or_del %d, found %d\n",
+               oe->id.uuid, oe->id.bid, 
+               oe->sites.size, site, add_or_del, found);
+    
     if (atomic_inc_return(&oe->lock) > 1) {
         atomic_dec(&oe->lock);
         sched_yield();
@@ -488,8 +544,7 @@ out:
 
 /* add_or_del: 1=>add; -1=>del
  */
-static
-void __om_update_osd(struct osd_entry *osd, struct objid id, int add_or_del)
+static void __om_update_osd(struct osd_entry *osd, struct objid id, int add_or_del)
 {
     int found = 0, i, err;
 
@@ -503,6 +558,11 @@ retry:
             break;
         }
     }
+
+    hvfs_debug(root, "update osd %lx.%x psize %d asize %d w/ "
+               "add_or_del %d, found %d\n",
+               id.uuid, id.bid, 
+               osd->objs.psize, osd->objs.asize, add_or_del, found);
 
     if (atomic_inc_return(&osd->lock) > 1) {
         atomic_dec(&osd->lock);
@@ -542,6 +602,7 @@ retry:
         osd->objs.asize++;
         hvfs_err(root, "add id %lx.%x asize %d\n", id.uuid, id.bid, osd->objs.asize);
     } else {
+        hvfs_err(root, "del id %lx.%x asize %d\n", id.uuid, id.bid, osd->objs.asize);
         osd->objs.asize--;
     }
     
@@ -603,6 +664,126 @@ static int om_add_osd(u64 site)
     return err;
 }
 
+static
+void __om_clear_obj(struct obj_entry *oe, u64 nsite)
+{
+    struct osd_entry *osd;
+    int i;
+    
+retry:
+    if (atomic_inc_return(&oe->lock) > 1) {
+        atomic_dec(&oe->lock);
+        sched_yield();
+        goto retry;
+    }
+
+    /* iterate on the site array and delete every entry */
+    for (i = 0; i < oe->sites.size && oe->sites.site[i] != nsite; i++) {
+        osd = om_get_osd(oe->sites.site[i]);
+        if (!osd) {
+            hvfs_warning(root, "Site %x not found, continue deleting "
+                         "from obj table.\n", oe->sites.site[i]);
+        } else {
+            __om_update_osd(osd, oe->id, -1);
+            om_put_osd(osd);
+        }
+    }
+    
+    xfree(oe->sites.site);
+    oe->sites.site = NULL;
+    oe->sites.size = 0;
+
+    atomic_dec(&oe->lock);
+}
+
+/* Return value: 0 => fixed; 1 => unfixed (dropped this objid)
+ */
+static int __om_fix_obj(struct obj_entry *oe, struct objid nid, u64 nsite)
+{
+    hvfs_err(root, "old %d, new %d\n", oe->id.version, nid.version);
+    if (nid.error) {
+        hvfs_warning(root, "Report obj error for %lx.%x on site %lx\n",
+                     nid.uuid, nid.bid, nsite);
+        return 1;
+    }
+    if (oe->id.version == nid.version) {
+        /* ok, in the same version */
+        if (oe->id.len != nid.len ||
+            oe->id.crc != nid.crc) {
+            /* double check:
+             * 1. if nsite is the only site in oe->sites, then do update;
+             * 2. if no site in oe->sites and in conflict state, unmask conflict and 
+             *             do update;
+             * 3. otherwise, reject this report, and mark conflict;
+             */
+            if (oe->sites.size == 0) {
+                if (oe->id.state == OBJID_STATE_CONFLICT) {
+                    oe->id.state = OBJID_STATE_NORM;
+                    oe->id.len = nid.len;
+                    oe->id.crc = nid.crc;
+
+                    return 0;
+                }
+            } else if (oe->sites.size == 1) {
+                if (oe->sites.site[0] == nsite) {
+                    oe->id.len = nid.len;
+                    oe->id.crc = nid.crc;
+
+                    return 0;
+                }
+            }
+            hvfs_warning(root, "Report obj %lx.%x cur state %d conflict:"
+                         " old {len %d crc %d ver %d consist %d sweep %d err %d state %d}"
+                         " new {len %d crc %d ver %d consist %d sweep %d err %d state %d}\n",
+                         nid.uuid, nid.bid, oe->id.state,
+                         oe->id.len, oe->id.crc, oe->id.version, oe->id.consistency,
+                         oe->id.sweeped, oe->id.error, oe->id.state,
+                         nid.len, nid.crc, nid.version, nid.consistency,
+                         nid.sweeped, nid.error, nid.state);
+            oe->id.state = OBJID_STATE_CONFLICT;
+
+            return 1;
+        }
+    } else {
+        /* hoo, not the same version, we need to fix:
+         *
+         * 1. valid update: update by new id
+         * 2. reborn: update by new id
+         * 3. otherwise: record the invalid id
+         */
+        if (OBJID_VERSION_CHECK(oe->id.version, nid.version)) {
+            /* it is a valid update */
+            oe->id.len = nid.len;
+            oe->id.crc = nid.crc;
+            oe->id.version = nid.version;
+        } else if (nid.version == 1) {
+            /* reborn? */
+            oe->id.len = nid.len;
+            oe->id.crc = nid.crc;
+            oe->id.version = 1;
+        } else {
+            /* otherwise, drop it */
+            hvfs_warning(root, "Report obj %lx.%x invalid:"
+                         " old {len %d crc %d ver %d consist %d sweep %d err %d state %d}"
+                         " new {len %d crc %d ver %d consist %d sweep %d err %d state %d}\n",
+                         nid.uuid, nid.bid,
+                         oe->id.len, oe->id.crc, oe->id.version, oe->id.consistency,
+                         oe->id.sweeped, oe->id.error, oe->id.state,
+                         nid.len, nid.crc, nid.version, nid.consistency,
+                         nid.sweeped, nid.error, nid.state);
+            return 1;
+        }
+        if (oe->sites.size > 1)
+            oe->id.state = OBJID_STATE_FIX;
+
+        /* ok, we know that version changes, we should clear the obj_entry's
+         * site array (except new site) */
+        __om_clear_obj(oe, nsite);
+    }
+
+    return 0;
+}
+
 /* add this site to the objid, if objid not existed, insert it first.
  * And insert this site to the site hash table w/ the objid!
  */
@@ -635,7 +816,9 @@ retry0:
 retry:
     oe = om_get_obj(id);
     if (oe) {
-        /* ok, find it, then update it */
+        /* check if we should fix it */
+        __om_fix_obj(oe, id, site);
+        /* ok, it is consistent, just update it */
         __om_update_obj(oe, site, 1);
         om_put_obj(oe);
     } else {
@@ -657,9 +840,9 @@ retry:
 
 /* delete the obj from obj_tab, for obj removing
  */
-int om_del_obj(struct objid id)
+int om_del_obj_cond(struct objid id)
 {
-    __om_remove_obj(id);
+    __om_remove_obj_cond(id);
 
     return 0;
 }
@@ -689,9 +872,17 @@ static int om_del_obj_site(struct objid id, u64 site)
         return -ENOENT;
     }
 
-    __om_update_obj(oe, site, -1);
+    /* if the id and oe->id mismatch, just ignore this deletion */
+    if (id.version == oe->id.version &&
+        id.len == oe->id.len &&
+        id.crc == oe->id.crc) {
+        __om_update_obj(oe, site, -1);
+    }
 
     om_put_obj(oe);
+
+    /* Step 3: check if we should delete the whole objid */
+    om_del_obj_cond(id);
 
     return 0;
 }
@@ -753,6 +944,7 @@ retry:
     }
     ol = xzalloc(sizeof(*ol) + oe->sites.size * sizeof(u64));
     if (ol) {
+        ol->id = oe->id;
         /* copy the osd array */
         for (i = 0; i < oe->sites.size; i++) {
             ol->site[i] = oe->sites.site[i];
@@ -822,8 +1014,9 @@ int __serv_request(void)
             hvfs_err(root, "add object %lx+%d site %lx failed.\n",
                      ort->ids[i].uuid, ort->ids[i].bid, msg->tx.ssite_id);
         }
-        hvfs_info(root, "ADD OBJ %lx+%d site %lx OK\n", 
-                  ort->ids[i].uuid, ort->ids[i].bid, msg->tx.ssite_id);
+        hvfs_info(root, "ADD OBJ %lx+%d len %d site %lx OK\n", 
+                  ort->ids[i].uuid, ort->ids[i].bid,
+                  ort->ids[i].len, msg->tx.ssite_id);
     }
     for (; i < ort->rmv_size + ort->add_size; i++) {
         /* find and delete the old object */
@@ -832,8 +1025,9 @@ int __serv_request(void)
             hvfs_err(root, "del object %lx+%d site %lx failed.\n",
                      ort->ids[i].uuid, ort->ids[i].bid, msg->tx.ssite_id);
         }
-        hvfs_info(root, "DEL OBJ %lx+%d site %lx OK\n", 
-                  ort->ids[i].uuid, ort->ids[i].bid, msg->tx.ssite_id);
+        hvfs_info(root, "DEL OBJ %lx+%d len %d site %lx OK\n", 
+                  ort->ids[i].uuid, ort->ids[i].bid,
+                  ort->ids[i].len, msg->tx.ssite_id);
     }
     
     /* do not reply to OSD site */

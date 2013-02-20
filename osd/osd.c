@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-11-06 11:34:09 macan>
+ * Time-stamp: <2012-12-11 17:47:06 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -187,8 +187,11 @@ static void *osd_timer_thread_main(void *arg)
     /* then, we loop for the timer events */
     while (!hoo.timer_thread_stop) {
         err = sem_wait(&hoo.timer_sem);
-        if (err == EINTR)
-            continue;
+        if (err) {
+            if (errno == EINTR)
+                continue;
+            hvfs_err(osd, "sem_wait() failed w/ %s\n", strerror(errno));
+        }
         sem_getvalue(&hoo.timer_sem, &v);
         hvfs_debug(osd, "OK, we receive a SIGALRM event(remain %d).\n", v);
         cur = time(NULL);
@@ -198,6 +201,8 @@ static void *osd_timer_thread_main(void *arg)
         //osd_storage_pending_io();
         /* do heart beat */
         osd_hb_wrapper(cur);
+        /* trigger a event to reporter thread */
+        osd_reporter_schedule();
     }
 
     hvfs_debug(osd, "Hooo, I am exiting...\n");
@@ -285,6 +290,186 @@ out:
     return;
 }
 
+/* reporter_schedule() trigger an object update
+ */
+void osd_reporter_schedule()
+{
+    sem_post(&hoo.reporter_sem);
+}
+
+void __do_obj_diff_report()
+{
+    struct xnet_msg *msg;
+    struct om_changed_entry *oce = NULL, *n;
+    struct obj_report_tx *ort = NULL;
+    struct objid *ap, *rp;
+    struct list_head *plist;
+    int addsize = 0, rmvsize = 0, two_pass = 0;
+    LIST_HEAD(tmp);
+
+second_pass:
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(osd, "xnet_alloc_msg() msg failed, retry later.\n");
+        return;
+    }
+
+    xlock_lock(&hoo.om.changed_lock);
+    if (hoo.om.should_send == OM_REPORT_PAUSE) {
+        hvfs_info(osd, "Wait for FULL disk store scanning...\n");
+        xlock_unlock(&hoo.om.changed_lock);
+        return;
+    }
+    if (!list_empty(&hoo.om.changed_saving)) {
+        two_pass = 1;
+        plist = &hoo.om.changed_saving;
+    } else
+        plist = &hoo.om.changed;
+    xlock_unlock(&hoo.om.changed_lock);
+
+    do {
+        /* iterate the changed list to get valid updates */
+        xlock_lock(&hoo.om.changed_lock);
+        if (!list_empty(plist)) {
+            oce = list_first_entry(plist, struct om_changed_entry, list);
+            list_del_init(&oce->list);
+            list_add_tail(&oce->list, &tmp);
+        } else {
+            xlock_unlock(&hoo.om.changed_lock);
+            break;
+        }
+        xlock_unlock(&hoo.om.changed_lock);
+        
+        switch (oce->upd_or_del) {
+        default:
+        case OM_UPDATE:
+            addsize++;
+            break;
+        case OM_DELETE:
+            rmvsize++;
+            break;
+        }
+    } while (1);
+
+    /* alloc the report array, and deal with the tmp list */
+    ort = xzalloc(sizeof(*ort) + sizeof(struct objid) * (addsize + rmvsize));
+    if (!ort) {
+        hvfs_err(osd, "xzalloc() ORT region failed\n");
+        goto recover;
+    }
+    ort->add_size = addsize;
+    ort->rmv_size = rmvsize;
+    ap = ort->ids;
+    rp = ort->ids + addsize;
+    addsize = 0, rmvsize = 0;
+    
+    list_for_each_entry_safe(oce, n, &tmp, list) {
+        switch (oce->upd_or_del) {
+        default:
+        case OM_UPDATE:
+            ap[addsize++] = oce->id;
+            break;
+        case OM_DELETE:
+            rp[rmvsize++] = oce->id;
+            break;
+        }
+        list_del(&oce->list);
+        xfree(oce);
+    }
+
+    /* do report send here! */
+    if (addsize > 0 || rmvsize > 0) {
+        hvfs_info(osd, "Prepare object report(diff): ADD %d, DEL %d objs in total.\n",
+                  addsize, rmvsize);
+
+#ifdef XNET_EAGER_WRITEV
+        xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+        xnet_msg_fill_tx(msg, XNET_MSG_REQ, 0, hoo.site_id,
+                         osd_select_ring(&hoo));
+        xnet_msg_fill_cmd(msg, HVFS_R2_OREP, 0, 0);
+        xnet_msg_add_sdata(msg, ort, sizeof(*ort) + 
+                           sizeof(struct objid) * (ort->add_size + ort->rmv_size));
+
+        if (xnet_send(hoo.xc, msg)) {
+            hvfs_err(osd, "xnet_send() object report failed.\n");
+        }
+        xnet_free_msg(msg);
+    }
+
+    if (two_pass)
+        goto second_pass;
+    
+    return;
+recover:
+    list_for_each_entry_safe(oce, n, &tmp, list) {
+        list_del_init(&oce->list);
+        xlock_lock(&hoo.om.changed_lock);
+        list_add(&oce->list, &hoo.om.changed);
+        xlock_unlock(&hoo.om.changed_lock);
+    }
+    sched_yield();
+    osd_reporter_schedule();
+}
+
+static void *osd_reporter_thread_main(void *arg)
+{
+    static time_t last_diff = 0, last_scan = 0;
+    sigset_t set;
+    time_t cur;
+    int err;
+
+    hvfs_debug(osd, "I am running...\n");
+
+    /* first, let us block he SIGALRM */
+    sigemptyset(&set);
+    sigaddset(&set, SIGALRM);
+    pthread_sigmask(SIG_BLOCK, &set, NULL);
+
+    /* then we loop for the report events */
+    while (!hoo.reporter_thread_stop) {
+        err = sem_wait(&hoo.reporter_sem);
+        if (err == EINTR)
+            continue;
+        cur = time(NULL);
+        if (!last_diff)
+            last_diff = cur;
+        if (!last_scan)
+            last_scan = cur;
+        
+        /* FIXME: do report here */
+        if (cur - last_diff >= hoo.conf.diff_rep_interval) {
+            hvfs_debug(osd, "do diff report now ...\n");
+            __do_obj_diff_report();
+            last_diff = cur;
+        }
+        if (cur - last_scan >= hoo.conf.full_rep_interval) {
+            hvfs_info(osd, "do full report now ...\n");
+            osd_do_report();
+            last_scan = cur;
+        }
+    }
+    hvfs_debug(osd, "Hooo, I am exiting...\n");
+    pthread_exit(0);
+}
+
+static int osd_setup_reporter(void)
+{
+    int err;
+
+    /* first, we init the reporter_sem */
+    sem_init(&hoo.reporter_sem, 0, 0);
+
+    /* then, we create the reporter thread now */
+    err = pthread_create(&hoo.reporter_thread, NULL, 
+                         &osd_reporter_thread_main, NULL);
+    if (err)
+        goto out;
+
+out:
+    return err;
+}
+
 /* osd_pre_init()
  */
 void osd_pre_init(void)
@@ -296,6 +481,8 @@ void osd_pre_init(void)
     lock_table_init();
 #endif
     xlock_init(&hoo.om.lock);
+    xlock_init(&hoo.om.changed_lock);
+
     /* setup the state */
     hoo.state = HOO_STATE_INIT;
 }
@@ -305,7 +492,7 @@ void osd_pre_init(void)
 int osd_verify(void)
 {
     char path[256] = {0, };
-    int err = 0;
+    int err = 0, i;
 
     /* check the OSD_HOME */
     err = osd_storage_dir_make_exist(hoo.conf.osd_home);
@@ -322,6 +509,22 @@ int osd_verify(void)
         goto out;
     }
 
+    /* check the OSD store array */
+    for (i = 0; i < hoo.conf.osd_storages_array_size; i++) {
+        err = osd_storage_dir_make_exist(hoo.conf.osd_storages_array[i]);
+        if (err) {
+            hvfs_err(osd, "storage dir %s do not exist.\n",
+                     hoo.conf.osd_storages_array[i]);
+            goto out;
+        }
+        sprintf(path, "%s/%lx", hoo.conf.osd_storages_array[i], hoo.site_id);
+        err = osd_storage_dir_make_exist(path);
+        if (err) {
+            hvfs_err(osd, "storage dir %s do not exist.\n", path);
+            goto out;
+        }
+    }
+
     /* check if we need a recovery */
     if (hoo.aux_state) {
         //err = osd_do_recovery();
@@ -332,6 +535,13 @@ int osd_verify(void)
         hoo.aux_state = 0;
     }
 
+    /* do fully disk scan and generate a obj report */
+    err = osd_do_report();
+    if (err) {
+        hvfs_err(osd, "OSD do obj report failed w/ %d\n", err);
+        goto out;
+    }
+
     /* setup running state */
     hoo.state = HOO_STATE_RUNNING;
 
@@ -340,6 +550,54 @@ int osd_verify(void)
 
 out:
     return err;
+}
+
+static inline
+void __parse_storage_string(char *orig, char ***out, u8 *size)
+{
+    char *n, *s = NULL, *p, *r;
+    char **q;
+
+    n = strdup(orig);
+    if (!n) {
+        hvfs_err(osd, "duplicate the original storage string '%s' failed\n",
+                 orig);
+        return;
+    }
+    *size = 0;
+    *out = NULL;
+    do {
+        p = strtok_r(n, ",;\n", &s);
+        if (!p) {
+            /* end */
+            break;
+        }
+        r = strdup(p);
+        if (!r) {
+            hvfs_err(osd, "duplicate store '%s' failed\n", p);
+            continue;
+        }
+        /* alloc a new pointer */
+        q = xrealloc(*out, (*size + 1) * sizeof(char *));
+        if (!q) {
+            hvfs_err(osd, "failed to alloc new pointer, ignore this "
+                     "store '%s'\n", p);
+            xfree(r);
+            continue;
+        }
+        q[*size] = r;
+        (*size) += 1;
+        *out = q;
+    } while (!(n = NULL));
+}
+
+static inline
+char *__get_default_store(char *home)
+{
+    char path[256];
+
+    sprintf(path, "%s/store", home);
+    return strdup(path);
 }
 
 /* osd_config()
@@ -361,18 +619,36 @@ int osd_config(void)
     HVFS_OSD_GET_ENV_cpy(profiling_file, value);
     HVFS_OSD_GET_ENV_cpy(conf_file, value);
     HVFS_OSD_GET_ENV_cpy(log_file, value);
+    HVFS_OSD_GET_ENV_cpy(storages, value);
 
     HVFS_OSD_GET_ENV_atoi(spool_threads, value);
     HVFS_OSD_GET_ENV_atoi(aio_threads, value);
     HVFS_OSD_GET_ENV_atoi(prof_plot, value);
     HVFS_OSD_GET_ENV_atoi(profiling_thread_interval, value);
     HVFS_OSD_GET_ENV_atoi(stacksize, value);
+    HVFS_OSD_GET_ENV_atoi(diff_rep_interval, value);
+    HVFS_OSD_GET_ENV_atoi(full_rep_interval, value);
 
     HVFS_OSD_GET_ENV_option(write_drop, WDROP, value);
 
     /* set default osd home */
     if (!hoo.conf.osd_home) {
         hoo.conf.osd_home = HVFS_OSD_HOME;
+    }
+    /* set osd storage array */
+    if (!hoo.conf.storages) {
+        hoo.conf.storages = __get_default_store(hoo.conf.osd_home);
+    }
+    __parse_storage_string(hoo.conf.storages, 
+                           &hoo.conf.osd_storages_array, 
+                           &hoo.conf.osd_storages_array_size);
+    {
+        int i;
+
+        for (i = 0; i < hoo.conf.osd_storages_array_size; i++) {
+            hvfs_info(osd, "use STORE[%d] = '%s'\n", i, 
+                      hoo.conf.osd_storages_array[i]);
+        }
     }
 
     if (!hoo.conf.spool_threads)
@@ -382,6 +658,10 @@ int osd_config(void)
         hoo.conf.profiling_thread_interval = 5;
     if (!hoo.conf.hb_interval)
         hoo.conf.hb_interval = 60;
+    if (!hoo.conf.diff_rep_interval)
+        hoo.conf.diff_rep_interval = 5;
+    if (!hoo.conf.full_rep_interval)
+        hoo.conf.full_rep_interval = 30;
 
     return 0;
 }
@@ -427,6 +707,11 @@ int osd_init(void)
     err = osd_setup_timers();
     if (err)
         goto out_timers;
+
+    /* FIXME: setup the reporter */
+    err = osd_setup_reporter();
+    if (err)
+        goto out_reporter;
     
     /* init storage */
     err = osd_storage_init();
@@ -458,6 +743,7 @@ int osd_init(void)
 out_aio:
 out_spool:
 out_storage:
+out_reporter:
 out_timers:
 out_signal:
     return err;
@@ -484,6 +770,14 @@ void osd_destroy(void)
 
     /* destroy the storage */
     osd_storage_destroy();
+
+    /* stop the reporter thread */
+    hoo.reporter_thread_stop = 1;
+    osd_reporter_schedule();
+    if (hoo.reporter_thread)
+        pthread_join(hoo.reporter_thread, NULL);
+
+    sem_destroy(&hoo.reporter_sem);
 
     /* you should wait for the storage destroied and exit the AIO threads */
     //osd_aio_destroy();
@@ -582,7 +876,7 @@ retry:
         }
 
         if (update) {
-            hvfs_info(osd, "Get a new block info array, do fully update ...\n");
+            hvfs_info(osd, "Get a new obj info array, do fully update ...\n");
             xlock_lock(&hoo.om.lock);
             /* free the old OGA */
             __free_oga(hoo.om.oga);
@@ -590,11 +884,26 @@ retry:
             updated = 1;
             xlock_unlock(&hoo.om.lock);
         } else {
-            hvfs_info(osd, "Get a dup block info array, no update ...\n");
+            hvfs_info(osd, "Get a dup obj info array, no update ...\n");
         }
     }
 
     return updated;
+}
+
+int osd_om_update_cache(struct obj_gather_all *oga)
+{
+    int err = 0;
+    int i;
+
+    /* setup a new cache */
+    for (i = 0; i < oga->add.asize; i++) {
+        __om_update_entry(oga->add.ids[i].id, oga->add.ids[i].dev);
+        hvfs_info(osd, "Cache OBJID %lx.%x DEV %d\n", oga->add.ids[i].id.uuid,
+                  oga->add.ids[i].id.bid, oga->add.ids[i].dev);
+    }
+
+    return err;
 }
 
 /* Input Args: *ort must be NULL
@@ -603,16 +912,20 @@ static int osd_oga2ort(struct obj_gather_all *oga, struct obj_report_tx **ort)
 {
     struct obj_report_tx *tmp;
     int addsize = 0, rmvsize = 0;
-    int i;
+    int i, j;
 
     if (*ort != NULL) {
         return -EINVAL;
     }
 
     for (i = 0; i < oga->add.asize; i++) {
+        if (oga->add.ids[i].id.error)
+            continue;
         addsize++;
     }
     for (i = 0; i < oga->rmv.asize; i++) {
+        if (oga->rmv.ids[i].id.error)
+            continue;
         rmvsize++;
     }
 
@@ -623,18 +936,24 @@ static int osd_oga2ort(struct obj_gather_all *oga, struct obj_report_tx **ort)
     }
     tmp->add_size = addsize;
     tmp->rmv_size = rmvsize;
-    for (i = 0; i < addsize; i++) {
-        tmp->ids[i] = oga->add.ids[i];
+    for (i = j = 0; j < oga->add.asize; j++) {
+        if (oga->add.ids[j].id.error)
+            continue;
+        tmp->ids[i++] = oga->add.ids[j].id;
     }
-    for (; i < addsize + rmvsize; i++) {
-        tmp->ids[i] = oga->rmv.ids[i - addsize];
+    for (j = 0; j < oga->rmv.asize; j++) {
+        if (oga->rmv.ids[j].id.error)
+            continue;
+        tmp->ids[i++] = oga->rmv.ids[j].id;
     }
     *ort = tmp;
+    hvfs_info(osd, "Prepare object report(full): ADD %d, DEL %d objs in total.\n",
+              addsize, rmvsize);
 
     return 0;
 }
 
-/* osd_do_report() report all the active blocks to R2 server
+/* osd_do_report() report all the active objects to R2 server
  */
 int osd_do_report()
 {
@@ -655,8 +974,8 @@ int osd_do_report()
     {
         int i;
         for (i = 0; i < oga->add.asize; i++) {
-            hvfs_info(osd, "OBJID %lx.%x\n", oga->add.ids[i].uuid,
-                      oga->add.ids[i].bid);
+            hvfs_info(osd, "OBJID %lx.%x DEV %d\n", oga->add.ids[i].id.uuid,
+                      oga->add.ids[i].id.bid, oga->add.ids[i].dev);
         }
     }
 #endif
@@ -664,8 +983,11 @@ int osd_do_report()
 
     /* handle the oga, free it if needed */
     updated = osd_update_objinfo(oga);
+    if (updated) {
+        osd_om_update_cache(oga);
+    }
 
-    /* generated the block report */
+    /* generated the object report */
     err = osd_oga2ort(oga, &ort);
     if (err) {
         hvfs_err(osd, "transform OGA to ORT failed w/ %d\n", err);
@@ -683,10 +1005,10 @@ int osd_do_report()
     }
 #endif
 
-    /* change this block report to fully update report */
+    /* change this object report to fully update report */
     ort->add_size = -ort->add_size;
         
-    /* send the block report */
+    /* send the object report */
     {
         msg = xnet_alloc_msg(XNET_MSG_NORMAL);
         if (!msg) {
@@ -704,9 +1026,18 @@ int osd_do_report()
                            sizeof(struct objid) * (-ort->add_size + ort->rmv_size));
 
         if (xnet_send(hoo.xc, msg)) {
-            hvfs_err(osd, "xnet_send() block report failed.\n");
+            hvfs_err(osd, "xnet_send() object report failed.\n");
         }
         xnet_free_msg(msg);
+    }
+
+    /* end scan, enable report now */
+    if (osd_om_state_change(OM_REPORT_END_SCAN, OM_REPORT_ACTIVE)) {
+        hvfs_info(osd, "OSD store END fully scan (ACTIVE) ...\n");
+    }
+    /* change into diff mode */
+    if (osd_om_state_change(OM_REPORT_DIFF, OM_REPORT_ACTIVE)) {
+        hvfs_info(osd, "OSD store into DIFF mode (ACTIVE) ...\n");
     }
 
 out_free:

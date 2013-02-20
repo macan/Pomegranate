@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-09 11:00:10 macan>
+ * Time-stamp: <2012-11-22 13:48:41 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -183,7 +183,8 @@ struct dentry_info
  * Layout of mdu_update:
  *
  * |---mdu_update---|---symname---| or
- * |---mdu_update---|--llfs_ref--|---mu_column---|
+ * |---mdu_update---|--llfs_ref--|---mu_column---| or
+ * |---mdu_update---|--obj_info--|
  */
 struct mdu_update 
 {

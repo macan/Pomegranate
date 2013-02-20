@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-09 10:56:16 macan>
+ * Time-stamp: <2012-12-24 14:57:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -47,7 +47,12 @@ struct rename_reloc
 /* the object info */
 struct obj_info
 {
-    u32 prefer_bs;              /* prefered block size */
+#define OBJBS_UNIT              (1024 * 1024)
+#define OBJBS_NR                (64) /* default as 64MB */
+    u32 prefer_bs:10;           /* prefered block size in MB */
+#define OBJREP_NR               (1) /* default as one copy */
+    u32 repnr:4;                /* replication num */
+    u32 pad2:18;
     u32 objnr;                  /* # of objs */
     u64 pad;
 };
@@ -69,6 +74,7 @@ struct mdu
 #define HVFS_MDU_IF_DA          0x80000000 /* delay allocation */
 #define HVFS_MDU_IF_RR          0x40000000 /* rename relocated */
 
+#define HVFS_MDU_IF_OBJ         0x00000800 /* obj file */
 #define HVFS_MDU_IF_NORMAL      0x08000000 /* normal file */
 #define HVFS_MDU_IF_LARGE       0x04000000 /* large file */
 #define HVFS_MDU_IF_SMALL       0x02000000 /* small file */

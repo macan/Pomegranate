@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-11-05 10:36:17 macan>
+ * Time-stamp: <2013-02-19 13:56:29 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +24,7 @@
 #include "hvfs.h"
 #include "xnet.h"
 #include "mds.h"
+#include "osd.h"
 #include "ring.h"
 #include "lib.h"
 #include "root.h"
@@ -1014,7 +1015,7 @@ int __core_main(int argc, char *argv[])
     int __UNUSED__ use_branch = 0;
     int loop_reg = 0;
     char *r2_ip = NULL;
-    char *type = NULL;
+    char *type = NULL, *action;
     short r2_port = HVFS_R2_DEFAULT_PORT;
     char *shortflags = "d:p:t:h?r:y:f:bl";
     struct option longflags[] = {
@@ -4447,6 +4448,8 @@ int __hvfs_update(u64 puuid, u64 psalt, struct hstat *hs,
     }
     if (imu) {
         dpayload += sizeof(struct mdu_update);
+        if (imu->valid & MU_OI)
+            dpayload += sizeof(struct obj_info);
         if (imu->valid & MU_LLFS)
             dpayload += sizeof(struct llfs_ref);
         if (imu->valid & MU_COLUMN)
@@ -4486,6 +4489,11 @@ int __hvfs_update(u64 puuid, u64 psalt, struct hstat *hs,
 
         memcpy((void *)hi + offset, imu, sizeof(*imu));
         offset += sizeof(*imu);
+        if (imu->valid & MU_OI) {
+            memcpy((void *)hi + offset, (void *)imu + sizeof(*imu),
+                   sizeof(struct obj_info));
+            offset += sizeof(struct obj_info);
+        }
         if (imu->valid & MU_LLFS) {
             memcpy((void *)hi + offset, (void *)imu + sizeof(*imu),
                    sizeof(struct llfs_ref));
@@ -5437,6 +5445,11 @@ int __hvfs_pack_result(struct hstat *hs, void **data)
             p[0] = ' ';
             p++;
         }
+    } else if (hs->mdu.flags & HVFS_MDU_IF_OBJ) {
+        p += snprintf(p, 128, "{BS %dMB repnr %d objnr %d} ", 
+                      hs->mdu.oi.prefer_bs,
+                      hs->mdu.oi.repnr,
+                      hs->mdu.oi.objnr);
     } else {
         p += snprintf(p, 128, "$%lx$%lx$ ", hs->mdu.lr.fsid,
                       hs->mdu.lr.rfino);
@@ -5758,6 +5771,24 @@ void __kv2mu(char *kv, struct mdu_update *mu)
             mu->valid |= MU_COLUMN;
             mu->column_no = 1;
             mc->c.offset = atol(p);
+        } else if (strncmp(p, "obj:bs", 6) == 0) {
+            struct obj_info *oi = (void *)mu + sizeof(*mu);
+
+            NEXT_TOKEN;
+            mu->valid |= MU_OI;
+            oi->prefer_bs = atoi(p);
+        } else if (strncmp(p, "obj:repnr", 9) == 0) {
+            struct obj_info *oi = (void *)mu + sizeof(*mu);
+
+            NEXT_TOKEN;
+            mu->valid |= MU_OI;
+            oi->repnr = atoi(p);
+        } else if (strncmp(p, "obj:objnr", 9) == 0) {
+            struct obj_info *oi = (void *)mu + sizeof(*mu);
+
+            NEXT_TOKEN;
+            mu->valid |= MU_OI;
+            oi->objnr = atoi(p);
         }
     } while (!(n = NULL));
 #undef NEXT_TOKEN
@@ -8719,3 +8750,393 @@ int hvfs_supdate_v2(u64 ptid, u64 psalt, char *key, char *value,
  * Note: branch operations should ALL in the branch.c for not confusing
  * python's shared library loading.
  */
+
+
+/* Region for OSD operations
+ *
+ * Note: some of the requests are sent to R2 server
+ */
+struct osd_list *hvfs_query_obj(u64 uuid, u32 bid)
+{
+    struct objid id = {
+        .uuid = uuid,
+        .bid = bid,
+        .len = 0,
+        .sweeped = 0,
+        .error = 0,
+    };
+    struct osd_list *ol = ERR_PTR(-ENOENT);
+    struct xnet_msg *msg;
+    int err = 0;
+
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        return ERR_PTR(-ENOMEM);
+    }
+
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, mds_select_ring(&hmo));
+    xnet_msg_fill_cmd(msg, HVFS_OSD_QUERY, 0, 0);
+
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &id, sizeof(id));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply, parse the osd_list structure */
+    if (!msg->pair->tx.err && msg->pair->xm_datacheck) {
+        ol = (struct osd_list *)msg->pair->xm_data;
+    } else {
+        hvfs_err(xnet, "recv query obj reply ERROR(%d)!\n",
+                 msg->pair->tx.err);
+        err = msg->pair->tx.err;
+        goto out_msg;
+    }
+    xnet_clear_auto_free(msg->pair);
+
+    /* check the obj state */
+    switch (ol->id.state) {
+    default:
+    case OBJID_STATE_NORM:
+        break;
+    case OBJID_STATE_FIX:
+        hvfs_warning(xnet, "OBJ %lx.%x is in FIX state, get the newest version.\n",
+                     ol->id.uuid, ol->id.bid);
+        break;
+    case OBJID_STATE_CONFLICT:
+        hvfs_warning(xnet, "OBJ %lx.%x is in CONFLICT state, either version is ok.\n",
+                     ol->id.uuid, ol->id.bid);
+        break;
+    }
+    
+out_msg:
+    if (err)
+        ol = ERR_PTR(err);
+    xnet_free_msg(msg);
+
+    return ol;
+}
+
+void hvfs_query_obj_print(u64 uuid, u32 bid)
+{
+    struct osd_list *ol = hvfs_query_obj(uuid, bid);
+
+    if (IS_ERR(ol)) {
+        hvfs_err(xnet, "Query OBJID %lx.%x failed w/ %ld (%s)\n",
+                 uuid, bid, PTR_ERR(ol), strerror(-PTR_ERR(ol)));
+        return;
+    }
+    if (ol->size) {
+        int i;
+        
+        hvfs_plain(xnet, "OBJID %lx.%x len %d is on Sites:\n", uuid, bid, ol->id.len);
+        for (i = 0; i < ol->size; i++) {
+            hvfs_plain(xnet, "%lx\n", ol->site[i]);
+        }
+    } else {
+        hvfs_plain(xnet, "OBJID %lx.%x isn't on any site\n", uuid, bid);
+    }
+    xfree(ol);
+}
+
+/* trunc and write
+ * FIXME: write to osd, osd report to r2, query to r2! 
+ */
+int hvfs_write_obj(u64 uuid, u32 bid, u64 site, const void *data, int len, 
+                   off_t offset, int do_trunc)
+{
+    struct objid id = {
+        .uuid = uuid,
+        .bid = bid,
+        .len = 0,
+        .sweeped = 0,
+        .error = 0,
+    };
+    struct xnet_msg *msg;
+    int err = 0;
+
+    if (!HVFS_IS_OSD(site)) {
+        hvfs_err(xnet, "You can't write an object to a non-OSD site!\n");
+        return -EINVAL;
+    }
+    
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        return -ENOMEM;
+    }
+
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, site);
+    xnet_msg_fill_cmd(msg, HVFS_OSD_WRITE, (offset | ((u64)len << 32)),
+                      do_trunc ? HVFS_OSD_WRITE_TRUNC : 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &id, sizeof(id));
+    xnet_msg_add_sdata(msg, (void *)data, len);
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply */
+    if (msg->pair->tx.err) {
+        hvfs_err(xnet, "write obj %lx.%x to site %lx failed w/ %d\n",
+                 uuid, bid, site, msg->pair->tx.err);
+        goto out_msg;
+    }
+
+out_msg:
+    xnet_free_msg(msg);
+
+    return err;
+}
+
+/*
+ * Return value: <0 => error; >=0 valid data region read
+ * if len is -1, then try to read all the object content!
+ * if version is -1, then read; if version >= 0, check version and then read
+ */
+int hvfs_read_obj(u64 uuid, u32 bid, u64 site, void **data, int len, off_t offset, 
+                  int version)
+{
+    struct objid id = {
+        .uuid = uuid,
+        .bid = bid,
+        .len = 0,
+        .sweeped = 0,
+        .error = 0,
+    };
+    struct xnet_msg *msg;
+    int err = 0;
+
+    if (!HVFS_IS_OSD(site)) {
+        hvfs_err(xnet, "You can't read an object from a non-OSD site!\n");
+        return -EINVAL;
+    }
+    
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        return -ENOMEM;
+    }
+
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, site);
+    xnet_msg_fill_cmd(msg, HVFS_OSD_READ, (offset | ((u64)len << 32)), version);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &id, sizeof(id));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply */
+    if (!msg->pair->tx.err) {
+        if (msg->pair->xm_datacheck) {
+            /* it is ok, unpack the data now */
+            *data = (void *)msg->pair->xm_data;
+            /* extract the data length */
+            err = msg->pair->tx.arg0;
+        } else {
+            /* zero read */
+            *data = NULL;
+            err = 0;
+        }
+    } else {
+        hvfs_err(xnet, "read obj %lx.%x to site %lx failed w/ %d\n",
+                 uuid, bid, site, msg->pair->tx.err);
+        goto out_msg;
+    }
+    xnet_clear_auto_free(msg->pair);
+
+out_msg:
+    xnet_free_msg(msg);
+
+    return err;
+}
+
+/* delete the specified object
+ */
+int hvfs_del_obj(u64 uuid, u32 bid, u64 site)
+{
+    struct objid id = {
+        .uuid = uuid,
+        .bid = bid,
+        .len = 0,
+        .sweeped = 0,
+        .error = 0,
+    };
+    struct xnet_msg *msg;
+    int err = 0;
+
+    if (!HVFS_IS_OSD(site)) {
+        hvfs_err(xnet, "You can't read an object from a non-OSD site!\n");
+        return -EINVAL;
+    }
+    
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        return -ENOMEM;
+    }
+
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, site);
+    xnet_msg_fill_cmd(msg, HVFS_OSD_DEL, 0, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &id, sizeof(id));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply */
+    if (!msg->pair->tx.err) {
+        err = 0;
+    } else {
+        hvfs_err(xnet, "del obj %lx.%x from site %lx failed w/ %d\n",
+                 uuid, bid, site, msg->pair->tx.err);
+        err = msg->pair->tx.err;
+    }
+
+out_msg:
+    xnet_free_msg(msg);
+
+    return err;
+}
+
+/* trunc the obj to new size
+ */
+int hvfs_trunc_obj(u64 uuid, u32 bid, u64 site, off_t nlen)
+{
+    struct objid id = {
+        .uuid = uuid,
+        .bid = bid,
+        .len = 0,
+        .sweeped = 0,
+        .error = 0,
+    };
+    struct xnet_msg *msg;
+    int err = 0;
+
+    if (!HVFS_IS_OSD(site)) {
+        hvfs_err(xnet, "You can't write an object to a non-OSD site!\n");
+        return -EINVAL;
+    }
+    
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        return -ENOMEM;
+    }
+
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, site);
+    xnet_msg_fill_cmd(msg, HVFS_OSD_TRUNC, nlen, 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &id, sizeof(id));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply */
+    if (msg->pair->tx.err) {
+        hvfs_err(xnet, "trunc obj %lx.%x to site %lx failed w/ %d\n",
+                 uuid, bid, site, msg->pair->tx.err);
+        goto out_msg;
+    }
+
+out_msg:
+    xnet_free_msg(msg);
+
+    return err;
+}
+
+/* trunc and sweep
+ * FIXME: write to osd, osd report to r2, query to r2! 
+ */
+int hvfs_sweep_obj(u64 uuid, u32 bid, u64 site, int len, off_t offset)
+{
+    struct objid id = {
+        .uuid = uuid,
+        .bid = bid,
+        .len = 0,
+        .sweeped = 0,
+        .error = 0,
+    };
+    struct xnet_msg *msg;
+    int err = 0;
+
+    if (!HVFS_IS_OSD(site)) {
+        hvfs_err(xnet, "You can't write an object to a non-OSD site!\n");
+        return -EINVAL;
+    }
+    
+    /* alloc xnet msg */
+    msg = xnet_alloc_msg(XNET_MSG_NORMAL);
+    if (!msg) {
+        hvfs_err(xnet, "xnet_alloc_msg() failed\n");
+        return -ENOMEM;
+    }
+
+    /* construct the request message */
+    xnet_msg_fill_tx(msg, XNET_MSG_REQ, XNET_NEED_REPLY,
+                     hmo.xc->site_id, site);
+    xnet_msg_fill_cmd(msg, HVFS_OSD_SWEEP, (offset | ((u64)len << 32)), 0);
+#ifdef XNET_EAGER_WRITEV
+    xnet_msg_add_sdata(msg, &msg->tx, sizeof(msg->tx));
+#endif
+    xnet_msg_add_sdata(msg, &id, sizeof(id));
+
+    err = xnet_send(hmo.xc, msg);
+    if (err) {
+        hvfs_err(xnet, "xnet_send() failed\n");
+        goto out_msg;
+    }
+
+    /* recv the reply */
+    if (msg->pair->tx.err) {
+        hvfs_err(xnet, "write obj %lx.%x to site %lx failed w/ %d\n",
+                 uuid, bid, site, msg->pair->tx.err);
+        goto out_msg;
+    }
+
+out_msg:
+    xnet_free_msg(msg);
+
+    return err;
+}

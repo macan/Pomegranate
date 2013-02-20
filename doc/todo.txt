@@ -526,3 +526,10 @@ Pomegranate TODOs:
           To fix Bug 03, we have to split redo and MDS. We fork and execv a new
           process and pipe the redo log to it, and run MDS as-is.
           
+39. OSD TODOs
+
+    1. large write + read bug: only the first range has been read. (FIXED?)
+
+    2. large write + rewrite bug: the second write is broken? (FIXED?)
+
+    3. large write + read bug: return ENOENT. (sync mode?) (FIXED?)

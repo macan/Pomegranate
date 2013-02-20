@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2010-08-10 16:56:26 macan>
+ * Time-stamp: <2012-12-29 13:46:39 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,9 @@
 
 #ifndef __TRACING_H__
 #define __TRACING_H__
+
+#include <sys/timeb.h>
+#include <time.h>
 
 /* hvfs tracing flags */
 #define HVFS_INFO       0x80000000
@@ -54,18 +57,31 @@
 #endif
 
 #ifdef HVFS_TRACING
-#define hvfs_tracing(mask, flag, lvl, f, a...) do {             \
-        if (unlikely(mask & flag)) {                            \
-            if (mask & HVFS_PRECISE) {                          \
-                PRINTK(lvl "HVFS (%16s, %5d): %s[%lx]: " f,     \
-                       __FILE__, __LINE__, __func__,            \
-                       pthread_self(), ## a);                   \
-                FFLUSH(stdout);                                 \
-            } else {                                            \
-                PRINTK(lvl f, ## a);                            \
-                FFLUSH(stdout);                                 \
-            }                                                   \
-        }                                                       \
+#define hvfs_tracing(mask, flag, lvl, f, a...) do {                     \
+        if (unlikely(mask & flag)) {                                    \
+            struct timeval __cur;                                       \
+            struct tm __tmp;                                            \
+            char __ct[32];                                              \
+                                                                        \
+            gettimeofday(&__cur, NULL);                                 \
+            if (!localtime_r(&__cur.tv_sec, &__tmp)) {                  \
+                PRINTK(KERN_ERR f, ## a);                               \
+                FFLUSH(stdout);                                         \
+                break;                                                  \
+            }                                                           \
+            strftime(__ct, 64, "%G-%m-%d %H:%M:%S", &__tmp);            \
+            if (mask & HVFS_PRECISE) {                                  \
+                PRINTK("%s.%03ld " lvl "HVFS (%16s, %5d): %s[%lx]: " f, \
+                       __ct, (long)(__cur.tv_usec / 1000),              \
+                       __FILE__, __LINE__, __func__,                    \
+                       pthread_self(), ## a);                           \
+                FFLUSH(stdout);                                         \
+            } else {                                                    \
+                PRINTK("%s.%03ld " lvl f,                               \
+                       __ct, (long)(__cur.tv_usec / 1000), ## a);       \
+                FFLUSH(stdout);                                         \
+            }                                                           \
+        }                                                               \
     } while (0)
 #else
 #define hvfs_tracing(mask, flag, lvl, f, a...)

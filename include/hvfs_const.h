@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-07 14:24:53 macan>
+ * Time-stamp: <2013-02-19 16:15:52 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -113,5 +113,6 @@ static char *hvfs_ccolor[] __attribute__((unused)) =
 #define ECLOSING        1045    /* site is closing */
 #define ELAUNCH         1046    /* site is launching */
 #define ERETRY          1047    /* retry yourself */
+#define EBADV           1048    /* Bad version */
 
 #endif

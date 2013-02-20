@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-01-04 19:32:09 macan>
+ * Time-stamp: <2012-11-22 20:20:17 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -97,6 +97,7 @@ struct ite
 #define ITE_FLAG_SMALL  0x04000000 /* small file */
 #define ITE_FLAG_SYM    0x02000000 /* symlink file */
 #define ITE_FLAG_KV     0x01000000 /* kv entry */
+#define ITE_FLAG_OBJ    0x00800000 /* object file */
     u32 flag;
     u32 namelen;
 

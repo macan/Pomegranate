@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-08-10 15:30:09 macan>
+ * Time-stamp: <2013-02-19 14:37:26 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1387,6 +1387,7 @@ hit:
                  * should clean up the bh cache here! */
                 bhh->hs.mdu = hs.mdu;
                 bhh->hs.mc = hs.mc;
+                bhh->asize = hs.mdu.size;
             } else {
                 hs.mdu = bhh->hs.mdu;
                 hs.mc = bhh->hs.mc;
@@ -1665,6 +1666,7 @@ static int hvfs_mkdir(const char *pathname, mode_t mode)
 
     __ltc_update(spath, (void *)puuid, (void *)psalt, 
                  (void *)(u64)hs.mdu.flags);
+    mdu_flags = (u32)hs.mdu.flags;
 hit:
     /* create the file or dir in the parent directory now */
     hs.name = name;
@@ -1672,7 +1674,10 @@ hit:
     mu.valid = MU_MODE;
     mu.mode = mode | S_IFDIR;
 
-    if (mdu_flags & HVFS_MDU_IF_LARGE) {
+    if (mdu_flags & HVFS_MDU_IF_OBJ) {
+        mu.valid |= MU_FLAG_ADD;
+        mu.flags = HVFS_MDU_IF_OBJ;
+    } else if (mdu_flags & HVFS_MDU_IF_LARGE) {
         mu.valid |= MU_FLAG_ADD;
         mu.flags = HVFS_MDU_IF_LARGE;
     }
@@ -1708,8 +1713,30 @@ void __hvfs_large_unlink(struct hstat *hs)
 {
     struct hvfs_datastore *hd;
     char pname[256];
-    
-    if ((hs->mdu.flags & HVFS_MDU_IF_LARGE) &&
+
+    if (hs->mdu.flags & HVFS_MDU_IF_OBJ) {
+        /* delete the objs
+         *
+         * FIXME: we should delete the OBJ from R2 server either. */
+        struct osd_list *l;
+        int i, j, err;
+
+        for (i = 0; i < hs->mdu.oi.objnr; i++) {
+            l = hvfs_query_obj(hs->uuid, i);
+            if (IS_ERR(l)) {
+                hvfs_err(xnet, "Query obj %lx.%x failed w/ %ld\n",
+                         hs->uuid, i, PTR_ERR(l));
+            } else {
+                for (j = 0; j < l->size; j++) {
+                    err = hvfs_del_obj(hs->uuid, i, l->site[j]);
+                    hvfs_err(xnet, "Delete obj %lx.%x on site %lx "
+                             "failed w/ %d\n",
+                             hs->uuid, i, l->site[j], err);
+                }
+                xfree(l);
+            }
+        }
+    } else if ((hs->mdu.flags & HVFS_MDU_IF_LARGE) &&
         (pfs_fuse_mgr.use_dstore)) {
         u64 fsid = hs->mdu.lr.fsid;
         u64 rfino = hs->mdu.lr.rfino;
@@ -2401,7 +2428,7 @@ hit2:
         /* If it is a large file or symname link file, column may not be
          * used. We should check and update column here, but we do not
          * update rename reloc fields */
-        if (!((saved_hs.mdu.flags & HVFS_MDU_IF_LARGE) ||
+        if (!((saved_hs.mdu.flags & (HVFS_MDU_IF_LARGE | HVFS_MDU_IF_OBJ)) ||
               (S_ISLNK(saved_hs.mdu.mode) && saved_hs.mdu.size <= 16) ||
               (saved_hs.mdu.flags & HVFS_MDU_IF_RR))) {
             saved_hs.mdu.rr.puuid = saved_hs.puuid;
@@ -2929,6 +2956,225 @@ out:
     return err;    
 }
 
+static inline
+void __free_ol(struct osd_list *ol[], int idx)
+{
+    int i;
+    
+    if (idx > 0) {
+        for (i = 0; i < idx; i++) {
+            xfree(ol[i]);
+        }
+    }
+}
+
+static inline
+int RANDOM_SEL(int size)
+{
+    return lib_random(size);
+}
+
+static int hvfs_large_truncate(struct hstat *hs, off_t nsize)
+{
+    int err = 0;
+    
+    if (hs->mdu.flags & HVFS_MDU_IF_OBJ) {
+        struct osd_list *l[hs->mdu.oi.objnr];
+        int newobjnr = hs->mdu.oi.objnr;
+
+        if (nsize > hs->mdu.size) {
+            /* find the last obj, get the block offset and length */
+            off_t last_off = 0;
+            size_t last_size = 0;
+            int i, j;
+            
+            for (i = 0; i < hs->mdu.oi.objnr; i++) {
+                l[i] = hvfs_query_obj(hs->uuid, i);
+                if (IS_ERR(l[i])) {
+                    hvfs_err(xnet, "Query obj %lx.%x failed w/ %ld\n",
+                             hs->uuid, i, PTR_ERR(l[i]));
+                    err = PTR_ERR(l[i]);
+                    __free_ol(l, i);
+                    return err;
+                }
+                if (i == hs->mdu.oi.objnr - 1) {
+                    last_size = l[i]->id.len;
+                    break;
+                }
+                last_off += l[i]->id.len;
+            }
+
+            if (hs->mdu.size != last_off + last_size) {
+                /* internal mismatch, reject the truncation */
+                err = -EIO;
+                goto out;
+            }
+            /* truncate the last block to new size */
+            if (i == hs->mdu.oi.objnr) {
+                /* no objs right now, create it */
+                struct xnet_group *xg;
+                
+                xg = hvfs_get_active_sites_from_r2(HVFS_SITE_TYPE_OSD);
+                if (IS_ERR(xg)) {
+                    hvfs_warning(xnet, "get active OSD site failed w/ %ld, "
+                                 "partital write!\n",
+                                 PTR_ERR(xg));
+                    err = PTR_ERR(xg);
+                    goto out;
+                }
+                err = hvfs_sweep_obj(hs->uuid, 0, 
+                                     xg->sites[RANDOM_SEL(xg->asize)].site_id,
+                                     nsize, 0);
+                if (err) {
+                    hvfs_err(xnet, "sweep obj %lx.%x [%d,%ld] failed w/ %d\n",
+                             hs->uuid, 0, 0, nsize, err);
+                }
+                newobjnr++;
+            } else {
+                char status[l[i]->size];
+                char success = 0;
+
+                memset(&status, 0, sizeof(status));
+                for (j = 0; j < l[i]->size; j++) {
+                    err = hvfs_trunc_obj(hs->uuid, i, l[i]->site[j], nsize - last_off);
+                    if (err) {
+                        /* FIXME: on trunc error, just del the obj */
+                        status[j] = 1;
+                        hvfs_err(xnet, "Trunc obj %lx.%x on site %lx failed w/ %d\n",
+                                 hs->uuid, i, l[i]->site[j], err);
+                    } else {
+                        success = 1;
+                    }
+                }
+                if (success) {
+                    /* del the failed replicas */
+                    for (j = 0; j < l[i]->size && status[j]; j++) {
+                        err = hvfs_del_obj(hs->uuid, i, l[i]->site[j]);
+                        if (err) {
+                            hvfs_err(xnet, "Del obj %lx.%x on site %lx failed w/ %d\n",
+                                     hs->uuid, i, l[i]->site[j], err);
+                        }
+                    }
+                }
+            }
+        } else if (nsize < hs->mdu.size) {
+            /* interate on each obj to find the target obj */
+            off_t cur_off = 0;
+            int i, j;
+
+            for (i = 0; i < hs->mdu.oi.objnr; i++) {
+                l[i] = hvfs_query_obj(hs->uuid, i);
+                if (IS_ERR(l[i])) {
+                    hvfs_err(xnet, "Query obj %lx.%x failed w/ %ld\n",
+                             hs->uuid, i, PTR_ERR(l[i]));
+                    err = PTR_ERR(l[i]);
+                    __free_ol(l, i);
+                    return err;
+                }
+                if (nsize >= cur_off) {
+                    if (nsize <= cur_off + l[i]->id.len) {
+                        /* ok, should break on this obj */
+                        break;
+                    }
+                }
+                cur_off += l[i]->id.len;
+            }
+            if (i == hs->mdu.oi.objnr) {
+                err = -EFAULT;
+                goto out;
+            }
+
+            if (nsize == cur_off) {
+                /* trunc this obj to zero, so just del it and subsequent
+                 * objs */
+                for (j = 0; j < l[i]->size; j++) {
+                    err = hvfs_del_obj(hs->uuid, i, l[i]->site[j]);
+                    if (err) {
+                        hvfs_err(xnet, "Del obj %lx.%x on site %lx failed w/ %d\n",
+                                 hs->uuid, i, l[i]->site[j], err);
+                    }
+                }
+                newobjnr--;
+                i++;
+            } else if (nsize == cur_off + l[i]->id.len) {
+                /* no need to trunc this obj, but del subsequent objs*/
+                ;
+            } else {
+                char status[l[i]->size];
+                char success = 0;
+
+                memset(&status, 0, sizeof(status));
+                for (j = 0; j < l[i]->size; j++) {
+                    err = hvfs_trunc_obj(hs->uuid, i, l[i]->site[j], nsize - cur_off);
+                    if (err) {
+                        /* FIXME: on trunc error, just del the obj */
+                        status[j] = 1;
+                        hvfs_err(xnet, "Trunc obj %lx.%x on site %lx failed w/ %d\n",
+                                 hs->uuid, i, l[i]->site[j], err);
+                    } else {
+                        success = 1;
+                    }
+                }
+                if (success) {
+                    /* del the failed replicas */
+                    for (j = 0; j < l[i]->size && status[j]; j++) {
+                        err = hvfs_del_obj(hs->uuid, i, l[i]->site[j]);
+                        if (err) {
+                            hvfs_err(xnet, "Del obj %lx.%x on site %lx failed w/ %d\n",
+                                     hs->uuid, i, l[i]->site[j], err);
+                        }
+                    }
+                }
+                i++;
+            }
+            /* do del subsequent objs */
+            for (; i < hs->mdu.oi.objnr; i++) {
+                for (j = 0; j < l[i]->size; j++) {
+                    err = hvfs_del_obj(hs->uuid, i, l[i]->site[j]);
+                    if (err) {
+                        hvfs_err(xnet, "Del obj %lx.%x on site %lx failed w/ %d\n",
+                                 hs->uuid, i, l[i]->site[j], err);
+                    }
+                }
+                newobjnr--;
+            }
+        } else {
+            /* no size change, do nothing */
+            return 0;
+        }
+    out:
+        __free_ol(l, hs->mdu.oi.objnr);
+        
+        /* update the metadata (and obj info) */
+        {
+            struct mdu_update *mu;
+            struct obj_info *__oi;
+            struct hstat nhs = *hs;
+            int __err;
+            
+            mu = alloca(sizeof(*mu) + sizeof(struct obj_info));
+            __oi = (void *)mu + sizeof(*mu);
+            mu->valid = MU_OI | MU_SIZE;
+            mu->size = nsize;
+            *__oi = hs->mdu.oi;
+            if (!__oi->prefer_bs)
+                __oi->prefer_bs = OBJBS_NR;
+            if (!__oi->repnr)
+                __oi->repnr = OBJREP_NR;
+            __oi->objnr = newobjnr;
+            
+            __err = __hvfs_update(nhs.puuid, nhs.psalt, &nhs, mu);
+            if (__err) {
+                hvfs_err(xnet, "do internal update on ino<%lx,%lx> "
+                         "failed w/ %d\n",
+                         nhs.uuid, nhs.hash, __err);
+            }
+        }
+    }
+
+    return err;
+}
+
 static int hvfs_truncate(const char *pathname, off_t size)
 {
     struct hstat hs = {0,};
@@ -3000,6 +3246,12 @@ static int hvfs_truncate(const char *pathname, off_t size)
     if (S_ISDIR(hs.mdu.mode)) {
         hvfs_err(xnet, "truncate directory is not allowed\n");
         err = -EINVAL;
+        goto out;
+    }
+
+    /* ok, we should check whether this file is a large or obj file */
+    if (hs.mdu.flags & (HVFS_MDU_IF_LARGE | HVFS_MDU_IF_OBJ)) {
+        err = hvfs_large_truncate(&hs, size);
         goto out;
     }
 
@@ -3107,6 +3359,12 @@ static int hvfs_ftruncate(const char *pathname, off_t size,
     }
 
     hs = bhh->hs;
+
+
+    /* ok, we should check whether this file is a large or obj file */
+    if (hs.mdu.flags & (HVFS_MDU_IF_LARGE | HVFS_MDU_IF_OBJ)) {
+        return hvfs_large_truncate(&hs, size);
+    }
 
     /* check the file length now */
     if (size > hs.mdu.size) {
@@ -3401,6 +3659,7 @@ hit:
             bhh->hs.mdu = hs.mdu;
             bhh->hs.mc = hs.mc;
         }
+        hvfs_warning(xnet, "in open the file(%p, %ld)!\n", bhh, bhh->hs.mdu.size);
     }
 #endif
 
@@ -3411,66 +3670,188 @@ out:
     return err;
 }
 
+static int hvfs_reopen(const char *pathname, struct fuse_file_info *fi);
+
 static inline
 int hvfs_large_read(const char *pathname, char *buf, size_t size,
                     off_t offset, struct fuse_file_info *fi)
 {
-    struct bhhead *bhh = (struct bhhead *)fi->fh;
+    struct bhhead *bhh;
     u64 fsid, rfino;
     ssize_t bl, br;
     int fd;
     int err = 0;
 
-    if (!pfs_fuse_mgr.use_dstore)
-        return 0;
-    
-    /* for each large read, we just read the shadow file system file */
-    if (bhh->ptr) {
-        fd = (int)(u64)(bhh->ptr);
-    } else {
-        struct hvfs_datastore *hd;
-        char pname[256];
-        
-        fsid = bhh->hs.mdu.lr.fsid;
-        rfino = bhh->hs.mdu.lr.rfino;
+retry:
+    bhh = (struct bhhead *)fi->fh;
 
-        hd = hvfs_datastore_get(LLFS_TYPE_ANY, fsid);
-        if (!hd) {
-            hvfs_err(xnet, "Find the file system %lx failed, no such "
-                     "file system!\n",
-                     fsid);
-            err = -EINVAL;
-            goto out;
+    if (bhh->hs.mdu.flags & HVFS_MDU_IF_OBJ) {
+        /* for each obj read, we try to locate which objid we should read, if
+         * there is no valid obj, we return 0 */
+        struct osd_list *l[bhh->hs.mdu.oi.objnr];
+        u64 osize = 0;          /* obj total size */
+        int i, rl = 0;
+
+        if (!bhh->hs.mdu.oi.objnr)
+            return 0;
+
+        /* Step 1: how many objs we have? does the length consistent? */
+        for (i = 0; i < bhh->hs.mdu.oi.objnr; i++) {
+            l[i] = hvfs_query_obj(bhh->hs.uuid, i);
+            if (IS_ERR(l[i])) {
+                hvfs_err(xnet, "Query obj %lx.%x failed w/ %ld\n",
+                         bhh->hs.uuid, i, PTR_ERR(l[i]));
+                err = PTR_ERR(l[i]);
+                __free_ol(l, i);
+                return err;
+            }
+            osize += l[i]->id.len;
+        }
+        if (bhh->hs.mdu.size != osize) {
+            hvfs_warning(xnet, "Someone changed the file '%s' after we open "
+                         "the file(%ld,%ld), refresh it!\n", 
+                         pathname, bhh->hs.mdu.size, osize);
+            /* wait a moment */
+            sched_yield();
+
+            err = hvfs_reopen(pathname, fi);
+            if (err) {
+                hvfs_err(xnet, "hvfs_reopen(%s) failed w/ %d\n",
+                         pathname, err);
+                goto read_some;
+            }
+            goto retry;
+        }
+
+        /* Step 2: determine which objs should we read */
+        {
+            short selected[bhh->hs.mdu.oi.objnr];
+            off_t this_off = 0;
+
+            for (i = 0; i < bhh->hs.mdu.oi.objnr; i++) {
+                selected[i] = 0;
+            }
+            for (i = 0; i < bhh->hs.mdu.oi.objnr; i++) {
+                if (offset >= this_off && offset < this_off + l[i]->id.len) {
+                    selected[i] = 1;
+                    hvfs_err(xnet, "Selected OBJ range %d [%ld,%ld]\n", 
+                             i, this_off, this_off + l[i]->id.len);
+                }
+                if (offset + size >= this_off &&
+                    offset + size < this_off + l[i]->id.len) {
+                    selected[i] = 1;
+                    hvfs_err(xnet, "Selected OBJ range %d [%ld,%ld]\n", 
+                             i, this_off, this_off + l[i]->id.len);
+                    break;
+                }
+                if (this_off > offset) {
+                    selected[i] = 1;
+                    hvfs_err(xnet, "Selected OBJ range %d [%ld,%ld]\n", 
+                             i, this_off, this_off + l[i]->id.len);
+                }
+                this_off += l[i]->id.len;
+            }
+            this_off = 0;
+            for (i = 0; i < bhh->hs.mdu.oi.objnr; i++) {
+                if (selected[i]) {
+                    u64 __site;
+                    off_t o = offset - this_off;
+                    int len = min(size, (size_t)(l[i]->id.len + this_off - offset));
+                    int __k = 0;
+                    void *data;
+
+                    hvfs_err(xnet, "offset %ld this_off %ld len %d\n", offset, this_off, len);
+                    hvfs_err(xnet, "read region [%ld, %ld]\n", o, o + len);
+                    /* select one site randomized */
+                    __site = l[i]->site[RANDOM_SEL(l[i]->size)];
+                reread_now:
+                    err = hvfs_read_obj(bhh->hs.uuid, i,
+                                        __site, &data, len, o, -1); /* which
+                                                                     * version
+                                                                     * should
+                                                                     * i read
+                                                                     * here? */
+                    if (err < 0) {
+                        hvfs_err(xnet, "read obj %lx.%x [%ld,%ld] from site %lx "
+                                 "failed w/ %d\n",
+                                 bhh->hs.uuid, i, o, o + len, __site, err);
+                        /* retry another site */
+                        if (__k < l[i]->size) {
+                            __site = l[i]->site[__k];
+                            ++__k;
+                            goto reread_now;
+                        }
+                        __free_ol(l, bhh->hs.mdu.oi.objnr);
+                        goto read_some;
+                    } else {
+                        memcpy(buf + rl, data, err);
+                        xfree(data);
+                    }
+                    rl += len;
+                    offset += len;
+                    size -= len;
+                }
+                this_off += l[i]->id.len;
+            }
+        }
+    read_some:
+        __free_ol(l, bhh->hs.mdu.oi.objnr);
+        if (rl > 0)
+            return rl;
+        else
+            return err;
+    } else if (bhh->hs.mdu.flags & HVFS_MDU_IF_LARGE) {
+        if (!pfs_fuse_mgr.use_dstore)
+            return 0;
+        
+        /* for each large read, we just read the shadow file system file */
+        if (bhh->ptr) {
+            fd = (int)(u64)(bhh->ptr);
+        } else {
+            struct hvfs_datastore *hd;
+            char pname[256];
+            
+            fsid = bhh->hs.mdu.lr.fsid;
+            rfino = bhh->hs.mdu.lr.rfino;
+            
+            hd = hvfs_datastore_get(LLFS_TYPE_ANY, fsid);
+            if (!hd) {
+                hvfs_err(xnet, "Find the file system %lx failed, no such "
+                         "file system!\n",
+                         fsid);
+                err = -EINVAL;
+                goto out;
+            }
+            
+            sprintf(pname, "%s/%lx", hd->pathname, rfino);
+            fd = open(pname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+            if (fd < 0) {
+                hvfs_err(xnet, "Open large file '%s' failed w/ %s(%d)\n",
+                         pname, strerror(errno), errno);
+                err = -errno;
+                goto out;
+            }
+            bhh->ptr = (void *)(u64)fd;
         }
         
-        sprintf(pname, "%s/%lx", hd->pathname, rfino);
-        fd = open(pname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-        if (fd < 0) {
-            hvfs_err(xnet, "Open large file '%s' failed w/ %s(%d)\n",
-                     pname, strerror(errno), errno);
-            err = -errno;
-            goto out;
-        }
-        bhh->ptr = (void *)(u64)fd;
+        bl = 0;
+        do {
+            br = pread(fd, buf + bl, size - bl, offset + bl);
+            if (br < 0) {
+                hvfs_err(xnet, "pread file '%d' failed w/ %s\n",
+                         fd, strerror(errno));
+                err = -errno;
+                goto out;
+            } else if (br == 0) {
+                hvfs_debug(xnet, "pread file '%d' rlen %ld len %ld w/ EOF\n",
+                           fd, size, bhh->hs.mdu.size);
+                break;
+            }
+            bl += br;
+        } while (bl < size);
+        
+        err = bl;
     }
-        
-    bl = 0;
-    do {
-        br = pread(fd, buf + bl, size - bl, offset + bl);
-        if (br < 0) {
-            hvfs_err(xnet, "pread file '%d' failed w/ %s\n",
-                     fd, strerror(errno));
-            err = -errno;
-            goto out;
-        } else if (br == 0) {
-            hvfs_debug(xnet, "pread file '%d' rlen %ld len %ld w/ EOF\n",
-                       fd, size, bhh->hs.mdu.size);
-            break;
-        }
-        bl += br;
-    } while (bl < size);
-    
-    err = bl;
     
 out:
     return err;
@@ -3491,7 +3872,7 @@ static int hvfs_read(const char *pathname, char *buf, size_t size,
     }
 
     /* is this large read() */
-    if (bhh->hs.mdu.flags & HVFS_MDU_IF_LARGE) {
+    if (bhh->hs.mdu.flags & (HVFS_MDU_IF_LARGE | HVFS_MDU_IF_OBJ)) {
         return hvfs_large_read(pathname, buf, size, offset, fi);
     }
 
@@ -3735,63 +4116,221 @@ static int hvfs_large_write(const char *pathname, const char *buf,
                             size_t size, off_t offset,
                             struct fuse_file_info *fi)
 {
-    struct bhhead *bhh = (struct bhhead *)fi->fh;
+    struct bhhead *bhh = NULL;
     u64 fsid, rfino;
     ssize_t bl, bw;
-    int fd;
+    int fd, free_nr = 0;
     int err = 0;
     
-    if (!pfs_fuse_mgr.use_dstore) {
-        return -EINVAL;
+retry:
+    bhh = (struct bhhead *)fi->fh;
+    
+    if (bhh->hs.mdu.flags & HVFS_MDU_IF_OBJ) {
+        /* for each obj write, we try to locate which objid we should write,
+         * if there is no valid obj, we create a new one */
+        struct osd_list *l[bhh->hs.mdu.oi.objnr];
+        u64 osize = 0;          /* obj total size */
+        off_t orig_offset = offset;
+        size_t orig_size = size;
+        int i, wl = 0;
+        short selected[bhh->hs.mdu.oi.objnr];
+        off_t this_off = 0, max_off = 0;
+
+        if (!bhh->hs.mdu.oi.objnr)
+            goto alloc_new_obj;
+        
+        free_nr = bhh->hs.mdu.oi.objnr;
+        
+        /* Step 1: how many objs we have? does the length consistent? */
+        for (i = 0; i < bhh->hs.mdu.oi.objnr; i++) {
+            l[i] = hvfs_query_obj(bhh->hs.uuid, i);
+            if (IS_ERR(l[i])) {
+                hvfs_err(xnet, "Query obj %lx. %x failed w/ %ld\n",
+                         bhh->hs.uuid, i, PTR_ERR(l[i]));
+                err = PTR_ERR(l[i]);
+                __free_ol(l, i);
+                return err;
+            }
+            osize += l[i]->id.len;
+        }
+        if (bhh->hs.mdu.size != osize) {
+            hvfs_warning(xnet, "Someone changed the file '%s' after we open "
+                         "the file(mdu.size %ld, osize %ld), refresh it!\n", 
+                         pathname, bhh->hs.mdu.size, osize);
+            err = hvfs_reopen(pathname, fi);
+            if (err) {
+                hvfs_err(xnet, "hvfs_reopen(%s) failed w/ %d\n",
+                         pathname, err);
+                goto write_some;
+            }
+            goto retry;
+        }
+
+        /* Step 2: determine which objs shoule we write */
+        {
+            for (i = 0; i < bhh->hs.mdu.oi.objnr; i++) {
+                selected[i] = 0;
+            }
+            for (i = 0; i < bhh->hs.mdu.oi.objnr; i++) {
+                if (offset >= this_off && offset < this_off + l[i]->id.len) {
+                    selected[i] = 1;
+                    hvfs_err(xnet, "Selected OBJ range %d [%ld,%ld]\n", 
+                             i, this_off, this_off + l[i]->id.len);
+                }
+                if (offset + size >= this_off &&
+                    offset + size < this_off + l[i]->id.len) {
+                    selected[i] = 1;
+                    hvfs_err(xnet, "Selected OBJ range %d [%ld,%ld]\n", 
+                             i, this_off, this_off + l[i]->id.len);
+                    break;
+                }
+                if (this_off > offset) {
+                    selected[i] = 1;
+                    hvfs_err(xnet, "Selected OBJ range %d [%ld,%ld]\n", 
+                             i, this_off, this_off + l[i]->id.len);
+                }
+                this_off += l[i]->id.len;
+            }
+            max_off = this_off;
+            this_off = 0;
+            for (i = 0; i < bhh->hs.mdu.oi.objnr; i++) {
+                if (selected[i]) {
+                    off_t o = offset - this_off;
+                    int len = min(size, (size_t)(l[i]->id.len + this_off - offset));
+                    u64 __site;
+                    
+                    hvfs_err(xnet, "write region [%ld, %ld]\n", o, o+len);
+                    /* select one site randomized */
+                    __site = l[i]->site[RANDOM_SEL(l[i]->size)];
+                    err = hvfs_write_obj(bhh->hs.uuid, i, 
+                                         __site, buf + wl, len, o, 1);
+                    if (err) {
+                        hvfs_err(xnet, "write obj %lx.%x [%ld,%ld] from site %lx "
+                                 "failed w/ %d\n",
+                                 bhh->hs.uuid, i, o, o + len, __site, err);
+                        goto write_some;
+                    }
+                    offset += len;
+                    size -= len;
+                    wl += len;
+                }
+                this_off += l[i]->id.len;
+            }
+        alloc_new_obj:
+            if (size > 0) {
+                /* write a new obj now */
+                struct xnet_group *xg;
+                
+                xg = hvfs_get_active_sites_from_r2(HVFS_SITE_TYPE_OSD);
+                if (IS_ERR(xg)) {
+                    hvfs_warning(xnet, "get active OSD site failed w/ %ld, "
+                                 "partital write!\n",
+                                 PTR_ERR(xg));
+                    goto write_some;
+                }
+                /* FIXME: should we write with prefer_bs blocks? */
+                err = hvfs_write_obj(bhh->hs.uuid, bhh->hs.mdu.oi.objnr,
+                                     xg->sites[RANDOM_SEL(xg->asize)].site_id,
+                                     buf + wl, size, max_off, 1);
+                if (err) {
+                    hvfs_err(xnet, "write obj %lx.%x [%ld,%ld] failed w/ %d\n",
+                             bhh->hs.uuid, bhh->hs.mdu.oi.objnr,
+                             max_off, max_off + size, err);
+                    goto write_some;
+                }
+                /* update the metadata now */
+                {
+                    struct mdu_update *mu;
+                    struct obj_info *__oi;
+                    struct hstat hs = bhh->hs;
+                    int __err;
+
+                    mu = alloca(sizeof(*mu) + sizeof(struct obj_info));
+                    __oi = (void *)mu + sizeof(*mu);
+                    mu->valid = MU_OI | MU_SIZE;
+                    mu->size = orig_size;
+                    *__oi = bhh->hs.mdu.oi;
+                    if (!__oi->prefer_bs)
+                        __oi->prefer_bs = OBJBS_NR;
+                    if (!__oi->repnr)
+                        __oi->repnr = OBJREP_NR;
+                    __oi->objnr++;
+
+                    __err = __hvfs_update(hs.puuid, hs.psalt, &hs, mu);
+                    if (__err) {
+                        hvfs_err(xnet, "do internal update on ino<%lx,%lx> "
+                                 "failed w/ %d\n",
+                                 hs.uuid, hs.hash, __err);
+                    } else {
+                        /* finally, update bhh->hs */
+                        bhh->hs.mdu = hs.mdu;
+                        hvfs_warning(xnet, "in large write the file(%ld)!\n", bhh->hs.mdu.size);
+                        wl += size;
+                    }
+                }
+            }
+        }
+    write_some:
+        __free_ol(l, free_nr);
+        bhh->asize = orig_offset + wl;
+        if (wl > 0) {
+            return wl;
+        } else
+            return err;
+    } else if (bhh->hs.mdu.flags & HVFS_MDU_IF_LARGE) {
+        if (!pfs_fuse_mgr.use_dstore) {
+            return -EINVAL;
+        }
+        
+        /* for each large write, we just write to the shadow file system (fsid)
+         * file (rfino) */
+        if (bhh->ptr) {
+            fd = (int)(u64)(bhh->ptr);
+        } else {
+            struct hvfs_datastore *hd;
+            char pname[256];
+            
+            fsid = bhh->hs.mdu.lr.fsid;
+            rfino = bhh->hs.mdu.lr.rfino;
+
+            hd = hvfs_datastore_get(LLFS_TYPE_ANY, fsid);
+            if (!hd) {
+                hvfs_err(xnet, "Find the file system %lx failed, no such "
+                         "file system!\n",
+                         fsid);
+                err = -EINVAL;
+                goto out;
+            }
+            
+            sprintf(pname, "%s/%lx", hd->pathname, rfino);
+            fd = open(pname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+            if (fd < 0) {
+                hvfs_err(xnet, "Open large file '%s' failed w/ %s(%d)\n",
+                         pname, strerror(errno), errno);
+                err = -errno;
+                goto out;
+            }
+            bhh->ptr = (void *)(u64)fd;
+        }
+        
+        bl = 0;
+        do {
+            bw = pwrite(fd, buf + bl, size - bl, offset + bl);
+            if (bw < 0) {
+                hvfs_err(xnet, "pwrite file '%d' failed w/ %s\n",
+                         fd, strerror(errno));
+                err = -errno;
+                goto out;
+            }
+            bl += bw;
+        } while (bl < size);
+        
+        /* update in-memory length */
+        if (bhh->hs.mdu.size < offset + size)
+            bhh->asize = offset + size;
+        
+        err = size;
     }
-
-    /* for each large write, we just write to the shadow file system (fsid)
-     * file (rfino) */
-    if (bhh->ptr) {
-        fd = (int)(u64)(bhh->ptr);
-    } else {
-        struct hvfs_datastore *hd;
-        char pname[256];
-
-        fsid = bhh->hs.mdu.lr.fsid;
-        rfino = bhh->hs.mdu.lr.rfino;
-
-        hd = hvfs_datastore_get(LLFS_TYPE_ANY, fsid);
-        if (!hd) {
-            hvfs_err(xnet, "Find the file system %lx failed, no such "
-                     "file system!\n",
-                     fsid);
-            err = -EINVAL;
-            goto out;
-        }
-
-        sprintf(pname, "%s/%lx", hd->pathname, rfino);
-        fd = open(pname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-        if (fd < 0) {
-            hvfs_err(xnet, "Open large file '%s' failed w/ %s(%d)\n",
-                     pname, strerror(errno), errno);
-            err = -errno;
-            goto out;
-        }
-        bhh->ptr = (void *)(u64)fd;
-    }
-    
-    bl = 0;
-    do {
-        bw = pwrite(fd, buf + bl, size - bl, offset + bl);
-        if (bw < 0) {
-            hvfs_err(xnet, "pwrite file '%d' failed w/ %s\n",
-                     fd, strerror(errno));
-            err = -errno;
-            goto out;
-        }
-        bl += bw;
-    } while (bl < size);
-    
-    /* update in-memory length */
-    bhh->asize = offset + size;
-    
-    err = size;
     
 out:
     return err;    
@@ -3803,7 +4342,8 @@ static int hvfs_write(const char *pathname, const char *buf,
 {
     struct bhhead *bhh = (struct bhhead *)fi->fh;
 
-    if (bhh->hs.mdu.flags & HVFS_MDU_IF_LARGE) {
+    hvfs_warning(xnet, "in write the file %s(%p, %ld)!\n", pathname, bhh, bhh->hs.mdu.size);
+    if (bhh->hs.mdu.flags & (HVFS_MDU_IF_LARGE | HVFS_MDU_IF_OBJ)) {
         return hvfs_large_write(pathname, buf, size, offset, fi);
     } else {
         if (pfs_fuse_mgr.sync_write) {
@@ -3886,7 +4426,7 @@ static int hvfs_release(const char *pathname, struct fuse_file_info *fi)
 
     if (bhh->flag & BH_DIRTY) {
         __bh_sync(bhh);
-    } else if (bhh->hs.mdu.flags & HVFS_MDU_IF_LARGE) {
+    } else if (bhh->hs.mdu.flags & (HVFS_MDU_IF_LARGE | HVFS_MDU_IF_OBJ)) {
         if (bhh->asize != bhh->hs.mdu.size) {
             struct mdu_update mu;
             struct hstat hs = bhh->hs;
@@ -3901,8 +4441,7 @@ static int hvfs_release(const char *pathname, struct fuse_file_info *fi)
                          "failed w/ %d\n",
                          hs.uuid, hs.hash, err);
             }
-            /* finally, update bhh->hs */
-            bhh->hs.mdu = hs.mdu;
+            hvfs_warning(xnet, "in release the file(%p,%ld,%ld)!\n", bhh, bhh->asize, bhh->hs.mdu.size);
         }
         /* close the file if needed */
         if (bhh->ptr) {
@@ -3914,6 +4453,24 @@ static int hvfs_release(const char *pathname, struct fuse_file_info *fi)
     __put_bhhead(bhh);
 
     return 0;
+}
+
+int hvfs_reopen(const char *pathname, struct fuse_file_info *fi)
+{
+    int err = 0;
+
+    /* release the bhhead */
+    hvfs_release(pathname, fi);
+
+    /* reopen it! */
+    err = hvfs_open(pathname, fi);
+    if (err) {
+        hvfs_err(xnet, "hvfs_open(%s) failed w/ %d\n", pathname, err);
+        goto out;
+    }
+
+out:
+    return err;
 }
 
 /* hvfs_fsync(): we sync the buffered data and write-back any metadata changes.
@@ -3932,7 +4489,7 @@ static int hvfs_fsync(const char *pathname, int datasync,
 
     if (bhh->flag & BH_DIRTY) {
         __bh_sync(bhh);
-    } else if (bhh->hs.mdu.flags & HVFS_MDU_IF_LARGE) {
+    } else if (bhh->hs.mdu.flags & (HVFS_MDU_IF_LARGE | HVFS_MDU_IF_OBJ)) {
         int fd = -1;
         
         /* call fsync directly from bhh, otherwise, it is clean */
@@ -6487,6 +7044,7 @@ realloc:
         pfs_fuse_mgr.nodiratime = 1;
         pfs_fuse_mgr.ttl = 5;
         pfs_fuse_mgr.noxattr = 1;
+        pfs_fuse_mgr.consistency = PFS_CONSISTENCY_ONE;
     }
 
     /* setup dynamic config values */
@@ -6526,7 +7084,7 @@ static int hvfs_create_plus(const char *pathname, mode_t mode,
 {
     FC_TIMER_DEF();
     struct hstat hs = {.mc.c.len = 0,};
-    struct mdu_update *mu;
+    struct mdu_update *mu = NULL;
     char *dup = strdup(pathname), *path, *name, *spath = NULL;
     char *p = NULL, *n, *s = NULL;
     u64 puuid = hmi.root_uuid, psalt = hmi.root_salt;
@@ -6583,16 +7141,32 @@ hit:
     /* create the file or dir in the parent directory now */
     hs.name = name;
     hs.uuid = 0;
-    /* FIXME: should we not drop rdev? */
-    mu = alloca(sizeof(*mu) + sizeof(struct llfs_ref));
-    mu->valid = MU_MODE;
-    mu->mode = mode;
 
-    if ((mdu_flags & HVFS_MDU_IF_LARGE) &&
+    if (mdu_flags & HVFS_MDU_IF_OBJ) {
+        struct obj_info *oi;
+
+        /* FIXME: should we not drop rdev? */
+        mu = alloca(sizeof(*mu) + sizeof(oi));
+        oi = (void *)mu + sizeof(*mu);
+        mu->valid = MU_MODE;
+        mu->mode = mode;
+
+        mu->valid |= MU_FLAG_ADD | MU_OI;
+        mu->flags = HVFS_MDU_IF_OBJ;
+        oi->prefer_bs = OBJBS_NR;
+        oi->repnr = OBJREP_NR;
+        oi->objnr = 0;
+    } else if ((mdu_flags & HVFS_MDU_IF_LARGE) &&
         (pfs_fuse_mgr.use_dstore)) {
-        struct llfs_ref *lr = (void *)mu + sizeof(*mu);
+        struct llfs_ref *lr;
         struct hvfs_datastore *hd;
         
+        /* FIXME: should we not drop rdev? */
+        mu = alloca(sizeof(*mu) + sizeof(struct llfs_ref));
+        lr = (void *)mu + sizeof(*mu);
+        mu->valid = MU_MODE;
+        mu->mode = mode;
+
         mu->valid |= MU_FLAG_ADD | MU_LLFS;
         mu->flags = HVFS_MDU_IF_LARGE;
         hd = hvfs_datastore_get(LLFS_TYPE_ANY, 0);
@@ -6619,6 +7193,11 @@ hit:
         goto out;
     }
     
+    {
+    struct bhhead *bhh = (struct bhhead *)fi->fh;
+    hvfs_warning(xnet, "in create the file(%ld)!\n", bhh->hs.mdu.size);
+    }
+
     /* Save the hstat in SOC cache */
     {
         struct soc_entry *se = __se_alloc(pathname, &hs);

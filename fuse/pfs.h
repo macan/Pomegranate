@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-06-21 11:43:01 macan>
+ * Time-stamp: <2012-12-24 14:52:50 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,6 +31,8 @@
 #include "lib.h"
 #include "root.h"
 #include "amc_api.h"
+#include "obj.h"
+
 /* which fuse version should we use? */
 #warning "We need FUSE version 2.6"
 #define FUSE_USE_VERSION 26
@@ -50,6 +52,13 @@ struct __pfs_fuse_mgr
     u32 use_dstore:1;
     u32 noxattr:1;
     u32 ttl:8;                  /* lru translate cache ttl */
+#define PFS_CONSISTENCY_SAFE    OBJID_CONSISTENCY_SAFE
+#define PFS_CONSISTENCY_ONE     OBJID_CONSISTENCY_ONE
+#define PFS_CONSISTENCY_TWO     OBJID_CONSISTENCY_TWO
+#define PFS_CONSISTENCY_THREE   OBJID_CONSISTENCY_THREE
+    /* ... up to 14 copy */
+#define PFS_CONSISTENCY_ALL     OBJID_CONSISTENCY_ALL
+    u32 consistency:4;
 };
 
 extern struct __pfs_fuse_mgr pfs_fuse_mgr;

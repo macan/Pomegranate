@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-11-05 10:36:52 macan>
+ * Time-stamp: <2013-02-19 16:17:40 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -69,23 +69,6 @@ void __osd_send_rpy(struct xnet_msg *rpy, int err)
 }
 
 static inline
-int __pack_msg(struct xnet_msg *msg, void *data, int len)
-{
-    u32 *__len = xmalloc(sizeof(u32));
-
-    if (!__len) {
-        hvfs_err(osd, "pack msg xmalloc failed\n");
-        return -ENOMEM;
-    }
-
-    *__len = len;
-    xnet_msg_add_sdata(msg, __len, sizeof(u32));
-    xnet_msg_add_sdata(msg, data, len);
-
-    return 0;
-}
-
-static inline
 void __simply_send_reply(struct xnet_msg *msg, int err)
 {
     struct xnet_msg *rpy = xnet_alloc_msg(XNET_MSG_CACHE);
@@ -112,19 +95,20 @@ void __simply_send_reply(struct xnet_msg *msg, int err)
     xnet_free_msg(rpy);
 }
 
-/* osd_write() write a obj content to this OSD server
+/* osd_write() write a obj content to this OSD server, each write incr the
+ * version number.
  *
  * ABI:
  *
  * tx.arg0 -> length(32b) + start_offset(32b)
- * tx.arg1 -> 
+ * tx.arg1 -> flags
  * xm_data -> objid | [obj content]
  */
 int osd_write(struct xnet_msg *msg)
 {
     struct objid *obj;
     u32 length, offset;
-    int err = 0;
+    int err = 0, dev;
 
     if (unlikely(msg->tx.len < sizeof(*obj))) {
         hvfs_err(osd, "Invalid OSD WRITE request %d received\n",
@@ -146,11 +130,29 @@ int osd_write(struct xnet_msg *msg)
         err = -EINVAL;
         goto out;
     }
+    if (msg->tx.arg1 & HVFS_OSD_WRITE_TRUNC) {
+        err = osd_storage_trunc(obj, offset + length, &dev);
+        if (err) {
+            if (err != -ENOENT) {
+                hvfs_err(osd, "trunc the obj %lx.%x file to %d bytes failed "
+                         "w/ %d\n", obj->uuid, obj->bid, offset + length, err);
+                goto out;
+            }
+        }
+    }
 
-    err = osd_storage_write(obj, msg->xm_data + sizeof(*obj), offset, length);
+    err = osd_storage_write(obj, msg->xm_data + sizeof(*obj), offset, 
+                            length, &dev);
     if (err) {
         hvfs_err(osd, "write to OSD storage device failed w/ %d\n", err);
         goto out;
+    }
+
+    /* update the obj info to OGA manager */
+    err = __om_update_entry(*obj, dev);
+    if (err) {
+        hvfs_err(osd, "update OM entry for obj %lx.%x 2changed list failed "
+                 "w/ %d, ignore it\n", obj->uuid, obj->bid, err);
     }
     
 out:
@@ -172,9 +174,10 @@ out:
 int osd_sweep(struct xnet_msg *msg)
 {
     struct objid *obj;
-    u32 length, offset;
-    void *data;
-    int err = 0;
+    u32 offset;
+    int length;
+    void *data = NULL;
+    int err = 0, dev;
 
     if (unlikely(msg->tx.len < sizeof(*obj))) {
         hvfs_err(osd, "Invalid OSD SWEEP request %d received\n",
@@ -191,6 +194,17 @@ int osd_sweep(struct xnet_msg *msg)
         err = -EINVAL;
         goto out;
     }
+    if (length < 0) {
+        /* sweep to the end of the file */
+        length = osd_storage_getlen(obj) - OSD_FH_SIZE;
+        if (length < 0) {
+            hvfs_err(osd, "get obj %lx.%x len failed w/ %d\n",
+                     obj->uuid, obj->bid, length);
+            err = length;
+            goto out;
+        }
+    }
+    
     /* alloc zero region */
     data = xzalloc(length);
     if (!data) {
@@ -198,12 +212,21 @@ int osd_sweep(struct xnet_msg *msg)
         err = -ENOMEM;
         goto out;
     }
-
-    err = osd_storage_write(obj, data, offset, length);
+    
+    err = osd_storage_write(obj, data, offset, length, &dev);
     if (err) {
         hvfs_err(osd, "write to OSD storage device failed w/ %d\n", err);
         goto out_free;
     }
+
+    /* update the obj info to OGA manager */
+    err = __om_update_entry(*obj, dev);
+    if (err) {
+        hvfs_err(osd, "update OM entry for obj %lx.%x 2changed list failed "
+                 "w/ %d, ignore it\n", obj->uuid, obj->bid, err);
+    }
+
+    
 out_free:
     xfree(data);
 out:
@@ -219,14 +242,15 @@ out:
  * ABI:
  *
  * tx.arg0 -> length(32b) + start_offset(32b)
- * tx.arg1 ->
+ * tx.arg1 -> version (signed 32b: -1 means ignore version)
  * xm_data -> objid
  */
 int osd_read(struct xnet_msg *msg)
 {
     struct xnet_msg *rpy;
     struct objid *obj;
-    u32 length, offset;
+    u32 offset;
+    int length, version;
     void *data = NULL;
     int err = 0;
 
@@ -239,32 +263,45 @@ int osd_read(struct xnet_msg *msg)
 
     offset = msg->tx.arg0 & 0xffffffff;
     length = (msg->tx.arg0 >> 32) & 0xffffffff;
+    version = (int)msg->tx.arg1;
     obj = (struct objid *)msg->xm_data;
     if (!obj) {
         hvfs_err(osd, "Invalid OSD read request w/ NULL data payload\n");
         err = -EINVAL;
         goto out_err;
     }
+
     /* alloc a free region */
-    data = xzalloc(length);
-    if (!data) {
-        hvfs_err(osd, "Alloc %d bytes zero memory region failed\n", length);
-        err = -ENOMEM;
-        goto out_err;
+    if (length > 0) {
+        data = xzalloc(length);
+        if (!data) {
+            hvfs_err(osd, "Alloc %d bytes zero memory region failed\n", length);
+            err = -ENOMEM;
+            goto out_err;
+        }
     }
 
-    err = osd_storage_read(obj, data, offset, length);
-    if (err) {
+    if (version != -1) {
+        err = osd_storage_read_strict(obj, &data, offset, length, version);
+    } else {
+        err = osd_storage_read(obj, &data, offset, length);
+    }
+    if (err < 0) {
         hvfs_err(osd, "read from OSD storage device failed w/ %d\n", err);
         goto out_err;
     }
+    /* set length to read data length */
+    length = err;
 
     /* send the read region back */
     err = __prepare_xnet_msg(msg, &rpy);
     if (err) {
         goto out_err;
     }
-    err = __pack_msg(rpy, data, length);
+    if (length > 0)
+        xnet_msg_add_sdata(rpy, data, length);
+    /* set data region length to arg0! */
+    rpy->tx.arg0 = length;
     __osd_send_rpy(rpy, err);
 
 out_free:
@@ -314,6 +351,103 @@ int osd_sync(struct xnet_msg *msg)
         goto out;
     }
     
+out:
+    /* send a reply msg */
+    __simply_send_reply(msg, err);
+    xnet_free_msg(msg);
+
+    return err;
+}
+
+/* osd_trunc() truncate an obj on this OSD server
+ *
+ * ABI:
+ *
+ * tx.arg0 -> length
+ * xm_data -> objid
+ */
+int osd_trunc(struct xnet_msg *msg)
+{
+    struct objid *obj;
+    off_t length;
+    int err = 0, dev;
+
+    if (unlikely(msg->tx.len < sizeof(*obj))) {
+        hvfs_err(osd, "Invalid OSD TRUNC request %d received\n",
+                 msg->tx.reqno);
+        err = -EINVAL;
+        goto out;
+    }
+
+    length = msg->tx.arg0;
+    obj = (struct objid *)msg->xm_data;
+    if (!obj) {
+        hvfs_err(osd, "Invalid OSD trunc request w/ NULL data payload\n");
+        err = -EINVAL;
+        goto out;
+    }
+
+    err = osd_storage_trunc(obj, length, &dev);
+    if (err) {
+        hvfs_err(osd, "truncate to OSD storage device failed w/ %d\n", err);
+        goto out;
+    }
+    
+    /* update the obj info to OGA manager */
+    err = __om_update_entry(*obj, dev);
+    if (err) {
+        hvfs_err(osd, "update OM entry for obj %lx.%x 2changed list failed "
+                 "w/ %d, ignore it\n", obj->uuid, obj->bid, err);
+    }
+
+out:
+    /* send a reply msg */
+    __simply_send_reply(msg, err);
+    xnet_free_msg(msg);
+
+    return err;
+}
+
+/* osd_del() del a obj from this OSD server
+ *
+ * ABI:
+ *
+ * tx.arg0 ->
+ * tx.arg1 ->
+ * xm_data -> objid
+ */
+int osd_del(struct xnet_msg *msg)
+{
+    struct objid *obj;
+    int err = 0;
+
+    if (unlikely(msg->tx.len < sizeof(*obj))) {
+        hvfs_err(osd, "Invalid OSD DEL request %d received\n",
+                 msg->tx.reqno);
+        err = -EINVAL;
+        goto out;
+    }
+
+    obj = (struct objid *)msg->xm_data;
+    if (!obj) {
+        hvfs_err(osd, "Invalid OSD DEL request w/ NULL data payload\n");
+        err = -EINVAL;
+        goto out;
+    }
+
+    err = osd_storage_del(obj);
+    if (err) {
+        hvfs_err(osd, "DEL from OSD storage device failed w/ %d\n", err);
+        goto out;
+    }
+    
+    /* update the obj info to OGA manager */
+    err = __om_del_entry(*obj);
+    if (err) {
+        hvfs_err(osd, "delete OM entry for obj %lx.%x failed "
+                 "w/ %d, ignore it\n", obj->uuid, obj->bid, err);
+    }
+
 out:
     /* send a reply msg */
     __simply_send_reply(msg, err);

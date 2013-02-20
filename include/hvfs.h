@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-10-22 14:57:31 macan>
+ * Time-stamp: <2012-11-21 16:31:56 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -176,6 +176,8 @@
 #define HVFS_OSD_STATFS         0x0000000010000004 /* stat whole server */
 #define HVFS_OSD_QUERY          0x0000000010000005 /* query on specific object */
 #define HVFS_OSD_SWEEP          0x0000000010000006 /* object region sweep ZERO */
+#define HVFS_OSD_TRUNC          0x0000000010000007 /* object truncate */
+#define HVFS_OSD_DEL            0x0000000010000008 /* object removal */
 
 /* APIs */
 #define HASH_SEL_EH     0x00
