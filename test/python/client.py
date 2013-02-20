@@ -3,7 +3,7 @@
 # Copyright (c) 2009 Ma Can <ml.macana@gmail.com>
 #                           <macan@ncic.ac.cn>
 #
-# Time-stamp: <2012-08-07 18:20:59 macan>
+# Time-stamp: <2013-02-19 14:37:59 macan>
 #
 # Armed with EMACS.
 #
@@ -21,8 +21,9 @@ HVFS_SITE_TYPE_CLIENT = 0x01
 HVFS_SITE_TYPE_MDS = 0x02
 HVFS_SITE_TYPE_MDSL = 0x03
 HVFS_SITE_TYPE_R2 = 0x04
-HVFS_SITE_TYPE_AMC = 0x05
-HVFS_SITE_TYPE_BP = 0x06
+HVFS_SITE_TYPE_OSD = 0x05
+HVFS_SITE_TYPE_AMC = 0x06
+HVFS_SITE_TYPE_BP = 0x07
 
 HVFS_SITE_TYPE_MASK = (0x7 << 17)
 HVFS_SITE_MAX = (1 << 20)
@@ -30,6 +31,9 @@ HVFS_SITE_N_MASK = ((1 << 17) - 1)
 
 def HVFS_MDS(n):
     return (HVFS_SITE_TYPE_MDS << 17) | (int(n) & HVFS_SITE_N_MASK)
+
+def HVFS_OSD(n):
+    return (HVFS_SITE_TYPE_OSD << 17) | (int(n) & HVFS_SITE_N_MASK)
 
 try:
     libc = CDLL("libc.so.6")
@@ -207,7 +211,7 @@ class pamc_shell(cmd.Cmd):
                 "getactivesite", "addsite", "rmvsite", "shutdown",
                 "cbranch", "bc", "bp", "getbor", "search", 
                 "pst", "clrdtrigger", "getinfo", "analysestorage",
-                "getactivesitesize"]
+                "getactivesitesize", "queryobj"]
 
     def __init__(self, ub = False):
         cmd.Cmd.__init__(self)
@@ -457,7 +461,7 @@ class pamc_shell(cmd.Cmd):
         '''Set the attributes of a file in current pathname. 
         Usage: setattr /path/to/name key1=value1,key2=value2
 
-        Examples: setattr /abc atime=1000,ctime=500
+        Examples: setattr /abc atime=1000,ctime=500,flag_add=2048
 
         Result description:
         the column region is always ZERO (please use stat to get the correct values)
@@ -796,8 +800,8 @@ class pamc_shell(cmd.Cmd):
             print "ValueError %s" % ve
 
     def do_getactivesitesize(self, line):
-        '''Get the active sites' size.
-        Usage: getactivesite 'mds/mdslbp' '''
+        '''Get the active sites' size. Some from rings and some from R2 server.
+        Usage: getactivesite 'mds/mdsl/osd/r2/bp' '''
         l = shlex.split(line)
         if len(l) < 1:
             print "Invalid argument. See help getactivesitesize!"
@@ -1382,6 +1386,124 @@ class pamc_shell(cmd.Cmd):
             return
         print "MAX TXG: " + str(max)
         print "+OK"
+
+    def do_queryobj(self, line):
+        '''Query the active OSD sites which contains the object 
+        Usage: queryobj file_uuid file_blockid'''
+        l = shlex.split(line)
+        if len(l) < 2:
+            print "Invalid argument. See help queryobj!"
+            return
+
+        # ok
+        try:
+            self.start_clock()
+            api.hvfs_query_obj_print(long(l[0]), int(l[1]))
+            self.stop_clock()
+            self.echo_clock("Time elasped:")
+        except TypeError, te:
+            print "TypeError %s" % te
+        except ValueError, ve:
+            print "ValueError %s" % ve
+        print "+OK"
+
+    def do_writeobj(self, line):
+        '''Write the object data region to the specified OSD.
+        Usage: writeobj file_uuid file_blockid OSD#i string offset'''
+        l = shlex.split(line)
+        if len(l) < 5:
+            print "Invalid argument. See help writeobj!"
+            return
+        print l
+
+        # ok
+        try:
+            self.start_clock()
+            site = HVFS_OSD(l[2])
+            c_data = c_char_p(l[3])
+            err = api.hvfs_write_obj(long(l[0]), int(l[1]), long(site),
+                                     c_data, int(len(l[3])), 
+                                     long(l[4]))
+            if err != 0:
+                print "api.hvfs_write_obj() failed w/ %d" % err
+                return
+            print "+OK"
+        except TypeError, te:
+            print "TypeError %s" % te
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_readobj(self, line):
+        '''Read the object data region from the specified OSD.
+        Usage: readobj file_uuid file_blockid OSD#i length offset'''
+        l = shlex.split(line)
+        if len(l) < 5:
+            print "Invalid argument. See help readobj!"
+            return
+
+        # ok
+        try:
+            self.start_clock()
+            site = HVFS_OSD(l[2])
+            c_data = c_char_p(None)
+            err = api.hvfs_read_obj(long(l[0]), int(l[1]), long(site),
+                                    byref(c_data), int(l[3]),
+                                    long(l[4]), long(-1))
+            if err < 0:
+                print "api.hvfs_read_obj() failed w/ %d" % err
+                return
+            print c_data.value
+            api.hvfs_free(c_data)
+            print "+OK"
+        except TypeError, te:
+            print "TypeError %s" % te
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_delobj(self, line):
+        '''Del the object from the specified OSD.
+        Usage: delobj file_uuid file_blockid OSD#i'''
+        l = shlex.split(line)
+        if len(l) < 3:
+            print "Invalid argument. See help readobj!"
+            return
+
+        # ok
+        try:
+            self.start_clock()
+            site = HVFS_OSD(l[2])
+            c_data = c_char_p(None)
+            err = api.hvfs_del_obj(long(l[0]), int(l[1]), long(site))
+            if err < 0:
+                print "api.hvfs_del_obj() failed w/ %d" % err
+                return
+            print "+OK"
+        except TypeError, te:
+            print "TypeError %s" % te
+        except ValueError, ve:
+            print "ValueError %s" % ve
+
+    def do_truncobj(self, line):
+        '''Truncate the object from specified OSD.
+        Usage: truncobj file_uuid file_blockid OSD#i length'''
+        l = shlex.split(line)
+        if len(l) < 4:
+            print "Invalid argument. See help readobj!"
+            return
+
+        # ok
+        try:
+            self.start_clock()
+            site = HVFS_OSD(l[2])
+            err = api.hvfs_trunc_obj(long(l[0]), int(l[1]), long(site), long(l[3]))
+            if err < 0:
+                print "api.hvfs_trunc_obj() failed w/ %d" % err
+                return
+            print "+OK"
+        except TypeError, te:
+            print "TypeError %s" % te
+        except ValueError, ve:
+            print "ValueError %s" % ve
 
     def do_quit(self, line):
         print "Quiting ..."

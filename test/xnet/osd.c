@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-11-05 16:11:13 macan>
+ * Time-stamp: <2012-11-21 16:11:13 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -164,6 +164,7 @@ resend:
                  "wait a moment and retry.\n");
         xnet_free_msg(msg->pair);
         msg->pair = NULL;
+        sleep(1);
         goto resend;
     } else if (msg->pair->tx.err) {
         hvfs_err(xnet, "Reg site %lx failed w/ %d\n", request_site,
@@ -469,7 +470,7 @@ int main(int argc, char *argv[])
     hoo.conf.prof_plot = plot_method;
     osd_config();
 
-    /* BUG-XXXX: we have set the site_id BEFORE mdsl_init() */
+    /* BUG-XXXX: we have set the site_id BEFORE osd_init() */
     hoo.site_id = HVFS_OSD(self);
     err = osd_init();
     if (err) {
@@ -535,10 +536,8 @@ int main(int argc, char *argv[])
         char path[100];
         struct objid obj = {.uuid = 100, .bid = 10, .len = 9,};
 
-        osd_get_obj_path(obj, path);
+        osd_get_obj_path(obj, "STORE", path);
         hvfs_info(xnet, "OSD path : %s\n", path);
-
-        osd_do_report();
     }
 
     //SET_TRACING_FLAG(osd, HVFS_DEBUG);

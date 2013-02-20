@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2011-08-22 12:39:05 macan>
+ * Time-stamp: <2012-11-07 16:03:08 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 #include "tx.h"
 #include "xnet.h"
 #include "mds.h"
+#include "obj.h"
 #include "lib.h"
 
 int main(int argc, char *argv[])
@@ -57,6 +58,7 @@ int main(int argc, char *argv[])
                                                  branch_dispatch));
     hvfs_info(mds, "MTX Size: %ld B\n", sizeof(struct xnet_msg_tx));
     hvfs_info(mds, "MSG Size: %ld B\n", sizeof(struct xnet_msg));
+    hvfs_info(mds, "OID Size: %ld B\n", sizeof(struct objid));
 
     offset = fls64(a);
     hvfs_info(mds, "[FLS64]: First set bit in 0x%lx is %d.\n", a, offset);
