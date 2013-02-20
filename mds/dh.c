@@ -410,7 +410,7 @@ void mds_dh_check(time_t cur)
                 atomic_inc(&tpos->ref);
                 xlock_unlock(&rh->lock);
                 hvfs_debug(mds, "PREReload %lx @ %ld w/ %p ref %d\n", 
-                           tpos->uuid, cur, tpos->data, 
+                           tpos->uuid, *((long *)&cur), tpos->data, 
                            atomic_read(&tpos->ref));
                 err = mds_dh_reload_nolock(tpos);
                 if (err == -ENOENT) {
@@ -436,7 +436,7 @@ void mds_dh_check(time_t cur)
                     goto retry;
                 }
                 hvfs_debug(mds, "POSTReload %lx @ %ld w/ %p ref %d\n", 
-                           tpos->uuid, cur, tpos->data, 
+                           tpos->uuid, *((long *)&cur), tpos->data, 
                            atomic_read(&tpos->ref));
                 mds_dh_put(tpos);
                 tpos->update = cur;

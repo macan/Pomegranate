@@ -3,7 +3,7 @@
  *                           <macan@ncic.ac.cn>
  *
  * Armed with EMACS.
- * Time-stamp: <2012-10-22 14:39:51 macan>
+ * Time-stamp: <2012-11-26 14:01:57 macan>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -397,6 +397,8 @@ int itb_add_ite(struct itb *i, struct hvfs_index *hi, void *data,
             }
             if (likely(hi->flag & INDEX_CREATE_SMALL)) {
                 ite->flag |= ITE_FLAG_SMALL;
+            } else if (hi->flag & INDEX_CREATE_OBJ) {
+                ite->flag |= ITE_FLAG_OBJ;
             } else if (hi->flag & INDEX_CREATE_LARGE) {
                 ite->flag |= ITE_FLAG_LARGE;
             }
@@ -806,6 +808,8 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
         e->s.mdu.flags |= (HVFS_MDU_IF_NORMAL | HVFS_MDU_IF_SYMLINK);
         if (e->flag & ITE_FLAG_SMALL)
             e->s.mdu.flags |= HVFS_MDU_IF_SMALL;
+        else if (e->flag & ITE_FLAG_OBJ)
+            e->s.mdu.flags |= HVFS_MDU_IF_OBJ;
         else if (e->flag & ITE_FLAG_LARGE)
             e->s.mdu.flags |= HVFS_MDU_IF_LARGE;
         e->s.mdu.nlink = 1;
@@ -870,6 +874,8 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
         e->s.mdu.flags |= HVFS_MDU_IF_NORMAL;
         if (e->flag & ITE_FLAG_SMALL)
             e->s.mdu.flags |= HVFS_MDU_IF_SMALL;
+        else if (e->flag & ITE_FLAG_OBJ)
+            e->s.mdu.flags |= HVFS_MDU_IF_OBJ;
         else if (e->flag & ITE_FLAG_LARGE)
             e->s.mdu.flags |= HVFS_MDU_IF_LARGE;
 
@@ -933,6 +939,11 @@ void ite_create(struct hvfs_index *hi, struct ite *e)
         else
             e->s.mdu.mtime = tv.tv_sec;
 
+        if (mu->valid & MU_OI) {
+            e->s.mdu.oi = *(struct obj_info *)(hi->data +
+                                               sizeof(struct mdu_update));
+        }
+        
         if (mu->valid & MU_LLFS) {
             e->s.mdu.lr = *(struct llfs_ref *)(hi->data +
                                                sizeof(struct mdu_update));
@@ -1035,6 +1046,11 @@ void ite_update(struct hvfs_index *hi, struct ite *e)
         if (mu->valid & MU_MTIME)
             e->s.mdu.mtime = mu->mtime;
 
+        if (mu->valid & MU_OI) {
+            e->s.mdu.oi = *(struct obj_info *)(hi->data +
+                                               sizeof(struct mdu_update));
+        }
+        
         if (mu->valid & MU_LLFS) {
             e->s.mdu.lr = *(struct llfs_ref *)(hi->data + 
                                                sizeof(struct mdu_update));
